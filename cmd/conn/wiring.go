@@ -53,13 +53,25 @@ func newHandler(
 ) *server.Server {
 	reader := origin.NewReader()
 	runner := claude.Runner{Bin: cfg.ClaudeBin}
-	live := newSessions(cfg, store, reader)
+	archived := openHistory(ctx, cfg, store, reader, logger.Writer())
+	live := newSessions(ctx, cfg, store, reader, archived, logger.Writer())
 
 	// The snapshot is cached by version: a change of the allowlist must reach the page (the
 	// first-launch redirect) at once.
 	store.OnChange(func(settings.Settings) { live.Bump() })
 
 	go live.Run(ctx)
+
+	liveIDs := func(ctx context.Context) map[string]bool {
+		ids := map[string]bool{}
+		for _, session := range live.LiveSessions(ctx) {
+			ids[session.SessionID] = true
+		}
+
+		return ids
+	}
+
+	archived.startBackfill(ctx, cfg, store, live, func() map[string]bool { return liveIDs(ctx) })
 
 	// The module statuses are read from memory, filled by helper runs and by a CHECK press, the
 	// only thing that runs a probe.
@@ -77,7 +89,7 @@ func newHandler(
 		Settings:     store,
 		Sessions:     liveFolders(ctx, live),
 		MyPrRepos:    nil,
-		HistoryRepos: nil,
+		HistoryRepos: archived.repos(ctx),
 		OriginOf:     reader.Of,
 		CloneFor: func(repo string) (origin.Clone, bool) {
 			return reader.CloneFor(repo, store.Get(), cfg.Home)
@@ -98,6 +110,7 @@ func newHandler(
 
 	return &server.Server{
 		UI: bundle, Clients: live.Hub().Count, Settings: api, Logger: logger, Sessions: live,
+		History: archived.newAPI(cfg, store, liveIDs), HistoryOff: archived.offReason,
 		Themes:  themes.New(builtin, themes.Disk(cfg.ThemesUser), logger),
 		Gallery: gallery.NewAPI(themesGallery, cfg.ThemeIndex, now),
 	}

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"io"
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/config"
@@ -9,13 +11,6 @@ import (
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
-
-// historyFooter is the archive's footer state until History is in: nothing failed, no backfill.
-type historyFooter struct {
-	Failed   int `json:"failed"`
-	Backfill any `json:"backfill"`
-	Error    any `json:"error"`
-}
 
 // refresh is the Reviews tab's refresh counter.
 type refresh struct {
@@ -41,7 +36,14 @@ type reviewsOff struct {
 }
 
 // newSessions is the session list over this machine: ps, the registry under $HOME, gh.
-func newSessions(cfg config.Config, store *settings.Store, reader *origin.Reader) *sessions.Loop {
+func newSessions(ctx context.Context, cfg config.Config, store *settings.Store,
+	reader *origin.Reader, archived *historyParts, stderr io.Writer,
+) *sessions.Loop {
+	var archive sessions.Archive
+	if archived.archiver != nil {
+		archive = archived.archiver
+	}
+
 	return sessions.NewLoop(sessions.Deps{
 		Home:    cfg.Home,
 		DataDir: cfg.DataDir,
@@ -56,19 +58,18 @@ func newSessions(cfg config.Config, store *settings.Store, reader *origin.Reader
 		Kill:     sessions.Kill,
 		RepoOf:   reader.Of,
 		Upstream: origin.UpstreamOf,
-		Hooks:    sessionHooks(store),
+		Archive:  archive,
+		Hooks:    sessionHooks(store, archived.status(ctx, stderr)),
 		Now:      time.Now,
 	})
 }
 
 // sessionHooks are what the rest of the server puts in the snapshot. Open work, History,
 // Reviews and My PRs are not in yet: they give what Bun gives before each has started.
-func sessionHooks(store *settings.Store) sessions.Hooks {
+func sessionHooks(store *settings.Store, history func() any) sessions.Hooks {
 	return sessions.Hooks{
-		Runs: func() []sessions.Run { return []sessions.Run{} },
-		History: func() any {
-			return historyFooter{Failed: 0, Backfill: nil, Error: nil}
-		},
+		Runs:    func() []sessions.Run { return []sessions.Run{} },
+		History: history,
 		Reviews: func() any {
 			return reviewsOff{
 				Channel: "", Enabled: false, DisabledReason: "not started", Me: nil,
