@@ -131,7 +131,7 @@ func (o *Object) Keys() []string {
 		return nil
 	}
 
-	return slices.Clone(o.keys)
+	return o.ordered()
 }
 
 // Len is how many keys the object holds.
@@ -414,7 +414,7 @@ func writeObject(builder *strings.Builder, object *Object, depth int) {
 
 	builder.WriteByte('{')
 
-	for index, key := range object.keys {
+	for index, key := range object.ordered() {
 		if index > 0 {
 			builder.WriteByte(',')
 		}
