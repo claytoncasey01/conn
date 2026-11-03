@@ -156,6 +156,21 @@ func Defaults() Settings {
 	}
 }
 
+// Switch is a module's own switch, whatever the allowlist: the Settings page shows a module that
+// is on as on during setup too. A name that is not a module is off.
+func (s Settings) Switch(name string) bool {
+	switch name {
+	case ModuleGitHub:
+		return s.GitHub.Enabled
+	case ModuleSlack:
+		return s.Slack.Enabled
+	case ModuleAtlassian:
+		return s.Atlassian.Enabled
+	}
+
+	return false
+}
+
 // Clone is a deep copy.
 func (s Settings) Clone() Settings {
 	copied := s

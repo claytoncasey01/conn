@@ -108,16 +108,7 @@ func (s *Store) ModuleEnabled(name string) bool {
 		return false
 	}
 
-	switch name {
-	case ModuleGitHub:
-		return s.current.GitHub.Enabled
-	case ModuleSlack:
-		return s.current.Slack.Enabled
-	case ModuleAtlassian:
-		return s.current.Atlassian.Enabled
-	}
-
-	return false
+	return s.current.Switch(name)
 }
 
 // Update replaces one section, whole: validated, saved atomically, then every listener told. A
