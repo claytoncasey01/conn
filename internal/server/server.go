@@ -13,7 +13,9 @@ import (
 	"path"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/gallery"
 	"github.com/claytoncasey01/conn/internal/settingsapi"
+	"github.com/claytoncasey01/conn/internal/themes"
 )
 
 // Host is the only address Conn listens on.
@@ -30,6 +32,11 @@ const (
 	cacheAssets = "public, max-age=31536000, immutable"
 	cacheFiles  = "no-cache"
 	cacheAPI    = "no-store"
+
+	// The errors every API answers the same way.
+	textForbidden = "forbidden"
+	textNotFound  = "not found"
+	textMethod    = "method not allowed"
 )
 
 // Server answers Conn's HTTP requests.
@@ -40,6 +47,10 @@ type Server struct {
 	Clients func() int
 	// Settings answers /api/settings; nil leaves the routes out.
 	Settings *settingsapi.API
+	// Themes answers /api/themes; nil leaves the routes out.
+	Themes *themes.Library
+	// Gallery answers /api/gallery; nil leaves the routes out.
+	Gallery *gallery.API
 	// Logger is told about a request that failed.
 	Logger *log.Logger
 }
@@ -57,7 +68,7 @@ type healthBody struct {
 // the page bundle.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !local(r) {
-		sendJSON(w, http.StatusForbidden, errorBody{Error: "forbidden"})
+		sendJSON(w, http.StatusForbidden, errorBody{Error: textForbidden})
 
 		return
 	}
@@ -71,15 +82,40 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.api(w, r, urlPath) {
+		return
+	}
+
+	s.static(w, r.URL.Path)
+}
+
+// api answers a route under /api that one of the APIs owns, and is false when none does.
+func (s *Server) api(w http.ResponseWriter, r *http.Request, urlPath string) bool {
+	if route, ours := gallery.RouteOf(urlPath); ours {
+		if s.Gallery != nil {
+			s.gallery(w, r, route)
+
+			return true
+		}
+	}
+
 	if route, ours := settingsapi.RouteOf(urlPath); ours {
 		if s.Settings != nil {
 			s.settings(w, r, route)
 
-			return
+			return true
 		}
 	}
 
-	s.static(w, r.URL.Path)
+	if route, ours := themes.RouteOf(urlPath); ours {
+		if s.Themes != nil {
+			s.themes(w, r, route)
+
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *Server) clients() int {

@@ -22,13 +22,13 @@ var (
 // wrong method, then for anything but GET the write guard and the body.
 func (s *Server) settings(w http.ResponseWriter, r *http.Request, route settingsapi.Route) {
 	if route.Kind == settingsapi.KindNone {
-		sendJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
+		sendJSON(w, http.StatusNotFound, errorBody{Error: textNotFound})
 
 		return
 	}
 
 	if r.Method != route.Method() {
-		sendJSON(w, http.StatusMethodNotAllowed, errorBody{Error: "method not allowed"})
+		sendJSON(w, http.StatusMethodNotAllowed, errorBody{Error: textMethod})
 
 		return
 	}
@@ -46,7 +46,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request, route settings
 	// custom header forces a CORS preflight, and a browser always sends an Origin on a PUT or a
 	// POST (ServeHTTP has refused one that is not local), so no page that is not Conn's can ask.
 	if !fromOwnPage(r) {
-		sendJSON(w, http.StatusForbidden, errorBody{Error: "forbidden"})
+		sendJSON(w, http.StatusForbidden, errorBody{Error: textForbidden})
 
 		return
 	}

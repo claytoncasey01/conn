@@ -8,8 +8,10 @@ import (
 	"log"
 	"time"
 
+	"github.com/claytoncasey01/conn"
 	"github.com/claytoncasey01/conn/internal/claude"
 	"github.com/claytoncasey01/conn/internal/config"
+	"github.com/claytoncasey01/conn/internal/gallery"
 	"github.com/claytoncasey01/conn/internal/gh"
 	"github.com/claytoncasey01/conn/internal/instance"
 	"github.com/claytoncasey01/conn/internal/modules"
@@ -17,6 +19,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/server"
 	"github.com/claytoncasey01/conn/internal/settings"
 	"github.com/claytoncasey01/conn/internal/settingsapi"
+	"github.com/claytoncasey01/conn/internal/themes"
 )
 
 const (
@@ -73,7 +76,21 @@ func newHandler(
 		Modules: statuses,
 	})
 
-	return &server.Server{UI: bundle, Clients: nil, Settings: api, Logger: logger}
+	builtin := themes.Embedded(conn.Themes())
+	now := func() int64 { return time.Now().UnixMilli() }
+
+	// The gallery's deps are read per call (the built-in ids and Default), so nothing is fetched
+	// at boot, and with CONN_THEME_INDEX off the API answers before it calls any of them.
+	themesGallery := gallery.New(gallery.Deps{
+		Transport: nil, Now: now, Builtin: builtin, User: cfg.ThemesUser, Repo: cfg.ThemeIndex,
+		Timeout: 0, Files: nil,
+	})
+
+	return &server.Server{
+		UI: bundle, Clients: nil, Settings: api, Logger: logger,
+		Themes:  themes.New(builtin, themes.Disk(cfg.ThemesUser), logger),
+		Gallery: gallery.NewAPI(themesGallery, cfg.ThemeIndex, now),
+	}
 }
 
 // alreadyRunning says where the Conn holding the data folder answers.
