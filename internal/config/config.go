@@ -60,6 +60,8 @@ type LookupFunc func(key string) (string, bool)
 
 // Config is what the server runs with.
 type Config struct {
+	// Home is the user's home folder ($HOME).
+	Home string
 	// DataDir is where the dashboard keeps its own data (history.db, runs, caches).
 	DataDir string
 	// ClaudeBin is the claude program helper runs start (CONN_CLAUDE): a test points it at a
@@ -137,6 +139,7 @@ func FromEnv(lookup LookupFunc) Config {
 	closeMinutes := parseCloseMinutes(valueOf(lookup, "CONN_REVIEW_CLOSE_MIN"))
 
 	return Config{
+		Home:                      home,
 		DataDir:                   data,
 		ClaudeBin:                 valueOr(lookup, "CONN_CLAUDE", "claude"),
 		ThemesUser:                filepath.Join(data, "themes"),
