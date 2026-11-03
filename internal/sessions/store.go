@@ -68,9 +68,11 @@ type Deps struct {
 	// Stat is `ps -o stat= -p <pid>` (5 s at most).
 	Stat func(ctx context.Context, pid float64) run.Result
 	// Kill sends SIGTERM to a process.
-	Kill  func(pid float64) error
-	Hooks Hooks
-	Now   func() time.Time
+	Kill func(pid float64) error
+	// Archive keeps sessions in History; nil when History is off.
+	Archive Archive
+	Hooks   Hooks
+	Now     func() time.Time
 }
 
 // Hooks are what other parts of the server put in the snapshot and decide about sessions. They
@@ -96,10 +98,12 @@ type Hooks struct {
 	GithubOn func() bool
 }
 
-// Run is the part of an Open work run the session list reads: its key and worktree.
+// Run is the part of an Open work run the session list reads: its key, its worktree, and its
+// state for the archive.
 type Run interface {
 	Key() string
 	Worktree() string
+	Facts() *RunFacts
 }
 
 // Snapshot is everything the page shows, as one value.
@@ -197,11 +201,11 @@ func (s *store) now() float64 { return float64(s.deps.Now().UnixMilli()) }
 func (s *store) currentVersion() int64 { return s.version + s.bumpCount() }
 
 // tick advances everything one step.
-func (s *store) tick() {
+func (s *store) tick(ctx context.Context) {
 	now := s.now()
 	s.refreshProcs(now)
 
-	changed := s.refreshRegistry(now)
+	changed := s.refreshRegistry(ctx, now)
 
 	for _, key := range s.order {
 		if s.sessions[key].poll(s.projects, now, s.leads) {
@@ -209,9 +213,111 @@ func (s *store) tick() {
 		}
 	}
 
+	s.checkpoint(ctx, now)
+
+	// Agent status and shell counts move with time, not only with new lines.
 	if changed {
 		s.version++
 	}
+}
+
+// checkpoint offers every live session to the archive; it decides what is due. A teammate is
+// claimed instead: its lead's entry holds it.
+func (s *store) checkpoint(ctx context.Context, now float64) {
+	archive := s.deps.Archive
+	if archive == nil {
+		return
+	}
+
+	if len(s.order) == 0 {
+		return
+	}
+
+	keys, runs := s.runKeys()
+
+	for _, key := range s.order {
+		session := s.sessions[key]
+		if session.leadPath == "" {
+			continue
+		}
+
+		if session.team(now, s.leads, false) != nil {
+			archive.Claimed(session.reg.SessionID)
+
+			continue
+		}
+
+		archive.Checkpoint(s.sourceOf(ctx, session, keys, runs, true), now)
+	}
+}
+
+// archiveEnded queues the full archive of a session that has ended; a teammate is archived as
+// part of its lead.
+func (s *store) archiveEnded(ctx context.Context, session *Session) {
+	archive := s.deps.Archive
+	if archive == nil {
+		return
+	}
+
+	if session.team(s.now(), s.leads, true) != nil {
+		archive.Claimed(session.reg.SessionID)
+
+		return
+	}
+
+	keys, runs := s.runKeys()
+	archive.Ended(s.sourceOf(ctx, session, keys, runs, false))
+}
+
+// sourceOf is what the archive is told about a session. A dead session never starts a gh lookup.
+func (s *store) sourceOf(ctx context.Context, session *Session, keys map[string]bool,
+	runs []Run, alive bool,
+) ArchiveSource {
+	reg := session.reg
+	name := reg.name()
+
+	var run *RunFacts
+
+	for _, candidate := range runs {
+		if candidate.Key() == name {
+			run = candidate.Facts()
+
+			break
+		}
+	}
+
+	prNow := s.cachedPR(reg.Cwd, session.lead.Branch)
+	if alive {
+		prNow = s.prFor(ctx, reg.Cwd, session.lead.Branch)
+	}
+
+	registryName := ""
+	if reg.Name != nil {
+		registryName = *reg.Name
+	}
+
+	cwd := reg.Cwd
+	rules := s.deps.Kinds
+	rules.ReviewsRoot = filepath.Join(s.deps.DataDir, "reviews")
+
+	return ArchiveSource{
+		SessionID: reg.SessionID, PID: reg.PID, Name: registryName, Cwd: reg.Cwd,
+		TranscriptPath: session.leadPath, StartedAt: valueOr(reg.StartedAt, session.firstAt),
+		Parts: session.parts(), PR: prNow, Kind: KindOf(name, &cwd, keys, rules), Run: run,
+	}
+}
+
+// cachedPR is the PR last found for a branch, with no lookup: for a session that is gone.
+func (s *store) cachedPR(cwd, branch string) *PR {
+	if branch == "" {
+		return nil
+	}
+
+	if slices.Contains(noPRBranches(), branch) {
+		return nil
+	}
+
+	return s.pr[cwd+nul+branch].value
 }
 
 // refreshProcs reads the whole process table with one ps call, at most every 3 s.
@@ -248,7 +354,7 @@ func (s *store) shellsOf(pid float64) float64 {
 
 // refreshRegistry reads the registry at most every 2 s, and is true when a session came, went
 // or changed.
-func (s *store) refreshRegistry(now float64) bool {
+func (s *store) refreshRegistry(ctx context.Context, now float64) bool {
 	if now-s.lastReg < registryEveryMs {
 		return false
 	}
@@ -269,7 +375,7 @@ func (s *store) refreshRegistry(now float64) bool {
 
 		live[reg.key()] = true
 
-		if s.admit(reg) {
+		if s.admit(ctx, reg) {
 			changed = true
 		}
 	}
@@ -279,6 +385,7 @@ func (s *store) refreshRegistry(now float64) bool {
 			continue
 		}
 
+		s.archiveEnded(ctx, s.sessions[key])
 		s.order = slices.DeleteFunc(s.order, func(other string) bool { return other == key })
 		delete(s.sessions, key)
 
@@ -317,7 +424,7 @@ func (s *store) readReg(file string) (Reg, bool) {
 }
 
 // admit adds or updates a session from its registry entry, and is true when that changed it.
-func (s *store) admit(reg Reg) bool {
+func (s *store) admit(ctx context.Context, reg Reg) bool {
 	key := reg.key()
 
 	had, found := s.sessions[key]
@@ -331,6 +438,7 @@ func (s *store) admit(reg Reg) bool {
 	// The same process moved to another session (a /clear, say): the one it left is over. A Map
 	// keeps the key where it was.
 	if had.reg.SessionID != reg.SessionID {
+		s.archiveEnded(ctx, had)
 		s.sessions[key] = newSession(reg)
 
 		return true
@@ -657,7 +765,7 @@ func (s *store) detail(
 
 // teamOf is a session's team, with the id of the lead's row when the lead is live too.
 func (s *store) teamOf(session *Session, now float64) *snapshot.Team {
-	team := session.team(now, s.leads)
+	team := session.team(now, s.leads, false)
 	if team == nil {
 		return nil
 	}

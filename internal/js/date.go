@@ -368,3 +368,24 @@ func inRange(ms float64) float64 {
 
 	return ms
 }
+
+// CutFrom is text.slice(start) for start >= 0, in UTF-16 units. Where JavaScript would keep half
+// of a surrogate pair at the start, CutFrom keeps U+FFFD.
+func CutFrom(text string, start int) string {
+	encoded := utf16.Encode([]rune(text))
+	if start >= len(encoded) {
+		return ""
+	}
+
+	if start <= 0 {
+		return text
+	}
+
+	if encoded[start] >= surrogateLowFirst {
+		if encoded[start] < surrogateLowFirst+surrogateLowFirst-surrogateHighFirst {
+			return string(replacement) + string(utf16.Decode(encoded[start+1:]))
+		}
+	}
+
+	return string(utf16.Decode(encoded[start:]))
+}

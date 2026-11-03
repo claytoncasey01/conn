@@ -59,7 +59,7 @@ func (l *Loop) Run(ctx context.Context) {
 
 	pusher := pusher{lastSent: -1, lastSentAt: 0}
 
-	l.store.tick()
+	l.store.tick(ctx)
 
 	for {
 		select {
@@ -72,7 +72,7 @@ func (l *Loop) Run(ctx context.Context) {
 		case read := <-l.store.askDone:
 			l.store.screenRead(read)
 		case <-ticker.C:
-			l.store.tick()
+			l.store.tick(ctx)
 
 			// The waiting sessions' screens are read in the background, only while a page is
 			// open: nothing else uses the asks.

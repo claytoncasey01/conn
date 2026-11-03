@@ -173,7 +173,7 @@ func TestFinderListsOnlyThisLeadsTeammates(t *testing.T) {
 	writeLines(t, filepath.Join(dir, "00001111-2222-4222-8222-eeeeeeeeeeee.jsonl"),
 		mateLines(13, "team-lead", team)...)
 
-	finder := sessions.NewFinder(sessions.NewLeads(), lead, 0)
+	finder := sessions.NewFinder(sessions.NewLeads(), lead, 0, 0)
 
 	found := finder.Find([]string{team, "session-12345678"})
 	names := make([]string, 0, len(found))

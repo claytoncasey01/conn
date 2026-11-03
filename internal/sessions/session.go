@@ -176,6 +176,20 @@ type subagentFile struct {
 	meta transcript.AgentMeta
 }
 
+// SubagentFile is one subagent transcript with what its meta file says.
+type SubagentFile = subagentFile
+
+// SubagentFiles are the subagent transcripts beside a transcript (in <name>/subagents), in name
+// order; for a teammate's own subagents (parentID set) the parent is the teammate.
+func SubagentFiles(parentPath, parentID string) []SubagentFile {
+	return subagentFiles(parentPath, parentID, map[string]bool{})
+}
+
+// Path, ID and Meta of a subagent file.
+func (f subagentFile) Path() string               { return f.path }
+func (f subagentFile) ID() string                 { return f.id }
+func (f subagentFile) Meta() transcript.AgentMeta { return f.meta }
+
 // subagentFiles are the subagent transcripts beside a transcript (in <name>/subagents), in name
 // order, each with what its meta file says; one already known is left out, its meta file not
 // read again.
@@ -337,7 +351,7 @@ func (s *Session) findTeammates(now float64, leads *Leads) {
 			since = s.firstAt - slackMs
 		}
 
-		s.finder = NewFinder(leads, s.leadPath, since)
+		s.finder = NewFinder(leads, s.leadPath, since, 0)
 	}
 
 	for _, mate := range s.finder.Find(s.lead.Teams) {
@@ -395,8 +409,10 @@ func (s *Session) tagStale(size int64) bool {
 
 // team is set when this session is a teammate of a lead: a transcript in the same folder spawned
 // it (or, failing that, its team). Its cost and calls are the lead's; a lone teammate is an
-// ordinary session. The lookup is kept for 3 s; LeadID is left for the caller.
-func (s *Session) team(now float64, leads *Leads) *snapshot.Team {
+// ordinary session. The lookup is kept for 3 s, unless fresh (the archive, which also reads
+// without a cap: a final row must not rest on a lookup that ran out of reads). LeadID is left
+// for the caller.
+func (s *Session) team(now float64, leads *Leads, fresh bool) *snapshot.Team {
 	if s.leadPath == "" {
 		return nil
 	}
@@ -414,10 +430,19 @@ func (s *Session) team(now float64, leads *Leads) *snapshot.Team {
 		s.claim = &teamClaim{at: negativeInfinity(), value: nil}
 	}
 
+	if fresh {
+		s.claim.at = negativeInfinity()
+	}
+
 	if now-s.claim.at >= teamScanMs {
 		s.claim = &teamClaim{at: now, value: nil}
 
-		lead := leads.Path(s.leadPath, *tag, LeadOpts{Limit: 0, FirstAt: nil, First: ""})
+		limit := 0
+		if fresh {
+			limit = -1
+		}
+
+		lead := leads.Path(s.leadPath, *tag, LeadOpts{Limit: limit, FirstAt: nil, First: ""})
 		if lead != "" {
 			s.claim.value = &snapshot.Team{
 				Name: tag.Team, LeadSessionID: strings.TrimSuffix(filepath.Base(lead), jsonlExt),

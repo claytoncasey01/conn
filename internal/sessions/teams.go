@@ -699,11 +699,20 @@ type Finder struct {
 	decided  map[string]decidedFile
 }
 
-// NewFinder looks in the folder of leadPath for files touched since sinceMs.
-func NewFinder(leads *Leads, leadPath string, sinceMs float64) *Finder {
+// NewFinder looks in the folder of leadPath for files touched since sinceMs, reading at most
+// limit new files per scan (0 for the default 200, a negative number for no cap: a replay is one
+// look and may write a final row).
+func NewFinder(leads *Leads, leadPath string, sinceMs float64, limit int) *Finder {
+	switch {
+	case limit == 0:
+		limit = candidatesMax
+	case limit < 0:
+		limit = math.MaxInt
+	}
+
 	return &Finder{
 		leads: leads, dir: filepath.Dir(leadPath), leadPath: leadPath, sinceMs: sinceMs,
-		limit: candidatesMax, decided: map[string]decidedFile{},
+		limit: limit, decided: map[string]decidedFile{},
 	}
 }
 

@@ -143,6 +143,16 @@ type Detail struct {
 	Tools         *js.Object            `json:"tools"`
 	Errors        int                   `json:"errors"`
 	Team          *Team                 `json:"team"`
+	// Archived is set only on an archived session.
+	Archived *Archived `json:"archived,omitempty"`
+}
+
+// Archived is where a finished session's record came from.
+type Archived struct {
+	EndedAt             float64 `json:"endedAt"`
+	Source              string  `json:"source"`
+	TranscriptAvailable bool    `json:"transcriptAvailable"`
+	ResumedFrom         *string `json:"resumedFrom"`
 }
 
 // AgentDetail is one agent page: the agent with its whole result, and its last tool calls.
@@ -384,7 +394,7 @@ func Build(parts Parts, live Live, now float64, opts Opts) Detail {
 		CostUSD: lead.Meter.USD + agentsUSD(parts), CostPartial: unpriced(parts) > 0,
 		Lead:     leadAgent(parts, live.Name, status, opts.Ended, opts.EndedAt),
 		Consults: consults, Agents: agents, Log: log, Tools: allTools(lead.Tools, agents),
-		Errors: lead.Errors + agentErrors(agents), Team: live.Team,
+		Errors: lead.Errors + agentErrors(agents), Team: live.Team, Archived: nil,
 	}
 
 	if opts.Trim {
