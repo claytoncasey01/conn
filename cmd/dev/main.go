@@ -232,8 +232,8 @@ func stopProcess(cmd *exec.Cmd) {
 	_ = cmd.Wait()
 }
 
-// stamp sums the sizes and modification times of the Go files and the module files, so any
-// edit, add or delete changes it.
+// stamp sums the sizes and modification times of the Go files, the module files and the
+// built-in theme files (the server carries them), so any edit, add or delete changes it.
 func stamp(root string) string {
 	var count, size, newest int64
 
@@ -283,6 +283,9 @@ func watched(name string) bool {
 	switch filepath.Base(name) {
 	case "go.mod", "go.sum":
 		return true
+	case "theme.json", "theme.css":
+		// themes/<id>/theme.json: a built-in, which the server embeds.
+		return filepath.Base(filepath.Dir(filepath.Dir(name))) == "themes"
 	}
 
 	return false

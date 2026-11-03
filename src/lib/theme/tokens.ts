@@ -1,5 +1,5 @@
 // The token contract: every slot a theme may fill, and what a value for it may be.
-// Pure data, shared by the server, the loader and `theme:check`.
+// Pure data, shared by the server, the loader and `conn theme check`.
 export type SlotSpec = {
   kind: 'color' | 'length' | 'number' | 'enum' | 'shadow' | 'font'
   min?: number

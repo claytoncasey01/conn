@@ -72,7 +72,7 @@ test('the guide lists every allowed font, and has a row in the effects table for
 })
 
 test('the guide states the size limits, where themes live, how to check and how to preview', () => {
-  for (const s of ['64 KB', '256 KB', '100 themes', '~/.conn/themes/', 'bun run theme:check', '?theme=<id>&mode=<mode>']) {
+  for (const s of ['64 KB', '256 KB', '100 themes', '~/.conn/themes/', 'conn theme check', '?theme=<id>&mode=<mode>']) {
     assert.ok(guide.includes(s), `docs/themes.md lacks ${s}`)
   }
 })
@@ -93,18 +93,18 @@ test('the README links the guide', () => {
 
 test('the guide has a Gallery section: how a theme is added, how the index is built, who publishes, and the setting', () => {
   const g = section('The gallery')
-  for (const s of ['conn-themes', 'pull request', 'bun run theme:check', 'theme.json', 'theme.css', 'bun run theme:index', 'index.json', 'sha256', 'maintainer', 'CONN_THEME_INDEX', OFF_IN_GUIDE, 'top-level folder of `--src` must be a theme folder', '.gitattributes', 'Install', 'Update', 'Uninstall', '.source.json']) {
+  for (const s of ['conn-themes', 'pull request', 'conn theme check', 'theme.json', 'theme.css', 'conn theme index', 'index.json', 'sha256', 'maintainer', 'CONN_THEME_INDEX', OFF_IN_GUIDE, 'top-level folder of `--src` must be a theme folder', '.gitattributes', 'Install', 'Update', 'Uninstall', '.source.json']) {
     assert.ok(g.includes(s), `the Gallery section lacks ${s}`)
   }
   assert.ok(!guide.includes('not in this build'), 'the guide still says the gallery is not in this build')
 })
 
-test('the guide documents theme:check --gallery where it checks and where it shares, with the exit codes', () => {
+test('the guide documents conn theme check --gallery where it checks and where it shares, with the exit codes', () => {
   const checking = section('Checking a theme')
-  for (const s of ['bun run theme:check --gallery', 'theme.json` alone', 'bun run theme:index', 'exits 0 when everything passed, 1 when something did not, and 2 for bad usage']) {
+  for (const s of ['conn theme check --gallery', 'theme.json` alone', 'conn theme index', 'exits 0 when everything passed, 1 when something did not, and 2 for bad usage']) {
     assert.ok(checking.includes(s), `the Checking section lacks ${s}`)
   }
-  assert.ok(section('The gallery').includes('bun run theme:check --gallery ./my-theme'), 'the sharing steps do not send a contributor to --gallery')
+  assert.ok(section('The gallery').includes('conn theme check --gallery ./my-theme'), 'the sharing steps do not send a contributor to --gallery')
 })
 
 test('docs/using-themes.md says what the gallery reads and writes, and that CONN_THEME_INDEX=off turns it all off, and the README links it', () => {

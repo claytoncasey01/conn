@@ -39,6 +39,8 @@ make serve
 
 `make serve` builds the UI and the `conn` binary (`bin/conn`, with the UI built in), then runs `conn serve`, which listens on http://127.0.0.1:7777. Open that address in your browser. Ctrl-C stops it.
 
+The docs run the command as `conn`: put the checkout's `bin/` on your `PATH`, or copy `bin/conn` to a folder that is on it, or type `bin/conn` from the checkout.
+
 One Conn runs per data folder. A second `conn serve` on the same folder prints the address of the one already running and exits, and `conn stop` stops it. A port that another program holds is an error that says so: set `CONN_PORT` to a free one.
 
 On first start every page except Themes sends you to Settings. Choose the repositories Conn may read, as patterns such as `acme/widgets` or `acme/*`. Nothing is fetched until you do. The allowlist limits what Conn reads, not what a Claude Code session can reach on its own. See [settings](docs/settings.md).
@@ -73,7 +75,7 @@ The variables that tune My PRs are listed in [my PRs](docs/my-prs.md).
 ## Development
 
 ```sh
-make dev      # hot reload: UI on :5173, API on :7778 (restarts when a Go file changes), data in ~/.conn-dev
+make dev      # hot reload: UI on :5173, API on :7778 (restarts when a Go file or a built-in theme changes), data in ~/.conn-dev
 make test     # bun test for the UI and themes; go test with the race detector, in random order
 make lint     # golangci-lint, every linter on (.golangci.yml)
 make fmt      # gofumpt and goimports
@@ -100,7 +102,7 @@ Layout:
 | `testdata/` | Cases the UI's tests and the server's tests share |
 | `docs/` | Reference for each feature |
 
-Run `bun run theme:check` after editing a theme.
+Run `conn theme check` after editing a theme.
 
 To keep names out of the repository, such as your employer's, list them in `.company-terms` at the repository root. The file is git-ignored. Put one term per line, use `#` for a comment, and start a line with `re:` for a regular expression. `go test ./...` then fails, naming the file and line, if a tracked file or file name contains a term. `CONN_GUARD_TERMS=<path>` points at a list kept elsewhere. Without a list the check is skipped.
 

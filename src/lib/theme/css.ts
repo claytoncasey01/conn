@@ -1,4 +1,4 @@
-// Turns a manifest into stylesheet text. Pure: no DOM, so the server, the loader and `theme:check` share it.
+// Turns a manifest into stylesheet text. Pure: no DOM, so the server, the loader and `conn theme check` share it.
 import { accentTokens, DEFAULT_ACCENT } from './accent.ts'
 import { FROM_VAR, SLOTS } from './tokens.ts'
 import type { Mode, ThemeManifest, TokenSet } from './types.ts'

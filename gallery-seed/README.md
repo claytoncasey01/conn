@@ -16,7 +16,7 @@ A theme is `theme.json` alone: colors, type, shape and named effects. No CSS, no
 ## Add a theme
 
 1. Fork this repo and add `<id>/theme.json`. Start from `themes/_template/` in the conn repo; [docs/themes.md](https://github.com/claytoncasey01/conn/blob/main/docs/themes.md) lists every token.
-2. From a conn checkout run `bun run theme:check --gallery ./path/to/<id>` until it prints `<id>: ok`.
+2. From a conn checkout run `conn theme check --gallery ./path/to/<id>` until it prints `<id>: ok`.
 3. Open a pull request with the one new folder. Do not touch `index.json`; the maintainer rebuilds it.
 
 Rules the build enforces, so a pull request that breaks one will not be listed:
@@ -25,7 +25,7 @@ Rules the build enforces, so a pull request that breaks one will not be listed:
 - `theme.json` is the only file in the folder: no `theme.css`, no dotfiles
 - every folder at the root is a theme folder (only dot folders such as `.github` are skipped); loose files like this README are not themes
 - UTF-8 without a byte order mark, at most 64 KB
-- it passes `bun run theme:check --gallery`, which applies all of the above and every contrast pair, no waiver
+- it passes `conn theme check --gallery`, which applies all of the above and every contrast pair, no waiver
 - `version` goes up when a change should reach people who installed it as an update
 
 ## For the maintainer
@@ -35,7 +35,7 @@ Rules the build enforces, so a pull request that breaks one will not be listed:
 After merging, build the index at the merged commit from a conn checkout, with this repo checked out at that commit and its files exactly as committed (no line-ending conversion):
 
 ```sh
-bun run theme:index --src ../conn-themes --out ../conn-themes-out --commit "$(git -C ../conn-themes rev-parse HEAD)" --repo claytoncasey01/conn-themes
+conn theme index --src ../conn-themes --out ../conn-themes-out --commit "$(git -C ../conn-themes rev-parse HEAD)" --repo claytoncasey01/conn-themes
 ```
 
 Copy `../conn-themes-out/index.json` over this repo's `index.json` and commit it to `main`. conn reads `https://raw.githubusercontent.com/claytoncasey01/conn-themes/main/index.json` and, for an install, `.../<commit>/<id>/theme.json`.

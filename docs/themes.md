@@ -8,12 +8,12 @@ A theme is a folder. It holds a `theme.json` that sets colors, type and shape, a
 # from the repo root
 mkdir -p ~/.conn/themes
 cp -R themes/_template ~/.conn/themes/my-theme
-bun run theme:check my-theme
+conn theme check my-theme
 ```
 
 Then switch back to the conn tab (the theme list is read again when the tab gets focus) and pick "My theme" in the Theme menu. Edit `theme.json`, run the check, and switch back to the tab to see the change.
 
-`~/.conn/themes/` is `$CONN_DATA/themes/` when `CONN_DATA` is set. `make dev` sets `CONN_DATA` to `~/.conn-dev` unless you have, so for the dev server the folder is `~/.conn-dev/themes/` and the UI is at `http://127.0.0.1:5173`. `bun run theme:check` reads the same variable, so run it as `CONN_DATA=~/.conn-dev bun run theme:check my-theme` to find a theme there by id, or give it the folder's path. The folder name has to be the theme's `id`, so rename the folder if you change the `id` inside the file. Folders that start with `_` or `.` are skipped, which is why the template (`themes/_template/`) is not listed as a theme in conn and cannot be picked by mistake.
+`~/.conn/themes/` is `$CONN_DATA/themes/` when `CONN_DATA` is set. `make dev` sets `CONN_DATA` to `~/.conn-dev` unless you have, so for the dev server the folder is `~/.conn-dev/themes/` and the UI is at `http://127.0.0.1:5173`. `conn theme check` reads the same variable, so run it as `CONN_DATA=~/.conn-dev conn theme check my-theme` to find a theme there by id, or give it the folder's path. The folder name has to be the theme's `id`, so rename the folder if you change the `id` inside the file. Folders that start with `_` or `.` are skipped, which is why the template (`themes/_template/`) is not listed as a theme in conn and cannot be picked by mistake.
 
 ## What goes in the folder
 
@@ -224,7 +224,7 @@ An effect is animation or an overlay that conn ships and your theme turns on by 
 | `flicker` | a faint dark veil that wobbles a few times a second | `amount` 0 to 0.06 (default 0.03), `hz` 1 to 8 steps a second (default 4) |
 | `glow` | reserved: the name is accepted, but no effect of that name exists yet, so it draws nothing. For glowing text, set the `glow` token instead. | none |
 
-A number outside its range is clamped to it, so a theme cannot ask for more than the cap. An option of the wrong type (a word where a number goes) makes that one effect fail to start and leaves the others and the page alone. An option an effect does not know is ignored. `bun run theme:check` does not check the type of an effect's options (any number, boolean or short plain string passes), so a wrong-type option shows up only in the app, as an effect that does not start. Each of `scanlines`, `vignette`, `flicker`, `roll` and `grain` draws once even if you list it twice. None of them flashes: every one stays within a few percent of the page's brightness, `flicker` and `grain` step at most 8 times a second, and a `roll` pass takes at least three seconds.
+A number outside its range is clamped to it, so a theme cannot ask for more than the cap. An option of the wrong type (a word where a number goes) makes that one effect fail to start and leaves the others and the page alone. An option an effect does not know is ignored. `conn theme check` does not check the type of an effect's options (any number, boolean or short plain string passes), so a wrong-type option shows up only in the app, as an effect that does not start. Each of `scanlines`, `vignette`, `flicker`, `roll` and `grain` draws once even if you list it twice. None of them flashes: every one stays within a few percent of the page's brightness, `flicker` and `grain` step at most 8 times a second, and a `roll` pass takes at least three seconds.
 
 ### Layers
 
@@ -278,7 +278,7 @@ Where a theme comes from sets what it may carry.
 
 | Level | Carries |
 |---|---|
-| Gallery install | `theme.json` only: tokens and named effects. A gallery folder (one with a `.source.json`) never has its `theme.css` served, and `bun run theme:check` fails a gallery folder that has one. |
+| Gallery install | `theme.json` only: tokens and named effects. A gallery folder (one with a `.source.json`) never has its `theme.css` served, and `conn theme check` fails a gallery folder that has one. |
 | Your own folder | `theme.json`, and optionally a `theme.css` in `~/.conn/themes/<id>/`. A theme with a `theme.css` is marked "custom CSS" in the menu and asks "Use anyway" before it is applied. It asks again whenever the file changes. |
 | Built in | `theme.json` and `theme.css`, in `themes/<id>/` in this repo, by pull request. A built-in's `theme.css` never asks. |
 
@@ -314,15 +314,17 @@ http://127.0.0.1:7777/?theme=<id>&mode=<mode>
 
 ```sh
 # from the repo root
-bun run theme:check my-theme        # a theme of yours, found by id
-bun run theme:check ./path/to/dir   # or a folder
-bun run theme:check                 # every built-in theme
-bun run theme:check --gallery ./path/to/dir   # a folder as the gallery would take it (see below)
+conn theme check my-theme        # a theme of yours, found by id
+conn theme check ./path/to/dir   # or a folder
+conn theme check                 # every built-in theme
+conn theme check --gallery ./path/to/dir   # a folder as the gallery would take it (see below)
 ```
+
+Inside a conn checkout it judges the built-in themes from that checkout's `themes/` folder, so an edit to a built-in is checked as it is now, and a folder given by its path there is judged as a built-in; anywhere else it uses the built-in themes conn was built with.
 
 It runs the same judgment conn does when it lists themes, and prints `my-theme: ok` or one line per problem, then exits 0 when everything passed, 1 when something did not, and 2 for bad usage (an unknown option, or `--gallery` with nothing to check). For a folder with a `theme.css` it also prints a note that conn asks before using it. Run it before you share a theme.
 
-`--gallery` is the same check under the rules of the `conn-themes` repo, which are stricter than for a theme of yours: the folder must hold `theme.json` alone (a `theme.css`, a `.source.json` or any other file fails it, each on its own line), the file must be UTF-8 without a byte order mark and within 64 KB, the folder name must be an id of 1 to 40 characters (a-z, 0-9 and `-`, not starting with `-`) and equal to the manifest's `id`, and the `id` must not be a built-in's. It calls the same function `bun run theme:index` does, so a folder that passes `--gallery` is one the index builder accepts. It needs a folder or an id to check, and a theme found by id is looked up in `themes/` first, then in `~/.conn/themes/`.
+`--gallery` is the same check under the rules of the `conn-themes` repo, which are stricter than for a theme of yours: the folder must hold `theme.json` alone (a `theme.css`, a `.source.json` or any other file fails it, each on its own line), the file must be UTF-8 without a byte order mark and within 64 KB, the folder name must be an id of 1 to 40 characters (a-z, 0-9 and `-`, not starting with `-`) and equal to the manifest's `id`, and the `id` must not be a built-in's. It calls the same function `conn theme index` does, so a folder that passes `--gallery` is one the index builder accepts. It needs a folder or an id to check, and a theme found by id is looked up in `themes/` first, then in `~/.conn/themes/`.
 
 ## The built-in themes
 
@@ -356,7 +358,7 @@ my-theme/
 ```
 
 1. Write the theme as for your own folder (see [Start from the template](#start-from-the-template)), and keep its `id` equal to the folder name.
-2. Run `bun run theme:check --gallery ./my-theme` from a conn checkout until it prints `my-theme: ok`. It applies the gallery's rules (the index builder's, and the install's judgment of the file, contrast included, with no waiver); plain `bun run theme:check ./my-theme` is looser, and passes a `theme.css` the gallery would refuse.
+2. Run `conn theme check --gallery ./my-theme` from a conn checkout until it prints `my-theme: ok`. It applies the gallery's rules (the index builder's, and the install's judgment of the file, contrast included, with no waiver); plain `conn theme check ./my-theme` is looser, and passes a `theme.css` the gallery would refuse.
 3. Put nothing else in the folder. A gallery theme is tokens and named effects only: a `theme.css` is never installed, and the index builder refuses a folder that has one (or any file besides `theme.json`). The file has to be UTF-8 without a byte order mark and no larger than 64 KB, and its `id` must not be a built-in's.
 4. Open the pull request. The `author`, `version` and `description` in `theme.json` are what the card shows, so raise `version` for a change that should reach people who installed it as an update.
 
@@ -365,7 +367,7 @@ my-theme/
 Nobody edits `index.json` by hand. It lists each theme with the commit it is pinned at and the sha256 of its `theme.json`, and the app installs only a file that hashes to that value. It is made by a script in this repo, run from a conn checkout against a checkout of `conn-themes` at the commit to pin:
 
 ```sh
-bun run theme:index --src ../conn-themes --out ../conn-themes-out --commit <40 hex> --repo claytoncasey01/conn-themes
+conn theme index --src ../conn-themes --out ../conn-themes-out --commit <40 hex> --repo claytoncasey01/conn-themes
 ```
 
 It judges every `<id>/theme.json` as the app does, refuses the whole run (writing nothing) if any folder fails, refuses a commit that is not 40 lowercase hex characters, and needs `--out` to be a new or empty folder. It copies each `theme.json` into `<out>/<id>/` (byte for byte as authored) and writes `<out>/index.json` as compact JSON, listing every theme at the commit given. The app refuses an index over 512 KB and ignores entries beyond the first 500, and every entry carries its theme's whole manifest, so the size cap is what binds first (roughly 250 typical themes, fewer if they set every token); the builder refuses a run that would go over either limit. Every top-level folder of `--src` must be a theme folder (a stray folder is an error, not skipped), except dot folders (`.git`, `.github`); loose files at the root (the README, a license, `.gitattributes`) are not themes and are ignored. A source with no theme folder at all is refused, so a mistyped `--src` cannot produce an empty index. `gallery-seed/` in this repo holds the first three themes, `ember`, `paper` and `blueprint` (a look made of tokens alone: a drafting grid, chamfered cards with ruler ticks, a rule under the top bar, arrows and its own separators, and dimension-line wires whose dashes crawl under a slow pulse), and the repo's README; it is the starting contents of `conn-themes`.

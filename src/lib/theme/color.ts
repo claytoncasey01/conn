@@ -1,5 +1,5 @@
 // Color parsing and WCAG contrast with no dependencies and no DOM, so the server,
-// the loader and `theme:check` all measure the same way.
+// the loader and `conn theme check` all measure the same way.
 export type Rgba = { r: number; g: number; b: number; a: number } // r g b 0-255, a 0-1
 
 // CSS grammar, not JS: whitespace is only these five (JS \s also matches no-break space),
