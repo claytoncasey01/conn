@@ -85,7 +85,7 @@ func optional(value any) *string {
 func normal(t *testing.T, value any) string {
 	t.Helper()
 
-	parsed, err := js.Parse([]byte(js.Stringify(value)))
+	parsed, err := js.Parse(js.Marshal(value))
 	if err != nil {
 		t.Fatalf("Go wrote JSON it cannot read: %v", err)
 	}
