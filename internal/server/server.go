@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
 	"strings"
+
+	"github.com/claytoncasey01/conn/internal/settingsapi"
 )
 
 // Host is the only address Conn listens on.
@@ -35,6 +38,10 @@ type Server struct {
 	UI fs.FS
 	// Clients reports how many pages are listening for live updates; nil is none.
 	Clients func() int
+	// Settings answers /api/settings; nil leaves the routes out.
+	Settings *settingsapi.API
+	// Logger is told about a request that failed.
+	Logger *log.Logger
 }
 
 type errorBody struct {
@@ -55,10 +62,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.URL.Path == "/api/health" {
+	// Routes match the path as sent, not decoded, as a browser's URL.pathname does.
+	urlPath := r.URL.EscapedPath()
+
+	if urlPath == "/api/health" {
 		sendJSON(w, http.StatusOK, healthBody{OK: true, Clients: s.clients()})
 
 		return
+	}
+
+	if route, ours := settingsapi.RouteOf(urlPath); ours {
+		if s.Settings != nil {
+			s.settings(w, r, route)
+
+			return
+		}
 	}
 
 	s.static(w, r.URL.Path)
