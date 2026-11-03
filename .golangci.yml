@@ -17,6 +17,9 @@ linters:
           allow:
             - $gostd
             - github.com/claytoncasey01/conn
+            # The History archive is a SQLite file; this driver is pure Go, so conn builds
+            # without cgo.
+            - modernc.org/sqlite
     gosec:
       excludes:
         # Conn's job is running gh, git, ps and claude with arguments built from settings and
