@@ -1,0 +1,99 @@
+// Package cmux starts a command in a new cmux workspace. The command string is run by a shell, so
+// everything that goes into one here is either a fixed string or reduced to a safe alphabet first.
+package cmux
+
+import (
+	"context"
+	"errors"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/run"
+)
+
+const (
+	nameCap    = 64
+	idShown    = 8
+	errorUnits = 400
+	timeout    = 20 * time.Second
+	outputMax  = 8 << 20
+)
+
+var (
+	sessionID = regexp.MustCompile(`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`)
+	unsafe    = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+	dashes    = regexp.MustCompile(`-{2,}`)
+	// ErrNotSessionID refuses an id that is not a UUID before it can reach a command.
+	ErrNotSessionID = errors.New("not a session id")
+)
+
+// IsSessionID is whether s is a session id: a session id from a URL or a file is only ever a
+// UUID.
+func IsSessionID(s string) bool { return sessionID.MatchString(s) }
+
+// WorkspaceName is a name reduced to [A-Za-z0-9._-]: every other run of characters becomes one
+// '-', and no name starts with '-' or '.' (it would read as a flag or a hidden file) or ends with
+// one. Nothing left means the first 8 characters of the id.
+func WorkspaceName(name, sessionID string) string {
+	safe := dashes.ReplaceAllString(unsafe.ReplaceAllString(name, "-"), "-")
+	safe = js.Cut(safe, nameCap)
+	safe = strings.TrimRight(strings.TrimLeft(safe, "-."), "-.")
+
+	if safe == "" {
+		return js.Cut(sessionID, idShown)
+	}
+
+	return safe
+}
+
+// ResumeCommand is the command that reopens an archived session. name is the session's own name,
+// or nil when it has none (the archive then called it by its first prompt): --name is left off
+// so the resume does not rename it.
+func ResumeCommand(sessionID string, name *string) (string, error) {
+	if !IsSessionID(sessionID) {
+		return "", ErrNotSessionID
+	}
+
+	if name == nil {
+		return "claude --resume " + sessionID, nil
+	}
+
+	return "claude --resume " + sessionID + " --name " + WorkspaceName(*name, sessionID), nil
+}
+
+// Opened is how a start went: ok, or why not with the command to paste instead.
+type Opened struct {
+	OK            bool
+	Error         string
+	ManualCommand string
+}
+
+// Opener starts a command in a new cmux workspace.
+type Opener func(ctx context.Context, name, cwd, command string) Opened
+
+// Open starts command in a new cmux workspace in cwd, without focusing it, with the cmux program
+// bin. When cmux fails the person gets the command to paste: the folder single-quoted, so it is
+// one word whatever it holds. cwd and name go to cmux as arguments, never through a shell here.
+func Open(bin string) Opener {
+	return func(ctx context.Context, name, cwd, command string) Opened {
+		result := run.Cmd(ctx, bin, []string{
+			"workspace", "create", "--name", name, "--cwd", cwd, "--command", command,
+			"--focus", "false",
+		}, run.Opts{Dir: "", Timeout: timeout, OutputBytesMax: outputMax, Stdin: "", Env: nil})
+		if result.Err == nil {
+			return Opened{OK: true, Error: "", ManualCommand: ""}
+		}
+
+		why := result.Stderr
+		if why == "" {
+			why = result.Err.Error()
+		}
+
+		return Opened{
+			OK: false, Error: js.Cut(js.Trim(why), errorUnits),
+			ManualCommand: "cd '" + strings.ReplaceAll(cwd, "'", `'\''`) + "' && " + command,
+		}
+	}
+}
