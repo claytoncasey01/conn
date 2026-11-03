@@ -1,0 +1,57 @@
+version: "2"
+
+linters:
+  # Everything on, then opt out below with a reason for each.
+  default: all
+  disable:
+    - exhaustruct # demands every field on stdlib structs like http.Server and exec.Cmd
+    - exhaustruct_v5 # same check, new major version
+    - gomodguard # deprecated; gomodguard_v2 replaces it and stays enabled
+    - wsl # deprecated; wsl_v5 replaces it and stays enabled
+  settings:
+    depguard:
+      rules:
+        main:
+          # Standard library and this module only. A new third-party dependency is a
+          # deliberate decision: add it here in the same change that adds it to go.mod.
+          allow:
+            - $gostd
+            - github.com/claytoncasey01/conn
+    gosec:
+      excludes:
+        # Conn's job is running gh, git, ps and claude with arguments built from settings and
+        # GitHub data. Arguments always go to exec directly, never through a shell.
+        - G204
+        # Conn reads files at paths it is configured with or finds: Claude Code's transcripts,
+        # the settings file, repository folders.
+        - G304
+    lll:
+      # TigerStyle's hard limit. Tabs count as 4, so the limit matches what an editor shows.
+      line-length: 100
+      tab-width: 4
+    varnamelen:
+      ignore-names:
+        - tt # idiomatic loop variable in table-driven tests
+      ignore-decls:
+        - w http.ResponseWriter
+        - r *http.Request
+  exclusions:
+    rules:
+      # Table-driven tests are long and repeat literals by design.
+      - path: _test\.go
+        linters:
+          - funlen
+          - goconst
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      extra:
+        group-params: true
+        clothe-returns: true
+    goimports:
+      local-prefixes:
+        - github.com/claytoncasey01/conn

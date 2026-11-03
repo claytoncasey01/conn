@@ -17,5 +17,6 @@ func UI() fs.FS {
 	if err != nil {
 		panic(err) // a constant, valid path: cannot fail
 	}
+
 	return sub
 }

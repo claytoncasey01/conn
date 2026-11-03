@@ -72,10 +72,14 @@ The variables that tune My PRs are listed in [my PRs](docs/my-prs.md).
 
 ```sh
 make dev      # hot reload: UI on :5173, API on :7778 (restarts when a Go file changes), data in ~/.conn-dev
-make test     # bun test for the UI and themes, go test for the server
-make check    # svelte-check, go vet and gofmt
+make test     # bun test for the UI and themes; go test with the race detector, in random order
+make lint     # golangci-lint, every linter on (.golangci.yml)
+make fmt      # gofumpt and goimports
+make check    # make lint, then svelte-check
 make build    # bin/conn
 ```
+
+[AGENTS.md](AGENTS.md) has the rules for writing Go here, for people and coding agents alike.
 
 `make dev` has its own data folder, so it never shares `history.db` or `reviews.json` with the dashboard on :7777. To work without real accounts, set `CONN_MYPRS_DRY=1`, `CONN_REVIEWS_DRY=1` or `CONN_WORK_DRY=1`. They fake My PRs, Reviews and Open work with invented data and make no GitHub, Slack or Jira call. See [dry runs](docs/settings.md).
 

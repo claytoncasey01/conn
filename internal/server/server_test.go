@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"io"
@@ -6,132 +6,229 @@ import (
 	"net/http/httptest"
 	"testing"
 	"testing/fstest"
+
+	"github.com/claytoncasey01/conn/internal/server"
 )
 
-var bundle = fstest.MapFS{
-	"index.html":         {Data: []byte("<!doctype html><title>Conn</title>")},
-	"favicon.svg":        {Data: []byte("<svg/>")},
-	"assets/index-1.js":  {Data: []byte("console.log(1)")},
-	"assets/index-1.css": {Data: []byte("body{}")},
-	"assets/font.woff2":  {Data: []byte("wOF2")},
-	"assets/blob.bin":    {Data: []byte{0, 1}},
-}
+const shell = "<!doctype html><title>Conn</title>"
 
-func get(t *testing.T, s *Server, target string, header map[string]string) *http.Response {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, target, nil)
-	req.Host = "127.0.0.1:7777"
-	for k, v := range header {
-		if k == "host" {
-			req.Host = v
-		} else {
-			req.Header.Set(k, v)
-		}
+func bundle() fstest.MapFS {
+	return fstest.MapFS{
+		"index.html":         {Data: []byte(shell)},
+		"favicon.svg":        {Data: []byte("<svg/>")},
+		"assets/index-1.js":  {Data: []byte("console.log(1)")},
+		"assets/index-1.css": {Data: []byte("body{}")},
+		"assets/font.woff2":  {Data: []byte("wOF2")},
+		"assets/blob.bin":    {Data: []byte{0, 1}},
 	}
-	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, req)
-	return rec.Result()
 }
 
-func body(t *testing.T, r *http.Response) string {
+// answer is what a request got back.
+type answer struct {
+	status int
+	header http.Header
+	body   string
+}
+
+// get sends a GET for target to handler, as a page on this machine would unless host or origin
+// say otherwise.
+func get(t *testing.T, handler http.Handler, target, host, origin string) answer {
 	t.Helper()
-	b, err := io.ReadAll(r.Body)
+
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+
+	request.Host = "127.0.0.1:7777"
+	if host != "" {
+		request.Host = host
+	}
+
+	if origin != "" {
+		request.Header.Set("Origin", origin)
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	response := recorder.Result()
+
+	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+
+	err = response.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return answer{status: response.StatusCode, header: response.Header, body: string(body)}
 }
 
 func TestOnlyThisMachineAndItsOwnPages(t *testing.T) {
-	s := &Server{UI: bundle}
-	ok := []map[string]string{
-		{},
-		{"host": "localhost:7777"},
-		{"host": "127.0.0.1"},
-		{"origin": "http://127.0.0.1:7777"},
-		{"origin": "http://localhost:5173"},
-		{"origin": "http://LOCALHOST:5173"},
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		host   string
+		origin string
+		want   int
+	}{
+		{"no origin", "", "", http.StatusOK},
+		{"localhost host", "localhost:7777", "", http.StatusOK},
+		{"host without port", "127.0.0.1", "", http.StatusOK},
+		{"own origin", "", "http://127.0.0.1:7777", http.StatusOK},
+		{"dev origin", "", "http://localhost:5173", http.StatusOK},
+		{"origin in capitals", "", "http://LOCALHOST:5173", http.StatusOK},
+		{"other host", "evil.example", "", http.StatusForbidden},
+		{"lookalike host", "127.0.0.1.evil.example:7777", "", http.StatusForbidden},
+		{"empty port", "localhost:", "", http.StatusForbidden},
+		{"word port", "localhost:abc", "", http.StatusForbidden},
+		{"ipv6 host", "[::1]:7777", "", http.StatusForbidden},
+		{"other origin", "", "https://evil.example", http.StatusForbidden},
+		{"null origin", "", "null", http.StatusForbidden},
+		{"lookalike origin", "", "http://127.0.0.1.evil.example", http.StatusForbidden},
+		{"file origin", "", "file://", http.StatusForbidden},
 	}
-	for _, h := range ok {
-		if r := get(t, s, "/api/health", h); r.StatusCode != 200 {
-			t.Errorf("%v: got %d, want 200", h, r.StatusCode)
-		}
-	}
-	refused := []map[string]string{
-		{"host": "evil.example"},
-		{"host": "127.0.0.1.evil.example:7777"},
-		{"host": "localhost:"},
-		{"host": "localhost:abc"},
-		{"host": "[::1]:7777"},
-		{"origin": "https://evil.example"},
-		{"origin": "null"},
-		{"origin": "http://127.0.0.1.evil.example"},
-		{"origin": "file://"},
-	}
-	for _, h := range refused {
-		r := get(t, s, "/api/health", h)
-		if r.StatusCode != 403 || body(t, r) != `{"error":"forbidden"}` {
-			t.Errorf("%v: got %d, want 403 forbidden", h, r.StatusCode)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := &server.Server{UI: bundle(), Clients: nil}
+
+			got := get(t, handler, "/api/health", tt.host, tt.origin)
+			if got.status != tt.want {
+				t.Fatalf("status %d, want %d", got.status, tt.want)
+			}
+
+			if tt.want != http.StatusForbidden {
+				return
+			}
+
+			if got.body != `{"error":"forbidden"}` {
+				t.Fatalf("body %s", got.body)
+			}
+		})
 	}
 }
 
 func TestHealthSaysHowManyPagesListen(t *testing.T) {
-	s := &Server{UI: bundle, Clients: func() int { return 2 }}
-	r := get(t, s, "/api/health", nil)
-	if got := body(t, r); got != `{"ok":true,"clients":2}` {
-		t.Fatalf("health: %s", got)
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		clients func() int
+		want    string
+	}{
+		{"two pages", func() int { return 2 }, `{"ok":true,"clients":2}`},
+		{"none wired", nil, `{"ok":true,"clients":0}`},
 	}
-	if r.Header.Get("cache-control") != "no-store" || r.Header.Get("content-type") != "application/json" {
-		t.Fatalf("headers: %v", r.Header)
-	}
-	if got := body(t, get(t, &Server{UI: bundle}, "/api/health", nil)); got != `{"ok":true,"clients":0}` {
-		t.Fatalf("no listeners: %s", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := &server.Server{UI: bundle(), Clients: tt.clients}
+
+			got := get(t, handler, "/api/health", "", "")
+			if got.body != tt.want {
+				t.Fatalf("body %s", got.body)
+			}
+
+			if cache := got.header.Get("Cache-Control"); cache != "no-store" {
+				t.Fatalf("cache-control %q", cache)
+			}
+
+			if kind := got.header.Get("Content-Type"); kind != "application/json" {
+				t.Fatalf("content-type %q", kind)
+			}
+		})
 	}
 }
 
 func TestStaticFilesAndThePageShell(t *testing.T) {
-	s := &Server{UI: bundle}
-	cases := []struct{ path, want, ctype, cache string }{
-		{"/", "<!doctype html><title>Conn</title>", "text/html; charset=utf-8", "no-cache"},
+	t.Parallel()
+
+	const (
+		html      = "text/html; charset=utf-8"
+		immutable = "public, max-age=31536000, immutable"
+	)
+
+	tests := []struct {
+		path, want, contentType, cache string
+	}{
+		{"/", shell, html, "no-cache"},
 		{"/favicon.svg", "<svg/>", "image/svg+xml", "no-cache"},
-		{"/assets/index-1.js", "console.log(1)", "text/javascript; charset=utf-8", "public, max-age=31536000, immutable"},
-		{"/assets/index-1.css", "body{}", "text/css; charset=utf-8", "public, max-age=31536000, immutable"},
-		{"/assets/font.woff2", "wOF2", "font/woff2", "public, max-age=31536000, immutable"},
-		{"/assets/blob.bin", "\x00\x01", "application/octet-stream", "public, max-age=31536000, immutable"},
-		// a page route, a missing file and a folder all get the shell
-		{"/history", "<!doctype html><title>Conn</title>", "text/html; charset=utf-8", "no-cache"},
-		{"/assets/missing.js", "<!doctype html><title>Conn</title>", "text/html; charset=utf-8", "no-cache"},
-		{"/assets", "<!doctype html><title>Conn</title>", "text/html; charset=utf-8", "no-cache"},
-		// a climb out of the bundle stays inside it
-		{"/../../etc/passwd", "<!doctype html><title>Conn</title>", "text/html; charset=utf-8", "no-cache"},
+		{"/assets/index-1.js", "console.log(1)", "text/javascript; charset=utf-8", immutable},
+		{"/assets/index-1.css", "body{}", "text/css; charset=utf-8", immutable},
+		{"/assets/font.woff2", "wOF2", "font/woff2", immutable},
+		{"/assets/blob.bin", "\x00\x01", "application/octet-stream", immutable},
+		// A page route, a missing file and a folder all get the shell.
+		{"/history", shell, html, "no-cache"},
+		{"/assets/missing.js", shell, html, "no-cache"},
+		{"/assets", shell, html, "no-cache"},
+		// A climb out of the bundle stays inside it.
+		{"/../../etc/passwd", shell, html, "no-cache"},
 		{"/assets/../favicon.svg", "<svg/>", "image/svg+xml", "no-cache"},
 	}
-	for _, c := range cases {
-		r := get(t, s, c.path, nil)
-		if r.StatusCode != 200 {
-			t.Errorf("%s: status %d", c.path, r.StatusCode)
-		}
-		if got := body(t, r); got != c.want {
-			t.Errorf("%s: body %q, want %q", c.path, got, c.want)
-		}
-		if r.Header.Get("content-type") != c.ctype || r.Header.Get("cache-control") != c.cache {
-			t.Errorf("%s: headers %q %q", c.path, r.Header.Get("content-type"), r.Header.Get("cache-control"))
-		}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			t.Parallel()
+
+			got := get(t, &server.Server{UI: bundle(), Clients: nil}, tt.path, "", "")
+			if got.status != http.StatusOK {
+				t.Fatalf("status %d", got.status)
+			}
+
+			if got.body != tt.want {
+				t.Fatalf("body %q, want %q", got.body, tt.want)
+			}
+
+			if kind := got.header.Get("Content-Type"); kind != tt.contentType {
+				t.Fatalf("content-type %q", kind)
+			}
+
+			if cache := got.header.Get("Cache-Control"); cache != tt.cache {
+				t.Fatalf("cache-control %q", cache)
+			}
+		})
 	}
 }
 
 func TestNoBundleSaysHowToBuildIt(t *testing.T) {
-	for _, s := range []*Server{{UI: fstest.MapFS{}}, {}} {
-		r := get(t, s, "/", nil)
-		if r.StatusCode != 503 || body(t, r) != `{"error":"`+DistMissing+`"}` {
-			t.Fatalf("got %d", r.StatusCode)
-		}
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		bundle fstest.MapFS
+	}{
+		{"empty bundle", fstest.MapFS{}},
+		{"no bundle", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := &server.Server{UI: nil, Clients: nil}
+			if tt.bundle != nil {
+				handler.UI = tt.bundle
+			}
+
+			got := get(t, handler, "/", "", "")
+			if got.status != http.StatusServiceUnavailable {
+				t.Fatalf("status %d", got.status)
+			}
+
+			if got.body != `{"error":"`+server.DistMissing+`"}` {
+				t.Fatalf("body %s", got.body)
+			}
+		})
 	}
 }
 
 func TestJSONIsWhatABrowserWouldWrite(t *testing.T) {
-	if got := string(MarshalJSON(map[string]string{"a": "<b>&"})); got != `{"a":"<b>&"}` {
+	t.Parallel()
+
+	got := string(server.MarshalJSON(map[string]string{"a": "<b>&"}))
+	if got != `{"a":"<b>&"}` {
 		t.Fatalf("got %s", got)
 	}
 }

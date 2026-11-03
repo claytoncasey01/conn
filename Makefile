@@ -1,5 +1,5 @@
 # The Go build carries the page bundle, so the UI is built first.
-.PHONY: all ui build test check serve dev clean
+.PHONY: all ui build test lint fmt check serve dev clean
 
 all: build
 
@@ -13,14 +13,21 @@ ui: node_modules
 build: ui
 	go build -o bin/conn ./cmd/conn
 
+# Go tests run with the race detector, in random order.
 test: ui
 	bun run test
-	go test ./...
+	go test -race -shuffle=on ./...
 
-check: ui
+# golangci-lint with every linter on (.golangci.yml).
+lint: ui
+	golangci-lint run ./...
+
+# gofumpt and goimports.
+fmt:
+	golangci-lint fmt ./...
+
+check: lint
 	bun run check
-	go vet ./...
-	@test -z "$$(gofmt -l .)" || { gofmt -l .; echo "gofmt: the files above need formatting"; exit 1; }
 
 serve: build
 	bin/conn serve

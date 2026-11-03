@@ -1,5 +1,6 @@
-// Package server is Conn's HTTP server: the API under /api and the page bundle for everything else. It listens on 127.0.0.1 only,
-// and answers only requests addressed to this machine from pages served here, because the transcripts it reads hold secrets.
+// Package server is Conn's HTTP server: the API under /api and the page bundle for everything
+// else. It listens on 127.0.0.1 only, and answers only requests addressed to this machine from
+// pages served here, because the transcripts it reads hold secrets.
 package server
 
 import (
@@ -9,12 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"regexp"
 	"strings"
 )
-
-// A Host header's port, as in host:7777
-var portSuffix = regexp.MustCompile(`:\d+$`)
 
 // Host is the only address Conn listens on.
 const Host = "127.0.0.1"
@@ -22,118 +19,224 @@ const Host = "127.0.0.1"
 // DistMissing is the answer when the page bundle has no index.html.
 const DistMissing = "dist missing: run bun run build in the conn repository folder"
 
-var mimeTypes = map[string]string{
-	".html":  "text/html; charset=utf-8",
-	".js":    "text/javascript; charset=utf-8",
-	".css":   "text/css; charset=utf-8",
-	".svg":   "image/svg+xml",
-	".json":  "application/json",
-	".woff2": "font/woff2",
-}
+const (
+	// shellName is the page shell every page route gets.
+	shellName = "index.html"
+
+	// Built assets carry a content hash in their name, so they never change once served.
+	cacheAssets = "public, max-age=31536000, immutable"
+	cacheFiles  = "no-cache"
+	cacheAPI    = "no-store"
+)
 
 // Server answers Conn's HTTP requests.
 type Server struct {
-	// UI is the built page bundle (index.html at its root)
+	// UI is the built page bundle (index.html at its root).
 	UI fs.FS
-	// Clients reports how many pages are listening for live updates
+	// Clients reports how many pages are listening for live updates; nil is none.
 	Clients func() int
 }
 
-// SendJSON writes body as JSON with code, never cached.
-func SendJSON(w http.ResponseWriter, code int, body any) {
-	w.Header().Set("content-type", "application/json")
-	w.Header().Set("cache-control", "no-store")
-	w.WriteHeader(code)
-	_, _ = w.Write(MarshalJSON(body))
+type errorBody struct {
+	Error string `json:"error"`
 }
 
-// MarshalJSON encodes v as compact JSON without escaping <, > and &, the same text a browser's JSON.stringify gives.
-func MarshalJSON(v any) []byte {
-	var b strings.Builder
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return []byte("null")
-	}
-	return []byte(strings.TrimSuffix(b.String(), "\n"))
-}
-
-// Local reports whether a request is addressed to this machine and, when it carries an Origin, comes from a page served here.
-func Local(r *http.Request) bool {
-	host := portSuffix.ReplaceAllString(r.Host, "")
-	if host != "127.0.0.1" && host != "localhost" {
-		return false
-	}
-	origin := r.Header.Get("origin")
-	if origin == "" {
-		return true
-	}
-	o, err := url.Parse(origin)
-	if err != nil || o.Scheme == "" || o.Host == "" {
-		return false
-	}
-	h := strings.ToLower(o.Hostname())
-	return h == "127.0.0.1" || h == "localhost"
+type healthBody struct {
+	OK      bool `json:"ok"`
+	Clients int  `json:"clients"`
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !Local(r) {
-		SendJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+	if !local(r) {
+		sendJSON(w, http.StatusForbidden, errorBody{Error: "forbidden"})
+
 		return
 	}
-	p := r.URL.Path
-	if p == "/api/health" {
-		clients := 0
-		if s.Clients != nil {
-			clients = s.Clients()
-		}
-		SendJSON(w, http.StatusOK, struct {
-			OK      bool `json:"ok"`
-			Clients int  `json:"clients"`
-		}{true, clients})
+
+	if r.URL.Path == "/api/health" {
+		sendJSON(w, http.StatusOK, healthBody{OK: true, Clients: s.clients()})
+
 		return
 	}
-	s.static(w, p)
+
+	s.static(w, r.URL.Path)
 }
 
-// static serves a file of the page bundle, falling back to the page shell (index.html) for any path that is not a file in it.
-func (s *Server) static(w http.ResponseWriter, p string) {
-	name := "index.html"
-	if p != "/" {
-		// path.Clean of a rooted path never climbs above the root, so the name stays inside the bundle
-		clean := strings.TrimPrefix(path.Clean("/"+p), "/")
-		if clean != "" && isFile(s.UI, clean) {
-			name = clean
-		}
+func (s *Server) clients() int {
+	if s.Clients == nil {
+		return 0
 	}
+
+	return s.Clients()
+}
+
+// static serves a file of the page bundle, or the page shell for a path that is not a file in it.
+func (s *Server) static(w http.ResponseWriter, urlPath string) {
+	name := s.fileName(urlPath)
 	if !isFile(s.UI, name) {
-		SendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": DistMissing})
+		sendJSON(w, http.StatusServiceUnavailable, errorBody{Error: DistMissing})
+
 		return
 	}
-	f, err := s.UI.Open(name)
+
+	file, err := s.UI.Open(name)
 	if err != nil {
-		SendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": DistMissing})
+		sendJSON(w, http.StatusServiceUnavailable, errorBody{Error: DistMissing})
+
 		return
 	}
-	defer f.Close()
-	ct, ok := mimeTypes[path.Ext(name)]
-	if !ok {
-		ct = "application/octet-stream"
-	}
-	w.Header().Set("content-type", ct)
-	if strings.Contains("/"+name, "/assets/") {
-		w.Header().Set("cache-control", "public, max-age=31536000, immutable")
-	} else {
-		w.Header().Set("cache-control", "no-cache")
-	}
+
+	defer func() { _ = file.Close() }()
+
+	w.Header().Set("Content-Type", contentType(path.Ext(name)))
+	w.Header().Set("Cache-Control", cacheControl(name))
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(w, f)
+
+	_, _ = io.Copy(w, file)
+}
+
+// fileName is the bundle file a URL path names, or the page shell when it names none.
+func (s *Server) fileName(urlPath string) string {
+	// path.Clean of a rooted path never climbs above the root, so the name stays in the bundle.
+	clean := strings.TrimPrefix(path.Clean("/"+urlPath), "/")
+	if clean == "" {
+		return shellName
+	}
+
+	if !isFile(s.UI, clean) {
+		return shellName
+	}
+
+	return clean
 }
 
 func isFile(fsys fs.FS, name string) bool {
-	if fsys == nil || !fs.ValidPath(name) {
+	if fsys == nil {
 		return false
 	}
-	st, err := fs.Stat(fsys, name)
-	return err == nil && st.Mode().IsRegular()
+
+	if !fs.ValidPath(name) {
+		return false
+	}
+
+	info, err := fs.Stat(fsys, name)
+	if err != nil {
+		return false
+	}
+
+	return info.Mode().IsRegular()
+}
+
+func contentType(extension string) string {
+	switch extension {
+	case ".html":
+		return "text/html; charset=utf-8"
+	case ".js":
+		return "text/javascript; charset=utf-8"
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".svg":
+		return "image/svg+xml"
+	case ".json":
+		return "application/json"
+	case ".woff2":
+		return "font/woff2"
+	}
+
+	return "application/octet-stream"
+}
+
+func cacheControl(name string) string {
+	if strings.Contains("/"+name, "/assets/") {
+		return cacheAssets
+	}
+
+	return cacheFiles
+}
+
+// local reports whether a request is addressed to this machine and, when it carries an Origin,
+// comes from a page served here.
+func local(r *http.Request) bool {
+	if !loopbackName(withoutPort(r.Host)) {
+		return false
+	}
+
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+
+	if parsed.Scheme == "" {
+		return false
+	}
+
+	if parsed.Host == "" {
+		return false
+	}
+
+	return loopbackName(strings.ToLower(parsed.Hostname()))
+}
+
+func loopbackName(host string) bool {
+	switch host {
+	case "127.0.0.1", "localhost":
+		return true
+	}
+
+	return false
+}
+
+// withoutPort is a Host header without its port (":7777"): a colon and one or more ASCII digits
+// at the end. "localhost:" and "localhost:abc" keep theirs, so they are refused.
+func withoutPort(host string) string {
+	name, digits, found := strings.CutLast(host, ":")
+	if !found {
+		return host
+	}
+
+	if digits == "" {
+		return host
+	}
+
+	for _, char := range digits {
+		if char < '0' {
+			return host
+		}
+
+		if char > '9' {
+			return host
+		}
+	}
+
+	return name
+}
+
+// sendJSON writes body as JSON with code, never cached.
+func sendJSON(w http.ResponseWriter, code int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", cacheAPI)
+	w.WriteHeader(code)
+
+	_, _ = w.Write(marshalJSON(body))
+}
+
+// marshalJSON encodes v as compact JSON without escaping <, > and &, the same text a browser's
+// JSON.stringify gives.
+func marshalJSON(value any) []byte {
+	var builder strings.Builder
+
+	encoder := json.NewEncoder(&builder)
+	encoder.SetEscapeHTML(false)
+
+	err := encoder.Encode(value)
+	if err != nil {
+		return []byte("null")
+	}
+
+	return []byte(strings.TrimSuffix(builder.String(), "\n"))
 }
