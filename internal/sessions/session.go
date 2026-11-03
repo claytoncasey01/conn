@@ -19,6 +19,11 @@ const (
 	jsonlExt  = ".jsonl"
 	metaExt   = ".meta.json"
 	subagents = "subagents"
+	// nestedDepth is the depth a teammate's own subagent is placed at.
+	nestedDepth = 2
+	// teammateType is the agent type a teammate is listed with.
+	teammateType = "teammate"
+	background   = "background"
 )
 
 // cmuxID is one cmux id variable in a process's environment, as `ps eww` prints it.
@@ -55,12 +60,34 @@ type Session struct {
 	// CLI does not run in a cmux surface.
 	cmux   *Target
 	looked bool
+	// finder looks for this lead's teammates; made when its transcript first names a team.
+	finder    *Finder
+	scannedAt float64
+	// teammates are the teammate transcripts found for this lead, in the order found.
+	teammates []string
+	tagRead   *tagRead
+	claim     *teamClaim
+}
+
+// tagRead is the team tag read from the head of this session's transcript, at what size, and
+// whether that is final.
+type tagRead struct {
+	size  int64
+	tag   *TeamTag
+	final bool
+}
+
+// teamClaim is this session's lead lookup, kept for 3 s.
+type teamClaim struct {
+	at    float64
+	value *snapshot.Team
 }
 
 func newSession(reg Reg) *Session {
 	return &Session{
 		reg: reg, lead: transcript.NewLeadState(0), leadTail: nil, leadPath: "", agents: nil,
-		known: map[string]bool{}, firstAt: 0, cmux: nil, looked: false,
+		known: map[string]bool{}, firstAt: 0, cmux: nil, looked: false, finder: nil,
+		scannedAt: negativeInfinity(), teammates: nil, tagRead: nil, claim: nil,
 	}
 }
 
@@ -75,7 +102,7 @@ func (s *Session) parts() snapshot.Parts {
 }
 
 // poll pulls in whatever was appended, and is true when anything was.
-func (s *Session) poll(projects string) bool {
+func (s *Session) poll(projects string, now float64, leads *Leads) bool {
 	changed := false
 
 	if s.leadTail == nil {
@@ -95,7 +122,12 @@ func (s *Session) poll(projects string) bool {
 	}
 
 	if s.leadPath != "" {
-		s.addSubagents(s.leadPath)
+		s.addSubagents(s.leadPath, "")
+		s.findTeammates(now, leads)
+
+		for _, path := range s.teammates {
+			s.addSubagents(path, strings.TrimSuffix(filepath.Base(path), jsonlExt))
+		}
 	}
 
 	for _, entry := range s.agents {
@@ -126,9 +158,10 @@ func (s *Session) noteFirst(line any) {
 	}
 }
 
-// addSubagents starts reading the subagent transcripts of the lead that are not read yet.
-func (s *Session) addSubagents(parentPath string) {
-	for _, found := range subagentFiles(parentPath, s.known) {
+// addSubagents starts reading the subagent transcripts of parentPath (the lead's, or a
+// teammate's, whose id is parentID and which then owns them) that are not read yet.
+func (s *Session) addSubagents(parentPath, parentID string) {
+	for _, found := range subagentFiles(parentPath, parentID, s.known) {
 		s.known[found.path] = true
 		s.agents = append(s.agents, &agentEntry{
 			path: found.path, tail: transcript.NewTail(found.path),
@@ -146,7 +179,7 @@ type subagentFile struct {
 // subagentFiles are the subagent transcripts beside a transcript (in <name>/subagents), in name
 // order, each with what its meta file says; one already known is left out, its meta file not
 // read again.
-func subagentFiles(parentPath string, known map[string]bool) []subagentFile {
+func subagentFiles(parentPath, parentID string, known map[string]bool) []subagentFile {
 	dir := filepath.Join(strings.TrimSuffix(parentPath, jsonlExt), subagents)
 	names := listDir(dir)
 	slices.SortStableFunc(names, js.CompareUTF16)
@@ -163,10 +196,21 @@ func subagentFiles(parentPath string, known map[string]bool) []subagentFile {
 			continue
 		}
 
+		meta := readMeta(strings.TrimSuffix(path, jsonlExt) + metaExt)
+
+		// Only a direct child of the teammate is placed under it; a deeper one (depth 2 or
+		// more) already names its own parent.
+		if parentID != "" {
+			if meta.SpawnDepth < nestedDepth {
+				id := parentID
+				meta.ParentID = &id
+				meta.SpawnDepth = nestedDepth
+			}
+		}
+
 		found = append(found, subagentFile{
-			path: path,
-			id:   strings.TrimPrefix(strings.TrimSuffix(name, jsonlExt), "agent-"),
-			meta: readMeta(strings.TrimSuffix(path, jsonlExt) + metaExt),
+			path: path, id: strings.TrimPrefix(strings.TrimSuffix(name, jsonlExt), "agent-"),
+			meta: meta,
 		})
 	}
 
@@ -271,4 +315,116 @@ func (s *Session) cmuxTarget(
 	s.cmux = &Target{Workspace: workspace[1], Surface: surface[1]}
 
 	return s.cmux
+}
+
+// findTeammates looks in the lead's project folder for the transcripts of the teams it spawned
+// into, at most every 3 s. A teammate runs on its own, so a parent that got a result back never
+// marks it done.
+func (s *Session) findTeammates(now float64, leads *Leads) {
+	if len(s.lead.Teams) == 0 {
+		return
+	}
+
+	if now-s.scannedAt < teamScanMs {
+		return
+	}
+
+	s.scannedAt = now
+
+	if s.finder == nil {
+		since := 0.0
+		if js.Truthy(s.firstAt) {
+			since = s.firstAt - slackMs
+		}
+
+		s.finder = NewFinder(leads, s.leadPath, since)
+	}
+
+	for _, mate := range s.finder.Find(s.lead.Teams) {
+		if s.known[mate.Path] {
+			continue
+		}
+
+		s.known[mate.Path] = true
+		s.teammates = append(s.teammates, mate.Path)
+
+		kind, name, shape := teammateType, mate.Name, background
+		meta := transcript.AgentMeta{
+			AgentType: &kind, Description: &name, ToolUseID: nil, SpawnDepth: 0,
+			RequestShape: &shape, ParentID: nil,
+		}
+		s.agents = append(s.agents, &agentEntry{
+			path: mate.Path, tail: transcript.NewTail(mate.Path),
+			state: transcript.NewAgentState(strings.TrimSuffix(filepath.Base(mate.Path), jsonlExt),
+				meta),
+		})
+	}
+}
+
+// teamTag is the team tag at the head of this session's transcript, looked at again only while
+// the file grows and its head has not been read through its bound.
+func (s *Session) teamTag() *TeamTag {
+	var size int64
+	if s.leadTail != nil {
+		size = s.leadTail.Size
+	}
+
+	if s.tagStale(size) {
+		head := ReadTeamHead(s.leadPath)
+		s.tagRead = &tagRead{size: size, tag: head.Tag, final: head.Decided}
+	}
+
+	return s.tagRead.tag
+}
+
+func (s *Session) tagStale(size int64) bool {
+	if s.tagRead == nil {
+		return true
+	}
+
+	if s.tagRead.tag != nil {
+		return false
+	}
+
+	if s.tagRead.final {
+		return false
+	}
+
+	return s.tagRead.size != size
+}
+
+// team is set when this session is a teammate of a lead: a transcript in the same folder spawned
+// it (or, failing that, its team). Its cost and calls are the lead's; a lone teammate is an
+// ordinary session. The lookup is kept for 3 s; LeadID is left for the caller.
+func (s *Session) team(now float64, leads *Leads) *snapshot.Team {
+	if s.leadPath == "" {
+		return nil
+	}
+
+	tag := s.teamTag()
+	if tag == nil {
+		return nil
+	}
+
+	if tag.Name == teamLead {
+		return nil
+	}
+
+	if s.claim == nil {
+		s.claim = &teamClaim{at: negativeInfinity(), value: nil}
+	}
+
+	if now-s.claim.at >= teamScanMs {
+		s.claim = &teamClaim{at: now, value: nil}
+
+		lead := leads.Path(s.leadPath, *tag, LeadOpts{Limit: 0, FirstAt: nil, First: ""})
+		if lead != "" {
+			s.claim.value = &snapshot.Team{
+				Name: tag.Team, LeadSessionID: strings.TrimSuffix(filepath.Base(lead), jsonlExt),
+				LeadID: nil,
+			}
+		}
+	}
+
+	return s.claim.value
 }

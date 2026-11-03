@@ -163,8 +163,10 @@ type store struct {
 	asks map[string]seen
 	// answered is the prompt last answered in each session, by pid. It holds only for that
 	// session and status stamp, and is set only once a send went through.
-	answered  map[string]answeredPrompt
-	askDone   chan askRead
+	answered map[string]answeredPrompt
+	askDone  chan askRead
+	// leads finds a teammate's lead, one spawn index per project folder.
+	leads     *Leads
 	lastProc  float64
 	lastReg   float64
 	projects  string
@@ -181,7 +183,7 @@ func newStore(deps Deps, bumps func() int64, stopped <-chan struct{}) *store {
 		prDone: make(chan prResult, prQueue), stopped: stopped, cache: nil,
 		sending: map[string]bool{}, closing: map[string]bool{}, reading: map[string]bool{},
 		asks: map[string]seen{}, answered: map[string]answeredPrompt{},
-		askDone: make(chan askRead, readsMax), lastProc: 0, lastReg: 0,
+		askDone: make(chan askRead, readsMax), leads: NewLeads(), lastProc: 0, lastReg: 0,
 		projects: filepath.Join(claudeDir, "projects"),
 		registry: filepath.Join(claudeDir, "sessions"), bumpCount: bumps,
 	}
@@ -202,7 +204,7 @@ func (s *store) tick() {
 	changed := s.refreshRegistry(now)
 
 	for _, key := range s.order {
-		if s.sessions[key].poll(s.projects) {
+		if s.sessions[key].poll(s.projects, now, s.leads) {
 			changed = true
 		}
 	}
@@ -640,7 +642,7 @@ func (s *store) detail(
 		CanReply: session.cmuxTarget(s.procs, s.deps.Env) != nil, Ask: s.askOf(reg.key(), session),
 		Shells: s.shellsOf(reg.PID), PR: s.prFor(ctx, reg.Cwd, session.lead.Branch),
 		StartedAt: valueOr(reg.StartedAt, session.firstAt), UpdatedAt: valueOr(reg.UpdatedAt, 0),
-		Team: nil,
+		Team: s.teamOf(session, now),
 	}
 
 	cwd := reg.Cwd
@@ -651,6 +653,27 @@ func (s *store) detail(
 		Trim: true, Kind: KindOf(name, &cwd, runKeys, rules),
 		AdvisorModel: snapshot.AdvisorModel, Ended: false, EndedAt: nil,
 	})
+}
+
+// teamOf is a session's team, with the id of the lead's row when the lead is live too.
+func (s *store) teamOf(session *Session, now float64) *snapshot.Team {
+	team := session.team(now, s.leads)
+	if team == nil {
+		return nil
+	}
+
+	linked := *team
+
+	for _, key := range s.order {
+		if s.sessions[key].reg.SessionID == team.LeadSessionID {
+			id := key
+			linked.LeadID = &id
+
+			break
+		}
+	}
+
+	return &linked
 }
 
 func valueOr(value *float64, fallback float64) float64 {
