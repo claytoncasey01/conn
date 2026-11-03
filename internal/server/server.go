@@ -94,6 +94,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // api answers a route under /api that one of the APIs owns, and is false when none does.
 func (s *Server) api(w http.ResponseWriter, r *http.Request, urlPath string) bool {
+	if s.actions(w, r, urlPath) {
+		return true
+	}
+
 	if route, ours := gallery.RouteOf(urlPath); ours {
 		if s.Gallery != nil {
 			s.gallery(w, r, route)

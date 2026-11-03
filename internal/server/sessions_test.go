@@ -180,3 +180,69 @@ func TestSessionRoutes(t *testing.T) {
 		t.Errorf("snapshot %q", recorder.Body.String())
 	}
 }
+
+// TestActionRoutesAreGuarded: the session actions take POST with Conn's header only, a body over
+// 64 KB is a 413, and a body that is not JSON is read as {}.
+func TestActionRoutesAreGuarded(t *testing.T) {
+	t.Parallel()
+
+	loop := emptyLoop(t)
+
+	go loop.Run(t.Context())
+
+	handler := &server.Server{
+		UI: bundle(), Clients: loop.Hub().Count, Settings: nil, Themes: nil, Gallery: nil,
+		Logger: nil, Sessions: loop,
+	}
+
+	forbidden := `{"error":"forbidden"}`
+	tests := []struct {
+		method, target, body string
+		header               bool
+		status               int
+		want                 string
+	}{
+		{http.MethodPost, "/api/sessions/5/stop", "", false, http.StatusForbidden, forbidden},
+		{http.MethodGet, "/api/sessions/5/stop", "", true, http.StatusForbidden, forbidden},
+		{
+			http.MethodPost, "/api/sessions/5/stop", "garbage", true, http.StatusNotFound,
+			`{"error":"no such live session"}`,
+		},
+		{http.MethodPost, "/api/sessions/5/reply", "{}", false, http.StatusForbidden, forbidden},
+		{http.MethodPut, "/api/sessions/5/answer", "{}", true, http.StatusForbidden, forbidden},
+		{
+			http.MethodPost, "/api/sessions/5/reply", strings.Repeat("x", 70_000), true,
+			http.StatusRequestEntityTooLarge, `{"error":"the request body is too large"}`,
+		},
+		{
+			http.MethodPost, "/api/sessions/5/reply", "not json", true, http.StatusNotFound,
+			`{"error":"no such live session"}`,
+		},
+		{
+			http.MethodPost, "/api/sessions/5/terminal", "[1]", true, http.StatusNotFound,
+			`{"error":"no such live session"}`,
+		},
+		{http.MethodPost, "/api/sessions/x/terminal", "{}", true, http.StatusOK, shell},
+	}
+
+	for _, tt := range tests {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequestWithContext(t.Context(), tt.method, tt.target,
+			strings.NewReader(tt.body))
+		request.Host = "127.0.0.1"
+
+		if tt.header {
+			request.Header.Set("X-Conn", "1")
+		}
+
+		handler.ServeHTTP(recorder, request)
+
+		if recorder.Code != tt.status {
+			t.Errorf("%s %s = %d", tt.method, tt.target, recorder.Code)
+		}
+
+		if recorder.Body.String() != tt.want {
+			t.Errorf("%s %s body %q", tt.method, tt.target, recorder.Body.String())
+		}
+	}
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/claytoncasey01/conn/internal/claude"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/run"
 	"github.com/claytoncasey01/conn/internal/snapshot"
 )
 
@@ -62,8 +63,14 @@ type Deps struct {
 	RepoOf func(folder string) string
 	// Upstream is the branch on origin a local branch tracks, "" for none.
 	Upstream func(cwd, branch string) string
-	Hooks    Hooks
-	Now      func() time.Time
+	// Cmux runs cmux with args (10 s at most).
+	Cmux func(ctx context.Context, args []string) run.Result
+	// Stat is `ps -o stat= -p <pid>` (5 s at most).
+	Stat func(ctx context.Context, pid float64) run.Result
+	// Kill sends SIGTERM to a process.
+	Kill  func(pid float64) error
+	Hooks Hooks
+	Now   func() time.Time
 }
 
 // Hooks are what other parts of the server put in the snapshot and decide about sessions. They
@@ -143,9 +150,21 @@ type store struct {
 	pr       map[string]prEntry
 	prBusy   map[string]bool
 	// prDone carries finished PR lookups back to the loop; stopped ends a lookup's wait for it.
-	prDone    chan prResult
-	stopped   <-chan struct{}
-	cache     *cached
+	prDone  chan prResult
+	stopped <-chan struct{}
+	cache   *cached
+	// sending are the sessions with a reply or an answer in flight, closing those with a
+	// workspace close in flight, reading those whose screen is being read for its ask.
+	sending map[string]bool
+	closing map[string]bool
+	reading map[string]bool
+	// asks are the last parsed screen of each waiting session, by pid; only the parsed ask is
+	// kept, never the screen.
+	asks map[string]seen
+	// answered is the prompt last answered in each session, by pid. It holds only for that
+	// session and status stamp, and is set only once a send went through.
+	answered  map[string]answeredPrompt
+	askDone   chan askRead
 	lastProc  float64
 	lastReg   float64
 	projects  string
@@ -159,7 +178,10 @@ func newStore(deps Deps, bumps func() int64, stopped <-chan struct{}) *store {
 	return &store{
 		deps: deps, version: 0, order: nil, sessions: map[string]*Session{},
 		procs: map[float64]Proc{}, pr: map[string]prEntry{}, prBusy: map[string]bool{},
-		prDone: make(chan prResult, prQueue), stopped: stopped, cache: nil, lastProc: 0, lastReg: 0,
+		prDone: make(chan prResult, prQueue), stopped: stopped, cache: nil,
+		sending: map[string]bool{}, closing: map[string]bool{}, reading: map[string]bool{},
+		asks: map[string]seen{}, answered: map[string]answeredPrompt{},
+		askDone: make(chan askRead, readsMax), lastProc: 0, lastReg: 0,
 		projects: filepath.Join(claudeDir, "projects"),
 		registry: filepath.Join(claudeDir, "sessions"), bumpCount: bumps,
 	}
@@ -615,7 +637,7 @@ func (s *store) detail(
 	live := snapshot.Live{
 		ID: reg.key(), PID: reg.PID, SessionID: reg.SessionID, Name: name, Cwd: reg.Cwd,
 		Repo: repo, Status: status, WaitingFor: waitingFor,
-		CanReply: session.cmuxTarget(s.procs, s.deps.Env) != nil, Ask: nil,
+		CanReply: session.cmuxTarget(s.procs, s.deps.Env) != nil, Ask: s.askOf(reg.key(), session),
 		Shells: s.shellsOf(reg.PID), PR: s.prFor(ctx, reg.Cwd, session.lead.Branch),
 		StartedAt: valueOr(reg.StartedAt, session.firstAt), UpdatedAt: valueOr(reg.UpdatedAt, 0),
 		Team: nil,

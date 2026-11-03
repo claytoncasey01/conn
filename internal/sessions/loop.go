@@ -69,8 +69,17 @@ func (l *Loop) Run(ctx context.Context) {
 			request(l.store)
 		case result := <-l.store.prDone:
 			l.store.settlePR(result)
+		case read := <-l.store.askDone:
+			l.store.screenRead(read)
 		case <-ticker.C:
 			l.store.tick()
+
+			// The waiting sessions' screens are read in the background, only while a page is
+			// open: nothing else uses the asks.
+			if l.hub.Count() > 0 {
+				l.store.readAsks(ctx, l.store.now())
+			}
+
 			pusher.push(ctx, l.store, l.hub)
 		}
 	}

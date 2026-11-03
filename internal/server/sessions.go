@@ -86,6 +86,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 
 	defer hub.Leave(client)
 
+	// A page that opens gets the waiting screens read now, not at the next tick; the next frame
+	// carries what they ask.
+	s.Sessions.ReadAsks(r.Context())
+
 	for {
 		select {
 		case frame := <-client.Frames():

@@ -31,6 +31,7 @@ type world struct {
 	prs     map[string]string
 	mutex   sync.Mutex
 	asked   []string
+	term    *terminal
 }
 
 func newWorld(t *testing.T) *world {
@@ -40,7 +41,7 @@ func newWorld(t *testing.T) *world {
 		t: t, home: t.TempDir(), data: t.TempDir(), procs: []string{"1 0 /sbin/launchd"},
 		envs: map[float64]string{}, allowed: map[string]bool{"acme/widgets": true},
 		repos: map[string]string{}, ups: map[string]string{}, prs: map[string]string{},
-		mutex: sync.Mutex{}, asked: nil,
+		mutex: sync.Mutex{}, asked: nil, term: newTerminal(),
 	}
 }
 
@@ -122,6 +123,7 @@ func (w *world) deps() sessions.Deps {
 
 			return []byte(answer), nil
 		},
+		Cmux: w.term.cmux, Stat: w.term.stat, Kill: w.term.kill,
 		RepoOf:   func(folder string) string { return w.repos[folder] },
 		Upstream: func(_, branch string) string { return w.ups[branch] },
 		Hooks: sessions.Hooks{

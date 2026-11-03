@@ -67,6 +67,8 @@ type Config struct {
 	// ClaudeBin is the claude program helper runs start (CONN_CLAUDE): a test points it at a
 	// fake.
 	ClaudeBin string
+	// CmuxBin is the cmux program sessions are read and typed into with (CONN_CMUX).
+	CmuxBin string
 	// ThemesUser is the user's own themes (and gallery installs), untrusted input.
 	ThemesUser string
 	// ThemeIndex is the Themes gallery's index repo, or "" when CONN_THEME_INDEX is off.
@@ -142,6 +144,7 @@ func FromEnv(lookup LookupFunc) Config {
 		Home:                      home,
 		DataDir:                   data,
 		ClaudeBin:                 valueOr(lookup, "CONN_CLAUDE", "claude"),
+		CmuxBin:                   valueOr(lookup, "CONN_CMUX", "cmux"),
 		ThemesUser:                filepath.Join(data, "themes"),
 		ThemeIndex:                parseThemeIndex(valueOf(lookup, "CONN_THEME_INDEX")),
 		TranscriptsRoot:           valueOr(lookup, "CONN_TRANSCRIPTS", transcriptsRoot(home)),
