@@ -25,6 +25,15 @@ linters:
         # Conn reads files at paths it is configured with or finds: Claude Code's transcripts,
         # the settings file, repository folders.
         - G304
+    ireturn:
+      # The defaults, plus generic: a type parameter is a concrete type at each call, not an
+      # interface the caller has to unwrap.
+      allow:
+        - anon
+        - error
+        - empty
+        - stdlib
+        - generic
     lll:
       # TigerStyle's hard limit. Tabs count as 4, so the limit matches what an editor shows.
       line-length: 100
