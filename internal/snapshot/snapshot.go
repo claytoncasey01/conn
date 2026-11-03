@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/ask"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/transcript"
 )
@@ -61,23 +62,6 @@ type Team struct {
 	LeadID        *string `json:"leadId"`
 }
 
-// AskOption is one choice of an ask: Key is the digit printed beside it.
-type AskOption struct {
-	Key   string `json:"key"`
-	Label string `json:"label"`
-	Role  string `json:"role"`
-}
-
-// Ask is what a waiting session's screen is asking.
-type Ask struct {
-	Kind    string      `json:"kind"`
-	ID      string      `json:"id"`
-	Title   string      `json:"title"`
-	Text    string      `json:"text"`
-	Options []AskOption `json:"options"`
-	Since   float64     `json:"since"`
-}
-
 // Live is what the transcripts cannot say: the registry, the process table, cmux and GitHub.
 type Live struct {
 	ID        string
@@ -90,7 +74,7 @@ type Live struct {
 	// WaitingFor says why a session waits; nil otherwise.
 	WaitingFor *string
 	CanReply   bool
-	Ask        *Ask
+	Ask        *ask.Ask
 	Shells     float64
 	PR         *PR
 	StartedAt  float64
@@ -134,7 +118,7 @@ type Detail struct {
 	Branch        string                `json:"branch"`
 	Status        string                `json:"status"`
 	CanReply      bool                  `json:"canReply"`
-	Ask           *Ask                  `json:"ask"`
+	Ask           *ask.Ask              `json:"ask"`
 	WaitingFor    *string               `json:"waitingFor"`
 	StartedAt     float64               `json:"startedAt"`
 	UpdatedAt     float64               `json:"updatedAt"`
