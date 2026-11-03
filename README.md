@@ -39,13 +39,15 @@ make serve
 
 `make serve` builds the UI and the `conn` binary (`bin/conn`, with the UI built in), then runs `conn serve`, which listens on http://127.0.0.1:7777. Open that address in your browser. Ctrl-C stops it.
 
+One Conn runs per data folder. A second `conn serve` on the same folder prints the address of the one already running and exits, and `conn stop` stops it. A port that another program holds is an error that says so: set `CONN_PORT` to a free one.
+
 On first start every page except Themes sends you to Settings. Choose the repositories Conn may read, as patterns such as `acme/widgets` or `acme/*`. Nothing is fetched until you do. The allowlist limits what Conn reads, not what a Claude Code session can reach on its own. See [settings](docs/settings.md).
 
 ## What Conn touches
 
 - **Network.** The server makes one kind of web request of its own: the theme gallery reads `raw.githubusercontent.com` with plain GETs that carry no credentials. `CONN_THEME_INDEX=off` turns it off. GitHub goes through your `gh`. Slack, Jira and Confluence go through short headless `claude -p` runs that use your claude.ai connectors. Those runs cost tokens, and each is capped in cost and time. There is no telemetry.
 - **Fonts.** Themes name Google Fonts families, and the page loads the active theme's from `fonts.googleapis.com`, so your browser contacts Google. The glyph font for Matrix's rain is bundled.
-- **Files.** Conn keeps its data in `~/.conn` (`CONN_DATA` changes it): the History archive, `settings.json`, `reviews.json` and `myprs.json`. They are readable only by you. `history.db` holds the text of your prompts and results, so treat it like `~/.claude`.
+- **Files.** Conn keeps its data in `~/.conn` (`CONN_DATA` changes it): the History archive, `settings.json`, `reviews.json`, `myprs.json` and `conn.lock`, which names the server running on the folder. They are readable only by you. `history.db` holds the text of your prompts and results, so treat it like `~/.claude`.
 - **Git.** Review and self-review sessions work in their own git worktrees, never in your working copy. Each page's doc lists everything Conn writes and calls for that feature.
 - **Writes.** Every request that changes something needs the `x-conn: 1` header and a local `Origin`.
 

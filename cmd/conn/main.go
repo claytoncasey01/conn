@@ -1,6 +1,7 @@
 // Command conn is Conn: a local dashboard for Claude Code.
 //
 //	conn serve    run the dashboard server on 127.0.0.1:$CONN_PORT (default 7777) for a browser
+//	conn stop     end the conn serve running on this data folder
 package main
 
 import (
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -20,6 +22,8 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn"
+	"github.com/claytoncasey01/conn/internal/config"
+	"github.com/claytoncasey01/conn/internal/instance"
 	"github.com/claytoncasey01/conn/internal/server"
 )
 
@@ -53,12 +57,24 @@ const usage = `usage: conn <command>
 
 commands:
   serve    run the dashboard server on 127.0.0.1:$CONN_PORT (default 7777) for a browser
+  stop     end the conn serve running on this data folder ($CONN_DATA, default ~/.conn)
 `
 
 var errNotPort = errors.New("CONN_PORT is not a port")
 
-// lookupFunc reads one environment variable: os.LookupEnv, or a map in a test.
-type lookupFunc func(key string) (string, bool)
+// portTakenError is a port another program holds: not a Conn on this data folder, or the lock
+// would have said so.
+type portTakenError struct {
+	port int
+	err  error
+}
+
+func (e portTakenError) Error() string {
+	return "port " + strconv.Itoa(e.port) +
+		" is in use by another program: set CONN_PORT to a free port"
+}
+
+func (e portTakenError) Unwrap() error { return e.err }
 
 // main is the only place that touches the process: its arguments, environment, output streams
 // and exit code. Everything below takes them as arguments, so it can be tested.
@@ -68,7 +84,7 @@ func main() {
 
 // realMain runs the command args name and returns its exit code. No command, or one it does not
 // know, is a usage error.
-func realMain(args []string, lookup lookupFunc, stdout, stderr io.Writer) int {
+func realMain(args []string, lookup config.LookupFunc, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		_, _ = fmt.Fprint(stderr, usage)
 
@@ -81,6 +97,8 @@ func realMain(args []string, lookup lookupFunc, stdout, stderr io.Writer) int {
 		defer stop()
 
 		return serve(ctx, lookup, stdout, stderr)
+	case "stop":
+		return stop(context.Background(), lookup, stdout, stderr)
 	case "help", "-h", "--help":
 		_, _ = fmt.Fprint(stdout, usage)
 
@@ -92,8 +110,9 @@ func realMain(args []string, lookup lookupFunc, stdout, stderr io.Writer) int {
 	return exitUsage
 }
 
-// serve runs the dashboard server until ctx ends, then lets open requests finish.
-func serve(ctx context.Context, lookup lookupFunc, stdout, stderr io.Writer) int {
+// serve runs the dashboard server until ctx ends, then lets open requests finish. Another Conn
+// already running on the data folder is not an error: serve says where it is and exits.
+func serve(ctx context.Context, lookup config.LookupFunc, stdout, stderr io.Writer) int {
 	portNumber, err := port(lookup)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
@@ -101,21 +120,53 @@ func serve(ctx context.Context, lookup lookupFunc, stdout, stderr io.Writer) int
 		return exitError
 	}
 
-	var listenConfig net.ListenConfig
+	cfg := config.FromEnv(lookup)
 
-	address := net.JoinHostPort(server.Host, strconv.Itoa(portNumber))
+	held, err := instance.Acquire(cfg.DataDir)
+	if errors.Is(err, instance.ErrHeld) {
+		return alreadyRunning(ctx, cfg.DataDir, stdout, stderr)
+	}
 
-	listener, err := listenConfig.Listen(ctx, "tcp", address)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
 
 		return exitError
 	}
 
-	httpServer := newHTTPServer(&server.Server{UI: ui(lookup), Clients: nil})
-	served := make(chan error, 1)
+	defer func() { _ = held.Release() }()
 
-	_, _ = fmt.Fprintf(stdout, "conn listening on http://%s\n", listener.Addr())
+	logger := log.New(stderr, "", 0)
+	store := loadSettings(cfg.DataDir, logger, stderr)
+
+	listener, err := listen(ctx, portNumber)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
+
+		return exitError
+	}
+
+	address := "http://" + listener.Addr().String()
+
+	err = held.Publish(instance.Holder{PID: os.Getpid(), URL: address})
+	if err != nil {
+		_ = listener.Close()
+		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
+
+		return exitError
+	}
+
+	_, _ = fmt.Fprintf(stdout, "conn listening on %s\n", address)
+
+	handler := newHandler(cfg, store, logger, ui(lookup))
+
+	return run(ctx, newHTTPServer(handler), listener, stderr)
+}
+
+// run serves on listener until ctx ends or the server stops by itself.
+func run(
+	ctx context.Context, httpServer *http.Server, listener net.Listener, stderr io.Writer,
+) int {
+	served := make(chan error, 1)
 
 	go func() { served <- httpServer.Serve(listener) }()
 
@@ -131,6 +182,24 @@ func serve(ctx context.Context, lookup lookupFunc, stdout, stderr io.Writer) int
 	_ = httpServer.Shutdown(shutdownCtx)
 
 	return exitOK
+}
+
+// listen opens the server's port on 127.0.0.1. A port another program holds says so.
+func listen(ctx context.Context, portNumber int) (net.Listener, error) {
+	var listenConfig net.ListenConfig
+
+	address := net.JoinHostPort(server.Host, strconv.Itoa(portNumber))
+
+	listener, err := listenConfig.Listen(ctx, "tcp", address)
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return nil, portTakenError{port: portNumber, err: err}
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("listening on %s: %w", address, err)
+	}
+
+	return listener, nil
 }
 
 // serveEnded is the exit code for a server that stopped by itself.
@@ -156,7 +225,7 @@ func newHTTPServer(handler http.Handler) *http.Server {
 }
 
 // port is CONN_PORT, or 7777 when it is unset or blank.
-func port(lookup lookupFunc) (int, error) {
+func port(lookup config.LookupFunc) (int, error) {
 	value, _ := lookup("CONN_PORT")
 	value = strings.TrimSpace(value)
 
@@ -181,7 +250,7 @@ func port(lookup lookupFunc) (int, error) {
 }
 
 // ui is the page bundle: the folder CONN_DIST names, else the one built into this binary.
-func ui(lookup lookupFunc) fs.FS {
+func ui(lookup config.LookupFunc) fs.FS {
 	folder, _ := lookup("CONN_DIST")
 	folder = strings.TrimSpace(folder)
 

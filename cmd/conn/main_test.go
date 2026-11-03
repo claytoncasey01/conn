@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
@@ -36,7 +37,7 @@ func (b *syncBuffer) String() string {
 	return b.buffer.String()
 }
 
-func lookupFrom(env map[string]string) lookupFunc {
+func lookupFrom(env map[string]string) config.LookupFunc {
 	return func(key string) (string, bool) {
 		value, ok := env[key]
 
@@ -128,7 +129,9 @@ func TestServeAnswersUntilStopped(t *testing.T) {
 
 	var stdout, stderr syncBuffer
 
-	env := map[string]string{"CONN_PORT": "0", "CONN_DIST": t.TempDir()}
+	env := map[string]string{
+		"CONN_PORT": "0", "CONN_DIST": t.TempDir(), "CONN_DATA": t.TempDir(),
+	}
 	exited := make(chan int, 1)
 
 	go func() { exited <- serve(ctx, lookupFrom(env), &stdout, &stderr) }()
