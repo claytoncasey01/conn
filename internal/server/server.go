@@ -46,6 +46,8 @@ type healthBody struct {
 	Clients int  `json:"clients"`
 }
 
+// ServeHTTP refuses a request from anywhere but this machine, then answers the API or serves
+// the page bundle.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !local(r) {
 		sendJSON(w, http.StatusForbidden, errorBody{Error: "forbidden"})
