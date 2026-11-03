@@ -52,11 +52,18 @@ linters:
           - funlen
           - goconst
       # Tests stand in for gh, git and claude with small executable scripts, which need the
-      # owner's execute bit, and start the test binary itself as a child server (G702).
+      # owner's execute bit, start the test binary itself as a child server (G702), and make
+      # folders and files as a person would by hand, to compare an install's modes with (G301).
       - path: _test\.go
         linters:
           - gosec
-        text: "G302|G306|G702"
+        text: "G301|G302|G306|G702"
+      # A gallery install makes its folder and files as mkdir and a plain write do, the umask
+      # taking its share, so an installed theme has the modes a hand-made one has (Bun's too).
+      - path: internal/gallery/files\.go
+        linters:
+          - gosec
+        text: "G301|G302|G306"
 
 formatters:
   enable:

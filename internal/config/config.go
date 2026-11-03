@@ -263,9 +263,9 @@ func parseHeads(list string) []string {
 	return heads
 }
 
-// isRepoName reports whether repo is `owner/repo` of plain GitHub name characters: it goes into a
+// IsRepoName reports whether repo is `owner/repo` of plain GitHub name characters: it goes into a
 // URL, so nothing else (a ?, a .. segment) may pass.
-func isRepoName(repo string) bool {
+func IsRepoName(repo string) bool {
 	if !themeRepo.MatchString(repo) {
 		return false
 	}
@@ -286,7 +286,7 @@ func parseThemeIndex(raw string) string {
 		return ""
 	}
 
-	if isRepoName(value) {
+	if IsRepoName(value) {
 		return value
 	}
 
