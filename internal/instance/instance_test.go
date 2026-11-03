@@ -1,0 +1,131 @@
+package instance_test
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/claytoncasey01/conn/internal/instance"
+)
+
+func TestOneConnPerDataFolder(t *testing.T) {
+	t.Parallel()
+
+	folder := filepath.Join(t.TempDir(), "data")
+
+	first, err := instance.Acquire(folder)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+
+	_, err = instance.Acquire(folder)
+	if !errors.Is(err, instance.ErrHeld) {
+		t.Fatalf("a second Acquire = %v, want ErrHeld", err)
+	}
+
+	err = first.Release()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := instance.Acquire(folder)
+	if err != nil {
+		t.Fatalf("Acquire after Release: %v", err)
+	}
+
+	_ = again.Release()
+}
+
+func TestTheFolderAndFileArePrivate(t *testing.T) {
+	t.Parallel()
+
+	folder := filepath.Join(t.TempDir(), "data")
+
+	held, err := instance.Acquire(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = held.Release() }()
+
+	for path, want := range map[string]os.FileMode{
+		folder: 0o700, filepath.Join(folder, instance.FileName): 0o600,
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if info.Mode().Perm() != want {
+			t.Errorf("%s mode = %o, want %o", path, info.Mode().Perm(), want)
+		}
+	}
+}
+
+// running is instance.Running, failing the test on an error.
+func running(t *testing.T, folder string) (instance.Holder, bool) {
+	t.Helper()
+
+	holder, held, err := instance.Running(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return holder, held
+}
+
+func acquire(t *testing.T, folder string) *instance.Lock {
+	t.Helper()
+
+	held, err := instance.Acquire(folder)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+
+	return held
+}
+
+func TestRunningSaysWhoHoldsTheFolder(t *testing.T) {
+	t.Parallel()
+
+	folder := t.TempDir()
+
+	if _, held := running(t, folder); held {
+		t.Error("Running before anything ran = true")
+	}
+
+	lock := acquire(t, folder)
+
+	holder, held := running(t, folder)
+	if !held {
+		t.Fatal("Running = false while the folder is held")
+	}
+
+	if holder != (instance.Holder{}) {
+		t.Errorf("holder = %+v before Publish, want zero", holder)
+	}
+
+	want := instance.Holder{PID: 42, URL: "http://127.0.0.1:7777"}
+
+	err := lock.Publish(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if holder, _ := running(t, folder); holder != want {
+		t.Errorf("holder = %+v, want %+v", holder, want)
+	}
+
+	err = lock.Release()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, held := running(t, folder); held {
+		t.Error("Running after Release = true")
+	}
+
+	// Asking who runs never holds the folder itself.
+	_ = acquire(t, folder).Release()
+}
