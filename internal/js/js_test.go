@@ -307,3 +307,97 @@ func TestToNumberIsNaNForAnythingElse(t *testing.T) {
 		})
 	}
 }
+
+func TestCollapseSpace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "empty", text: "", want: ""},
+		{name: "runs inside", text: "a \t\n b", want: "a b"},
+		{name: "runs at the ends are kept as one space", text: "  a  ", want: " a "},
+		{name: "JavaScript's own spaces", text: "a\u00a0\u2028b", want: "a b"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := js.CollapseSpace(tt.text)
+			if got != tt.want {
+				t.Errorf("CollapseSpace(%q) = %q, want %q", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		json string
+		want string
+	}{
+		{name: "null", json: `null`, want: "null"},
+		{name: "text", json: `"a"`, want: "a"},
+		{name: "a number", json: `1e21`, want: "1e+21"},
+		{name: "a boolean", json: `false`, want: "false"},
+		{name: "an object", json: `{"a":1}`, want: "[object Object]"},
+		{name: "an array joins its items", json: `[1,null,"b",[2,3]]`, want: "1,,b,2,3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			value, err := js.Parse([]byte(tt.json))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			got := js.String(value)
+			if got != tt.want {
+				t.Errorf("String(%s) = %q, want %q", tt.json, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTruthy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		json string
+		want bool
+	}{
+		{json: `null`, want: false},
+		{json: `false`, want: false},
+		{json: `0`, want: false},
+		{json: `""`, want: false},
+		{json: `true`, want: true},
+		{json: `-1`, want: true},
+		{json: `"0"`, want: true},
+		{json: `{}`, want: true},
+		{json: `[]`, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.json, func(t *testing.T) {
+			t.Parallel()
+
+			value, err := js.Parse([]byte(tt.json))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			got := js.Truthy(value)
+			if got != tt.want {
+				t.Errorf("Truthy(%s) = %v, want %v", tt.json, got, tt.want)
+			}
+		})
+	}
+}

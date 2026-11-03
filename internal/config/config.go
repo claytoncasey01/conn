@@ -62,6 +62,9 @@ type LookupFunc func(key string) (string, bool)
 type Config struct {
 	// DataDir is where the dashboard keeps its own data (history.db, runs, caches).
 	DataDir string
+	// ClaudeBin is the claude program helper runs start (CONN_CLAUDE): a test points it at a
+	// fake.
+	ClaudeBin string
 	// ThemesUser is the user's own themes (and gallery installs), untrusted input.
 	ThemesUser string
 	// ThemeIndex is the Themes gallery's index repo, or "" when CONN_THEME_INDEX is off.
@@ -135,6 +138,7 @@ func FromEnv(lookup LookupFunc) Config {
 
 	return Config{
 		DataDir:                   data,
+		ClaudeBin:                 valueOr(lookup, "CONN_CLAUDE", "claude"),
 		ThemesUser:                filepath.Join(data, "themes"),
 		ThemeIndex:                parseThemeIndex(valueOf(lookup, "CONN_THEME_INDEX")),
 		TranscriptsRoot:           valueOr(lookup, "CONN_TRANSCRIPTS", transcriptsRoot(home)),

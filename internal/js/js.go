@@ -10,6 +10,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"math/big"
@@ -67,6 +68,9 @@ const (
 	baseOctal  = 8
 	baseHex    = 16
 )
+
+// nullText is how JavaScript writes null.
+const nullText = "null"
 
 // ErrSyntax is the one error Parse gives for text that is not JSON.
 var ErrSyntax = errors.New("not valid JSON")
@@ -371,7 +375,7 @@ func write(builder *strings.Builder, value any, depth int) {
 
 	switch typed := value.(type) {
 	case nil:
-		builder.WriteString("null")
+		builder.WriteString(nullText)
 	case *Object:
 		writeObject(builder, typed, depth)
 	case []any:
@@ -403,7 +407,7 @@ func writeScalar(builder *strings.Builder, value any) {
 
 func writeObject(builder *strings.Builder, object *Object, depth int) {
 	if object == nil {
-		builder.WriteString("null")
+		builder.WriteString(nullText)
 
 		return
 	}
@@ -460,7 +464,7 @@ func writeEncoded(builder *strings.Builder, value any) {
 
 	err := encoder.Encode(value)
 	if err != nil {
-		builder.WriteString("null")
+		builder.WriteString(nullText)
 
 		return
 	}
@@ -519,11 +523,11 @@ func escape(char rune) string {
 // Number prints value as JavaScript's Number.prototype.toString does.
 func Number(value float64) string {
 	if math.IsNaN(value) {
-		return "null"
+		return nullText
 	}
 
 	if math.IsInf(value, 0) {
-		return "null"
+		return nullText
 	}
 
 	if value == 0 {
@@ -566,6 +570,96 @@ func IsSpace(char rune) bool {
 	}
 
 	return char <= hairSpace
+}
+
+// CollapseSpace replaces every run of JavaScript whitespace with one space, as
+// text.replace(/\s+/g, ' ') does.
+func CollapseSpace(text string) string {
+	var builder strings.Builder
+
+	inRun := false
+
+	for _, char := range text {
+		if IsSpace(char) {
+			inRun = true
+
+			continue
+		}
+
+		if inRun {
+			builder.WriteByte(' ')
+		}
+
+		inRun = false
+
+		builder.WriteRune(char)
+	}
+
+	if inRun {
+		builder.WriteByte(' ')
+	}
+
+	return builder.String()
+}
+
+// Truthy reports whether a parsed JSON value is truthy in JavaScript: everything but null, false,
+// 0, NaN and the empty string.
+func Truthy(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case bool:
+		return typed
+	case float64:
+		if math.IsNaN(typed) {
+			return false
+		}
+
+		return typed != 0
+	case string:
+		return typed != ""
+	}
+
+	return true
+}
+
+// String converts a parsed JSON value as JavaScript's String(value) does: a number as
+// Number.prototype.toString, an object as "[object Object]", an array as its items joined by
+// commas (null as nothing).
+func String(value any) string {
+	return stringAt(value, 0)
+}
+
+func stringAt(value any, depth int) string {
+	if depth > depthMax {
+		panic("js.String: nesting deeper than depthMax, so the value has a cycle")
+	}
+
+	switch typed := value.(type) {
+	case nil:
+		if depth > 0 {
+			return ""
+		}
+
+		return nullText
+	case string:
+		return typed
+	case float64:
+		return Number(typed)
+	case bool:
+		return strconv.FormatBool(typed)
+	case *Object:
+		return "[object Object]"
+	case []any:
+		items := make([]string, 0, len(typed))
+		for _, item := range typed {
+			items = append(items, stringAt(item, depth+1))
+		}
+
+		return strings.Join(items, ",")
+	}
+
+	panic(fmt.Sprintf("js.String: %T is not a parsed JSON value", value))
 }
 
 // Len is s.length: the number of UTF-16 code units.
