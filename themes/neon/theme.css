@@ -1,0 +1,23 @@
+/* Neon's motion, which no token can say: the lead's spinning ring and its pulse, the live pulse, the beam running round the
+   summary and the glint running along the top bar. The tree's dashes, orbits and beating nodes are the look's (the wire tokens),
+   so a theme of tokens alone has them too. Everything that stands still (the backdrop, the cards, the brackets, the stripes,
+   the stage, the glyphs, the meters, the chrome) is tokens in theme.json. Scoped with :where() so a component's own scoped rule still wins over it.
+   The still frame of each moving piece comes first; the motion runs only while Effects are on (data-fx) and the OS does not ask
+   for less motion, so Effects off holds Neon on that still frame. */
+@property --ang{syntax:'<angle>';initial-value:0deg;inherits:false}
+
+:where([data-theme="neon"]) .ring{border:1px solid transparent !important;background:linear-gradient(#150f0b,#1c120b) padding-box, conic-gradient(from var(--ang), #ff9a5a, #ffd9c2, #ff5f6d, #ff9a5a) border-box !important}
+:where([data-theme="neon"]) .beam{display:block;position:absolute;left:0;top:0;width:90px;height:2px;pointer-events:none;background:linear-gradient(90deg,transparent,#9db4ff);offset-path:inset(0 round 4px);offset-rotate:auto;filter:drop-shadow(0 0 6px #7f9cff)}
+
+@media (prefers-reduced-motion: no-preference){
+  :where([data-theme="neon"][data-fx="on"]) .ring{animation:spin 5s linear infinite, lead 3s ease-in-out infinite}
+  :where([data-theme="neon"][data-fx="on"]) .live{animation:pulse 5s ease-in-out infinite}
+  :where([data-theme="neon"][data-fx="on"]) .beam{animation:beam 18s linear infinite}
+  :where([data-theme="neon"][data-fx="on"]) .glint{animation:glint 6s linear infinite}
+}
+
+@keyframes spin{to{--ang:360deg}}
+@keyframes lead{0%,100%{box-shadow:0 0 28px rgba(255,154,90,.22), inset 0 0 30px rgba(255,154,90,.08)}50%{box-shadow:0 0 46px rgba(255,154,90,.42), inset 0 0 40px rgba(255,154,90,.14)}}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(127,156,255,0), inset 0 0 0 rgba(127,156,255,0)}50%{box-shadow:0 0 18px 0 rgba(127,156,255,.2), inset 0 0 18px rgba(127,156,255,.05)}}
+@keyframes beam{from{offset-distance:0%}to{offset-distance:100%}}
+@keyframes glint{to{background-position:-220% 0}}

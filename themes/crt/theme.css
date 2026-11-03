@@ -1,0 +1,6 @@
+/* CRT's block cursor blinks hard, on and off (its shape, color and glow are the cursor and focus tokens, its phosphor glow on
+   text the text-glow token). Only while Effects are on and the OS allows motion: otherwise the cursor stands still. */
+@media (prefers-reduced-motion: no-preference){
+  [data-theme="crt"][data-fx="on"] .cursor{animation:crt-blink 1.06s steps(1) infinite}
+}
+@keyframes crt-blink{50%{opacity:0}}

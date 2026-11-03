@@ -1,0 +1,54 @@
+/* The base every theme gets, on tokens only. The look (what the page, the cards, the chrome and the glyphs look like) is
+   lookCss.ts; a theme's own CSS is for motion no token can say (Neon's spinning ring, beam and glint). */
+:root[data-mode="light"]{color-scheme:light}
+:root[data-mode="dark"]{color-scheme:dark}
+body{margin:0;background:var(--bg);font-family:var(--font-ui)}
+button,input,select{font:inherit}
+/* case and tracking are chrome only (lookCss.ts applies them); content is never cased (a transcript, a branch, a path, a draft in
+   the reply box). Both rules weigh one class or attribute (:is takes its heaviest argument), and the look's rules load first, so
+   this one wins by coming second; content inside chrome opts out with data-content. */
+:is(pre,code,kbd,samp,input,textarea,select,[data-content]){text-transform:none}
+.hud{font-family:var(--font-ui)}
+/* glass: a panel drawn from `panel` frosts what is behind it; the top bar's frost is the header token's and a surface's is
+   card-fill's (lookCss.ts), not this */
+[data-glass="on"] [style*="var(--panel)"]:not(.page-head):not(.surf){backdrop-filter:blur(var(--blur))}
+
+/* status dots take the theme's led shape */
+.led{border-radius:50%}
+html[data-led="diamond"] .led{border-radius:0;transform:rotate(45deg) scale(.8)}
+html[data-led="square"] .led{border-radius:0}
+
+.tab:hover{background:var(--hover)}
+.tabc:hover{background:var(--ac-soft)}
+.opt{transition:border-color .16s, background .16s}
+.opt:hover{border-color:color-mix(in oklch, var(--warn) 70%, transparent)}
+
+/* the lead node: a quiet lead-tinted panel (Neon's spinning ring is in its theme.css) */
+.ring{border:1px var(--border-style) color-mix(in oklch, var(--role-lead) 55%, transparent);background:color-mix(in oklch, var(--role-lead) 8%, var(--panel))}
+/* a status light breathes only while Effects are on and the OS allows motion (data-fx: the app and the boot script set it) */
+@media (prefers-reduced-motion: no-preference){[data-fx="on"] .blink{animation:blink 1.6s ease-in-out infinite}}
+.segon,.segon-o{-webkit-mask-image:linear-gradient(90deg,transparent,black 50%,transparent);mask-image:linear-gradient(90deg,transparent,black 50%,transparent);-webkit-mask-size:45% 100%;mask-size:45% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
+
+/* The look (the backdrop, the top bar, the stage, the surfaces, the marks and the glyphs) is drawn by src/lib/theme/lookCss.ts,
+   which the app and the gallery preview both load, so a preview can never draw a theme differently from the pages. */
+
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes segmove{0%{-webkit-mask-position:-70% 0;mask-position:-70% 0}100%{-webkit-mask-position:170% 0;mask-position:170% 0}}
+
+/* a row of stat tiles: --cols equal columns on a desktop, two on a phone (an odd last tile takes both) so each tile keeps its
+   whole label and number instead of a 53px sliver */
+.tiles{display:grid;grid-template-columns:repeat(var(--cols),minmax(0,1fr));gap:12px}
+@media (max-width: 520px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.tiles>:last-child:nth-child(odd){grid-column:1/-1}}
+/* the Overview agent tree is percent-placed nodes in a 900 x 680 box: on a phone the box keeps a readable width and scrolls
+   sideways inside its panel, and the two labels above it take two lines */
+.tree-hint{display:none}
+@media (max-width: 520px){.tree-hint{display:inline}.stage{--stage-pt:62px;--stage-px:10px}.tree-scroll{overflow-x:auto}.tree-graph{min-width:720px}}
+
+/* the Advisor and Agent time axis: five labels do not fit a phone's axis, so every other one goes */
+@media (max-width: 520px){.tick{white-space:nowrap}.tick:nth-child(even){display:none}}
+/* a consult or tool-call row is six fixed cells, 330px wide: a phone drops the index and the clock (the detail pane has both)
+   and wraps the summary onto its own line under the rest */
+@media (max-width: 520px){.rw{--rw-wrap:wrap;--rw-sum-min:100%}.rw-n,.rw-t{display:none}.rw-s{order:1}}
+
+@media print{#conn-effects,#conn-effects-above{display:none}}
+@media (prefers-reduced-motion: reduce){.card,.row,.opt,.go{transition:none}}
