@@ -17,6 +17,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/modules"
 	"github.com/claytoncasey01/conn/internal/origin"
 	"github.com/claytoncasey01/conn/internal/server"
+	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settings"
 	"github.com/claytoncasey01/conn/internal/settingsapi"
 	"github.com/claytoncasey01/conn/internal/themes"
@@ -44,12 +45,21 @@ func loadSettings(dataDir string, logger *log.Logger, stderr io.Writer) *setting
 	return store
 }
 
-// newHandler builds the server and everything it reads.
+// newHandler builds the server and everything it reads, and starts the session list, which runs
+// until ctx ends.
 func newHandler(
-	cfg config.Config, store *settings.Store, logger *log.Logger, bundle fs.FS,
+	ctx context.Context, cfg config.Config, store *settings.Store, logger *log.Logger,
+	bundle fs.FS,
 ) *server.Server {
 	reader := origin.NewReader()
 	runner := claude.Runner{Bin: cfg.ClaudeBin}
+	live := newSessions(cfg, store, reader)
+
+	// The snapshot is cached by version: a change of the allowlist must reach the page (the
+	// first-launch redirect) at once.
+	store.OnChange(func(settings.Settings) { live.Bump() })
+
+	go live.Run(ctx)
 
 	// The module statuses are read from memory, filled by helper runs and by a CHECK press, the
 	// only thing that runs a probe.
@@ -65,7 +75,7 @@ func newHandler(
 
 	api := settingsapi.New(settingsapi.Deps{
 		Settings:     store,
-		Sessions:     nil,
+		Sessions:     liveFolders(ctx, live),
 		MyPrRepos:    nil,
 		HistoryRepos: nil,
 		OriginOf:     reader.Of,
@@ -87,9 +97,23 @@ func newHandler(
 	})
 
 	return &server.Server{
-		UI: bundle, Clients: nil, Settings: api, Logger: logger,
+		UI: bundle, Clients: live.Hub().Count, Settings: api, Logger: logger, Sessions: live,
 		Themes:  themes.New(builtin, themes.Disk(cfg.ThemesUser), logger),
 		Gallery: gallery.NewAPI(themesGallery, cfg.ThemeIndex, now),
+	}
+}
+
+// liveFolders are the live sessions' folders, for the Settings page's repo suggestions.
+func liveFolders(ctx context.Context, live *sessions.Loop) func() []string {
+	return func() []string {
+		live := live.LiveSessions(ctx)
+		folders := make([]string, 0, len(live))
+
+		for _, session := range live {
+			folders = append(folders, session.Cwd)
+		}
+
+		return folders
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/gallery"
+	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settingsapi"
 	"github.com/claytoncasey01/conn/internal/themes"
 )
@@ -51,6 +52,8 @@ type Server struct {
 	Themes *themes.Library
 	// Gallery answers /api/gallery; nil leaves the routes out.
 	Gallery *gallery.API
+	// Sessions answers /api/snapshot, the agent pages and /api/events; nil leaves them out.
+	Sessions *sessions.Loop
 	// Logger is told about a request that failed.
 	Logger *log.Logger
 }
@@ -115,7 +118,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, urlPath string) boo
 		}
 	}
 
-	return false
+	return s.sessions(w, r, urlPath)
 }
 
 func (s *Server) clients() int {

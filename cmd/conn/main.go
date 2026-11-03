@@ -160,7 +160,7 @@ func serve(ctx context.Context, lookup config.LookupFunc, stdout, stderr io.Writ
 
 	_, _ = fmt.Fprintf(stdout, "conn listening on %s\n", address)
 
-	handler := newHandler(cfg, store, logger, ui(lookup))
+	handler := newHandler(ctx, cfg, store, logger, ui(lookup))
 
 	return run(ctx, newHTTPServer(handler), listener, stderr)
 }

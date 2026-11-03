@@ -72,6 +72,11 @@ linters:
         linters:
           - gosec
         text: "G705"
+      # The live-update stream writes the snapshot, JSON the server built, as text/event-stream.
+      - path: internal/server/sessions\.go
+        linters:
+          - gosec
+        text: "G705"
 
 formatters:
   enable:
