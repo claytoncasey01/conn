@@ -88,6 +88,13 @@ linters:
         linters:
           - gosec
         text: "G301|G401|G505"
+      # A self-review's folder holds the first 8 hex of the SHA-1 of its repo's name: a stable
+      # label that keeps two splits of the same text apart (Bun made it the same way), not a
+      # security measure.
+      - path: internal/myprs/launch\.go
+        linters:
+          - gosec
+        text: "G401|G505"
       # Reviews reads and writes only paths of its own: reviews.json and its copies beside it,
       # and the worktrees its launch records name, checked to be the folder Conn made for the PR
       # before anything is read or removed there.
@@ -99,6 +106,11 @@ linters:
       # press that starts them, so they take the server's context, handed to New once: a
       # request's context would be cancelled under them.
       - path: internal/reviews/reviews\.go
+        linters:
+          - containedctx
+      # My PRs' polls, asks, drafts and sweeps run the same way, on goroutines that outlive the
+      # tick or the press that starts them.
+      - path: internal/myprs/myprs\.go
         linters:
           - containedctx
 
