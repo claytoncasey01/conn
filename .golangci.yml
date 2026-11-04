@@ -121,6 +121,13 @@ linters:
         linters:
           - contextcheck
         text: "api->work->"
+      # Start returns the data folder lock's own errors as they are: instance already says what
+      # failed (the data folder, the lock file), and `conn serve` prints them as it did before
+      # the server moved into internal/app.
+      - path: internal/app/server\.go
+        linters:
+          - wrapcheck
+        text: "conn/internal/instance\\."
 
 formatters:
   enable:
