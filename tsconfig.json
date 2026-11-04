@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler",
+    "strict": true, "verbatimModuleSyntax": true, "isolatedModules": true,
+    "skipLibCheck": true, "noEmit": true, "allowImportingTsExtensions": true, "resolveJsonModule": true,
+    "types": ["svelte", "vite/client", "bun"]
+  },
+  "include": ["src/**/*", "themes/**/*", "vite.config.ts"]
+}

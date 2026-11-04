@@ -1,0 +1,13 @@
+# History
+
+The `HISTORY` tab is an archive of every Claude Code session once it has ended: search it, filter by date, kind, outcome, model, project, repo and branch, and open a session to see what it did. Sessions are archived automatically while they run (a periodic checkpoint) and in full when they end; a running session shows in History only after it ends. At startup the dashboard also imports the transcripts Claude Code still has under `~/.claude/projects` (Claude Code keeps about 30 days of them by default), so History starts with your recent past rather than empty. The import runs in the background; sessions that ended in the last two minutes are picked up a little later.
+
+The archive is a SQLite file, `history.db`, in `$CONN_DATA` (default `~/.conn`), readable only by you. It holds the text of your prompts, the results, and tool call summaries, so treat it as sensitive as `~/.claude` itself; deleting it only loses History (the sessions whose transcripts still exist are imported again, but without their summaries, PR links or names that only the live dashboard knew).
+
+Each finished session gets an `At a Glance` summary (3 to 5 lines). It is written by a short `claude` run with no tools and no MCP servers, one at a time, on Haiku by default: a fraction of a cent to a few cents per session. A session that is resumed and ends again is summarised again. Set `CONN_SUMMARY_MODEL` to change the default, or use `REGENERATE` on an entry to write it again with Haiku or Sonnet. Imported sessions, and sessions resumed and ended while the dashboard was down, are summarised when you first open them.
+
+`RESUME` on an entry opens a new cmux workspace in the session's folder and continues the same conversation (needs cmux, like Reply and Open work).
+
+If `history.db` cannot be opened or read (damaged, or written by a newer version), History turns itself off: the tab says so and the file is left untouched, and the live Sessions and Open work pages keep working.
+
+Env: `CONN_DATA` (default `~/.conn`), `CONN_TRANSCRIPTS` (default `~/.claude/projects`), `CONN_SUMMARY_MODEL` (default Haiku). The `PR OR TICKET` filter, and the ticket key on a session's entry, exist only while Open work is on (Settings, Services, Atlassian, with a Jira project): a session named exactly for a key of a listed project counts as a ticket session. `CONN_TICKET_PATTERN` is gone: the pattern is built from the project keys in Settings. With Open work off the field is `PR` and takes a PR number only.

@@ -1,0 +1,44 @@
+{
+  "id": "my-theme",
+  "name": "My theme",
+  "version": "1.0.0",
+  "author": "Your name",
+  "license": "MIT",
+  "description": "A warm paper look: cream in light mode, dark brown in dark mode, with whatever accent you pick.",
+  "modes": ["light", "dark"],
+  "accent": "free",
+  "fonts": ["IBM Plex Sans", "IBM Plex Mono"],
+  "tokens": {
+    "light": {
+      "bg": "#f6f3ee",
+      "panel": "#fffdf9",
+      "raise": "#ffffff",
+      "tx": "#2a2622",
+      "mu": "#6b6258",
+      "line": "#e4ddd2",
+      "line2": "#b8ad9c",
+      "radius": "10px",
+      "card-frame": "rule",
+      "backdrop": "lines",
+      "backdrop-strength": ".4",
+      "wire-head": "dot",
+      "wire-flow": "pulse"
+    },
+    "dark": {
+      "bg": "#16140f",
+      "panel": "#1e1b15",
+      "raise": "#2a261e",
+      "tx": "#efe9dd",
+      "mu": "#a89f90",
+      "line": "#2f2a21",
+      "line2": "#5a5244",
+      "radius": "10px",
+      "card-frame": "rule",
+      "backdrop": "lines",
+      "backdrop-strength": ".4",
+      "wire-head": "dot",
+      "wire-flow": "pulse"
+    }
+  },
+  "effects": []
+}
