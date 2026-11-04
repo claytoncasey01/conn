@@ -24,7 +24,8 @@ runs as you. The [README](README.md#what-conn-touches) lists what it reads, writ
 These are in scope, because Conn promises them:
 
 - **The local server.** A page on another site, or another user of the machine, making Conn read
-  or change something. Every write needs the `x-conn: 1` header and a local `Origin`.
+  or change something. Every write needs the `x-conn: 1` header, and a request is refused unless
+  its `Host` is a loopback name and its `Origin`, when it has one, is a page served here.
 - **Session control.** Typing a reply or answering a permission prompt in a session you did not
   choose, or an answer sent after the prompt changed.
 - **Paths and links.** Reading or writing outside the data folder, a clone, a worktree or a
@@ -33,8 +34,9 @@ These are in scope, because Conn promises them:
   following a redirect, sending a token or cookie, or serving a stylesheet from a gallery theme.
 - **The installer.** `install.sh` installing something that is not the release's checksummed
   archive, or changing anything besides the binary.
-- **Leaks.** Secrets or the text of your sessions written where other users can read them (the
-  data folder and its files are meant to be readable only by you).
+- **Leaks.** Secrets or the text of your sessions written where other users can read them. Conn
+  creates the data folder private to you (mode 0700), and that is what keeps the files in it from
+  other users.
 
 These are not, because they are how Conn works or need access an attacker would not have:
 

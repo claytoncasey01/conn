@@ -7,25 +7,25 @@ on:
   push:
     branches: [main]
 
-# No job gets a token it does not name; reading the code is all these jobs do.
-permissions:
-  contents: read
+# No job gets a token it does not name.
+permissions: {}
 
+# A newer push to a pull request replaces its run; a run on main is never cancelled, so every
+# merge keeps its result.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  # The tests that wait on a clock run on shared runners, which are slower than a laptop.
-  CONN_TEST_TIME_SCALE: "3"
-  # Pinned: a new linter release must not turn a green pull request red.
-  GOLANGCI_LINT_VERSION: v2.15.0
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # The tests that wait on a clock run on shared runners, slower than a laptop.
+      CONN_TEST_TIME_SCALE: "3"
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +55,11 @@ jobs:
     name: lint and type check
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # Pinned: a new linter release must not turn a green pull request red.
+      GOLANGCI_LINT_VERSION: v2.15.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

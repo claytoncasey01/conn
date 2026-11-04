@@ -1,6 +1,7 @@
 # Publishing a release on GitHub builds conn for macOS and Linux (amd64 and arm64) from the
-# release's tag and attaches the archives, their checksums and install.sh to it. Nothing runs
-# on a push or a pull request, and nothing is built from a branch.
+# release's tag and attaches the archives, their checksums and install.sh to it. Nothing in this
+# workflow runs on a push or a pull request (ci.yml tests those), and nothing is built from a
+# branch.
 name: release
 
 on:

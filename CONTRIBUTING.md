@@ -24,14 +24,13 @@ make dev     # hot reload: UI on :5173, API on :7778, data in ~/.config/conn-dev
 make serve   # build, then run on :7777
 ```
 
-You do not need real GitHub, Slack or Jira accounts to work on a page. `CONN_MYPRS_DRY=1`,
-`CONN_REVIEWS_DRY=1` and `CONN_WORK_DRY=1` fake My PRs, Reviews and Open work with invented data
-and make no call. Point `CONN_DATA` at a scratch folder when you use them. See
-[dry runs](docs/settings.md).
+You do not need real GitHub, Slack or Jira accounts to work on a page: the dry switches fake
+them with invented data. The README's [Development](README.md#development) section says how.
 
 ## Check your change
 
-Run these before you push. A pull request has to pass the same checks in CI, on Linux and macOS.
+Run these before you push. CI runs the tests on Linux and macOS, and the lint and type check
+on Linux.
 
 ```sh
 make fmt     # gofumpt and goimports
@@ -44,8 +43,8 @@ make test    # bun test, then go test with the race detector, in random order
   `CONN_UPDATE_GOLDEN=1 go test ./...`, so the review shows the diff.
 - Never add `//nolint` to get past the linter: fix the code. If a linter is wrong for the whole
   repository, disable it in `.golangci.yml` with a comment saying why.
-- A few rules are enforced by the tests in `internal/guard`, such as no `&&` or `||` in Go (split
-  the condition into nested ifs or a `switch`). The failure message names the file and line.
+- `make test` enforces some of the rules in [AGENTS.md](AGENTS.md) (`internal/guard`), such as no
+  `&&` or `||` in Go. A failure names the file and line.
 - If your clone is used at an employer, list the employer's names in `.company-terms` (see the
   README). The file is git-ignored, and `go test` then fails if a tracked file holds one.
 

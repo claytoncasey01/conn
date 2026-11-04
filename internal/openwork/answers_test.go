@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -329,13 +330,54 @@ func workSettings(clone, extra string) any {
 	return parsed
 }
 
+func TestRunsLoadInTheOrderOfTheirFileNames(t *testing.T) {
+	t.Parallel()
+
+	runsDir := t.TempDir()
+
+	// Written in an order no listing would return them in, and with a key that sorts before
+	// another only because of the ".json" after it.
+	records := listOf(get(get(answersFor(t, ""), "load"), "records"))
+	if len(records) < 2 {
+		t.Fatal("the recorded answers hold fewer than two runs to put in order")
+	}
+
+	var want []string
+
+	for _, record := range slices.Backward(records) {
+		key := js.String(get(record, "key"))
+
+		// The recording also holds keys that must never become a file name, such as one that
+		// climbs out of the folder: those are not what this test is about, and are not written.
+		if !strings.HasPrefix(key, "PROJ-") {
+			continue
+		}
+
+		writeJSON(t, filepath.Join(runsDir, key+".json"), record)
+
+		want = append(want, key)
+	}
+
+	slices.SortFunc(want, func(left, right string) int {
+		return strings.Compare(left+".json", right+".json")
+	})
+
+	got := openwork.LoadedKeys(runsDir)
+	if !slices.Equal(got, want) {
+		t.Errorf("runs loaded in the order %v, want the order of their file names %v", got, want)
+	}
+}
+
 func TestRecordsReadAndSavedMatchTheRecordedAnswers(t *testing.T) {
 	t.Parallel()
 
 	load := get(answersFor(t, ""), "load")
 	made := newWorldFiles(t, listOf(get(load, "records")))
 
-	same(t, "snapshot", runsOf(t, made.work), get(load, "snapshot"))
+	// The recording lists the runs in the order its filesystem listed their files, which is not
+	// the order of another's, so the runs are compared by key.
+	same(t, "snapshot", byKey(runsOf(t, made.work)), byKey(get(load, "snapshot")))
+
 	made.setClock(clock0 + 99)
 	openwork.TouchAll(made.work)
 	same(t, "files", made.files(), get(load, "files"))

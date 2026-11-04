@@ -467,6 +467,18 @@ func same(t *testing.T, label string, got, want any) {
 	}
 }
 
+// byKey is a copy of a list of runs ordered by their keys, so a comparison does not depend on the
+// order the runs were listed in.
+func byKey(runs any) any {
+	list := slices.Clone(listOf(runs))
+
+	slices.SortFunc(list, func(left, right any) int {
+		return strings.Compare(js.String(get(left, "key")), js.String(get(right, "key")))
+	})
+
+	return list
+}
+
 // runsOf are the snapshot's runs as parsed JSON.
 func runsOf(t *testing.T, w *openwork.Work) any {
 	t.Helper()
