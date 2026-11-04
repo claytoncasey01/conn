@@ -9,6 +9,7 @@ import (
 
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/dryseed"
+	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/origin"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
@@ -257,6 +258,12 @@ func TestTheWorkSeedGivesTheBuildRepoACloneTheLookupFinds(t *testing.T) {
 
 	if string(head) != "ref: refs/remotes/origin/main\n" {
 		t.Errorf("origin/HEAD = %q", head)
+	}
+
+	// And the stand-in clone says its default branch the way a real one does.
+	branch, known := openwork.DefaultBranch(clone)
+	if branch != "main" {
+		t.Errorf("default branch %q %v", branch, known)
 	}
 }
 

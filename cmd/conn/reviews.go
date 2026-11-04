@@ -43,11 +43,20 @@ func (e gitError) Error() string { return e.message }
 func gitIn(ctx context.Context, args []string, dir string, timeout time.Duration) (
 	string, error,
 ) {
+	return shIn(ctx, "git", args, dir, timeout)
+}
+
+// shIn runs a command without a shell, in dir, stopped after timeout (two
+// minutes when 0); its error's message is the command's stderr, trimmed and cut at 400
+// characters, or how the run ended when it printed nothing.
+func shIn(ctx context.Context, name string, args []string, dir string, timeout time.Duration) (
+	string, error,
+) {
 	if timeout == 0 {
 		timeout = gitTimeout
 	}
 
-	result := command.Cmd(ctx, "git", args, command.Opts{
+	result := command.Cmd(ctx, name, args, command.Opts{
 		Dir: dir, Timeout: timeout, OutputBytesMax: gitBytesMax, Stdin: "", Env: nil,
 	})
 	if result.Err == nil {

@@ -19,6 +19,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/instance"
 	"github.com/claytoncasey01/conn/internal/modules"
 	"github.com/claytoncasey01/conn/internal/myprs"
+	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/origin"
 	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/server"
@@ -98,14 +99,21 @@ func newHandler(
 	var (
 		reviewsTab *reviews.Reviews
 		myPrsTab   *myprs.MyPrs
+		workTab    *openwork.Work
 	)
 
 	live := newSessions(ctx, cfg, store, reader, archived, logger.Writer(), tabViews{
 		reviews: func() any { return reviewsTab.Snapshot() },
 		myPrs:   func() any { return myPrsTab.Snapshot() },
+		runs:    func() []sessions.Run { return workTab.Runs() },
 	})
 
 	statuses := newStatuses(store, runner)
+	// Open work makes the runs folder at boot, even while it is off.
+	workTab = newWork(ctx, workParts{
+		cfg: cfg, store: store, reader: reader, runner: runner, statuses: statuses,
+		logger: logger,
+	}, live)
 
 	// My PRs and Reviews poll GitHub as the same account: they share its hourly budget and a
 	// rate limit that either runs into. Reviews places an old record against the repos Conn has
@@ -117,24 +125,13 @@ func newHandler(
 	reviewsTab = newReviews(ctx, parts, live)
 	myPrsTab = newMyPrs(ctx, parts, live)
 
-	startTabs(ctx, store, live, reviewsTab, myPrsTab)
+	startTabs(ctx, store, live, tabs{reviews: reviewsTab, myPrs: myPrsTab, work: workTab})
 
 	liveIDs := liveIDsOf(live)
 
 	archived.startBackfill(ctx, cfg, store, live, func() map[string]bool { return liveIDs(ctx) })
 
-	api := settingsapi.New(settingsapi.Deps{
-		Settings:     store,
-		Sessions:     liveFolders(ctx, live),
-		MyPrRepos:    myPrsTab.Repos,
-		HistoryRepos: archived.repos(ctx),
-		OriginOf:     reader.Of,
-		CloneFor: func(repo string) (origin.Clone, bool) {
-			return reader.CloneFor(repo, store.Get(), cfg.Home)
-		},
-		Gh:      gh.Run,
-		Modules: statuses,
-	})
+	api := newSettingsAPI(ctx, parts, live, archived, myPrsTab.Repos)
 
 	builtin := themes.Embedded(conn.Themes())
 	now := func() int64 { return time.Now().UnixMilli() }
@@ -149,17 +146,44 @@ func newHandler(
 	return &server.Server{
 		UI: bundle, Clients: live.Hub().Count, Settings: api, Logger: logger, Sessions: live,
 		History: archived.newAPI(cfg, store, liveIDs), HistoryOff: archived.offReason,
-		Reviews: reviewsTab, MyPrs: myPrsTab,
+		Reviews: reviewsTab, MyPrs: myPrsTab, Work: workTab,
 		Themes:  themes.New(builtin, themes.Disk(cfg.ThemesUser), logger),
 		Gallery: gallery.NewAPI(themesGallery, cfg.ThemeIndex, now),
 	}
 }
 
+// tabs are the parts of the server that tick beside the session list.
+type tabs struct {
+	reviews *reviews.Reviews
+	myPrs   *myprs.MyPrs
+	work    *openwork.Work
+}
+
+// newSettingsAPI is /api/settings over the store, the statuses and the repos Conn has seen.
+func newSettingsAPI(ctx context.Context, parts reviewsParts, live *sessions.Loop,
+	archived *historyParts, myPrRepos func() []string,
+) *settingsapi.API {
+	return settingsapi.New(settingsapi.Deps{
+		Settings:     parts.store,
+		Sessions:     liveFolders(ctx, live),
+		MyPrRepos:    myPrRepos,
+		HistoryRepos: archived.repos(ctx),
+		OriginOf:     parts.reader.Of,
+		CloneFor: func(repo string) (origin.Clone, bool) {
+			return parts.reader.CloneFor(repo, parts.store.Get(), parts.cfg.Home)
+		},
+		Gh:      gh.Run,
+		Modules: parts.statuses,
+	})
+}
+
 // startTabs has every settings save reach the snapshot and the tabs, and starts the session list
 // and the tabs, which run until ctx ends.
-func startTabs(ctx context.Context, store *settings.Store, live *sessions.Loop,
-	reviewsTab *reviews.Reviews, myPrsTab *myprs.MyPrs,
-) {
+func startTabs(ctx context.Context, store *settings.Store, live *sessions.Loop, running tabs) {
+	reviewsTab, myPrsTab := running.reviews, running.myPrs
+	// A change in Settings reaches Open work's next call: turned off, nothing Atlassian is
+	// running; other projects, no old list.
+	store.OnChange(func(settings.Settings) { running.work.SettingsChanged() })
 	// The snapshot is cached by version: a change of the allowlist must reach the page (the
 	// first-launch redirect) at once. A saved allowlist, source or channel reaches Reviews at
 	// once too (and the first allowlist migrates an old reviews.json).
@@ -172,6 +196,7 @@ func startTabs(ctx context.Context, store *settings.Store, live *sessions.Loop,
 	go live.Run(ctx)
 	go reviewsTab.Run(ctx)
 	go myPrsTab.Run(ctx)
+	go running.work.Run(ctx)
 }
 
 // newStatuses are the module statuses: read from memory, filled by helper runs and by a CHECK
