@@ -109,3 +109,15 @@ func IsProtected(work *Work, key, branch string) bool {
 
 	return work.isProtected(&copied)
 }
+
+// LoadedKeys are the keys of the runs in a runs folder, in the order they are loaded.
+func LoadedKeys(runsDir string) []string {
+	records := loadRecords(runsDir)
+	keys := make([]string, 0, len(records))
+
+	for _, record := range records {
+		keys = append(keys, record.Key)
+	}
+
+	return keys
+}

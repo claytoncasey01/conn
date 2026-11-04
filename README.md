@@ -70,9 +70,9 @@ On first start every page except Themes sends you to Settings. Choose the reposi
 
 - **Network.** The server makes one kind of web request of its own: the theme gallery reads `raw.githubusercontent.com` with plain GETs that carry no credentials. `CONN_THEME_INDEX=off` turns it off. GitHub goes through your `gh`. Slack, Jira and Confluence go through short headless `claude -p` runs that use your claude.ai connectors. Those runs cost tokens, and each is capped in cost and time. There is no telemetry.
 - **Fonts.** Themes name Google Fonts families, and the page loads the active theme's from `fonts.googleapis.com`, so your browser contacts Google. The glyph font for Matrix's rain is bundled.
-- **Files.** Conn keeps everything it saves in one folder, `~/.config/conn` (`$XDG_CONFIG_HOME/conn` when that is set to an absolute path; `CONN_DATA` changes it): the History archive, `settings.json`, `reviews.json`, `myprs.json` and `conn.lock`, which names the server running on the folder. It also holds copies of the agents and skills Conn provides (`agents/`, `skills/`); the agents are linked into `~/.claude/agents` when the server starts, and a skill is linked into `~/.claude/skills` only when you press INSTALL on the Settings page. See [Agents and skills](docs/settings.md#agents-and-skills). The files are readable only by you. A `~/.conn` folder from an earlier version is not read or moved: Conn starts fresh in the new folder, and the old one can be deleted or copied over by hand. `history.db` holds the text of your prompts and results, so treat it like `~/.claude`.
+- **Files.** Conn keeps everything it saves in one folder, `~/.config/conn` (`$XDG_CONFIG_HOME/conn` when that is set to an absolute path; `CONN_DATA` changes it): the History archive, `settings.json`, `reviews.json`, `myprs.json` and `conn.lock`, which names the server running on the folder. It also holds copies of the agents and skills Conn provides (`agents/`, `skills/`); the agents are linked into `~/.claude/agents` when the server starts, and a skill is linked into `~/.claude/skills` only when you press INSTALL on the Settings page. See [Agents and skills](docs/settings.md#agents-and-skills). Conn creates the folder private to you (mode 0700). A `~/.conn` folder from an earlier version is not read or moved: Conn starts fresh in the new folder, and the old one can be deleted or copied over by hand. `history.db` holds the text of your prompts and results, so treat it like `~/.claude`.
 - **Git.** Review and self-review sessions work in their own git worktrees, never in your working copy. Each page's doc lists everything Conn writes and calls for that feature.
-- **Writes.** Every request that changes something needs the `x-conn: 1` header and a local `Origin`.
+- **Writes.** Every request that changes something needs the `x-conn: 1` header, and a request is refused unless its `Host` is a loopback name and its `Origin`, when it has one, is a page served here.
 
 Review and self-review sessions are ordinary Claude Code sessions running as you, with your own settings and `gh` login. Their prompts and deny lists narrow what they do, and they do not make it impossible for a session to act on GitHub. The limits are described in [my PRs](docs/my-prs.md).
 
@@ -118,7 +118,8 @@ Layout:
 | `src/effects/` | Theme effects such as the Matrix rain and the CRT tube |
 | `themes/` | Built-in themes, and `_template/` to copy |
 | `gallery-seed/` | Example gallery themes |
-| `agents/` | Read-only helper agents that Open work build sessions use. Copy them to `~/.claude/agents/` |
+| `agents/` | Read-only helper agents that Open work build sessions use. Conn links them into `~/.claude/agents/` when it starts, in the default data folder and not in a dry run |
+| `skills/` | Skills Conn provides. Each is linked into `~/.claude/skills/` only when you press INSTALL on the Settings page |
 | `cmd/dev/` | The development loop behind `make dev` |
 | `testdata/` | Cases the UI's tests and the server's tests share |
 | `docs/` | Reference for each feature |
@@ -126,6 +127,14 @@ Layout:
 Run `conn theme check` after editing a theme.
 
 To keep names out of the repository, such as your employer's, list them in `.company-terms` at the repository root. The file is git-ignored. Put one term per line, use `#` for a comment, and start a line with `re:` for a regular expression. `go test ./...` then fails, naming the file and line, if a tracked file or file name contains a term. `CONN_GUARD_TERMS=<path>` points at a list kept elsewhere. Without a list the check is skipped.
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) says how to build, test and send a change. Report a security problem as [SECURITY.md](SECURITY.md) describes, not in a public issue. Themes for the gallery go to [conn-themes](https://github.com/claytoncasey01/conn-themes).
+
+## License
+
+Apache-2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE). The Matrix rain's glyph font, `src/effects/fonts/matrix-code/`, is SIL OFL 1.1.
 
 ## Status
 

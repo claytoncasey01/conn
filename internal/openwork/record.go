@@ -471,7 +471,9 @@ func orderList(current, before []any, depth int) []any {
 	return out
 }
 
-// loadRecords are the runs in the runs folder, in the order the folder lists them.
+// loadRecords are the runs in the runs folder, in the order of their file names. A folder lists
+// its files in an order that depends on the filesystem (by name on one, by hash on another), so
+// the names are sorted: the same runs come back in the same order everywhere.
 func loadRecords(runsDir string) []*Record {
 	folder, err := os.Open(runsDir)
 	if err != nil {
@@ -480,6 +482,8 @@ func loadRecords(runsDir string) []*Record {
 
 	names, _ := folder.Readdirnames(-1)
 	_ = folder.Close()
+
+	slices.Sort(names)
 
 	records := []*Record{}
 

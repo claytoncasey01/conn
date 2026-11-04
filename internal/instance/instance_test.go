@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/claytoncasey01/conn/internal/instance"
 )
@@ -128,4 +129,36 @@ func TestRunningSaysWhoHoldsTheFolder(t *testing.T) {
 
 	// Asking who runs never holds the folder itself.
 	_ = acquire(t, folder).Release()
+}
+
+func TestAcquireRidesOutALockHeldForAMoment(t *testing.T) {
+	t.Parallel()
+
+	folder := filepath.Join(t.TempDir(), "data")
+
+	// Another process holds the folder only while it checks whether anyone does.
+	checking, err := instance.Acquire(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	released := make(chan error, 1)
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+
+		released <- checking.Release()
+	}()
+
+	started, err := instance.Acquire(folder)
+	if err != nil {
+		t.Fatalf("Acquire while the folder was held for a moment = %v, want it to wait", err)
+	}
+
+	_ = started.Release()
+
+	err = <-released
+	if err != nil {
+		t.Fatal(err)
+	}
 }

@@ -1,0 +1,16 @@
+name: Feature request
+description: Something you would like Conn to do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The moment you wish Conn did something. Describe the problem before the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: How you picture it working, and anything you have tried instead.

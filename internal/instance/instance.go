@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 )
 
 const (
@@ -23,6 +24,14 @@ const (
 
 	// fileBytesMax is the most of the lock file that is read: a process id and an address.
 	fileBytesMax = 4 << 10
+
+	// acquireAttempts and acquireWait bound how long Acquire rides out a lock that is held for a
+	// moment. Running takes the lock to find out whether anyone holds it, so a server starting
+	// at the same instant as a `conn stop`, a second `conn serve` or a script that checks sees
+	// the folder held for the few microseconds the check lasts. A Conn that really holds the
+	// folder keeps it far longer than this window.
+	acquireAttempts = 20
+	acquireWait     = 10 * time.Millisecond
 )
 
 // ErrHeld is a data folder another Conn holds.
@@ -42,7 +51,8 @@ type Lock struct {
 }
 
 // Acquire takes the folder's lock, creating the folder (private to the user) and the lock file
-// when they are missing. It is ErrHeld when another process holds it.
+// when they are missing. It is ErrHeld when another process holds it for the whole of a short
+// wait (acquireAttempts times acquireWait).
 func Acquire(folder string) (*Lock, error) {
 	err := os.MkdirAll(folder, folderMode)
 	if err != nil {
@@ -55,7 +65,7 @@ func Acquire(folder string) (*Lock, error) {
 		return nil, fmt.Errorf("opening the lock file: %w", err)
 	}
 
-	err = lock(file)
+	err = lockWithRetry(file)
 	if err != nil {
 		_ = file.Close()
 
@@ -63,6 +73,24 @@ func Acquire(folder string) (*Lock, error) {
 	}
 
 	return &Lock{file: file}, nil
+}
+
+// lockWithRetry takes the lock, trying again for a short time as long as another process holds it.
+func lockWithRetry(file *os.File) error {
+	var err error
+
+	for attempt := range acquireAttempts {
+		err = lock(file)
+		if !errors.Is(err, ErrHeld) {
+			return err
+		}
+
+		if attempt < acquireAttempts-1 {
+			time.Sleep(acquireWait)
+		}
+	}
+
+	return err
 }
 
 // lock takes an exclusive lock on file without waiting.

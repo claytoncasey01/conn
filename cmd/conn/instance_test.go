@@ -58,7 +58,37 @@ func startChild(t *testing.T, dataDir string) (*exec.Cmd, string) {
 func childURL(t *testing.T, dataDir string) string {
 	t.Helper()
 
-	deadline := time.Now().Add(testtime.Scaled(holderWait))
+	holder, said := waitHolder(t, dataDir, func(holder instance.Holder, running bool) bool {
+		if !running {
+			return false
+		}
+
+		return holder.URL != ""
+	})
+	if !said {
+		t.Fatal("the child never said where it listens")
+	}
+
+	return holder.URL
+}
+
+// lockWait bounds how long a test waits for a data folder's lock to show what it expects, and
+// lockPoll is how often it looks.
+const (
+	lockWait = 5 * time.Second
+	lockPoll = 10 * time.Millisecond
+)
+
+// waitHolder looks at dataDir's lock until done accepts what it sees or lockWait passes. It
+// returns the last holder it saw, and whether done accepted it.
+func waitHolder(
+	t *testing.T, dataDir string, done func(holder instance.Holder, running bool) bool,
+) (instance.Holder, bool) {
+	t.Helper()
+
+	var last instance.Holder
+
+	deadline := time.Now().Add(testtime.Scaled(lockWait))
 
 	for time.Now().Before(deadline) {
 		holder, running, err := instance.Running(dataDir)
@@ -66,18 +96,16 @@ func childURL(t *testing.T, dataDir string) string {
 			t.Fatal(err)
 		}
 
-		if running {
-			if holder.URL != "" {
-				return holder.URL
-			}
+		last = holder
+
+		if done(holder, running) {
+			return holder, true
 		}
 
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(lockPoll)
 	}
 
-	t.Fatal("the child never said where it listens")
-
-	return ""
+	return last, false
 }
 
 func TestStopStopsTheServerOnItsDataFolder(t *testing.T) {
@@ -217,12 +245,20 @@ func TestServeSaysWhatSettingsJSONDroppedAndServesTheSettings(t *testing.T) {
 		t.Errorf("stderr = %q, want what settings.json lost", stderr.String())
 	}
 
-	holder, running, err := instance.Running(dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	folderReleased(t, dataDir)
+}
 
-	if running {
+// folderReleased fails the test unless dataDir is free within lockWait. A lock lasts until
+// every copy of its file descriptor is closed, and a process another parallel test is starting
+// holds a copy between fork and exec, so the folder can read as held for a moment after the
+// server that held it has closed its file.
+func folderReleased(t *testing.T, dataDir string) {
+	t.Helper()
+
+	holder, released := waitHolder(t, dataDir, func(_ instance.Holder, running bool) bool {
+		return !running
+	})
+	if !released {
 		t.Errorf("the folder is still held by %+v after serve returned", holder)
 	}
 }
