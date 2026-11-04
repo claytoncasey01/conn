@@ -17,6 +17,7 @@ import (
 
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/realpath"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
@@ -40,7 +41,8 @@ type Facts struct {
 	DataEnv string
 	// DataDir is the data folder in use.
 	DataDir string
-	Home    string
+	// DataDirDefault is the real data folder: where Conn keeps its data when CONN_DATA is unset.
+	DataDirDefault string
 }
 
 // Decision is whether to seed, and when not why not ("" when it is simply not wanted).
@@ -49,27 +51,8 @@ type Decision struct {
 	Why  string
 }
 
-// resolvedPath is the path with every link followed when it exists (a link to the real folder
-// is the real folder), else as written, made absolute.
-func resolvedPath(path string) string {
-	resolved, err := filepath.EvalSymlinks(path)
-	if err == nil {
-		absolute, absErr := filepath.Abs(resolved)
-		if absErr == nil {
-			return absolute
-		}
-	}
-
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return path
-	}
-
-	return absolute
-}
-
-// Decide is whether to seed. It never seeds an unset CONN_DATA or the real ~/.conn, however it
-// is reached.
+// Decide is whether to seed. It never seeds an unset CONN_DATA or the real data folder
+// (~/.config/conn), however it is reached.
 func Decide(facts Facts) Decision {
 	if !facts.Dry {
 		return Decision{Seed: false, Why: ""}
@@ -92,12 +75,12 @@ func Decide(facts Facts) Decision {
 			"one: the dry settings are not written (set CONN_DATA to a scratch folder)"}
 	}
 
-	theReal := resolvedPath(filepath.Join(facts.Home, ".conn"))
-	if resolvedPath(facts.DataDir) == theReal {
+	theReal := realpath.Resolve(facts.DataDirDefault)
+	if realpath.Resolve(facts.DataDir) == theReal {
 		return realRefusal(facts.DataDir)
 	}
 
-	if resolvedPath(facts.DataEnv) == theReal {
+	if realpath.Resolve(facts.DataEnv) == theReal {
 		return realRefusal(facts.DataDir)
 	}
 
@@ -115,7 +98,7 @@ func FactsOf(cfg config.Config, store *settings.Store) Facts {
 
 	return Facts{
 		Dry: cfg.Dry.Any(), SeedFlag: cfg.DrySeed, Setup: store.Setup(), HasFile: err == nil,
-		DataEnv: cfg.DataEnv, DataDir: cfg.DataDir, Home: cfg.Home,
+		DataEnv: cfg.DataEnv, DataDir: cfg.DataDir, DataDirDefault: cfg.DataDirDefault,
 	}
 }
 

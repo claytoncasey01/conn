@@ -136,22 +136,13 @@ func newHandler(
 		Modules: statuses,
 	})
 
-	builtin := themes.Embedded(conn.Themes())
-	now := func() int64 { return time.Now().UnixMilli() }
-
-	// The gallery's deps are read per call (the built-in ids and Default), so nothing is fetched
-	// at boot, and with CONN_THEME_INDEX off the API answers before it calls any of them.
-	themesGallery := gallery.New(gallery.Deps{
-		Transport: nil, Now: now, Builtin: builtin, User: cfg.ThemesUser, Repo: cfg.ThemeIndex,
-		Timeout: 0, Files: nil,
-	})
+	library, themesAPI := newThemes(cfg, logger)
 
 	return &server.Server{
 		UI: bundle, Clients: live.Hub().Count, Settings: api, Logger: logger, Sessions: live,
 		History: archived.newAPI(cfg, store, liveIDs), HistoryOff: archived.offReason,
 		Reviews: reviewsTab, MyPrs: myPrsTab,
-		Themes:  themes.New(builtin, themes.Disk(cfg.ThemesUser), logger),
-		Gallery: gallery.NewAPI(themesGallery, cfg.ThemeIndex, now),
+		Themes: library, Gallery: themesAPI, Provided: newProvided(cfg, logger),
 	}
 }
 
@@ -256,4 +247,20 @@ func waitForHolder(ctx context.Context, dataDir string) (instance.Holder, error)
 		case <-time.After(holderPoll):
 		}
 	}
+}
+
+// newThemes are the themes library and the gallery API over it.
+func newThemes(cfg config.Config, logger *log.Logger) (*themes.Library, *gallery.API) {
+	builtin := themes.Embedded(conn.Themes())
+	now := func() int64 { return time.Now().UnixMilli() }
+
+	// The gallery's deps are read per call (the built-in ids and Default), so nothing is fetched
+	// at boot, and with CONN_THEME_INDEX off the API answers before it calls any of them.
+	themesGallery := gallery.New(gallery.Deps{
+		Transport: nil, Now: now, Builtin: builtin, User: cfg.ThemesUser, Repo: cfg.ThemeIndex,
+		Timeout: 0, Files: nil,
+	})
+
+	return themes.New(builtin, themes.Disk(cfg.ThemesUser), logger),
+		gallery.NewAPI(themesGallery, cfg.ThemeIndex, now)
 }

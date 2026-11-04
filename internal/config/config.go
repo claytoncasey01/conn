@@ -20,6 +20,9 @@ const (
 	Sonnet = "claude-sonnet-5-5"
 )
 
+// dataFolderName is the folder Conn keeps its data in, under the user's config folder.
+const dataFolderName = "conn"
+
 // How long a finished review session may sit idle before it is closed, in minutes.
 const (
 	closeMinutesDefault = 10
@@ -62,8 +65,14 @@ type LookupFunc func(key string) (string, bool)
 type Config struct {
 	// Home is the user's home folder ($HOME).
 	Home string
+	// ClaudeDir is Claude Code's own folder ($HOME/.claude): its transcripts, and the agents and
+	// skills it finds there.
+	ClaudeDir string
 	// DataDir is where the dashboard keeps its own data (history.db, runs, caches).
 	DataDir string
+	// DataDirDefault is the data folder when CONN_DATA is unset: the real one. Dry runs refuse to
+	// write into it.
+	DataDirDefault string
 	// ClaudeBin is the claude program helper runs start (CONN_CLAUDE): a test points it at a
 	// fake.
 	ClaudeBin string
@@ -164,21 +173,38 @@ func (d Dry) Any() bool {
 	return d.Work
 }
 
+// DataDirDefault is the folder Conn keeps everything it saves in when CONN_DATA is unset:
+// $XDG_CONFIG_HOME/conn, or $HOME/.config/conn when XDG_CONFIG_HOME is unset, empty or not an
+// absolute path (the XDG rule for a relative value is to ignore it).
+func DataDirDefault(lookup LookupFunc) string {
+	base := valueOf(lookup, "XDG_CONFIG_HOME")
+	if filepath.IsAbs(base) {
+		return filepath.Join(base, dataFolderName)
+	}
+
+	return filepath.Join(valueOf(lookup, "HOME"), ".config", dataFolderName)
+}
+
 // FromEnv builds the configuration from lookup. A variable that is set but empty is used as it
 // is where a path or model is read (only an unset one gives the default).
 func FromEnv(lookup LookupFunc) Config {
 	home := valueOf(lookup, "HOME")
-	data := valueOr(lookup, "CONN_DATA", filepath.Join(home, ".conn"))
+	claudeDir := filepath.Join(home, ".claude")
+	transcripts := filepath.Join(claudeDir, "projects")
+	dataDefault := DataDirDefault(lookup)
+	data := valueOr(lookup, "CONN_DATA", dataDefault)
 	closeMinutes := parseCloseMinutes(valueOf(lookup, "CONN_REVIEW_CLOSE_MIN"))
 
 	return Config{
 		Home:                      home,
+		ClaudeDir:                 claudeDir,
 		DataDir:                   data,
+		DataDirDefault:            dataDefault,
 		ClaudeBin:                 valueOr(lookup, "CONN_CLAUDE", "claude"),
 		CmuxBin:                   valueOr(lookup, "CONN_CMUX", "cmux"),
 		ThemesUser:                filepath.Join(data, "themes"),
 		ThemeIndex:                parseThemeIndex(valueOf(lookup, "CONN_THEME_INDEX")),
-		TranscriptsRoot:           valueOr(lookup, "CONN_TRANSCRIPTS", transcriptsRoot(home)),
+		TranscriptsRoot:           valueOr(lookup, "CONN_TRANSCRIPTS", transcripts),
 		SummaryModel:              valueOr(lookup, "CONN_SUMMARY_MODEL", Haiku),
 		SummaryCostUSDMax:         summaryCostUSDMax,
 		SummaryTimeout:            summaryTimeout,
@@ -211,8 +237,6 @@ func FromEnv(lookup LookupFunc) Config {
 		DataEnv: valueOf(lookup, "CONN_DATA"),
 	}
 }
-
-func transcriptsRoot(home string) string { return filepath.Join(home, ".claude", "projects") }
 
 // valueOf is the variable key, or "" when it is unset.
 func valueOf(lookup LookupFunc, key string) string {
