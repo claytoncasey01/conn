@@ -8,8 +8,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/ghbudget"
 )
 
-// The pure parts (parseRate, addRate, pollInterval and the budget's op sequences) replay Bun's
-// answers in internal/reviews/answers_test.go; these are the rest of Bun's ghBudget.test.ts.
+// The pure parts (parseRate, addRate, pollInterval and the budget's op sequences) replay the
+// recorded answers in internal/reviews/answers_test.go; these are the rest of the budget's tests.
 
 const budgetT0 = 1_800_000_000_000
 

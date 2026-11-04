@@ -1,7 +1,7 @@
 package reviews_test
 
 // The DM scan: its own schedule and cursor, its own error, and a signed-out Slack shared with the
-// channel scan (Bun's reviews.test.ts from "a refresh pressed while GitHub is off").
+// channel scan, from a refresh pressed while GitHub is off.
 
 import (
 	"testing"
@@ -439,7 +439,7 @@ func TestOrchCSignedOutDMScanClearsDMErrorAndHoldsTheChannelScan(t *testing.T) {
 		}
 	})
 
-	// The channel scan due in the same tick finishes before the DM scan, as in Bun.
+	// The channel scan due in the same tick finishes before the DM scan.
 	tab.Tick()
 	held.reached(t)
 	cWaitFor(t, "the channel scan", cScannedAt(t, tab, fakes.clock()))

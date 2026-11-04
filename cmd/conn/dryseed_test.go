@@ -14,11 +14,10 @@ import (
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
-// The one dry seed (Bun's drySeedServer.test.ts, at the wiring): the dry switches with no
-// settings file boot out of setup from a temp folder, never writing into the data folder; a file
-// that exists, CONN_DRY_SEED=0 and the real data folder are never seeded. That a seeded run makes
-// no gh call and leaves reviews.json alone is held by the Reviews dry tests and the parity
-// harness.
+// The one dry seed, at the wiring: the dry switches with no settings file boot out of setup from a
+// temp folder, never writing into the data folder; a file that exists, CONN_DRY_SEED=0 and the real
+// data folder are never seeded. That a seeded run makes no gh call and leaves reviews.json alone is
+// held by the Reviews dry tests.
 
 // seedCase is one boot.
 type seedCase struct {

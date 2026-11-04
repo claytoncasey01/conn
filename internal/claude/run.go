@@ -38,7 +38,7 @@ type Runner struct {
 	Bin string
 }
 
-// spawnError is a run that never started, in the words Bun uses.
+// spawnError is a run that never started, and the words that say why.
 type spawnError struct {
 	message string
 	err     error
@@ -95,8 +95,8 @@ func stopped(runCtx context.Context, timeout time.Duration) error {
 	return ErrCancelled
 }
 
-// spawnFailure says why a run did not start, as Bun says it: a name not found on PATH, or the
-// error code and the path for a path that cannot be started.
+// spawnFailure says why a run did not start: a name not found on PATH, or the error code and
+// the path for a path that cannot be started.
 func spawnFailure(bin string, err error) error {
 	if errors.Is(err, exec.ErrNotFound) {
 		return spawnError{message: fmt.Sprintf("Executable not found in $PATH: %q", bin), err: err}

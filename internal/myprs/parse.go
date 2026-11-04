@@ -8,7 +8,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/repos"
 )
 
-// sameLogin compares two logins whatever their case, as Bun compared their toLowerCase:
+// sameLogin compares two logins whatever their case, as their toLowerCase compares:
 // strings.EqualFold also folds letters lowercasing leaves apart (a long s and an s).
 func sameLogin(first, second string) bool {
 	lower := strings.ToLower(first)

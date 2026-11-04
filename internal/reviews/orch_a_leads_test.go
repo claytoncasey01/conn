@@ -6,8 +6,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// Bun: 'at most 30 leads are read per scan, the oldest first; the rest wait for the next scan,
-// and a lead whose read failed waits too'.
+// At most 30 leads are read per scan, the oldest first; the rest wait for the next scan,
+// and a lead whose read failed waits too.
 func TestAtMostThirtyLeadsReadPerScan(t *testing.T) {
 	t.Parallel()
 
@@ -51,8 +51,8 @@ func TestAtMostThirtyLeadsReadPerScan(t *testing.T) {
 	aEqual(t, "leads after", reviews.LoadFile(fakes.file).Found.Len(), 0)
 }
 
-// Bun: 'a lead about a repo that is not allowed is never read, and a lead waits while GitHub
-// cannot be read'.
+// A lead about a repo that is not allowed is never read, and a lead waits while GitHub
+// cannot be read.
 func TestLeadOfDisallowedRepoIsNotRead(t *testing.T) {
 	t.Parallel()
 
@@ -66,7 +66,7 @@ func TestLeadOfDisallowedRepoIsNotRead(t *testing.T) {
 	})
 	aOnce(tab)
 	tab.Tick()
-	// As in Bun, the DM scan of the same tick finishes while the channel scan's read of its lead
+	// The DM scan of the same tick finishes while the channel scan's read of its lead
 	// is out (so it does not read the lead again): the read is held until the DM scan is done.
 	held.reached(t)
 	aWaitRecord(t, fakes, "Slack DMs")
@@ -127,7 +127,7 @@ func aSetFirstSeen(tab *reviews.Reviews, at float64) {
 
 const aWindowMs = 2 * 24 * 60 * minuteMs
 
-// Bun: 'a scan never reads later than the cursor, and never earlier than the first-scan window'.
+// A scan never reads later than the cursor, and never earlier than the first-scan window.
 func TestScanReadsFromCursorWithinWindow(t *testing.T) {
 	t.Parallel()
 

@@ -1,7 +1,7 @@
 package reviews_test
 
 // Fix round 1: failures that stay local, cost, and settings that change under a running poll or
-// scan (Bun's "Fix round 1" section, to the rate limit's pause).
+// scan, to the rate limit's pause.
 
 import (
 	"slices"

@@ -1,6 +1,6 @@
 // Package history is the archive of finished sessions: one SQLite file (history.db) holding each
 // session's row, its stored detail and agent pages, its search text and its At a Glance summary.
-// The file is the one Bun's server wrote, opened as it is.
+// An existing file is opened as it is.
 package history
 
 import (
@@ -61,7 +61,7 @@ CREATE TABLE failures (id TEXT PRIMARY KEY, error TEXT NOT NULL, at INTEGER NOT 
 `
 
 // DB is the archive. It is safe to use from several goroutines: one connection, so every
-// statement and transaction runs in turn, as Bun's did.
+// statement and transaction runs in turn.
 type DB struct {
 	db *sql.DB
 	// originOf is where a folder's repo is read from, for the migration that fills repo.

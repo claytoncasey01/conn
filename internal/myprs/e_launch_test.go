@@ -18,7 +18,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// The port of myPrsLaunch.test.ts. Every dependency is a fake: no real git, cmux or claude runs.
+// The self-review launch. Every dependency is a fake: no real git, cmux or claude runs.
 // The recorded answers (selfName, selfFolder, selfPrompt, launches) cover the prompt's text, the
 // verb sequences of a new, reused and leftover worktree, the refusal texts for the git answers
 // they pick, the claude command, a failed write and a failed cmux; here are the refusal lists,
@@ -167,7 +167,7 @@ func (r *eRig) ran(part string) bool {
 	})
 }
 
-// eOpts are the launch options of myPrsLaunch.test.ts, change editing them.
+// eOpts are the launch options of these tests, change editing them.
 func eOpts(change ...func(opts *myprs.LaunchOpts)) myprs.LaunchOpts {
 	out := myprs.LaunchOpts{
 		Repo: "acme/web", Number: 12, HeadRef: "feature/login-fix", Model: "sonnet",

@@ -74,9 +74,10 @@ func sortedIndexes(values []any) []float64 {
 	return order
 }
 
-// TestSortMatchesBun holds Sort to the orders Bun's sort gave seeded lists, some of whose items
-// compare as NaN (null in the file): the order then depends on the algorithm, not the values.
-func TestSortMatchesBun(t *testing.T) {
+// TestSortMatchesTheRecording holds Sort to the recorded orders JavaScript's sort gave seeded
+// lists, some of whose items compare as NaN (null in the file): the order then depends on the
+// algorithm, not the values.
+func TestSortMatchesTheRecording(t *testing.T) {
 	t.Parallel()
 
 	cases, _ := readGzipJSON(t, "../../testdata/answers/sort.json.gz").([]any)
@@ -93,7 +94,8 @@ func TestSortMatchesBun(t *testing.T) {
 		}
 
 		if !slices.Equal(sortedIndexes(values), want) {
-			t.Errorf("case %d (%d items): the order differs from Bun's", number, len(values))
+			t.Errorf("case %d (%d items): the order differs from the recorded one",
+				number, len(values))
 		}
 	}
 }

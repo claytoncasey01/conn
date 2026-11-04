@@ -9,9 +9,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/myprs"
 )
 
-// The port of myPrsReplies.test.ts, case by case: the recorded answers (section replies) reach
-// these rules only at random. Bun's hostile getter is not portable: a parsed JSON value has no
-// getters.
+// The replies file, case by case: the recorded answers (section replies) reach these rules only
+// at random. A hostile getter needs no case: a parsed JSON value has no getters.
 
 // eReply is one entry of a replies file, as JSON.
 func eReply(threadID, text string) string {

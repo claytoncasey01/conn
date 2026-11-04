@@ -11,11 +11,11 @@ package reviews
 // it comes in and again when it is shown, and a repo that leaves the list keeps its records
 // (hidden, never fetched, never pruned) until it is allowed again.
 //
-// Concurrency: one mutex stands for Bun's event loop. Every stretch of work between two calls
-// to the outside (gh, claude, git, cmux, a screen read) runs holding it, and every call to the
-// outside is made without it, so the state moves in the same steps Bun's does. Nothing that
-// holds the mutex ever waits on the session list's goroutine: the live sessions are read from
-// what its last tick published.
+// Concurrency: one mutex makes the work run as on a single event loop. Every stretch of work
+// between two calls to the outside (gh, claude, git, cmux, a screen read) runs holding it, and
+// every call to the outside is made without it, so the state moves in whole steps. Nothing
+// that holds the mutex ever waits on the session list's goroutine: the live sessions are read
+// from what its last tick published.
 
 import (
 	"context"
@@ -416,7 +416,7 @@ func (r *Reviews) SettingsChanged() {
 	r.bump()
 }
 
-// safeTick is a tick that cannot take the server down: a failure is logged, as Bun's
+// safeTick is a tick that cannot take the server down: a failure is logged as
 // "reviews tick failed", and the next tick runs as usual.
 func (r *Reviews) safeTick() {
 	defer r.recovered("reviews tick failed")
@@ -931,5 +931,5 @@ func (r *Reviews) open(current *settings.Settings) (*File, error) {
 	return opened.File, nil
 }
 
-// message is an error's text, cut as Bun cuts it.
+// message is an error's text, cut to failureUnits UTF-16 units.
 func message(err error) string { return js.Slice(err.Error(), failureUnits) }

@@ -1,6 +1,6 @@
 // Package nodepath is Node's posix path functions where they differ from Go's: a trailing slash is
 // kept by Normalize and ignored by Dir and Base, an empty path is "" to Base and "." to Dir. The
-// folders a record names are compared as Bun compared them.
+// folders a record names are compared by these rules.
 package nodepath
 
 import (

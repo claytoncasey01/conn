@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -258,4 +259,89 @@ func Fixed(value float64, digits int) string {
 	}
 
 	return sign + text[:len(text)-digits] + "." + text[len(text)-digits:]
+}
+
+// Lower is String.prototype.toLowerCase: Unicode's lowercase mapping, with its one
+// unconditional mapping to two characters (U+0130 to i and a combining dot above) and the final
+// sigma, which lowercases to ς at the end of a word.
+func Lower(text string) string {
+	runes := []rune(text)
+
+	var builder strings.Builder
+
+	for index, char := range runes {
+		switch char {
+		case capitalIWithDot:
+			builder.WriteString("i̇")
+		case capitalSigma:
+			if finalSigma(runes, index) {
+				builder.WriteRune(finalSmallSigma)
+			} else {
+				builder.WriteRune(smallSigma)
+			}
+		default:
+			builder.WriteRune(unicode.ToLower(char))
+		}
+	}
+
+	return builder.String()
+}
+
+const (
+	capitalIWithDot = 'İ'
+	capitalSigma    = 'Σ'
+	smallSigma      = 'σ'
+	finalSmallSigma = 'ς'
+)
+
+// finalSigma is Unicode's Final_Sigma condition for the sigma at index: a cased letter before it
+// (case-ignorable characters between) and none after it.
+func finalSigma(runes []rune, index int) bool {
+	before := false
+
+	for at := index - 1; at >= 0; at-- {
+		if caseIgnorable(runes[at]) {
+			continue
+		}
+
+		before = cased(runes[at])
+
+		break
+	}
+
+	if !before {
+		return false
+	}
+
+	for at := index + 1; at < len(runes); at++ {
+		if caseIgnorable(runes[at]) {
+			continue
+		}
+
+		return !cased(runes[at])
+	}
+
+	return true
+}
+
+func cased(char rune) bool {
+	if unicode.IsUpper(char) {
+		return true
+	}
+
+	if unicode.IsLower(char) {
+		return true
+	}
+
+	return unicode.IsTitle(char)
+}
+
+// caseIgnorable is Unicode's Case_Ignorable: marks, format characters, modifier letters and
+// symbols, and the word-internal punctuation.
+func caseIgnorable(char rune) bool {
+	if unicode.In(char, unicode.Mn, unicode.Me, unicode.Cf, unicode.Lm, unicode.Sk) {
+		return true
+	}
+
+	return strings.ContainsRune("'.:^`·‘’․‧", char)
 }

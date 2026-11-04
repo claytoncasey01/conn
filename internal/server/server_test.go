@@ -193,7 +193,7 @@ func TestStaticFilesAndThePageShell(t *testing.T) {
 	}
 }
 
-func TestNoBundleSaysHowToBuildIt(t *testing.T) {
+func TestMissingDistSaysHowToBuildIt(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

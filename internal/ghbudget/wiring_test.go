@@ -8,9 +8,8 @@ import (
 	"testing"
 )
 
-// TestTheServerMakesOneBudget: Bun's test reads index.ts for one `new GhBudget(` handed to both
-// pollers. cmd/conn makes exactly one budget, in the parts both Reviews and My PRs are made from,
-// and each hands that one to its poller.
+// TestTheServerMakesOneBudget: cmd/conn makes exactly one budget, in the parts both Reviews and
+// My PRs are made from, and each hands that one to its poller.
 func TestTheServerMakesOneBudget(t *testing.T) {
 	t.Parallel()
 

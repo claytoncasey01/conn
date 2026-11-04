@@ -1,9 +1,9 @@
 package reviews_test
 
-// The world the Reviews orchestrator tests run in, as Bun's reviews.test.ts setup(): every
-// dependency is a fake (gh, the scans, the clock, the sessions, the settings, a temp file), so
-// nothing here reaches the real gh, claude, Slack or ~/.config/conn. Every fake is safe to call
-// from the goroutines Reviews starts; a test changes the world through its methods.
+// The world the Reviews orchestrator tests run in: every dependency is a fake (gh, the scans,
+// the clock, the sessions, the settings, a temp file), so nothing here reaches the real gh,
+// claude, Slack or ~/.config/conn. Every fake is safe to call from the goroutines Reviews starts;
+// a test changes the world through its methods.
 
 import (
 	"context"

@@ -14,7 +14,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/myprs"
 )
 
-// The port of myPrs.test.ts's poll tests (lines 1 to 900): the list, the rows and the file.
+// The poll tests: the list, the rows and the file.
 
 const aDayMs = 86_400_000
 

@@ -13,8 +13,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// Bun's reviewStore.test.ts, the file system: the save, its modes and its failures, what loads
-// as empty, and the records the recorded answers do not hold.
+// The store on the file system: the save, its modes and its failures, what loads as empty, and
+// the records the recorded answers do not hold.
 
 const (
 	dKey   = "acme/widgets#12"
@@ -99,7 +99,7 @@ func TestDStoreSavedFileLoadsBack(t *testing.T) {
 }
 
 // TestDStoreSaveIsPrivate: the file is 0600 and its folder 0700, a folder that was there looser
-// included. (Bun also checks the umask comes back: Go never sets it.)
+// included. (The umask is never set, so there is none to restore.)
 func TestDStoreSaveIsPrivate(t *testing.T) {
 	t.Parallel()
 
@@ -118,7 +118,7 @@ func TestDStoreSaveIsPrivate(t *testing.T) {
 }
 
 // TestDStoreLoadsWhatIsNotAFileAsEmpty: a missing path, a folder, and a version 1 file (only
-// OpenFile migrates one) load as empty. (The texts Bun lists replay in the answers.)
+// OpenFile migrates one) load as empty. (The texts that do not parse replay in the answers.)
 func TestDStoreLoadsWhatIsNotAFileAsEmpty(t *testing.T) {
 	t.Parallel()
 

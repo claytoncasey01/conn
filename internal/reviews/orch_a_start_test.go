@@ -19,7 +19,7 @@ const (
 )
 
 // aReady is Reviews with one listed PR (7, unless opts say otherwise) whose rows are built, and no
-// live session (Bun's ready()).
+// live session.
 func aReady(t *testing.T, opts setupOpts) (*reviews.Reviews, *world) {
 	t.Helper()
 
@@ -50,8 +50,8 @@ func aLaunchCount(fakes *world) int {
 	return count
 }
 
-// Bun: 'start refuses a bad number, a bad model, a disabled tab and a PR that is not listed and
-// open, before any launch' (the numbers).
+// Start refuses a bad number, a bad model, a disabled tab and a PR that is not listed and
+// open, before any launch (the numbers).
 func TestStartRefusesABadNumber(t *testing.T) {
 	t.Parallel()
 
@@ -81,8 +81,8 @@ func TestStartRefusesABadNumber(t *testing.T) {
 	}
 }
 
-// Bun: 'start refuses a bad number, a bad model, a disabled tab and a PR that is not listed and
-// open, before any launch' (the models, the rule order, a PR not listed).
+// Start refuses a bad number, a bad model, a disabled tab and a PR that is not listed and
+// open, before any launch (the models, the rule order, a PR not listed).
 func TestStartRefusesABadModelAndAnUnlistedPR(t *testing.T) {
 	t.Parallel()
 
@@ -114,8 +114,8 @@ func TestStartRefusesABadModelAndAnUnlistedPR(t *testing.T) {
 	})
 }
 
-// Bun: 'start is refused while the tab is off, with the reason, and a draft, an own PR or an
-// ended PR is not there to start'.
+// Start is refused while the tab is off, with the reason, and a draft, an own PR or an
+// ended PR is not there to start.
 func TestStartRefusedWhileOffAndForDraftOwnOrEnded(t *testing.T) {
 	t.Parallel()
 
@@ -158,8 +158,8 @@ func TestStartRefusedWhileOffAndForDraftOwnOrEnded(t *testing.T) {
 	})
 }
 
-// Bun: 'a tab still showing a PR whose repository has just left the list cannot start it: 404,
-// and no git, launch or cmux, before any poll'.
+// A tab still showing a PR whose repository has just left the list cannot start it: 404,
+// and no git, launch or cmux, before any poll.
 func TestStartRefusedForRepoJustOffTheList(t *testing.T) {
 	t.Parallel()
 
@@ -178,7 +178,7 @@ func TestStartRefusedForRepoJustOffTheList(t *testing.T) {
 	fakes.with(func(fakes *world) { aEqual(t, "git", len(fakes.git), gitBefore) })
 }
 
-// Bun: 'a live session named for the PR, in any folder, refuses; one for another PR does not'.
+// A live session named for the PR, in any folder, refuses; one for another PR does not.
 func TestStartRefusedBesideALiveSessionOfThePR(t *testing.T) {
 	t.Parallel()
 
@@ -219,8 +219,8 @@ func TestStartRefusedBesideALiveSessionOfThePR(t *testing.T) {
 	})
 }
 
-// Bun: 'a second start inside 30 seconds is a 409 with no second launch, and one after the
-// launch had its 5 minutes is allowed (named for the second launch)'.
+// A second start inside 30 seconds is a 409 with no second launch, and one after the
+// launch had its 5 minutes is allowed (named for the second launch).
 func TestSecondStartWithinThirtySecondsIsRefused(t *testing.T) {
 	t.Parallel()
 
@@ -242,8 +242,8 @@ func TestSecondStartWithinThirtySecondsIsRefused(t *testing.T) {
 	aEqual(t, "launches after", aLaunchCount(fakes), 2)
 }
 
-// Bun: 'while the newest launch has not appeared as a session, a start is a 409 even past 30
-// seconds; it is allowed once the launch is closed or 5 minutes old'.
+// While the newest launch has not appeared as a session, a start is a 409 even past 30
+// seconds; it is allowed once the launch is closed or 5 minutes old.
 func TestStartRefusedWhileNewestLaunchHasNotAppeared(t *testing.T) {
 	t.Parallel()
 

@@ -14,7 +14,7 @@ func aPoll(tab *reviews.Reviews, fakes *world) {
 	tickAndSettle(tab)
 }
 
-// Bun: 'a PR that leaves the searches gets read by number, and shows as done when it merged'.
+// A PR that leaves the searches gets read by number, and shows as done when it merged.
 func TestPRLeavingSearchesIsReadByNumber(t *testing.T) {
 	t.Parallel()
 
@@ -51,8 +51,8 @@ func TestPRLeavingSearchesIsReadByNumber(t *testing.T) {
 	})
 }
 
-// Bun: 'a failed read by number is tried again on the next poll (the last rows stay meanwhile),
-// and the PR then shows as done'.
+// A failed read by number is tried again on the next poll (the last rows stay meanwhile),
+// and the PR then shows as done.
 func TestFailedReadByNumberIsTriedAgain(t *testing.T) {
 	t.Parallel()
 
@@ -77,7 +77,7 @@ func TestFailedReadByNumberIsTriedAgain(t *testing.T) {
 	aEqual(t, "not looked up again once it answered", fakes.snapshotCalls().ended, []int64{7, 7})
 }
 
-// Bun: 'a PR that comes back to the open list is open again'.
+// A PR that comes back to the open list is open again.
 func TestPRBackOnOpenListIsOpenAgain(t *testing.T) {
 	t.Parallel()
 
@@ -91,8 +91,8 @@ func TestPRBackOnOpenListIsOpenAgain(t *testing.T) {
 	aEqual(t, "rows", aStates(view(t, tab).Rows), []string{"7 rereview <nil>"})
 }
 
-// Bun: 'a PR GitHub stops reporting as requesting me (I reviewed it) is read by number and keeps
-// its state; its own read says when it ended'.
+// A PR GitHub stops reporting as requesting me (I reviewed it) is read by number and keeps
+// its state; its own read says when it ended.
 func TestPRNoLongerRequestingMeIsReadByNumber(t *testing.T) {
 	t.Parallel()
 
@@ -124,7 +124,7 @@ func TestPRNoLongerRequestingMeIsReadByNumber(t *testing.T) {
 	aEqual(t, "reads after", len(fakes.snapshotCalls().fetch), reads)
 }
 
-// Bun: 'a PR GitHub no longer has is gone: no row, and it is not read again'.
+// A PR GitHub no longer has is gone: no row, and it is not read again.
 func TestPRGitHubNoLongerHasIsGone(t *testing.T) {
 	t.Parallel()
 
@@ -150,8 +150,8 @@ func TestPRGitHubNoLongerHasIsGone(t *testing.T) {
 	aEqual(t, "reads after", len(fakes.snapshotCalls().fetch), reads)
 }
 
-// Bun: 'a read by number that fails for one PR keeps what was known of it; a read that fails
-// outright keeps the rows and shows the error'.
+// A read by number that fails for one PR keeps what was known of it; a read that fails
+// outright keeps the rows and shows the error.
 func TestFailedReadByNumberKeepsWhatWasKnown(t *testing.T) {
 	t.Parallel()
 
@@ -181,8 +181,8 @@ func TestFailedReadByNumberKeepsWhatWasKnown(t *testing.T) {
 	aEqual(t, "error after", aText(view(t, tab).Error), "<nil>")
 }
 
-// Bun: '"every open PR": one search per pattern (capped at 200), every non-draft PR I did not
-// write, tagged not in a channel, and capped is only a notice'.
+// "every open PR": one search per pattern (capped at 200), every non-draft PR I did not
+// write, tagged not in a channel, and capped is only a notice.
 func TestEveryOpenPRSearchesPerPattern(t *testing.T) {
 	t.Parallel()
 
@@ -227,7 +227,7 @@ func TestEveryOpenPRSearchesPerPattern(t *testing.T) {
 	aEqual(t, "capped off", view(t, tab).Capped, []string{})
 }
 
-// Bun: 'a finished PR is never missing from the rows while its lookup is awaited'.
+// A finished PR is never missing from the rows while its lookup is awaited.
 func TestFinishedPRStaysWhileItsLookupIsOut(t *testing.T) {
 	t.Parallel()
 

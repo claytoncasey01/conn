@@ -16,8 +16,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
-// Bun's reviewsApi.test.ts, the routes through a server: here the handler with a dry Reviews over
-// a temp data folder, so nothing it can launch is real and nothing is written.
+// The Reviews routes through a server: here the handler with a dry Reviews over a temp data
+// folder, so nothing it can launch is real and nothing is written.
 
 const reviewsT0 = 1_800_000_000_000
 
@@ -203,7 +203,7 @@ func TestReviewsStartAnswersOKAndWritesNothing(t *testing.T) {
 	}
 }
 
-// TestReviewsStartRefusals: Bun's validation refusals through the route, every body as raw
+// TestReviewsStartRefusals: the validation refusals through the route, every body as raw
 // JSON (a body that is not JSON, or not an object, is {}).
 func TestReviewsStartRefusals(t *testing.T) {
 	t.Parallel()

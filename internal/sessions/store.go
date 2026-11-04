@@ -119,11 +119,13 @@ type Snapshot struct {
 }
 
 // LiveSession is a live session as plain fields, for the modules that must not reach into the
-// store. Its status is the registry's, not the shown one.
+// store. Its Status is the registry's; Shown is the status every page shows (a busy session
+// gone quiet is idle), what Open work's run reports.
 type LiveSession struct {
 	Name      string
 	Cwd       string
 	Status    string
+	Shown     string
 	SessionID string
 	PID       float64
 }
@@ -456,9 +458,11 @@ func (s *store) admit(ctx context.Context, reg Reg) bool {
 // liveSessions are the live sessions as plain fields.
 func (s *store) liveSessions() []LiveSession {
 	out := make([]LiveSession, 0, len(s.order))
+	now := s.now()
 
 	for _, key := range s.order {
-		reg := s.sessions[key].reg
+		session := s.sessions[key]
+		reg := session.reg
 		name := ""
 
 		if reg.Name != nil {
@@ -466,8 +470,9 @@ func (s *store) liveSessions() []LiveSession {
 		}
 
 		out = append(out, LiveSession{
-			Name: name, Cwd: reg.Cwd, Status: reg.status(), SessionID: reg.SessionID,
-			PID: reg.PID,
+			Name: name, Cwd: reg.Cwd, Status: reg.status(),
+			Shown:     snapshot.ShownStatus(reg.status(), session.parts(), now),
+			SessionID: reg.SessionID, PID: reg.PID,
 		})
 	}
 

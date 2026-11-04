@@ -2,7 +2,6 @@ package myprs_test
 
 // The tries at the Greptile ask (a try whose answer was lost may have landed), and the row's
 // status once a round is asked for: waiting, findings, ready, or idle when the head moved on.
-// Bun's myPrs.test.ts "---- The Greptile ask and the ready rule ----", second half.
 
 import (
 	"context"
@@ -85,7 +84,7 @@ func (x *bWrites) ReplyToThread(context.Context, string, string) error { return 
 
 func (x *bWrites) ResolveThread(context.Context, string) error { return nil }
 
-// Bun: 'the try is saved before the call, so a restart while gh hangs knows it was made'.
+// The try is saved before the call, so a restart while gh hangs knows it was made.
 func TestBTryIsSavedBeforeTheCall(t *testing.T) {
 	t.Parallel()
 
@@ -106,8 +105,8 @@ func TestBTryIsSavedBeforeTheCall(t *testing.T) {
 	bEqual(t, "armed", run.saved()[0].Armed, true)
 }
 
-// Bun: 'an ask whose answer was lost is not posted again: my own comment since the try settles
-// the round'.
+// An ask whose answer was lost is not posted again: my own comment since the try settles
+// the round.
 func TestBLostAskIsNotPostedAgainWhenMyCommentShows(t *testing.T) {
 	t.Parallel()
 
@@ -128,8 +127,8 @@ func TestBLostAskIsNotPostedAgainWhenMyCommentShows(t *testing.T) {
 	bEqual(t, "status", run.status(), "waiting")
 }
 
-// Bun: 'a comment of mine a little before the try (clock skew) counts, an older one or one by
-// someone else does not'.
+// A comment of mine a little before the try (clock skew) counts, an older one or one by
+// someone else does not.
 func TestBMyCommentAroundTheTry(t *testing.T) {
 	t.Parallel()
 
@@ -156,8 +155,8 @@ func TestBMyCommentAroundTheTry(t *testing.T) {
 	})
 }
 
-// Bun: 'only my Greptile ask counts as a try that landed: another comment of mine since the try
-// does not settle the round, and the ask is made again'.
+// Only my Greptile ask counts as a try that landed: another comment of mine since the try
+// does not settle the round, and the ask is made again.
 func TestBOnlyMyGreptileAskCountsAsLanded(t *testing.T) {
 	t.Parallel()
 
@@ -175,7 +174,7 @@ func TestBOnlyMyGreptileAskCountsAsLanded(t *testing.T) {
 	bEqual(t, "launch", []any{bOpt(launch.AskedSha), bTries(launch)}, []any{"new", 2})
 }
 
-// Bun: 'a restart keeps the minute between two tries: the saved try counts'.
+// A restart keeps the minute between two tries: the saved try counts.
 func TestBRestartKeepsTheMinuteBetweenTries(t *testing.T) {
 	t.Parallel()
 
@@ -197,8 +196,8 @@ const bStopped = "Could not ask Greptile for a review: the ask could not be conf
 	"tries, so conn has stopped. Look at the PR's comments, and ask by hand if none is there. " +
 	"(gh: timed out after 30000 ms)"
 
-// Bun: 'at most three tries per head; then the row says the ask could not be confirmed, and a
-// new head starts again'.
+// At most three tries per head; then the row says the ask could not be confirmed, and a
+// new head starts again.
 func TestBAtMostThreeTriesPerHead(t *testing.T) {
 	t.Parallel()
 
@@ -232,8 +231,8 @@ func TestBAtMostThreeTriesPerHead(t *testing.T) {
 	bEqual(t, "new launch", []any{bOpt(launch.AskedSha), bTries(launch)}, []any{"newer", 1})
 }
 
-// Bun: 'a retry that succeeds records the first try's time, so a Greptile answer to the first
-// one still makes the PR ready'.
+// A retry that succeeds records the first try's time, so a Greptile answer to the first
+// one still makes the PR ready.
 func TestBRetryRecordsTheFirstTrysTime(t *testing.T) {
 	t.Parallel()
 
@@ -253,7 +252,7 @@ func TestBRetryRecordsTheFirstTrysTime(t *testing.T) {
 	bEqual(t, "status", run.status(), "ready")
 }
 
-// Bun: 'a comment of mine that shows up after the tries are used still settles the round'.
+// A comment of mine that shows up after the tries are used still settles the round.
 func TestBMyLateCommentSettlesTheRound(t *testing.T) {
 	t.Parallel()
 
@@ -289,8 +288,8 @@ func bAskedNew(l *myprs.Launch) {
 	l.Armed, l.AskedSha, l.AskedAt = false, new("new"), new(float64(worldT0))
 }
 
-// Bun: 'the row goes waiting after the ask, findings when Greptile reviewed and bot threads are
-// open, ready when clear'.
+// The row goes waiting after the ask, findings when Greptile reviewed and bot threads are
+// open, ready when clear.
 func TestBRowGoesWaitingFindingsReady(t *testing.T) {
 	t.Parallel()
 
@@ -316,8 +315,8 @@ func TestBRowGoesWaitingFindingsReady(t *testing.T) {
 // bState is a row's status, whether it can start, and why not.
 func bState(row *myprs.Row) []any { return []any{row.Status, row.CanStart, bOpt(row.Reason)} }
 
-// Bun: 'a PR whose head moved on after the ask is idle, and a live session shows running only
-// while its round is not over' (the round asked for an older head).
+// A PR whose head moved on after the ask is idle, and a live session shows running only
+// while its round is not over (the round asked for an older head).
 func TestBHeadMovedOnAfterTheAskIsIdle(t *testing.T) {
 	t.Parallel()
 
@@ -341,8 +340,8 @@ func TestBHeadMovedOnAfterTheAskIsIdle(t *testing.T) {
 	}
 }
 
-// Bun: 'a PR whose head moved on after the ask is idle, and a live session shows running only
-// while its round is not over' (an armed round at work, and a session conn has no record of).
+// A PR whose head moved on after the ask is idle, and a live session shows running only
+// while its round is not over (an armed round at work, and a session conn has no record of).
 func TestBLiveSessionOfAnOpenRoundIsRunning(t *testing.T) {
 	t.Parallel()
 
@@ -374,8 +373,8 @@ func TestBLiveSessionOfAnOpenRoundIsRunning(t *testing.T) {
 	})
 }
 
-// Bun: 'a finished round that pushed nothing is disarmed while its session stays open, so a
-// later push outside the round is never asked'.
+// A finished round that pushed nothing is disarmed while its session stays open, so a
+// later push outside the round is never asked.
 func TestBFinishedRoundThatPushedNothingIsDisarmed(t *testing.T) {
 	t.Parallel()
 
@@ -398,8 +397,8 @@ func TestBFinishedRoundThatPushedNothingIsDisarmed(t *testing.T) {
 	bEqual(t, "asks", run.asks(), []Ask{})
 }
 
-// Bun: 'an open finished session is not disarmed on a list fetched within a minute of its
-// replies file: its push may not be in that list yet'.
+// An open finished session is not disarmed on a list fetched within a minute of its
+// replies file: its push may not be in that list yet.
 func TestBOpenFinishedSessionWaitsAMinuteAfterItsReplies(t *testing.T) {
 	t.Parallel()
 
@@ -420,8 +419,8 @@ func TestBOpenFinishedSessionWaitsAMinuteAfterItsReplies(t *testing.T) {
 	bEqual(t, "askedSha", bOpt(run.saved()[0].AskedSha), "new")
 }
 
-// Bun: 'a round that is over while its session stays open shows its real status: ready with the
-// draft saved, it needs me, and it alerts once'. The alerts and needsMe are the page's own code
+// A round that is over while its session stays open shows its real status: ready with the
+// draft saved, it needs me, and it alerts once. The alerts and needsMe are the page's own code
 // (src/lib), so only the server's half is here: the status, the draft and the press.
 func TestBRoundOverWithItsSessionOpenShowsItsRealStatus(t *testing.T) {
 	t.Parallel()

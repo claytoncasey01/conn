@@ -1,8 +1,7 @@
 package reviews_test
 
 // The worktree sweep: a review's worktree stays after its session is closed (RESUME works while
-// the PR is open) and is removed once the PR's own read says it ended. Bun's reviews.test.ts
-// "---- The worktree sweep ----", first half.
+// the PR is open) and is removed once the PR's own read says it ended.
 
 import (
 	"os"

@@ -11,7 +11,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/myprs"
 )
 
-// The session's proposed replies (myPrs.test.ts, "The session's proposed replies").
+// The session's proposed replies.
 
 // cReplyThreadIDs are the thread ids of proposals.
 func cReplyThreadIDs(proposals []*myprs.Proposal) []string {

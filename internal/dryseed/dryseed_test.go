@@ -9,12 +9,13 @@ import (
 
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/dryseed"
+	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/origin"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
-// Bun's workDry.test.ts: when the dry seed happens, and what each dry switch seeds, through a real
-// settings store in a temp folder.
+// When the dry seed happens, and what each dry switch seeds, through a real settings store in a
+// temp folder.
 
 // factsOf are a dry server in setup with no file and a scratch data folder, changed by change.
 func factsOf(change func(facts *dryseed.Facts)) dryseed.Facts {
@@ -179,7 +180,7 @@ func seededStore(t *testing.T, flags config.Dry, dir string) *settings.Store {
 	return store
 }
 
-// seededView is what Bun's test compares after a seed.
+// seededView is what the tests compare after a seed.
 type seededView struct {
 	allow                                          string
 	github, requested, allOpen, slack, atlassianOn bool
@@ -267,6 +268,12 @@ func TestTheWorkSeedGivesTheBuildRepoACloneTheLookupFinds(t *testing.T) {
 
 	if string(head) != "ref: refs/remotes/origin/main\n" {
 		t.Errorf("origin/HEAD = %q", head)
+	}
+
+	// And the stand-in clone says its default branch the way a real one does.
+	branch, known := openwork.DefaultBranch(clone)
+	if branch != "main" {
+		t.Errorf("default branch %q %v", branch, known)
 	}
 }
 

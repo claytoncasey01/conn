@@ -12,15 +12,15 @@ import (
 	"github.com/claytoncasey01/conn/internal/myprs"
 )
 
-// The port of myPrsGh.test.ts. The recorded answers (clean, cleanMultiline, parse, searchFor,
+// The gh reads. The recorded answers (clean, cleanMultiline, parse, searchFor,
 // searchPatterns, prs, threadInfo) cover the parsing of every field, the searches' argv and
-// query, the failures and the rate; here are what they do not reach: Bun's exact cleaning cases,
+// query, the failures and the rate; here are what they do not reach: the exact cleaning cases,
 // the size bounds (they hold at most 5 threads and 3 nodes), the grammar lists and the merge of
 // several searches.
 
 var errENotLoggedIn = errors.New("gh: not logged in")
 
-// eNodeJSON is myPrsGh.test.ts's node(): org/repo#7 with one thread, review and comment.
+// eNodeJSON is org/repo#7 with one thread, review and comment.
 const eNodeJSON = `{"number":7,"title":"Add a thing","url":"https://github.com/org/repo/pull/7",` +
 	`"isDraft":false,"createdAt":"2026-09-30T08:00:00Z","updatedAt":"2026-10-01T12:00:00Z",` +
 	`"headRefName":"feature/a","headRefOid":"abc123","baseRefName":"development",` +

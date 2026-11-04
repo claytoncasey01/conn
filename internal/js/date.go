@@ -33,7 +33,7 @@ const replacement = '�'
 // DateParse is Date.parse(text) for the date-time strings Claude Code writes, in the local time
 // zone. See DateParseIn.
 func DateParse(text string) float64 {
-	// The machine's own zone, as Bun reads a zone-less time.
+	// The machine's own zone, for a zone-less time.
 	return DateParseIn(text, time.Now().Location())
 }
 

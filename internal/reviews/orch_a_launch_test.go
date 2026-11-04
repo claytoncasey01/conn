@@ -34,8 +34,8 @@ func aPinAndEnd(t *testing.T, tab *reviews.Reviews, fakes *world, seenAt, goneAt
 	}
 }
 
-// Bun: 'a launch whose session has appeared (pinned) and then ended no longer blocks a start; one
-// that closed unpinned does not either'.
+// A launch whose session has appeared (pinned) and then ended no longer blocks a start; one
+// that closed unpinned does not either.
 func TestEndedPinnedLaunchNoLongerBlocks(t *testing.T) {
 	t.Parallel()
 
@@ -45,8 +45,8 @@ func TestEndedPinnedLaunchNoLongerBlocks(t *testing.T) {
 	aEqual(t, "start", aBody(aStart(t, tab, worldRepo, "7", aSonnet)), aOKName2)
 }
 
-// Bun: 'a launch that was pinned within the 30 s window and whose session ended still blocks a
-// start until 30 s are up, then does not'.
+// A launch that was pinned within the 30 s window and whose session ended still blocks a
+// start until 30 s are up, then does not.
 func TestPinnedLaunchEndedEarlyBlocksForThirtySeconds(t *testing.T) {
 	t.Parallel()
 
@@ -79,7 +79,7 @@ type aStarted struct {
 	err   error
 }
 
-// Bun: 'two clicks at once launch once'.
+// Two clicks at once launch once.
 func TestTwoClicksAtOnceLaunchOnce(t *testing.T) {
 	t.Parallel()
 
@@ -117,8 +117,8 @@ func TestTwoClicksAtOnceLaunchOnce(t *testing.T) {
 	aEqual(t, "launches", aLaunchCount(fakes), 1)
 }
 
-// Bun: 'a successful start launches with the PR's base branch, answers the name, and saves the
-// Launch with the head sha'.
+// A successful start launches with the PR's base branch, answers the name, and saves the
+// Launch with the head sha.
 func TestSuccessfulStartLaunchesAndSaves(t *testing.T) {
 	t.Parallel()
 
@@ -166,8 +166,8 @@ func aLaunchFails(why, manual string) func(reviews.LaunchOpts) reviews.LaunchRes
 	}
 }
 
-// Bun: 'a cmux failure is a 200 with the command to paste, records no Launch, and can be tried
-// again at once'.
+// A cmux failure is a 200 with the command to paste, records no Launch, and can be tried
+// again at once.
 func TestCmuxFailureAnswersTheCommandToPaste(t *testing.T) {
 	t.Parallel()
 
@@ -207,8 +207,8 @@ func aPanicked(call func()) string {
 	return found
 }
 
-// Bun: 'a git failure (no manual command) is the same shape, and a launch that throws leaves
-// start free to try again'. Go's launch has no error: a panic stands for Bun's rejection.
+// A git failure (no manual command) is the same shape, and a launch that panics leaves
+// start free to try again.
 func TestFailedOrThrowingLaunchLeavesStartFree(t *testing.T) {
 	t.Parallel()
 
@@ -238,7 +238,7 @@ func TestFailedOrThrowingLaunchLeavesStartFree(t *testing.T) {
 	aEqual(t, "start after a throw (body)", aBody(again), aOKName)
 }
 
-// Bun: 'REVIEW closes out an earlier launch that is still open (the new one owns the worktree)'.
+// REVIEW closes out an earlier launch that is still open (the new one owns the worktree).
 func TestReviewClosesOutAnEarlierOpenLaunch(t *testing.T) {
 	t.Parallel()
 

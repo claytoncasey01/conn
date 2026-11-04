@@ -20,7 +20,7 @@ func fileOf(t *testing.T, value any) *reviews.File {
 	return reviews.LoadFile(writeText(t, js.Stringify(value)))
 }
 
-func TestStoreFilesMatchBun(t *testing.T) {
+func TestStoreFilesMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	for index, row := range section(t, answers(t), "files") {
@@ -76,7 +76,7 @@ func migrateContext(row any) reviews.MigrateContext {
 	}
 }
 
-func TestStoreChangesMatchBun(t *testing.T) {
+func TestStoreChangesMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -152,7 +152,7 @@ func (s *scriptedGh) exec(_ context.Context, args []string) (string, error) {
 	return str(get(failure, "stdout")), textError(str(get(failure, "message")))
 }
 
-func TestGraphQLCallsMatchBun(t *testing.T) {
+func TestGraphQLCallsMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	for _, row := range section(t, answers(t), "gh") {
@@ -182,7 +182,7 @@ func TestGraphQLCallsMatchBun(t *testing.T) {
 }
 
 // keptError is an error from the package under test, kept word for word: the check compares its
-// text with Bun's.
+// text with the recorded one.
 type keptError struct {
 	err error
 }

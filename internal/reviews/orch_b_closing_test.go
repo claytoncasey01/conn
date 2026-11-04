@@ -1,7 +1,7 @@
 package reviews_test
 
 // Auto-close beside REVIEW, the close's memory, refused and failed closes, and which worktrees
-// are ever matched. Bun's reviews.test.ts "---- Auto-close ----", second half.
+// are ever matched.
 
 import (
 	"path/filepath"
@@ -206,9 +206,9 @@ func TestBRefusedCloseIsTriedAgainLaterNotEveryTick(t *testing.T) {
 	bClosed(t, "later", run.launch())
 }
 
-// Bun breaks the screen read, the close and the session list by making them throw. In Go they
-// cannot fail by type (no error return), so the failures that map are a close that answers 500
-// (logged) and a screen that cannot be read: both are tried again by a later tick.
+// The screen read, the close and the session list cannot fail by type (no error return), so the
+// failures tried are a close that answers 500 (logged) and a screen that cannot be read: both
+// are tried again by a later tick.
 func TestBFailureInsideTheCloseIsCaughtAndALaterTickRunsAgain(t *testing.T) {
 	t.Parallel()
 

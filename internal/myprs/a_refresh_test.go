@@ -13,7 +13,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
-// The port of myPrs.test.ts's REFRESH, bump, dry-run and seenAt tests (lines 1 to 900).
+// The REFRESH, bump, dry-run and seenAt tests.
 
 // aGiveUpMs is how long a press waits for a poll that never answers.
 const aGiveUpMs = 150_000

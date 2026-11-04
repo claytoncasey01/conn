@@ -16,6 +16,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/gallery"
 	"github.com/claytoncasey01/conn/internal/historyapi"
 	"github.com/claytoncasey01/conn/internal/myprs"
+	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/provided"
 	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/sessions"
@@ -69,6 +70,8 @@ type Server struct {
 	Reviews *reviews.Reviews
 	// MyPrs answers /api/myprs; nil leaves the routes out.
 	MyPrs *myprs.MyPrs
+	// Work answers Open work's /api/work and /api/runs; nil leaves the routes out.
+	Work *openwork.Work
 	// Logger is told about a request that failed.
 	Logger *log.Logger
 }
@@ -109,16 +112,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // api answers a route under /api that one of the APIs owns, and is false when none does.
 func (s *Server) api(w http.ResponseWriter, r *http.Request, urlPath string) bool {
-	if s.actions(w, r, urlPath) {
-		return true
+	owners := []func(http.ResponseWriter, *http.Request, string) bool{
+		s.actions, s.work, s.history, s.tabs,
 	}
 
-	if s.history(w, r, urlPath) {
-		return true
-	}
-
-	if s.tabs(w, r, urlPath) {
-		return true
+	for _, owns := range owners {
+		if owns(w, r, urlPath) {
+			return true
+		}
 	}
 
 	if s.services(w, r, urlPath) {

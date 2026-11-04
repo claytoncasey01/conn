@@ -2,7 +2,6 @@ package myprs_test
 
 // The Greptile ask and the ready rule: when a round is over its push is asked for once, a round
 // that pushed nothing is disarmed, and a press waits for the poll that settles the last round.
-// Bun's myPrs.test.ts "---- The Greptile ask and the ready rule ----", first half.
 
 import (
 	"errors"
@@ -36,7 +35,7 @@ type bRoundOpts struct {
 	extra   []func(l *myprs.Launch)
 }
 
-// bRun is a listed PR with recorded launches, and My PRs over it (Bun's round()).
+// bRun is a listed PR with recorded launches, and My PRs over it.
 type bRun struct {
 	t     *testing.T
 	world *World
@@ -63,7 +62,7 @@ func bRoundLaunch(at float64, name string, round float64, change func(l *myprs.L
 	return launch
 }
 
-// bRound is Bun's round(): one recorded launch (the newest, round 2) of a listed PR, not yet
+// bRound is one recorded launch (the newest, round 2) of a listed PR, not yet
 // polled.
 func bRound(t *testing.T, opts bRoundOpts) *bRun {
 	t.Helper()
@@ -156,8 +155,8 @@ func (r *bRun) press() int {
 // bAsked is the one ask of org/repo#7.
 func bAsked() []Ask { return []Ask{{Repo: bRepo, Number: 7}} }
 
-// Bun: 'an ask is made once the session is gone, and the launch records askedSha, askedAt and
-// is disarmed'.
+// An ask is made once the session is gone, and the launch records askedSha, askedAt and
+// is disarmed.
 func TestBAskOnceTheSessionIsGone(t *testing.T) {
 	t.Parallel()
 
@@ -173,7 +172,7 @@ func TestBAskOnceTheSessionIsGone(t *testing.T) {
 	bEqual(t, "status", run.status(), "waiting")
 }
 
-// Bun: 'no second ask for the same sha across polls'.
+// No second ask for the same sha across polls.
 func TestBNoSecondAskForTheSameSha(t *testing.T) {
 	t.Parallel()
 
@@ -185,8 +184,8 @@ func TestBNoSecondAskForTheSameSha(t *testing.T) {
 	bEqual(t, "asks", len(run.asks()), 1)
 }
 
-// Bun: 'a round whose session pushed nothing is never asked, and once its session is gone the
-// status is idle, not running'.
+// A round whose session pushed nothing is never asked, and once its session is gone the
+// status is idle, not running.
 func TestBRoundThatPushedNothingIsNeverAsked(t *testing.T) {
 	t.Parallel()
 
@@ -202,7 +201,7 @@ func TestBRoundThatPushedNothingIsNeverAsked(t *testing.T) {
 	bEqual(t, "asks", run.asks(), []Ask{})
 }
 
-// Bun: 'a session that has not shown up yet is not gone until the wait for it is over'.
+// A session that has not shown up yet is not gone until the wait for it is over.
 func TestBSessionNotShownUpYetIsNotGone(t *testing.T) {
 	t.Parallel()
 
@@ -213,8 +212,8 @@ func TestBSessionNotShownUpYetIsNotGone(t *testing.T) {
 	bEqual(t, "asks after", len(run.asks()), 1)
 }
 
-// Bun: 'a live session that is idle, quiet 60 s with replies.json newer than the launch is
-// asked; before 60 s it is not'.
+// A live session that is idle, quiet 60 s with replies.json newer than the launch is
+// asked; before 60 s it is not.
 func TestBIdleSessionQuietAMinuteIsAsked(t *testing.T) {
 	t.Parallel()
 
@@ -232,8 +231,8 @@ func TestBIdleSessionQuietAMinuteIsAsked(t *testing.T) {
 	bEqual(t, "60 s", len(run.asks()), 1)
 }
 
-// Bun: 'a session that stopped on a prompt (waiting) is not asked without replies.json, nor
-// while waiting'.
+// A session that stopped on a prompt (waiting) is not asked without replies.json, nor
+// while waiting.
 func TestBWaitingSessionIsNotAsked(t *testing.T) {
 	t.Parallel()
 
@@ -247,7 +246,7 @@ func TestBWaitingSessionIsNotAsked(t *testing.T) {
 	bEqual(t, "with replies", run.asks(), []Ask{})
 }
 
-// Bun: 'a session that is busy again resets the quiet time'.
+// A session that is busy again resets the quiet time.
 func TestBBusyAgainResetsTheQuietTime(t *testing.T) {
 	t.Parallel()
 
@@ -263,7 +262,7 @@ func TestBBusyAgainResetsTheQuietTime(t *testing.T) {
 	bEqual(t, "asks", run.asks(), []Ask{})
 }
 
-// Bun: 'replies.json older than the launch (a reused worktree) does not end the round'.
+// Replies.json older than the launch (a reused worktree) does not end the round.
 func TestBRepliesOlderThanTheLaunchDoNotEndTheRound(t *testing.T) {
 	t.Parallel()
 
@@ -274,7 +273,7 @@ func TestBRepliesOlderThanTheLaunchDoNotEndTheRound(t *testing.T) {
 	bEqual(t, "asks", run.asks(), []Ask{})
 }
 
-// Bun: 'repliesAt is only asked about a worktree inside <dataDir>/myprs'.
+// RepliesAt is only asked about a worktree inside <dataDir>/myprs.
 func TestBRepliesAtOnlyInsideTheMyprsFolder(t *testing.T) {
 	t.Parallel()
 
@@ -313,7 +312,7 @@ func TestBRepliesAtOnlyInsideTheMyprsFolder(t *testing.T) {
 	})
 }
 
-// Bun: 'only the newest launch decides the ask: an older armed launch is not used'.
+// Only the newest launch decides the ask: an older armed launch is not used.
 func TestBOnlyTheNewestLaunchDecidesTheAsk(t *testing.T) {
 	t.Parallel()
 
@@ -328,8 +327,8 @@ func TestBOnlyTheNewestLaunchDecidesTheAsk(t *testing.T) {
 	bEqual(t, "armed", run.saved()[0].Armed, true)
 }
 
-// Bun: 'a press between a pushing round's close and the next poll is refused, so the push is
-// still asked for, and goes through once it was'.
+// A press between a pushing round's close and the next poll is refused, so the push is
+// still asked for, and goes through once it was.
 func TestBPressBeforeThePollAfterAPushingRoundIsRefused(t *testing.T) {
 	t.Parallel()
 
@@ -373,8 +372,8 @@ func bArmedRounds(launches []*myprs.Launch) [][]any {
 	return out
 }
 
-// Bun: 'a press after a round that pushed nothing waits for the poll too: the list can be
-// older than a push, and the poll disarms the round'.
+// A press after a round that pushed nothing waits for the poll too: the list can be
+// older than a push, and the poll disarms the round.
 func TestBPressAfterARoundThatPushedNothingWaitsForThePoll(t *testing.T) {
 	t.Parallel()
 
@@ -393,8 +392,8 @@ func TestBPressAfterARoundThatPushedNothingWaitsForThePoll(t *testing.T) {
 	bEqual(t, "press", run.press(), 200)
 }
 
-// Bun: 'the wait for the poll never holds a press for good: not on a draft PR, nor once the
-// three tries at the ask are used' (the draft PR).
+// The wait for the poll never holds a press for good: not on a draft PR, nor once the
+// three tries at the ask are used (the draft PR).
 func TestBWaitForThePollNeverHoldsADraftPR(t *testing.T) {
 	t.Parallel()
 
@@ -405,8 +404,8 @@ func TestBWaitForThePollNeverHoldsADraftPR(t *testing.T) {
 	bEqual(t, "draft", []any{run.row().CanStart, run.press()}, []any{true, 200})
 }
 
-// Bun: 'the wait for the poll never holds a press for good: not on a draft PR, nor once the
-// three tries at the ask are used' (the tries).
+// The wait for the poll never holds a press for good: not on a draft PR, nor once the
+// three tries at the ask are used (the tries).
 func TestBWaitForThePollEndsWhenTheTriesAreUsed(t *testing.T) {
 	t.Parallel()
 
@@ -438,8 +437,8 @@ func bTries(launch *myprs.Launch) int {
 	return launch.AskTry.Tries
 }
 
-// Bun: 'a round to paste that was never pasted is armed for good but never waited for: only a
-// session that was seen is owed a settling'.
+// A round to paste that was never pasted is armed for good but never waited for: only a
+// session that was seen is owed a settling.
 func TestBRoundNeverPastedIsNotWaitedFor(t *testing.T) {
 	t.Parallel()
 
@@ -457,8 +456,8 @@ func TestBRoundNeverPastedIsNotWaitedFor(t *testing.T) {
 	bEqual(t, "press", run.press(), 200)
 }
 
-// Bun: 'a round whose session never appeared is settled by the poll, and no press is held for
-// it'.
+// A round whose session never appeared is settled by the poll, and no press is held for
+// it.
 func TestBRoundWhoseSessionNeverAppearedIsSettled(t *testing.T) {
 	t.Parallel()
 
@@ -468,7 +467,7 @@ func TestBRoundWhoseSessionNeverAppearedIsSettled(t *testing.T) {
 	bEqual(t, "press", run.press(), 200)
 }
 
-// Bun: 'a draft PR is never asked or ready'.
+// A draft PR is never asked or ready.
 func TestBDraftPRIsNeverAskedOrReady(t *testing.T) {
 	t.Parallel()
 
@@ -485,8 +484,8 @@ func TestBDraftPRIsNeverAskedOrReady(t *testing.T) {
 	}
 }
 
-// Bun: 'a failed comment leaves state unchanged, shows the cleaned error on the row, and
-// retries no sooner than 60 s'.
+// A failed comment leaves state unchanged, shows the cleaned error on the row, and
+// retries no sooner than 60 s.
 func TestBFailedAskShowsTheCleanedErrorAndRetriesAfterAMinute(t *testing.T) {
 	t.Parallel()
 

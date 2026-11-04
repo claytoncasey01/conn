@@ -78,7 +78,7 @@ func aReReviewCases() []aReReviewCase {
 	}
 }
 
-// Bun: 'a re-review passes the commit Jane last reviewed; an unknown commit sends no line'.
+// A re-review passes the commit Jane last reviewed; an unknown commit sends no line.
 func TestReReviewPassesTheLastReviewedCommit(t *testing.T) {
 	t.Parallel()
 

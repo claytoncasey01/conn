@@ -10,7 +10,7 @@ import (
 
 // The actions on a live session. Each makes its checks on the loop's goroutine, runs ps and
 // cmux off it, and comes back to the loop for anything that reads or changes the session list.
-// They go on after the page that asked has gone, as Bun's did.
+// They go on after the page that asked has gone.
 
 // Stop sends SIGTERM to a session (see store.stop).
 func (l *Loop) Stop(ctx context.Context, pid string, force bool) Reply {

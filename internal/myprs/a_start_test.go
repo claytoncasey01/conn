@@ -20,7 +20,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
-// The port of myPrs.test.ts's start tests (Self-Review and Re-Review, lines 1 to 900).
+// The start tests: Self-Review and Re-Review.
 
 const aMinuteMs = 60_000
 
@@ -103,7 +103,7 @@ func aLive(world *World, cwd string) {
 	})
 }
 
-// aPollOnce moves the clock on and polls at once (Bun's pollOnce).
+// aPollOnce moves the clock on and polls at once.
 func aPollOnce(world *World, poller *myprs.MyPrs, advanceMs float64) {
 	world.Advance(advanceMs)
 	poller.Refresh()

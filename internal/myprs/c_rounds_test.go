@@ -11,7 +11,7 @@ import (
 )
 
 // The rounds' lifecycle: when a round's session counts as live or gone, when a round is
-// disarmed, and when its push is asked for (myPrs.test.ts, from line 1757).
+// disarmed, and when its push is asked for.
 
 func TestCAskedRoundAfterRestartShowsItsStatusAtOnce(t *testing.T) {
 	t.Parallel()

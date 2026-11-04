@@ -79,7 +79,7 @@ func parseReviews(value any) []Review {
 	return out
 }
 
-// checksState is the rollup reduced to a state; a rollup Bun could not read (a null entry, a
+// checksState is the rollup reduced to a state; a rollup that cannot be read (a null entry, a
 // name that is not text) is none.
 func checksState(rollup any) string {
 	list, _ := rollup.([]any)
@@ -102,7 +102,7 @@ func checksState(rollup any) string {
 }
 
 // textName is whether a check's name (name, else context, when present and not null) is text,
-// as Bun's cleanName needs.
+// as cleaning the name needs.
 func textName(check *js.Object) bool {
 	for _, key := range []string{"name", "context"} {
 		value, present := check.Get(key)

@@ -20,7 +20,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
-// The answers in testdata/answers/reviews/pure.json.gz are Bun's: seeded rows, GitHub answers,
+// The recorded answers in testdata/answers/reviews/pure.json.gz: seeded rows, GitHub answers,
 // budgets, scan answers and prompts, reviews.json files, launch names, close decisions, the
 // GraphQL calls Reviews makes (their argv and what came of them), the scan runs (what the helper
 // is asked and what came of it) and the dry view.
@@ -121,7 +121,7 @@ func decode[T any](t *testing.T, value any) T {
 	return out
 }
 
-// check fails when got does not write the JSON Bun recorded.
+// check fails when got does not write the recorded JSON.
 func check(t *testing.T, label string, got, want any) {
 	t.Helper()
 
@@ -135,7 +135,7 @@ func check(t *testing.T, label string, got, want any) {
 	}
 }
 
-// outOrError is Bun's {out} or {error}.
+// outOrError is a result as the answers record it: {out} or {error}.
 func outOrError(value any, err error) *js.Object {
 	result := js.NewObject()
 	if err != nil {
@@ -163,7 +163,7 @@ type ctxJSON struct {
 	Now     float64             `json:"now"`
 }
 
-func TestRowsMatchBun(t *testing.T) {
+func TestRowsMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -210,7 +210,7 @@ func TestRowsMatchBun(t *testing.T) {
 	}
 }
 
-func TestGitHubParsingMatchesBun(t *testing.T) {
+func TestGitHubParsingMatchesTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -244,7 +244,7 @@ func TestGitHubParsingMatchesBun(t *testing.T) {
 	check(t, "PRListFields", reviews.PRListFields, get(data, "prListFields"))
 }
 
-func TestBudgetMatchesBun(t *testing.T) {
+func TestBudgetMatchesTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -301,7 +301,7 @@ func budgetStep(t *testing.T, label string, budget *ghbudget.Budget, step any) {
 	}
 }
 
-func TestScanParsingMatchesBun(t *testing.T) {
+func TestScanParsingMatchesTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -379,7 +379,7 @@ func scanInputOf(value any) reviews.ScanInput {
 	return input
 }
 
-func TestPromptsMatchBun(t *testing.T) {
+func TestPromptsMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -431,7 +431,7 @@ func askedJSON(opts claude.Opts) *js.Object {
 	return asked
 }
 
-func TestScanRunsMatchBun(t *testing.T) {
+func TestScanRunsMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.FromEnv(func(string) (string, bool) { return "", false })
@@ -482,7 +482,7 @@ func scanOutcome(got *js.Object, result any, err error) {
 	got.Set("out", result)
 }
 
-func TestLaunchNamesMatchBun(t *testing.T) {
+func TestLaunchNamesMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -571,7 +571,8 @@ func launchChecks(t *testing.T, data *js.Object) {
 	}
 }
 
-// asNumber is a recorded PR number as Go takes it: one Bun refuses is 0, which Go refuses too.
+// asNumber is a recorded PR number as an int64: one that is not a safe whole number is 0,
+// which is refused too.
 func asNumber(value any) int64 {
 	found := num(value)
 	if found != math.Trunc(found) {
@@ -585,7 +586,7 @@ func asNumber(value any) int64 {
 	return int64(found)
 }
 
-// asCount is a recorded launch count as Go takes it: one Bun refuses is -1.
+// asCount is a recorded launch count as an int: one that is not a whole number is -1.
 func asCount(value any) int {
 	found := num(value)
 	if found != math.Trunc(found) {
@@ -595,7 +596,7 @@ func asCount(value any) int {
 	return int(found)
 }
 
-func TestDryViewMatchesBun(t *testing.T) {
+func TestDryViewMatchesTheRecording(t *testing.T) {
 	t.Parallel()
 
 	dry := get(answers(t), "dry")

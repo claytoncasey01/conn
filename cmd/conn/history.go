@@ -17,6 +17,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/history"
 	"github.com/claytoncasey01/conn/internal/historyapi"
+	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/origin"
 	"github.com/claytoncasey01/conn/internal/sessions"
@@ -128,39 +129,7 @@ func nowMs() float64 { return float64(time.Now().UnixMilli()) }
 
 // ticketKey is the ticket a session's name is, while Open work is on.
 func ticketKey(store *settings.Store) func(name string) string {
-	return func(name string) string {
-		if !store.ModuleEnabled(settings.ModuleAtlassian) {
-			return ""
-		}
-
-		for _, project := range store.Get().Atlassian.Jira.Projects {
-			number, found := strings.CutPrefix(name, project+"-")
-			if !found {
-				continue
-			}
-
-			if ticketNumber(number) {
-				return name
-			}
-		}
-
-		return ""
-	}
-}
-
-// ticketNumber is \d{1,9}.
-func ticketNumber(text string) bool {
-	const digitsMax = 9
-
-	if text == "" {
-		return false
-	}
-
-	if len(text) > digitsMax {
-		return false
-	}
-
-	return strings.Trim(text, "0123456789") == ""
+	return func(name string) string { return jira.KeyOf(store.Get(), name) }
 }
 
 type historyFooterOn struct {

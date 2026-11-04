@@ -16,14 +16,14 @@ import (
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
-// The port of myPrs.test.ts's round() and replying(): a listed PR with recorded launches, the
-// newest round 2 at T0 - H from head old, armed, whose worktree is cCloneWorktree.
+// The round and replying rigs: a listed PR with recorded launches, the newest round 2 at T0 - H
+// from head old, armed, whose worktree is cCloneWorktree.
 
 const (
 	cMinuteMs = 60_000
-	// cCloneWorktree is Bun's AWT, the worktree of every launch round() records.
+	// cCloneWorktree is the worktree of every launch the round rig records.
 	cCloneWorktree = "/data/myprs/org-repo-7/self-repo-7"
-	// cRepliesPath is Bun's RFILE, that worktree's replies file.
+	// cRepliesPath is that worktree's replies file.
 	cRepliesPath = cCloneWorktree + "/.conn/replies.json"
 	cRepo        = "org/repo"
 	cNumber      = 7.0
@@ -281,7 +281,7 @@ func (r *cRound) start() *js.Object {
 	return r.myPrs.Start(context.Background(), cRepo, cNumber, "sonnet").Body
 }
 
-// cRestart is a new poller (a new world listing prs) on path, as Bun's make(..., r.file).
+// cRestart is a new poller (a new world listing prs) on path.
 func cRestart(t *testing.T, path string, prs ...*myprs.PR) (*World, *myprs.MyPrs) {
 	t.Helper()
 
@@ -336,7 +336,7 @@ type cReplyEntry struct {
 	Text     string `json:"text"`
 }
 
-// cBody is Bun's body(): a replies file listing entries.
+// cBody is a replies file listing entries.
 func cBody(entries ...cReplyEntry) string {
 	data, err := json.Marshal(struct {
 		Threads []cReplyEntry `json:"threads"`
@@ -348,7 +348,7 @@ func cBody(entries ...cReplyEntry) string {
 	return string(data)
 }
 
-// cProp is Bun's prop(): a stored proposal.
+// cProp is a stored proposal.
 func cProp(threadID, text, state string, launchAt float64) *myprs.Proposal {
 	return &myprs.Proposal{
 		ThreadID: threadID, Text: text, State: state, Error: nil, LaunchAt: launchAt,
@@ -371,8 +371,8 @@ func cThreads(ids ...string) func(pull *myprs.PR) {
 	}
 }
 
-// cReplyOpts are replying()'s options. file nil is the default body (t1 fixed); noFile is
-// Bun's file: null; at nil is T0.
+// cReplyOpts are replying()'s options. file nil is the default body (t1 fixed); noFile is no
+// replies file at all; at nil is T0.
 type cReplyOpts struct {
 	threads   []string
 	file      *string
@@ -447,7 +447,7 @@ func (x cOrderedWrites) ResolveThread(_ context.Context, threadID string) error 
 	return nil
 }
 
-// threadSide is Bun's threadSide(r): the fresh read answers an open thread of PR 7, and the
+// threadSide is the thread rig: the fresh read answers an open thread of PR 7, and the
 // writes are recorded in order; read them with the answer.
 func (r *cRound) threadSide() func() []string {
 	guard := &sync.Mutex{}

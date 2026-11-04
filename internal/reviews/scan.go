@@ -489,7 +489,7 @@ func AcceptAsks(raw any, threads []Thread, nowMs float64) []Ask {
 	return out
 }
 
-// scanSchema is the answer a scan must give, as Bun writes it.
+// scanSchema is the answer a scan must give, as JSON text.
 const scanSchema = `{"type":"object","properties":{"posts":{"type":"array","items":{"type":` +
 	`"object","properties":{"channel":{"type":"string"},"ts":{"type":"string"},"permalink":` +
 	`{"type":"string"},"prUrl":{"type":"string"}},"required":["channel","ts","permalink",` +

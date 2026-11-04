@@ -64,8 +64,7 @@ func (p *pollRun) stale(repo string) bool {
 	return repos.Allowed(repo, p.failedOn)
 }
 
-// startPoll runs the start of a poll on the tick, as Bun's does, and the rest on its own
-// goroutine.
+// startPoll runs the start of a poll on the tick, and the rest on its own goroutine.
 func (r *Reviews) startPoll(current settings.Settings, version uint64) {
 	allow := current.Repos.Allow
 	if allow == nil {

@@ -1,8 +1,7 @@
 package reviews_test
 
-// REFRESH stays busy until the work it asked for has finished. Bun's reviews.test.ts
-// "---- REFRESH stays busy until the work it asked for has finished ----", up to the press while
-// GitHub is off.
+// REFRESH stays busy until the work it asked for has finished, up to the press while GitHub is
+// off.
 
 import (
 	"encoding/json"

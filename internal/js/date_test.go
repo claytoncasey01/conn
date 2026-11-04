@@ -9,9 +9,9 @@ import (
 	"github.com/claytoncasey01/conn/internal/js"
 )
 
-// TestDateParseMatchesBun holds DateParse to what Bun's Date.parse gave for each form, with the
-// local zone America/New_York.
-func TestDateParseMatchesBun(t *testing.T) {
+// TestDateParseMatchesTheRecording holds DateParse to what the recorded Date.parse gave for each
+// form, with the local zone America/New_York.
+func TestDateParseMatchesTheRecording(t *testing.T) {
 	t.Parallel()
 
 	newYork, err := time.LoadLocation("America/New_York")

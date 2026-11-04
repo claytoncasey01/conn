@@ -61,7 +61,7 @@ func prNumber(value any) (int64, bool) {
 }
 
 // Start is REVIEW pressed for PR number of repo (as the request sent them): it refuses before
-// any git or cmux call, else launches. An error only for a program fault (Bun's 500).
+// any git or cmux call, else launches. An error only for a program fault (a 500).
 func (r *Reviews) Start(ctx context.Context, repo, number, model any) (Reply, error) {
 	name, isText := repo.(string)
 	if !all(isText, repos.IsName(name)) {
@@ -305,8 +305,7 @@ func (r *Reviews) launch(
 		return Reply{}, err
 	}
 
-	// Cleared however the launch ends, a panicking one too (Bun clears it in finally), so the
-	// PR is never left locked.
+	// Cleared however the launch ends, a panicking one too, so the PR is never left locked.
 	r.starting[key] = true
 	defer delete(r.starting, key)
 

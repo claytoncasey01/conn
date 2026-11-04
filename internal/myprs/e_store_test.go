@@ -12,13 +12,13 @@ import (
 	"github.com/claytoncasey01/conn/internal/myprs"
 )
 
-// The port of myPrsStore.test.ts: what the recorded answers (section files) never see. They
+// The store: what the recorded answers (section files) never see. They
 // cover a bad record dropped alone, the manual mark and both prunes; these cover a missing file,
 // the modes, the rename seam, the field rules case by case and TrackOf.
 
 var errERename = errors.New("rename refused")
 
-// The fixtures of myPrsStore.test.ts, as JSON.
+// The store's fixtures, as JSON.
 const (
 	eLaunchJSON = `{"at":1000,"model":"sonnet","name":"self-repo-12","worktree":"/wt/a",` +
 		`"headSha":"abc123","round":1,"armed":true,"askedSha":null,"askedAt":null,` +
@@ -35,7 +35,7 @@ const (
 		`"tries":1}`
 )
 
-// eEntryJSON is Bun's entry() with the fields in over (raw JSON) in place of its own.
+// eEntryJSON is a stored entry with the fields in over (raw JSON) in place of its own.
 func eEntryJSON(over map[string]string) string {
 	fields := []struct{ key, value string }{
 		{"firstSeenAt", "500"},
@@ -237,7 +237,7 @@ func TestEDraftTries(t *testing.T) {
 		}
 	})
 
-	// Bun's NaN is written as null by JSON.stringify: the null row is that case too.
+	// JSON.stringify writes NaN as null: the null row is that case too.
 	for _, tt := range []string{"0", "-1", "1.5", `"x"`, "null", "1000"} {
 		t.Run(tt, func(t *testing.T) {
 			t.Parallel()

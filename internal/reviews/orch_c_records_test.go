@@ -1,7 +1,7 @@
 package reviews_test
 
-// What the Settings cards learn from Reviews (Bun's moduleStatus section), and a reviews.json
-// that could not be opened for writing.
+// What the Settings cards learn from Reviews (the module status), and a reviews.json that could
+// not be opened for writing.
 
 import (
 	"slices"
@@ -175,7 +175,7 @@ func TestOrchCReadingWhatAChannelScanFoundRecordsHowGitHubAnswered(t *testing.T)
 			})
 			tab.Tick()
 			tab.Settle()
-			// As in Bun, the DM scan of the same tick ends while the scan's read is out.
+			// The DM scan of the same tick ends while the scan's read is out.
 			tab.Tick()
 			reads.reached(t)
 			cWaitFor(t, "the DM scan", cRecorded(fakes, "slack ok: Reviews scanned your Slack DMs"))

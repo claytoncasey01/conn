@@ -14,8 +14,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// Bun's reviewScan.test.ts and reviewDm.test.ts: the sign-in cases the recorded scan runs do
-// not hold, and the scan through the real claude runner (a stand-in binary that records argv).
+// The channel and DM scans: the sign-in cases the recorded scan runs do not hold, and the scan
+// through the real claude runner (a stand-in binary that records argv).
 
 const dScanNow = 1_761_800_000_000
 

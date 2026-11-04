@@ -3,7 +3,7 @@ package myprs
 // What the tests in package myprs_test reach that is not exported. A group of tests that needs
 // more adds its own export_<group>_test.go.
 
-// SetDeps changes the dependencies of a running MyPrs (Bun's tests swap a fake mid-test).
+// SetDeps changes the dependencies of a running MyPrs, so a test can swap a fake mid-test.
 func (m *MyPrs) SetDeps(change func(deps *Deps)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

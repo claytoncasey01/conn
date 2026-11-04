@@ -8,11 +8,11 @@ import (
 	"github.com/claytoncasey01/conn/internal/myprs"
 )
 
-// The port of myPrsState.test.ts: the cases the recorded answers (rowThreads, threadCounts,
-// botReviewed, protectedHead) do not reach: the bounds (they hold at most 5 threads), Bun's
-// protected list, a bidi default branch and the exact boundaries.
+// The row's state: the cases the recorded answers (rowThreads, threadCounts, botReviewed,
+// protectedHead) do not reach: the bounds (they hold at most 5 threads), a protected list, a
+// bidi default branch and the exact boundaries.
 
-// eHeads is the protected list of myPrsState.test.ts.
+// eHeads is the protected list of these tests.
 func eHeads() []string { return []string{"main", "master", "develop", "staging", "release/*"} }
 
 func eWithThreads(threads ...myprs.Thread) *myprs.PR {

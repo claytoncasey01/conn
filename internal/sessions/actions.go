@@ -165,7 +165,7 @@ func (s *store) stop(pid string, force bool, now float64) Reply {
 	return reply
 }
 
-// killMessage is Bun's process.kill message for a failed signal:
+// killMessage is process.kill's message for a failed signal:
 // "kill() failed: ESRCH: No such process".
 func killMessage(err error) string {
 	var errno syscall.Errno

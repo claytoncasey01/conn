@@ -46,8 +46,7 @@ func (aBoomSettings) Current() (settings.Settings, uint64) { panic(aBoom) }
 
 func (aBoomSettings) Setup() bool { panic(aBoom) }
 
-// aDryReviews is a dry Reviews whose every dependency panics (now too, unless one is given), as
-// Bun's dry tests build it.
+// aDryReviews is a dry Reviews whose every dependency panics (now too, unless one is given).
 func aDryReviews(t *testing.T, file string, now func() float64) *reviews.Reviews {
 	t.Helper()
 
@@ -124,9 +123,9 @@ func aDrySnapshot(t *testing.T, tab *reviews.Reviews) aDryView {
 
 func aFixedNow() float64 { return worldT0 }
 
-// Bun: 'CONN_REVIEWS_DRY=1 returns fixed rows and touches no dependency' (the dependency part,
-// every one panicking but the clock: Go's dry view reads the wall clock through Deps.Now, which
-// the server sets to time.Now, where Bun calls Date.now() directly).
+// CONN_REVIEWS_DRY=1 returns fixed rows and touches no dependency (the dependency part,
+// every one panicking but the clock: the dry view reads the wall clock through Deps.Now, which
+// the server sets to time.Now).
 func TestDryTouchesNoDependency(t *testing.T) {
 	t.Parallel()
 
@@ -145,7 +144,7 @@ func TestDryTouchesNoDependency(t *testing.T) {
 	}
 }
 
-// Bun: 'CONN_REVIEWS_DRY=1 returns fixed rows and touches no dependency' (the rows).
+// CONN_REVIEWS_DRY=1 returns fixed rows and touches no dependency (the rows).
 func TestDryReturnsFixedRows(t *testing.T) {
 	t.Parallel()
 
@@ -221,8 +220,8 @@ func aDryShape(t *testing.T, rows []*reviews.Row) {
 	}
 }
 
-// Bun: 'CONN_REVIEWS_DRY=1: start validates against the fixed rows, then answers ok and touches
-// nothing' (the clock is given: Go's dry rows are built at Now).
+// CONN_REVIEWS_DRY=1: start validates against the fixed rows, then answers ok and touches
+// nothing (the clock is given: the dry rows are built at Now).
 func TestDryStartValidatesAgainstFixedRows(t *testing.T) {
 	t.Parallel()
 

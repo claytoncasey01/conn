@@ -63,7 +63,7 @@ linters:
           - gosec
         text: "G301|G302|G306|G702|G703"
       # A gallery install makes its folder and files as mkdir and a plain write do, the umask
-      # taking its share, so an installed theme has the modes a hand-made one has (Bun's too).
+      # taking its share, so an installed theme has the modes a hand-made one has.
       - path: internal/gallery/files\.go
         linters:
           - gosec
@@ -81,16 +81,14 @@ linters:
           - gosec
         text: "G705"
       # A review session's name for a repo that cannot be spelled in it is a short SHA-1 of the
-      # repo's name: a stable label Bun made the same way, not a security measure. The prompt's
-      # folder is made as mkdir makes one, the umask taking its share (Bun's too); the prompt
-      # file itself is 0600.
+      # repo's name: a stable label, not a security measure. The prompt's folder is made as
+      # mkdir makes one, the umask taking its share; the prompt file itself is 0600.
       - path: internal/reviews/launch\.go
         linters:
           - gosec
         text: "G301|G401|G505"
       # A self-review's folder holds the first 8 hex of the SHA-1 of its repo's name: a stable
-      # label that keeps two splits of the same text apart (Bun made it the same way), not a
-      # security measure.
+      # label that keeps two splits of the same text apart, not a security measure.
       - path: internal/myprs/launch\.go
         linters:
           - gosec
@@ -113,6 +111,16 @@ linters:
       - path: internal/myprs/myprs\.go
         linters:
           - containedctx
+      # Open work's sprint read, research, moves and PR polls run the same way (started without
+      # waiting), so they take the server's context, handed to New once, never the
+      # request's: the page that pressed START is not what the run belongs to.
+      - path: internal/openwork/work\.go
+        linters:
+          - containedctx
+      - path: internal/server/server\.go
+        linters:
+          - contextcheck
+        text: "api->work->"
 
 formatters:
   enable:

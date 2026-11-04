@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/config"
+	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/origin"
 	"github.com/claytoncasey01/conn/internal/repos"
 	"github.com/claytoncasey01/conn/internal/sessions"
@@ -41,28 +42,24 @@ func newSessions(ctx context.Context, cfg config.Config, store *settings.Store,
 	})
 }
 
-// tabViews are the Reviews and My PRs views the snapshot holds.
+// tabViews are the Reviews and My PRs views and the Open work runs the snapshot holds.
 type tabViews struct {
 	reviews, myPrs func() any
+	runs           func() []sessions.Run
 }
 
-// sessionHooks are what the rest of the server puts in the snapshot. Open work is not in yet:
-// it gives what Bun gives before it has started.
+// sessionHooks are what the rest of the server puts in the snapshot.
 func sessionHooks(store *settings.Store, history func() any, views tabViews) sessions.Hooks {
 	return sessions.Hooks{
-		Runs:    func() []sessions.Run { return []sessions.Run{} },
+		// Open work off (the module is off, in setup, or lists no project): no runs, so no
+		// ticket sessions.
+		Runs:    views.runs,
 		History: history,
 		Reviews: views.reviews,
 		MyPrs:   views.myPrs,
 		Setup:   store.Setup,
 		// Open work is on while the Atlassian module is and a Jira project is listed.
-		OpenWork: func() bool {
-			if !store.ModuleEnabled(settings.ModuleAtlassian) {
-				return false
-			}
-
-			return len(store.Get().Atlassian.Jira.Projects) > 0
-		},
+		OpenWork:    func() bool { return jira.On(store.Get()) },
 		RepoVisible: func(repo string) bool { return repos.Allowed(repo, store.Allow()) },
 		GithubOn:    func() bool { return store.ModuleEnabled(settings.ModuleGitHub) },
 	}

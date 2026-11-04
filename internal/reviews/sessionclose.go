@@ -172,9 +172,9 @@ func (r *Reviews) entries() []launchRef {
 }
 
 // autoClose closes the sessions Conn launched that are finished, one at a time. It starts on
-// the tick, as Bun's does: every launch is looked at there until one needs its screen read, and
-// the rest (that read, and the launches after it) continues on a goroutine of its own. So a launch
-// whose session is gone is marked closed before the tick starts a poll, whose sweep then sees it
+// the tick: every launch is looked at there until one needs its screen read, and the rest (that
+// read, and the launches after it) continues on a goroutine of its own. So a launch whose
+// session is gone is marked closed before the tick starts a poll, whose sweep then sees it
 // closed.
 func (r *Reviews) autoClose(refs []launchRef, refAt, launchAt int, inline bool) {
 	for ; refAt < len(refs); refAt++ {
@@ -502,7 +502,7 @@ func (r *Reviews) sweep(current settings.Settings, stale func(repo string) bool)
 			continue
 		}
 
-		// The length is read again on every step, as Bun's for...of does: a launch added while
+		// The length is read again on every step, as a for...of does: a launch added while
 		// a removal ran without the mutex is looked at too.
 		for index := 0; ; index++ {
 			if index >= len(ref.entry.Launches) {

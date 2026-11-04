@@ -458,7 +458,7 @@ func asDraft(value any) *SlackDraft {
 
 // ---- writing ----
 
-// Marshal is the file as Bun writes it: JSON.stringify with two spaces, and a newline.
+// Marshal is the file as it is written: JSON.stringify with two spaces, and a newline.
 func (f *File) Marshal() []byte {
 	var out bytes.Buffer
 

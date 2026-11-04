@@ -15,8 +15,8 @@ const (
 	streamRetry = "retry: 1500\n"
 )
 
-// sessions answers the session routes, and is false for a path that is none of them. Like Bun,
-// they answer whatever the method.
+// sessions answers the session routes, and is false for a path that is none of them. They
+// answer whatever the method.
 func (s *Server) sessions(w http.ResponseWriter, r *http.Request, urlPath string) bool {
 	if s.Sessions == nil {
 		return false

@@ -16,7 +16,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// The port of myPrsLaunch.git.test.ts: Launch against real git, a bare origin and its clones in
+// Launch against real git, a bare origin and its clones in
 // a temp folder, so nothing reaches the network; cmux is a fake that only records. The fakes of
 // e_launch_test.go answer whatever sha a test hands them: only real git can put a reused
 // worktree ahead of the PR's head.

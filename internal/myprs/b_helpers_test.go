@@ -1,8 +1,8 @@
 package myprs_test
 
-// Helpers of the b tests: Bun's myPrs.test.ts from "session names that read the same" to "a
-// round that is over while its session stays open" (polled starts, the worktree sweep, the
-// Greptile ask and the ready rule).
+// Helpers of the b tests, from "session names that read the same" to "a round that is over
+// while its session stays open": polled starts, the worktree sweep, the Greptile ask and the
+// ready rule.
 
 import (
 	"context"
@@ -54,7 +54,7 @@ func bContains(t *testing.T, label, text, part string) {
 	}
 }
 
-// bOpt is a nullable text as Bun's JSON has it: nil, or the text.
+// bOpt is a nullable text as the JSON has it: nil, or the text.
 func bOpt(value *string) any {
 	if value == nil {
 		return nil
@@ -73,8 +73,7 @@ func bSessions(world *World, live ...sessions.LiveSession) {
 	world.Change(func(w *World) { w.Sessions = live })
 }
 
-// bPolled is My PRs over a world listing prs, with these clones (nil: the world's), polled once
-// (Bun's polled()).
+// bPolled is My PRs over a world listing prs, with these clones (nil: the world's), polled once.
 func bPolled(t *testing.T, clones map[string]string, prs ...*myprs.PR) (
 	*World, *myprs.MyPrs, string,
 ) {
