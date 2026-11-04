@@ -71,6 +71,8 @@ type reviewsParts struct {
 	budget   *ghbudget.Budget
 	runner   claude.Runner
 	logger   *log.Logger
+	// myPrRepos are the repos of the My PRs rows.
+	myPrRepos func() []string
 }
 
 func millis(duration time.Duration) float64 { return float64(duration.Milliseconds()) }
@@ -103,8 +105,10 @@ func newReviews(ctx context.Context, parts reviewsParts, live *sessions.Loop) *r
 
 			return clone.Path
 		},
-		OriginOf:   parts.reader.Of,
-		SeenRepos:  func() []string { return seenRepos(live, parts.reader) },
+		OriginOf: parts.reader.Of,
+		SeenRepos: func() []string {
+			return append(seenRepos(live, parts.reader), parts.myPrRepos()...)
+		},
 		HasClients: func() bool { return live.Hub().Count() > 0 },
 		Sessions:   live.Live, Bump: live.Bump, Now: nowMs,
 		Launch: func(ctx context.Context, opts reviews.LaunchOpts) reviews.LaunchResult {
@@ -161,7 +165,7 @@ func launchDeps(cfg config.Config, reader *origin.Reader, names reviews.Names) r
 }
 
 // seenRepos are the repos of the live sessions' folders, the same source the Settings page
-// suggests from (My PRs adds its rows when it is in).
+// suggests from (the My PRs rows are added after them).
 func seenRepos(live *sessions.Loop, reader *origin.Reader) []string {
 	var out []string
 

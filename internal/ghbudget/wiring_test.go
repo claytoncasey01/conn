@@ -9,8 +9,8 @@ import (
 )
 
 // TestTheServerMakesOneBudget: Bun's test reads index.ts for one `new GhBudget(` handed to both
-// pollers. Go has no My PRs poller yet, so the half that can be checked is that cmd/conn makes
-// exactly one budget and hands it to Reviews (My PRs, PR 9, gets the same one).
+// pollers. cmd/conn makes exactly one budget, in the parts both Reviews and My PRs are made from,
+// and each hands that one to its poller.
 func TestTheServerMakesOneBudget(t *testing.T) {
 	t.Parallel()
 
@@ -22,7 +22,10 @@ func TestTheServerMakesOneBudget(t *testing.T) {
 		want    int
 	}{
 		{"one budget is made", regexp.MustCompile(`ghbudget\.New\(`), 1},
-		{"Reviews is given it", regexp.MustCompile(`Budget:\s*parts\.budget`), 1},
+		{"it goes into the shared parts", regexp.MustCompile(`budget:\s*ghbudget\.New\(\)`), 1},
+		{"Reviews is made from the parts", regexp.MustCompile(`newReviews\(ctx, parts, live\)`), 1},
+		{"My PRs is made from the parts", regexp.MustCompile(`newMyPrs\(ctx, parts, live\)`), 1},
+		{"both pollers are given it", regexp.MustCompile(`Budget:\s*parts\.budget`), 2},
 	}
 
 	for _, tt := range tests {

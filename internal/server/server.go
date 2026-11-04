@@ -15,6 +15,7 @@ import (
 
 	"github.com/claytoncasey01/conn/internal/gallery"
 	"github.com/claytoncasey01/conn/internal/historyapi"
+	"github.com/claytoncasey01/conn/internal/myprs"
 	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settingsapi"
@@ -63,6 +64,8 @@ type Server struct {
 	HistoryOff string
 	// Reviews answers /api/reviews; nil leaves the routes out.
 	Reviews *reviews.Reviews
+	// MyPrs answers /api/myprs; nil leaves the routes out.
+	MyPrs *myprs.MyPrs
 	// Logger is told about a request that failed.
 	Logger *log.Logger
 }
@@ -111,7 +114,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, urlPath string) boo
 		return true
 	}
 
-	if s.reviews(w, r, urlPath) {
+	if s.tabs(w, r, urlPath) {
 		return true
 	}
 

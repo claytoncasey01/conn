@@ -18,6 +18,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/ghbudget"
 	"github.com/claytoncasey01/conn/internal/instance"
 	"github.com/claytoncasey01/conn/internal/modules"
+	"github.com/claytoncasey01/conn/internal/myprs"
 	"github.com/claytoncasey01/conn/internal/origin"
 	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/server"
@@ -92,30 +93,31 @@ func newHandler(
 	runner := claude.Runner{Bin: cfg.ClaudeBin}
 	archived := openHistory(ctx, cfg, store, reader, logger.Writer())
 
-	// The snapshot hook reads Reviews, which is made once the session list it reads is.
-	var reviewsTab *reviews.Reviews
+	// The snapshot hooks read Reviews and My PRs, which are made once the session list they
+	// read is.
+	var (
+		reviewsTab *reviews.Reviews
+		myPrsTab   *myprs.MyPrs
+	)
 
-	live := newSessions(ctx, cfg, store, reader, archived, logger.Writer(),
-		func() any { return reviewsTab.Snapshot() })
+	live := newSessions(ctx, cfg, store, reader, archived, logger.Writer(), tabViews{
+		reviews: func() any { return reviewsTab.Snapshot() },
+		myPrs:   func() any { return myPrsTab.Snapshot() },
+	})
 
 	statuses := newStatuses(store, runner)
 
 	// My PRs and Reviews poll GitHub as the same account: they share its hourly budget and a
-	// rate limit that either runs into.
-	budget := ghbudget.New()
-	reviewsTab = newReviews(ctx, reviewsParts{
-		cfg: cfg, store: store, reader: reader, statuses: statuses, budget: budget,
-		runner: runner, logger: logger,
-	}, live)
+	// rate limit that either runs into. Reviews places an old record against the repos Conn has
+	// seen, My PRs' rows among them.
+	parts := reviewsParts{
+		cfg: cfg, store: store, reader: reader, statuses: statuses, budget: ghbudget.New(),
+		runner: runner, logger: logger, myPrRepos: func() []string { return myPrsTab.Repos() },
+	}
+	reviewsTab = newReviews(ctx, parts, live)
+	myPrsTab = newMyPrs(ctx, parts, live)
 
-	// The snapshot is cached by version: a change of the allowlist must reach the page (the
-	// first-launch redirect) at once. A saved allowlist, source or channel reaches Reviews at
-	// once too (and the first allowlist migrates an old reviews.json).
-	store.OnChange(func(settings.Settings) { live.Bump() })
-	store.OnChange(func(settings.Settings) { reviewsTab.SettingsChanged() })
-
-	go live.Run(ctx)
-	go reviewsTab.Run(ctx)
+	startTabs(ctx, store, live, reviewsTab, myPrsTab)
 
 	liveIDs := liveIDsOf(live)
 
@@ -124,7 +126,7 @@ func newHandler(
 	api := settingsapi.New(settingsapi.Deps{
 		Settings:     store,
 		Sessions:     liveFolders(ctx, live),
-		MyPrRepos:    nil,
+		MyPrRepos:    myPrsTab.Repos,
 		HistoryRepos: archived.repos(ctx),
 		OriginOf:     reader.Of,
 		CloneFor: func(repo string) (origin.Clone, bool) {
@@ -147,10 +149,29 @@ func newHandler(
 	return &server.Server{
 		UI: bundle, Clients: live.Hub().Count, Settings: api, Logger: logger, Sessions: live,
 		History: archived.newAPI(cfg, store, liveIDs), HistoryOff: archived.offReason,
-		Reviews: reviewsTab,
+		Reviews: reviewsTab, MyPrs: myPrsTab,
 		Themes:  themes.New(builtin, themes.Disk(cfg.ThemesUser), logger),
 		Gallery: gallery.NewAPI(themesGallery, cfg.ThemeIndex, now),
 	}
+}
+
+// startTabs has every settings save reach the snapshot and the tabs, and starts the session list
+// and the tabs, which run until ctx ends.
+func startTabs(ctx context.Context, store *settings.Store, live *sessions.Loop,
+	reviewsTab *reviews.Reviews, myPrsTab *myprs.MyPrs,
+) {
+	// The snapshot is cached by version: a change of the allowlist must reach the page (the
+	// first-launch redirect) at once. A saved allowlist, source or channel reaches Reviews at
+	// once too (and the first allowlist migrates an old reviews.json).
+	store.OnChange(func(settings.Settings) { live.Bump() })
+	store.OnChange(func(settings.Settings) { reviewsTab.SettingsChanged() })
+	// A change of the allowlist or a switch reaches My PRs at once: a removed repo's PRs leave
+	// the list, and a poll runs for an added one.
+	store.OnChange(func(settings.Settings) { myPrsTab.SettingsChanged() })
+
+	go live.Run(ctx)
+	go reviewsTab.Run(ctx)
+	go myPrsTab.Run(ctx)
 }
 
 // newStatuses are the module statuses: read from memory, filled by helper runs and by a CHECK
