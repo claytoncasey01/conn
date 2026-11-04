@@ -58,18 +58,22 @@ func Print(out io.Writer, environ []string) error {
 	return nil
 }
 
-// Parse is the entries between the first marker and the end of output. Anything before the marker
-// (a banner) is ignored, and an entry with no '=' or an empty name is dropped. It returns
-// ErrNoEnvironment when the output holds no marker.
+// Parse is the NUL-terminated entries after the first marker. Anything before the marker (a
+// banner) is ignored, and so is any text after the last NUL (what a shell prints as it exits,
+// such as a logout message or a terminal escape), because only an entry ending in NUL was
+// printed by Print. An entry with no '=' or an empty name is dropped. It returns ErrNoEnvironment
+// when the output holds no marker.
 func Parse(output []byte) ([]string, error) {
 	_, after, found := bytes.Cut(output, []byte(marker))
 	if !found {
 		return nil, ErrNoEnvironment
 	}
 
+	// Cutting at the last NUL drops the text after it, which no entry's NUL ends.
+	terminated := after[:max(bytes.LastIndexByte(after, 0), 0)]
 	entries := make([]string, 0)
 
-	for raw := range bytes.SplitSeq(after, []byte{0}) {
+	for raw := range bytes.SplitSeq(terminated, []byte{0}) {
 		entry := string(raw)
 
 		// An index of 0 is an empty name and -1 is no '='; both are junk, not an entry.

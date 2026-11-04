@@ -62,9 +62,24 @@ func TestParse(t *testing.T) {
 			want:   []string{"A="},
 		},
 		{
-			name:   "an unfinished last entry is kept",
+			name:   "an unfinished last entry is dropped",
 			output: shellenv.Marker + "A=1\x00B=2",
-			want:   []string{"A=1", "B=2"},
+			want:   []string{"A=1"},
+		},
+		{
+			name:   "a terminal escape after the entries is dropped",
+			output: shellenv.Marker + "A=1\x00\x1b]7;file://host/p?x=y",
+			want:   []string{"A=1"},
+		},
+		{
+			name:   "a logout message after the entries is dropped",
+			output: shellenv.Marker + "A=1\x00logout\n",
+			want:   []string{"A=1"},
+		},
+		{
+			name:   "text with an equals sign and no entry before it is dropped",
+			output: shellenv.Marker + "x=y",
+			want:   []string{},
 		},
 		{
 			name:   "a second marker is only text",
