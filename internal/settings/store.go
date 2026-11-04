@@ -35,6 +35,9 @@ type Store struct {
 	listeners     []listener
 	nextID        int
 	logger        *log.Logger
+	// version counts the times current was replaced (a saved update, a reload), so a reader can
+	// tell whether the settings it read are still the ones in force.
+	version uint64
 }
 
 // NewStore is a store with the defaults and no folder: nothing is written until Reload names
@@ -51,6 +54,7 @@ func NewStore(logger *log.Logger) *Store {
 		listeners:     nil,
 		nextID:        0,
 		logger:        logger,
+		version:       0,
 	}
 }
 
@@ -61,6 +65,16 @@ func (s *Store) Get() Settings {
 	defer s.mu.Unlock()
 
 	return s.current.Clone()
+}
+
+// Current is the current settings, as Get, with their version: the version moves each time a
+// saved update or a reload replaces them, so a reader that later sees another version knows the
+// settings it read are no longer the ones in force.
+func (s *Store) Current() (Settings, uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.current.Clone(), s.version
 }
 
 // Setup is true while there is no allowlist (or an empty one): nothing is read until one is
@@ -135,6 +149,7 @@ func (s *Store) Update(name string, body any) UpdateResult {
 
 	s.backupPending = false
 	s.current = next
+	s.version++
 	s.dropped = []string{}
 	listeners := slices.Clone(s.listeners)
 
@@ -226,6 +241,7 @@ func (s *Store) Reload(dir string) {
 	s.dir = dir
 	s.loaded = true
 	s.current = loaded.Settings
+	s.version++
 	s.dropped = loaded.Dropped
 	s.backupPending = loaded.Unreadable
 	s.backedUpTo = ""

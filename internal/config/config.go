@@ -131,6 +131,37 @@ type Config struct {
 	// {worktree}, {headRef} (the PR branch) and {branch} (the local branch, conn-self-<pr>) are
 	// filled in.
 	SelfReviewPrompt string
+	// ReviewMe is the GitHub login Reviews reads as the reviewer (CONN_REVIEW_ME, trimmed); ""
+	// asks gh for the signed-in one.
+	ReviewMe string
+	// Dry are the dry switches (CONN_MYPRS_DRY, CONN_REVIEWS_DRY, CONN_WORK_DRY): a module that
+	// runs dry shows fixed rows and calls nothing. A seeded dry run turns all three on.
+	Dry Dry
+	// DrySeed is CONN_DRY_SEED as set: "0" turns the dry seed off (a test's own boot with no
+	// settings file).
+	DrySeed string
+	// DataEnv is CONN_DATA as set ("" when unset: the data folder is then the real one).
+	DataEnv string
+}
+
+// Dry says which modules run dry.
+type Dry struct {
+	MyPrs   bool
+	Reviews bool
+	Work    bool
+}
+
+// Any is whether any module runs dry.
+func (d Dry) Any() bool {
+	if d.MyPrs {
+		return true
+	}
+
+	if d.Reviews {
+		return true
+	}
+
+	return d.Work
 }
 
 // FromEnv builds the configuration from lookup. A variable that is set but empty is used as it
@@ -170,6 +201,14 @@ func FromEnv(lookup LookupFunc) Config {
 		GreptileBot:      parseGreptileBot(valueOf(lookup, "CONN_GREPTILE_BOT")),
 		SelfNamePattern:  regexp.MustCompile(`^self-[a-z0-9._-]{1,60}-\d+(-\d+)?$`),
 		SelfReviewPrompt: selfReviewPrompt,
+		ReviewMe:         js.Trim(valueOf(lookup, "CONN_REVIEW_ME")),
+		Dry: Dry{
+			MyPrs:   valueOf(lookup, "CONN_MYPRS_DRY") == "1",
+			Reviews: valueOf(lookup, "CONN_REVIEWS_DRY") == "1",
+			Work:    valueOf(lookup, "CONN_WORK_DRY") == "1",
+		},
+		DrySeed: valueOf(lookup, "CONN_DRY_SEED"),
+		DataEnv: valueOf(lookup, "CONN_DATA"),
 	}
 }
 

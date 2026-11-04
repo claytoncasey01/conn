@@ -262,6 +262,14 @@ func nameOf(err error) (errnoName, bool) {
 	return errnoName{errno: 0, code: "", text: ""}, false
 }
 
+// NodeCode is the code Node gives a file error ("ENOENT", "EISDIR"), and false for an error
+// that carries no errno this table knows.
+func NodeCode(err error) (string, bool) {
+	name, known := nameOf(err)
+
+	return name.code, known
+}
+
 // NodeError is a file error's first line as Node writes a failed file call: `EACCES: permission
 // denied, open '<path>'`. Messages from this package that quote a file error use it, so they
 // read the same on every platform Conn runs on.

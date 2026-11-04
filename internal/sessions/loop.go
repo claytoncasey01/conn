@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,13 +31,16 @@ type Loop struct {
 	requests chan func(*store)
 	hub      *Hub
 	done     chan struct{}
+	// live is the live sessions as the last tick left them, for readers that must not wait on
+	// the loop's goroutine (a hook runs on it).
+	live atomic.Pointer[[]LiveSession]
 }
 
 // NewLoop is a loop over the machine deps describe; it does nothing until Run.
 func NewLoop(deps Deps) *Loop {
 	loop := &Loop{
 		store: nil, requests: make(chan func(*store)), hub: newHub(),
-		done: make(chan struct{}),
+		done: make(chan struct{}), live: atomic.Pointer[[]LiveSession]{},
 	}
 	loop.store = newStore(deps, loop.bumps.Load, loop.done)
 
@@ -60,6 +64,7 @@ func (l *Loop) Run(ctx context.Context) {
 	pusher := pusher{lastSent: -1, lastSentAt: 0}
 
 	l.store.tick(ctx)
+	l.publish()
 
 	for {
 		select {
@@ -73,6 +78,7 @@ func (l *Loop) Run(ctx context.Context) {
 			l.store.screenRead(read)
 		case <-ticker.C:
 			l.store.tick(ctx)
+			l.publish()
 
 			// The waiting sessions' screens are read in the background, only while a page is
 			// open: nothing else uses the asks.
@@ -154,6 +160,24 @@ func (l *Loop) LiveSessions(ctx context.Context) []LiveSession {
 	}
 
 	return out
+}
+
+// Live are the live sessions as the last tick left them, without waiting for the loop: the
+// one way to read them from a hook, or while holding a lock a hook takes. None before the first
+// tick.
+func (l *Loop) Live() []LiveSession {
+	live := l.live.Load()
+	if live == nil {
+		return nil
+	}
+
+	return slices.Clone(*live)
+}
+
+// publish keeps the live sessions for Live. It runs on the loop's goroutine.
+func (l *Loop) publish() {
+	live := l.store.liveSessions()
+	l.live.Store(&live)
 }
 
 // do runs a request on the loop's goroutine and waits for it.

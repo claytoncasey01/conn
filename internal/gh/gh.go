@@ -18,6 +18,10 @@ const (
 	outputBytesMax = 8 << 20
 	// errorShownMax is the most of a failure's text an error carries, in UTF-16 units.
 	errorShownMax = 400
+	// graphqlTimeout stops one GraphQL call: a search of several patterns takes a while.
+	graphqlTimeout = 60 * time.Second
+	// graphqlBytesMax caps what one GraphQL call may print: a page of 100 PRs with their checks.
+	graphqlBytesMax = 32 << 20
 )
 
 // Exec runs gh with args and answers what it printed. A test passes its own.
@@ -46,6 +50,21 @@ func Run(ctx context.Context, args []string) (string, error) {
 	}
 
 	return "", &Error{Message: Message(result), Err: result.Err}
+}
+
+// GraphQL runs gh as Run does, with the longer limits a GraphQL query needs, and keeps what gh
+// printed when it fails: gh exits non-zero when an answer carries errors (a PR that is gone, one
+// organization's SAML rule) and still prints the answer, the parts that did resolve included.
+// On a failure the output is returned beside the error.
+func GraphQL(ctx context.Context, args []string) (string, error) {
+	result := run.Cmd(ctx, "gh", args, run.Opts{
+		Dir: "", Timeout: graphqlTimeout, OutputBytesMax: graphqlBytesMax, Stdin: "", Env: nil,
+	})
+	if result.Err == nil {
+		return result.Stdout, nil
+	}
+
+	return result.Stdout, &Error{Message: Message(result), Err: result.Err}
 }
 
 // Message is what a failed gh run says: the first line of its trimmed stderr, else the run's

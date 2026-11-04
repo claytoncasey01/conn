@@ -7,6 +7,16 @@ package claude
 // that is not signed in, denies nothing and costs nothing. Exact names only: a rule for a whole
 // server is not relied on.
 
+// SlackRead are the Slack connector's tools that only read: nothing here can post, react or
+// edit.
+func SlackRead() []string {
+	return connectorTools("Slack", []string{
+		"slack_search_public_and_private", "slack_search_public", "slack_read_channel",
+		"slack_read_thread", "slack_search_channels", "slack_read_user_profile",
+		"slack_search_users",
+	})
+}
+
 // SlackWrite are the Slack connector's tools that send, change or upload something.
 func SlackWrite() []string {
 	return connectorTools("Slack", []string{

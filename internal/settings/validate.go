@@ -10,11 +10,13 @@ import (
 
 // Section names: the sections a PUT may replace.
 const (
-	sectionRepos     = "repos"
+	// SectionRepos is the allowlist and the clones.
+	SectionRepos     = "repos"
 	sectionGitHub    = "github"
 	sectionSlack     = "slack"
 	sectionAtlassian = "atlassian"
-	sectionReviews   = "reviews"
+	// SectionReviews is the review sources.
+	SectionReviews = "reviews"
 )
 
 // problemsShownMax is how many problems a refusal names before it counts the rest.
@@ -31,7 +33,7 @@ func refused(reason string) Checked { return Checked{OK: false, Value: nil, Erro
 
 // Sections are the settings sections a PUT may replace, in the file's order.
 func Sections() []string {
-	return []string{sectionRepos, sectionGitHub, sectionSlack, sectionAtlassian, sectionReviews}
+	return []string{SectionRepos, sectionGitHub, sectionSlack, sectionAtlassian, SectionReviews}
 }
 
 // ValidateSection checks one section as a PUT sends it, replacing the whole section. Stricter
@@ -71,7 +73,7 @@ func ValidateSection(name, body any) Checked {
 // validate reads one section strictly: its value, or a refusal. What it would drop goes to found.
 func validate(name string, object *js.Object, found *problems) (any, string) {
 	switch name {
-	case sectionRepos:
+	case SectionRepos:
 		return validateRepos(object, found)
 	case sectionGitHub:
 		enabled, isBool := boolAt(object, "enabled")
