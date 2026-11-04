@@ -410,9 +410,9 @@ func launchFailed(why string) LaunchResult {
 	return LaunchResult{OK: false, Worktree: "", Error: why, ManualCommand: ""}
 }
 
-// excludeConn adds `.conn/` to the worktree's exclude file; best effort, since the review does
+// ExcludeConn adds `.conn/` to the worktree's exclude file; best effort, since the review does
 // not depend on it.
-func excludeConn(ctx context.Context, deps LaunchDeps, worktree string) {
+func ExcludeConn(ctx context.Context, deps LaunchDeps, worktree string) {
 	out, err := deps.Git(ctx, []string{"rev-parse", "--git-path", "info/exclude"}, worktree)
 	if err != nil {
 		return
@@ -497,7 +497,7 @@ func Open(ctx context.Context, deps LaunchDeps, opts LaunchOpts) LaunchResult {
 		return launchFailed(FirstLine(nodeError(err)))
 	}
 
-	excludeConn(ctx, deps, worktree)
+	ExcludeConn(ctx, deps, worktree)
 
 	opened := deps.Open(ctx, opts.Name, worktree, command)
 	if !opened.OK {

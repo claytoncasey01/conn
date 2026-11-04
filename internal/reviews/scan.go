@@ -53,11 +53,13 @@ var (
 	// rather than (?i), which would let a Kelvin sign pass for a k.
 	slackLink = regexp.MustCompile(`^[hH][tT][tT][pP][sS]://(?:[a-zA-Z0-9-]+\.)+` +
 		`[sS][lL][aA][cC][kK]\.[cC][oO][mM]/[^` + js.SpaceClass + `]*$`)
-	// unsafeText are C0 controls, DEL, and the bidi marks and overrides that can make a link
+	// UnsafeText are C0 controls, DEL, and the bidi marks and overrides that can make a link
 	// read as something else.
-	unsafeText = regexp.MustCompile("[\\x00-\\x1f\\x7f\\x{061c}\\x{200e}\\x{200f}" +
+	// UnsafeText is shared with My PRs, which removes these from what it shows.
+	UnsafeText = regexp.MustCompile("[\\x00-\\x1f\\x7f\\x{061c}\\x{200e}\\x{200f}" +
 		"\\x{202a}-\\x{202e}\\x{2066}-\\x{2069}]")
-	prPath = regexp.MustCompile(`^https://github\.com/([^/` + js.SpaceClass + `]+/[^/` +
+	// PRPath is a GitHub pull request url: its repo and its number.
+	PRPath = regexp.MustCompile(`^https://github\.com/([^/` + js.SpaceClass + `]+/[^/` +
 		js.SpaceClass + `]+)/pull/([1-9]\d*)$`)
 )
 
@@ -335,7 +337,7 @@ func allowedPR(link any, allow []string) (AllowedPR, bool) {
 		return none, false
 	}
 
-	match := prPath.FindStringSubmatch(found)
+	match := PRPath.FindStringSubmatch(found)
 	if match == nil {
 		return none, false
 	}
@@ -370,7 +372,7 @@ func safeLink(link string) bool {
 		return false
 	}
 
-	if unsafeText.MatchString(link) {
+	if UnsafeText.MatchString(link) {
 		return false
 	}
 

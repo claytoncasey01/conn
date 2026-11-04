@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/nodepath"
+
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/repos"
 	"github.com/claytoncasey01/conn/internal/settings"
@@ -223,7 +225,7 @@ func placeByFolder(launches []*Launch, ctx MigrateContext) string {
 	folders := map[string]bool{}
 
 	for _, launch := range launches {
-		folder := strings.ToLower(nodeBase(launch.Worktree))
+		folder := strings.ToLower(nodepath.Base(launch.Worktree))
 		if folder != "" {
 			folders[folder] = true
 		}
@@ -335,7 +337,7 @@ func backUp(path, bak string) (string, error) {
 	}
 
 	return "", fmt.Errorf("%d copies named %s are there already: %w", backupsMax,
-		nodeBase(bak), errTooManyCopies)
+		nodepath.Base(bak), errTooManyCopies)
 }
 
 func sameFile(name string, data []byte) bool {

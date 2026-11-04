@@ -1,4 +1,7 @@
-package reviews
+// Package nodepath is Node's posix path functions where they differ from Go's: a trailing slash is
+// kept by Normalize and ignored by Dir and Base, an empty path is "" to Base and "." to Dir. The
+// folders a record names are compared as Bun compared them.
+package nodepath
 
 import (
 	"path"
@@ -6,12 +9,8 @@ import (
 	"strings"
 )
 
-// Node's posix path functions where they differ from Go's: a trailing slash is kept by normalize
-// and ignored by dirname and basename, an empty path is "" to basename, and "." to dirname. The
-// folders a launch record names are compared as Bun compared them.
-
-// nodeBase is path.basename.
-func nodeBase(name string) string {
+// Base is path.basename.
+func Base(name string) string {
 	trimmed := strings.TrimRight(name, "/")
 	if trimmed == "" {
 		return ""
@@ -20,8 +19,8 @@ func nodeBase(name string) string {
 	return trimmed[strings.LastIndexByte(trimmed, '/')+1:]
 }
 
-// nodeDir is path.dirname.
-func nodeDir(name string) string {
+// Dir is path.dirname.
+func Dir(name string) string {
 	if name == "" {
 		return "."
 	}
@@ -61,8 +60,8 @@ func nodeDir(name string) string {
 	return name[:end]
 }
 
-// nodeNormalize is path.normalize: Clean, keeping a trailing slash.
-func nodeNormalize(name string) string {
+// Normalize is path.normalize: Clean, keeping a trailing slash.
+func Normalize(name string) string {
 	if name == "" {
 		return "."
 	}
@@ -77,9 +76,9 @@ func nodeNormalize(name string) string {
 	return clean
 }
 
-// nodeResolve is path.resolve(base, name): name when it is absolute, else name under base,
+// Resolve is path.resolve(base, name): name when it is absolute, else name under base,
 // cleaned, with no trailing slash.
-func nodeResolve(base, name string) string {
+func Resolve(base, name string) string {
 	if filepath.IsAbs(name) {
 		return filepath.Clean(name)
 	}

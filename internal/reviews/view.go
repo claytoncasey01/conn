@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/nodepath"
+
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/repos"
 	"github.com/claytoncasey01/conn/internal/settings"
@@ -179,7 +181,7 @@ func (r *Reviews) legacy() []LegacyReview {
 		var folder *string
 
 		if len(launches) > 0 {
-			if base := nodeBase(launches[0].Worktree); base != "" {
+			if base := nodepath.Base(launches[0].Worktree); base != "" {
 				folder = &base
 			}
 		}

@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/nodepath"
+
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/repos"
 	"github.com/claytoncasey01/conn/internal/sessions"
@@ -41,7 +43,7 @@ func WorktreeClone(worktree string) string {
 		return ""
 	}
 
-	gitDir := nodeResolve(worktree, match[1])
+	gitDir := nodepath.Resolve(worktree, match[1])
 
 	common, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
 	if err != nil {
@@ -53,12 +55,12 @@ func WorktreeClone(worktree string) string {
 		shared = "."
 	}
 
-	dotGit := nodeResolve(gitDir, shared)
-	if nodeBase(dotGit) != ".git" {
+	dotGit := nodepath.Resolve(gitDir, shared)
+	if nodepath.Base(dotGit) != ".git" {
 		return ""
 	}
 
-	return nodeDir(dotGit)
+	return nodepath.Dir(dotGit)
 }
 
 // firstFileLine is the text before the first \r\n or \n.
@@ -86,12 +88,12 @@ func Real(path string) string {
 			}
 		}
 
-		if nodeDir(current) == current {
+		if nodepath.Dir(current) == current {
 			return path
 		}
 
-		rest = append(rest, nodeBase(current))
-		current = nodeDir(current)
+		rest = append(rest, nodepath.Base(current))
+		current = nodepath.Dir(current)
 	}
 
 	return path
@@ -124,7 +126,7 @@ func (r *Reviews) ownsWorktree(key string, launch *Launch) bool {
 		return false
 	}
 
-	if nodeNormalize(launch.Worktree) != launch.Worktree {
+	if nodepath.Normalize(launch.Worktree) != launch.Worktree {
 		return false
 	}
 
@@ -138,9 +140,9 @@ func (r *Reviews) ownsWorktree(key string, launch *Launch) bool {
 	}
 
 	old := filepath.Join(r.dataDir(), "reviews", "pr-"+strconv.FormatInt(parts.Number, 10))
-	folder := nodeBase(launch.Worktree)
+	folder := nodepath.Base(launch.Worktree)
 
-	if nodeDir(launch.Worktree) != old {
+	if nodepath.Dir(launch.Worktree) != old {
 		return false
 	}
 
@@ -588,7 +590,7 @@ func (r *Reviews) sweepOne(key string, launch *Launch) error {
 	}
 
 	// The now-empty folder of the PR, if nothing else is in it (rmdir never removes content).
-	_ = removeEmptyFolder(nodeDir(folder))
+	_ = removeEmptyFolder(nodepath.Dir(folder))
 
 	return nil
 }

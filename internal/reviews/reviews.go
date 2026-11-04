@@ -25,6 +25,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/nodepath"
+
 	"github.com/claytoncasey01/conn/internal/ghbudget"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/sessions"
@@ -475,7 +477,7 @@ func (r *Reviews) bump() {
 	}
 }
 
-func (r *Reviews) dataDir() string { return nodeDir(r.deps.File) }
+func (r *Reviews) dataDir() string { return nodepath.Dir(r.deps.File) }
 
 func (r *Reviews) exists(path string) bool {
 	if r.deps.Exists != nil {

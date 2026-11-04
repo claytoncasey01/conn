@@ -67,6 +67,20 @@ func GraphQL(ctx context.Context, args []string) (string, error) {
 	return result.Stdout, &Error{Message: Message(result), Err: result.Err}
 }
 
+// Large runs gh with Run's time limit and GraphQL's room for output, and keeps what gh printed
+// when it fails, as GraphQL does: My PRs' searches carry every comment body, and a search that
+// carries errors (one organization's SAML rule) still prints the PRs that did resolve.
+func Large(ctx context.Context, args []string) (string, error) {
+	result := run.Cmd(ctx, "gh", args, run.Opts{
+		Dir: "", Timeout: timeout, OutputBytesMax: graphqlBytesMax, Stdin: "", Env: nil,
+	})
+	if result.Err == nil {
+		return result.Stdout, nil
+	}
+
+	return result.Stdout, &Error{Message: Message(result), Err: result.Err}
+}
+
 // Message is what a failed gh run says: the first line of its trimmed stderr, else the run's
 // own error, cut to 400 UTF-16 units.
 func Message(result run.Result) string {
