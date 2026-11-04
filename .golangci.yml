@@ -111,6 +111,16 @@ linters:
       - path: internal/myprs/myprs\.go
         linters:
           - containedctx
+      # Open work's sprint read, research, moves and PR polls run the same way (started without
+      # waiting), so they take the server's context, handed to New once, never the
+      # request's: the page that pressed START is not what the run belongs to.
+      - path: internal/openwork/work\.go
+        linters:
+          - containedctx
+      - path: internal/server/server\.go
+        linters:
+          - contextcheck
+        text: "api->work->"
 
 formatters:
   enable:
