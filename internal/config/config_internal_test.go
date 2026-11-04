@@ -23,6 +23,60 @@ func lookupFrom(env map[string]string) LookupFunc {
 	}
 }
 
+func TestDataDirDefault(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"no XDG_CONFIG_HOME", map[string]string{"HOME": "/home/jane"}, "/home/jane/.config/conn"},
+		{
+			"XDG_CONFIG_HOME set",
+			map[string]string{"HOME": "/home/jane", "XDG_CONFIG_HOME": "/srv/cfg"},
+			"/srv/cfg/conn",
+		},
+		{
+			"XDG_CONFIG_HOME empty",
+			map[string]string{"HOME": "/home/jane", "XDG_CONFIG_HOME": ""},
+			"/home/jane/.config/conn",
+		},
+		{
+			"XDG_CONFIG_HOME relative",
+			map[string]string{"HOME": "/home/jane", "XDG_CONFIG_HOME": "cfg"},
+			"/home/jane/.config/conn",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := FromEnv(lookupFrom(tt.env))
+			if got.DataDir != tt.want {
+				t.Errorf("DataDir = %q, want %q", got.DataDir, tt.want)
+			}
+
+			if got.DataDirDefault != tt.want {
+				t.Errorf("DataDirDefault = %q, want %q", got.DataDirDefault, tt.want)
+			}
+		})
+	}
+}
+
+func TestConnDataOverridesTheDefault(t *testing.T) {
+	t.Parallel()
+
+	got := FromEnv(lookupFrom(map[string]string{"HOME": "/home/jane", "CONN_DATA": "/scratch"}))
+	if got.DataDir != "/scratch" {
+		t.Errorf("DataDir = %q, want /scratch", got.DataDir)
+	}
+
+	if got.DataDirDefault != "/home/jane/.config/conn" {
+		t.Errorf("DataDirDefault = %q, want the default folder", got.DataDirDefault)
+	}
+}
+
 func TestDefaults(t *testing.T) {
 	t.Parallel()
 
@@ -32,8 +86,8 @@ func TestDefaults(t *testing.T) {
 		name      string
 		got, want any
 	}{
-		{"data", got.DataDir, "/home/jane/.conn"},
-		{"themes", got.ThemesUser, "/home/jane/.conn/themes"},
+		{"data", got.DataDir, "/home/jane/.config/conn"},
+		{"themes", got.ThemesUser, "/home/jane/.config/conn/themes"},
 		{"transcripts", got.TranscriptsRoot, "/home/jane/.claude/projects"},
 		{"summary model", got.SummaryModel, Haiku},
 		{"theme index", got.ThemeIndex, themeIndexDefault},

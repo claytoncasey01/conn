@@ -1,0 +1,67 @@
+# Publishing a release on GitHub builds conn for macOS and Linux (amd64 and arm64) from the
+# release's tag and attaches the archives, their checksums and install.sh to it. Nothing runs
+# on a push or a pull request, and nothing is built from a branch.
+name: release
+
+on:
+  release:
+    types: [published]
+
+# No job gets a token it does not name.
+permissions: {}
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      # Read through the environment, never spliced into a script: a tag is text someone typed.
+      TAG: ${{ github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+      CONN_TEST_TIME_SCALE: "3"
+    steps:
+      - name: Check the tag
+        run: |
+          case "$TAG" in
+          v[0-9]*.[0-9]*.[0-9]*) ;;
+          *) echo "the tag '$TAG' is not a version such as v1.2.3" >&2; exit 1 ;;
+          esac
+          case "$TAG" in
+          *[!0-9A-Za-z.+-]*) echo "the tag '$TAG' has characters a version does not" >&2; exit 1 ;;
+          esac
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+
+      - name: Install the page's dependencies
+        run: bun install --frozen-lockfile
+
+      # A release that fails its tests is not published. This also builds the page bundle the
+      # binary embeds.
+      - name: Test
+        run: make test
+
+      - name: Stamp the version
+        run: printf '%s\n' "$TAG" > VERSION
+
+      - name: Build the archives
+        run: scripts/build-release.sh release-files
+
+      - name: Attach them to the release
+        run: gh release upload "$TAG" release-files/*.tar.gz release-files/checksums.txt install.sh --clobber

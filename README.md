@@ -16,12 +16,31 @@ Conn runs on your machine and listens on 127.0.0.1 only. It reads the files Clau
 
 Choosing a repository is the only setup. My PRs and Reviews then work through `gh`. The Slack scans and Open work stay off until you turn on the Slack and Atlassian modules in Settings.
 
-## Requirements
+## Install
 
-- [Go](https://go.dev) 1.27 or later, to build Conn.
-- [Bun](https://bun.sh) 1.4 or later, to build the UI.
-- macOS. The server calls `ps`. Other platforms are untried.
+```sh
+curl -fsSL https://github.com/claytoncasey01/conn/releases/latest/download/install.sh | sh
+```
+
+The script downloads the latest release for your Mac or Linux machine (amd64 or arm64), checks it against the checksums published with the release, and puts `conn` in `~/.local/bin`. It asks for no password and changes nothing else: no settings, and no skills (those are installed from the Settings page). Read it first if you like: it is [`install.sh`](install.sh) in this repository, and the copy on each release is the one that release was built with.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CONN_INSTALL_VERSION` | the latest release | A release tag to install, such as `v1.2.3` |
+| `CONN_INSTALL_DIR` | `~/.local/bin` | Where the binary goes |
+
+Run it again to update. If `~/.local/bin` is not on your `PATH`, the script says so. Then:
+
+```sh
+conn serve
+```
+
+It listens on http://127.0.0.1:7777: open that address in your browser. `conn version` prints the release you have. How releases are made is in [releasing](docs/releasing.md).
+
+What you need besides the binary:
+
 - Claude Code, with `claude` on your PATH. History summaries, Reviews scans and Open work run `claude -p`.
+- macOS is the platform Conn is used on: the server calls `ps`. The Linux builds are published and untried.
 
 Optional:
 
@@ -29,7 +48,9 @@ Optional:
 - cmux. Needed to reply from the browser, answer prompts, and launch review and build sessions.
 - The claude.ai Slack and Atlassian connectors. Needed for the Slack scans in Reviews and for Open work.
 
-## Quick start
+## Build from source
+
+You need [Go](https://go.dev) 1.27 or later and [Bun](https://bun.sh) 1.4 or later (the UI is built in), besides what is listed above.
 
 ```sh
 git clone https://github.com/claytoncasey01/conn
@@ -49,7 +70,7 @@ On first start every page except Themes sends you to Settings. Choose the reposi
 
 - **Network.** The server makes one kind of web request of its own: the theme gallery reads `raw.githubusercontent.com` with plain GETs that carry no credentials. `CONN_THEME_INDEX=off` turns it off. GitHub goes through your `gh`. Slack, Jira and Confluence go through short headless `claude -p` runs that use your claude.ai connectors. Those runs cost tokens, and each is capped in cost and time. There is no telemetry.
 - **Fonts.** Themes name Google Fonts families, and the page loads the active theme's from `fonts.googleapis.com`, so your browser contacts Google. The glyph font for Matrix's rain is bundled.
-- **Files.** Conn keeps its data in `~/.conn` (`CONN_DATA` changes it): the History archive, `settings.json`, `reviews.json`, `myprs.json` and `conn.lock`, which names the server running on the folder. They are readable only by you. `history.db` holds the text of your prompts and results, so treat it like `~/.claude`.
+- **Files.** Conn keeps everything it saves in one folder, `~/.config/conn` (`$XDG_CONFIG_HOME/conn` when that is set to an absolute path; `CONN_DATA` changes it): the History archive, `settings.json`, `reviews.json`, `myprs.json` and `conn.lock`, which names the server running on the folder. It also holds copies of the agents and skills Conn provides (`agents/`, `skills/`); the agents are linked into `~/.claude/agents` when the server starts, and a skill is linked into `~/.claude/skills` only when you press INSTALL on the Settings page. See [Agents and skills](docs/settings.md#agents-and-skills). The files are readable only by you. A `~/.conn` folder from an earlier version is not read or moved: Conn starts fresh in the new folder, and the old one can be deleted or copied over by hand. `history.db` holds the text of your prompts and results, so treat it like `~/.claude`.
 - **Git.** Review and self-review sessions work in their own git worktrees, never in your working copy. Each page's doc lists everything Conn writes and calls for that feature.
 - **Writes.** Every request that changes something needs the `x-conn: 1` header and a local `Origin`.
 
@@ -61,7 +82,7 @@ Most settings are on the Settings page. A few come from the environment:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CONN_DATA` | `~/.conn` | Where Conn keeps its data |
+| `CONN_DATA` | `~/.config/conn` (`$XDG_CONFIG_HOME/conn` when set) | Where Conn keeps its data |
 | `CONN_PORT` | `7777` | Dashboard port |
 | `CONN_TRANSCRIPTS` | `~/.claude/projects` | Where Claude Code's transcripts are read from |
 | `CONN_CLAUDE`, `CONN_CMUX` | `claude`, `cmux` | Binaries to run |
@@ -75,7 +96,7 @@ The variables that tune My PRs are listed in [my PRs](docs/my-prs.md).
 ## Development
 
 ```sh
-make dev      # hot reload: UI on :5173, API on :7778 (restarts when a Go file or a built-in theme changes), data in ~/.conn-dev
+make dev      # hot reload: UI on :5173, API on :7778 (restarts when a Go file or a built-in theme changes), data in ~/.config/conn-dev
 make test     # bun test for the UI and themes; go test with the race detector, in random order
 make lint     # golangci-lint, every linter on (.golangci.yml)
 make fmt      # gofumpt and goimports

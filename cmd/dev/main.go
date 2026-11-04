@@ -2,10 +2,10 @@
 // updates in place (Vite HMR). Open http://127.0.0.1:5173. Ctrl-C stops both. It does not touch
 // a dashboard on :7777.
 //
-// It keeps its own data folder by default ($HOME/.conn-dev), so a dev server never writes the
-// history.db or reviews.json the real dashboard uses (two servers on one data folder would both
-// poll Reviews and both archive). To develop against the real data, stop the dashboard first and
-// run `CONN_DATA=$HOME/.conn make dev`.
+// It keeps its own data folder by default ($HOME/.config/conn-dev), so a dev server never writes
+// the history.db or reviews.json the real dashboard uses (two servers on one data folder would
+// both poll Reviews and both archive). To develop against the real data, stop the dashboard first
+// and run `CONN_DATA=$HOME/.config/conn make dev`.
 package main
 
 import (
@@ -22,6 +22,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/claytoncasey01/conn/internal/config"
 )
 
 // Exit codes.
@@ -100,7 +102,7 @@ func newLoop(root string, lookup lookupFunc, environ []string) (loop, error) {
 			return loop{}, errNoHome
 		}
 
-		data = filepath.Join(home, ".conn-dev")
+		data = config.DataDirDefault(config.LookupFunc(lookup)) + "-dev"
 	}
 
 	env := append([]string{}, environ...)

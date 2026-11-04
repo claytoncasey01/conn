@@ -6,14 +6,14 @@ A theme is a folder. It holds a `theme.json` that sets colors, type and shape, a
 
 ```sh
 # from the repo root
-mkdir -p ~/.conn/themes
-cp -R themes/_template ~/.conn/themes/my-theme
+mkdir -p ~/.config/conn/themes
+cp -R themes/_template ~/.config/conn/themes/my-theme
 conn theme check my-theme
 ```
 
 Then switch back to the conn tab (the theme list is read again when the tab gets focus) and pick "My theme" in the Theme menu. Edit `theme.json`, run the check, and switch back to the tab to see the change.
 
-`~/.conn/themes/` is `$CONN_DATA/themes/` when `CONN_DATA` is set. `make dev` sets `CONN_DATA` to `~/.conn-dev` unless you have, so for the dev server the folder is `~/.conn-dev/themes/` and the UI is at `http://127.0.0.1:5173`. `conn theme check` reads the same variable, so run it as `CONN_DATA=~/.conn-dev conn theme check my-theme` to find a theme there by id, or give it the folder's path. The folder name has to be the theme's `id`, so rename the folder if you change the `id` inside the file. Folders that start with `_` or `.` are skipped, which is why the template (`themes/_template/`) is not listed as a theme in conn and cannot be picked by mistake.
+`~/.config/conn/themes/` is `$CONN_DATA/themes/` when `CONN_DATA` is set. `make dev` sets `CONN_DATA` to `~/.config/conn-dev` unless you have, so for the dev server the folder is `~/.config/conn-dev/themes/` and the UI is at `http://127.0.0.1:5173`. `conn theme check` reads the same variable, so run it as `CONN_DATA=~/.config/conn-dev conn theme check my-theme` to find a theme there by id, or give it the folder's path. The folder name has to be the theme's `id`, so rename the folder if you change the `id` inside the file. Folders that start with `_` or `.` are skipped, which is why the template (`themes/_template/`) is not listed as a theme in conn and cannot be picked by mistake.
 
 ## What goes in the folder
 
@@ -279,7 +279,7 @@ Where a theme comes from sets what it may carry.
 | Level | Carries |
 |---|---|
 | Gallery install | `theme.json` only: tokens and named effects. A gallery folder (one with a `.source.json`) never has its `theme.css` served, and `conn theme check` fails a gallery folder that has one. |
-| Your own folder | `theme.json`, and optionally a `theme.css` in `~/.conn/themes/<id>/`. A theme with a `theme.css` is marked "custom CSS" in the menu and asks "Use anyway" before it is applied. It asks again whenever the file changes. |
+| Your own folder | `theme.json`, and optionally a `theme.css` in `~/.config/conn/themes/<id>/`. A theme with a `theme.css` is marked "custom CSS" in the menu and asks "Use anyway" before it is applied. It asks again whenever the file changes. |
 | Built in | `theme.json` and `theme.css`, in `themes/<id>/` in this repo, by pull request. A built-in's `theme.css` never asks. |
 
 A `theme.css` is the one place you can write raw CSS, and it is global once it is applied: it can change how any part of conn looks, including what a button says. Scope every rule to your theme so it does nothing for the others:
@@ -324,7 +324,7 @@ Inside a conn checkout it judges the built-in themes from that checkout's `theme
 
 It runs the same judgment conn does when it lists themes, and prints `my-theme: ok` or one line per problem, then exits 0 when everything passed, 1 when something did not, and 2 for bad usage (an unknown option, or `--gallery` with nothing to check). For a folder with a `theme.css` it also prints a note that conn asks before using it. Run it before you share a theme.
 
-`--gallery` is the same check under the rules of the `conn-themes` repo, which are stricter than for a theme of yours: the folder must hold `theme.json` alone (a `theme.css`, a `.source.json` or any other file fails it, each on its own line), the file must be UTF-8 without a byte order mark and within 64 KB, the folder name must be an id of 1 to 40 characters (a-z, 0-9 and `-`, not starting with `-`) and equal to the manifest's `id`, and the `id` must not be a built-in's. It calls the same function `conn theme index` does, so a folder that passes `--gallery` is one the index builder accepts. It needs a folder or an id to check, and a theme found by id is looked up in `themes/` first, then in `~/.conn/themes/`.
+`--gallery` is the same check under the rules of the `conn-themes` repo, which are stricter than for a theme of yours: the folder must hold `theme.json` alone (a `theme.css`, a `.source.json` or any other file fails it, each on its own line), the file must be UTF-8 without a byte order mark and within 64 KB, the folder name must be an id of 1 to 40 characters (a-z, 0-9 and `-`, not starting with `-`) and equal to the manifest's `id`, and the `id` must not be a built-in's. It calls the same function `conn theme index` does, so a folder that passes `--gallery` is one the index builder accepts. It needs a folder or an id to check, and a theme found by id is looked up in `themes/` first, then in `~/.config/conn/themes/`.
 
 ## The built-in themes
 
@@ -339,7 +339,7 @@ Read their `theme.json` files in `themes/` for working examples. Default sets ev
 
 ## The gallery
 
-The Themes page (`#/themes`, the Theme menu's `Browse themes` link) lists the community themes in a public GitHub repo, `claytoncasey01/conn-themes`, next to the ones you have. Each card previews the theme and offers what fits its state: `Install` for one you do not have, `Update` when the index lists a newer version of one you installed from there, `Use` to switch to it, and `Uninstall` for a theme that came from the gallery. An install is the theme's `theme.json` and a `.source.json` in `~/.conn/themes/<id>/`, so it is listed in the Theme menu like a theme of your own. The page only ever reads `raw.githubusercontent.com` (the README says exactly when and what is checked), and `CONN_THEME_INDEX` changes where or whether:
+The Themes page (`#/themes`, the Theme menu's `Browse themes` link) lists the community themes in a public GitHub repo, `claytoncasey01/conn-themes`, next to the ones you have. Each card previews the theme and offers what fits its state: `Install` for one you do not have, `Update` when the index lists a newer version of one you installed from there, `Use` to switch to it, and `Uninstall` for a theme that came from the gallery. An install is the theme's `theme.json` and a `.source.json` in `~/.config/conn/themes/<id>/`, so it is listed in the Theme menu like a theme of your own. The page only ever reads `raw.githubusercontent.com` (the README says exactly when and what is checked), and `CONN_THEME_INDEX` changes where or whether:
 
 | `CONN_THEME_INDEX` | What the gallery does |
 |---|---|

@@ -1,4 +1,5 @@
-// Package conn holds what the conn binary carries with it: the built page bundle.
+// Package conn holds what the conn binary carries with it: the built page bundle, the built-in
+// themes, and the agents and skills it provides.
 package conn
 
 import (
