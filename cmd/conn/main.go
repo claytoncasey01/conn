@@ -57,8 +57,9 @@ const usage = `usage: conn <command>
 
 commands:
   serve    run the dashboard server on 127.0.0.1:$CONN_PORT (default 7777) for a browser
-  stop     end the conn serve running on this data folder ($CONN_DATA, default ~/.conn)
+  stop     end the conn serve running on this data folder ($CONN_DATA, default ~/.config/conn)
   theme    check theme folders, or build the theme gallery's index
+  version  print the version of this build
 `
 
 var errNotPort = errors.New("CONN_PORT is not a port")
@@ -102,6 +103,10 @@ func realMain(args []string, lookup config.LookupFunc, stdout, stderr io.Writer)
 		return stop(context.Background(), lookup, stdout, stderr)
 	case "theme":
 		return themeCommand(args[1:], lookup, stdout, stderr)
+	case "version", "-v", "--version":
+		_, _ = fmt.Fprintf(stdout, "conn %s\n", conn.Version())
+
+		return exitOK
 	case "help", "-h", "--help":
 		_, _ = fmt.Fprint(stdout, usage)
 

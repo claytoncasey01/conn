@@ -18,7 +18,7 @@ const (
 )
 
 // sandbox is a built-in folder (a copy of the repo's themes, theme files only) and an empty user
-// folder: nothing here is ~/.conn.
+// folder: nothing here is ~/.config/conn.
 type sandbox struct {
 	builtin, user string
 }

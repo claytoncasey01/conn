@@ -17,7 +17,7 @@ import (
 
 // My PRs under the settings: which repos are searched, what a
 // change of the allowlist or a switch does, and which writes follow which module. Every
-// dependency is a fake (the world): nothing here reaches the real gh, Slack or ~/.conn.
+// dependency is a fake (the world): nothing here reaches the real gh, Slack or ~/.config/conn.
 
 const (
 	dDayMs     = 24 * hourMs

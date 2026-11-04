@@ -13,8 +13,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/sessions"
 )
 
-// The My PRs poller's test world: every dependency is a fake
-// (gh, the clock, the clones, a temp state file), so nothing here reaches the real gh or ~/.conn.
+// The My PRs poller's test world: every dependency is a fake (gh, the clock, the clones, a temp
+// state file), so nothing here reaches the real gh or ~/.config/conn.
 // Every field is guarded by the world's mutex: MyPrs calls the fakes from its own goroutines.
 
 // The clock and the fixture times of the tests.

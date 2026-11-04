@@ -3,6 +3,7 @@
   import { live } from '../lib/live.svelte.ts'
   import Brand from '../lib/Brand.svelte'
   import Nav from '../lib/Nav.svelte'
+  import SettingsProvided from './SettingsProvided.svelte'
   import SettingsServices from './SettingsServices.svelte'
   import ReviewLegacy from './ReviewLegacy.svelte'
   import { plainText } from '../lib/ask.ts'
@@ -405,6 +406,8 @@
             {#if cloneWrote && !cloneError}<span class="ok" role="status" data-content>{plainText(cloneWrote)}</span>{/if}
           </div>
         </section>
+
+        <SettingsProvided />
 
         <ReviewLegacy allow={view.settings.repos.allow} seen={view.seen.map((s) => s.repo)} />
       {/if}

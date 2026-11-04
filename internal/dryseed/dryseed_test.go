@@ -21,7 +21,7 @@ import (
 func factsOf(change func(facts *dryseed.Facts)) dryseed.Facts {
 	facts := dryseed.Facts{
 		Dry: true, SeedFlag: "", Setup: true, HasFile: false, DataEnv: "/scratch/data",
-		DataDir: "/scratch/data", Home: "/home/jane",
+		DataDir: "/scratch/data", DataDirDefault: "/home/jane/.config/conn",
 	}
 	if change != nil {
 		change(&facts)
@@ -51,7 +51,8 @@ func TestTheSeedHappensOnlyForADryServerInSetup(t *testing.T) {
 		{
 			"the dev server's own folder",
 			func(f *dryseed.Facts) {
-				f.DataEnv, f.DataDir = "/home/jane/.conn-dev", "/home/jane/.conn-dev"
+				dev := "/home/jane/.config/conn-dev"
+				f.DataEnv, f.DataDir = dev, dev
 			},
 			dryseed.Decision{Seed: true, Why: ""},
 		},
@@ -74,13 +75,18 @@ func TestTheSeedHappensOnlyForADryServerInSetup(t *testing.T) {
 func TestTheSeedNeverWritesIntoTheRealDataFolder(t *testing.T) {
 	t.Parallel()
 
+	const (
+		realDir = "/home/jane/.config/conn"
+		why     = "real data dir"
+	)
+
 	tests := []struct {
 		name, dataEnv, dataDir, why string
 	}{
-		{"CONN_DATA unset", "", "/home/jane/.conn", "CONN_DATA is not set"},
-		{"the real folder", "/home/jane/.conn", "/home/jane/.conn", "real data dir"},
-		{"with a trailing slash", "/home/jane/.conn/", "/home/jane/.conn/", "real data dir"},
-		{"through ..", "/home/jane/x/../.conn", "/home/jane/x/../.conn", "real data dir"},
+		{"CONN_DATA unset", "", "/home/jane/.config/conn", "CONN_DATA is not set"},
+		{"the real folder", realDir, realDir, "real data dir"},
+		{"with a trailing slash", realDir + "/", realDir + "/", "real data dir"},
+		{"through ..", "/home/jane/x/../.config/conn", "/home/jane/x/../.config/conn", why},
 	}
 
 	for _, tt := range tests {
@@ -101,8 +107,8 @@ func TestTheSeedNeverWritesIntoTheRealDataFolder(t *testing.T) {
 	}
 }
 
-// TestALinkToTheRealFolderIsTheRealFolder: CONN_DATA a link to ~/.conn, or ~/.conn reached
-// through a linked home, is refused; the dev folder still seeds.
+// TestALinkToTheRealFolderIsTheRealFolder: CONN_DATA a link to ~/.config/conn, or ~/.config/conn
+// reached through a linked home, is refused; the dev folder still seeds.
 func TestALinkToTheRealFolderIsTheRealFolder(t *testing.T) {
 	t.Parallel()
 
@@ -111,11 +117,14 @@ func TestALinkToTheRealFolderIsTheRealFolder(t *testing.T) {
 	link := filepath.Join(base, "data-link")
 	linkedHome := filepath.Join(base, "home-link")
 
-	for _, folder := range []string{".conn", ".conn-dev"} {
-		mustDo(t, os.MkdirAll(filepath.Join(home, folder), 0o755))
+	realDir := filepath.Join(home, ".config", "conn")
+	devDir := filepath.Join(home, ".config", "conn-dev")
+
+	for _, folder := range []string{realDir, devDir} {
+		mustDo(t, os.MkdirAll(folder, 0o755))
 	}
 
-	mustDo(t, os.Symlink(filepath.Join(home, ".conn"), link))
+	mustDo(t, os.Symlink(realDir, link))
 	mustDo(t, os.Symlink(home, linkedHome))
 
 	tests := []struct {
@@ -123,8 +132,8 @@ func TestALinkToTheRealFolderIsTheRealFolder(t *testing.T) {
 		seed             bool
 	}{
 		{"CONN_DATA links to the real folder", home, link, false},
-		{"the home is a link", linkedHome, filepath.Join(home, ".conn"), false},
-		{"the dev folder", home, filepath.Join(home, ".conn-dev"), true},
+		{"the home is a link", linkedHome, realDir, false},
+		{"the dev folder", home, devDir, true},
 	}
 
 	for _, tt := range tests {
@@ -132,7 +141,8 @@ func TestALinkToTheRealFolderIsTheRealFolder(t *testing.T) {
 			t.Parallel()
 
 			got := dryseed.Decide(factsOf(func(f *dryseed.Facts) {
-				f.Home, f.DataEnv, f.DataDir = tt.home, tt.data, tt.data
+				f.DataDirDefault = filepath.Join(tt.home, ".config", "conn")
+				f.DataEnv, f.DataDir = tt.data, tt.data
 			}))
 			if got.Seed != tt.seed {
 				t.Fatalf("Decide = %+v, want seed %v", got, tt.seed)

@@ -113,8 +113,8 @@ order is: safety, then performance, then the developer's experience.
 ## What the server must keep
 
 The server answers the pages in `src/` over `/api`. Its routes, JSON shapes, event stream, data
-files under `~/.conn` and `CONN_*` variables are a contract with the UI: change one only together
-with the page that reads it. `testdata/answers/` holds cases both the UI's tests and the Go tests
+files under `~/.config/conn` and `CONN_*` variables are a contract with the UI: change one only
+together with the page that reads it. `testdata/answers/` holds cases both the UI's tests and the Go tests
 check, so the two sides cannot drift apart.
 
 ## Commits and pull requests

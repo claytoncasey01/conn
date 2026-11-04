@@ -21,7 +21,7 @@ import (
 
 // The thread click (reply, then resolve) through the real
 // myprs.Gh and myprs.Writes over a fake gh that records every call, so what is checked is the
-// exact command line. Nothing here reaches the real gh, cmux, git or ~/.conn.
+// exact command line. Nothing here reaches the real gh, cmux, git or ~/.config/conn.
 
 const (
 	dTID   = "PRRT_kwDOabc123"

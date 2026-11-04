@@ -17,6 +17,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/historyapi"
 	"github.com/claytoncasey01/conn/internal/myprs"
 	"github.com/claytoncasey01/conn/internal/openwork"
+	"github.com/claytoncasey01/conn/internal/provided"
 	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settingsapi"
@@ -58,6 +59,8 @@ type Server struct {
 	Themes *themes.Library
 	// Gallery answers /api/gallery; nil leaves the routes out.
 	Gallery *gallery.API
+	// Provided answers /api/provided; nil leaves the routes out.
+	Provided *provided.API
 	// Sessions answers /api/snapshot, the agent pages and /api/events; nil leaves them out.
 	Sessions *sessions.Loop
 	// History answers /api/history; nil while History is off, which HistoryOff explains.
@@ -119,6 +122,16 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, urlPath string) boo
 		}
 	}
 
+	if s.services(w, r, urlPath) {
+		return true
+	}
+
+	return s.sessions(w, r, urlPath)
+}
+
+// services answers a route under /api that one of the smaller APIs owns, and is false when none
+// does.
+func (s *Server) services(w http.ResponseWriter, r *http.Request, urlPath string) bool {
 	if route, ours := gallery.RouteOf(urlPath); ours {
 		if s.Gallery != nil {
 			s.gallery(w, r, route)
@@ -135,6 +148,14 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, urlPath string) boo
 		}
 	}
 
+	if route, ours := provided.RouteOf(urlPath); ours {
+		if s.Provided != nil {
+			s.provided(w, r, route)
+
+			return true
+		}
+	}
+
 	if route, ours := themes.RouteOf(urlPath); ours {
 		if s.Themes != nil {
 			s.themes(w, r, route)
@@ -143,7 +164,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, urlPath string) boo
 		}
 	}
 
-	return s.sessions(w, r, urlPath)
+	return false
 }
 
 func (s *Server) clients() int {

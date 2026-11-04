@@ -25,7 +25,7 @@ type seedCase struct {
 	env  map[string]string
 	// file is a settings.json already in the data folder.
 	file bool
-	// data is how CONN_DATA is set: "temp", "unset" or "link" (a link to the real ~/.conn).
+	// data is how CONN_DATA is set: "temp", "unset" or "link" (a link to the real ~/.config/conn).
 	data string
 	// seeded is whether the seed is made; then allow, github, atlassian are what it holds.
 	seeded    bool
@@ -92,7 +92,7 @@ func bootLookup(t *testing.T, tt seedCase) (config.LookupFunc, string) {
 	t.Helper()
 
 	home := t.TempDir()
-	theReal := filepath.Join(home, ".conn")
+	theReal := filepath.Join(home, ".config", "conn")
 	data := filepath.Join(t.TempDir(), "data")
 
 	for _, folder := range []string{theReal, data} {

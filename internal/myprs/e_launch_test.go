@@ -436,7 +436,7 @@ func TestELaunchCommit(t *testing.T) {
 func TestELaunchLongRefusalLeadsWithTheAdvice(t *testing.T) {
 	t.Parallel()
 
-	dataDir := "/Users/some-long-user-name/.conn"
+	dataDir := "/Users/some-long-user-name/.config/conn"
 	repoPath := "/Users/some-long-user-name/projects/acme-platform-services"
 	worktree := dataDir + "/myprs/acme-corp-labs-acme-platform-services-13540a8c-1234/" +
 		"acme-platform-services"

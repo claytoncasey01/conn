@@ -72,7 +72,7 @@ test('the guide lists every allowed font, and has a row in the effects table for
 })
 
 test('the guide states the size limits, where themes live, how to check and how to preview', () => {
-  for (const s of ['64 KB', '256 KB', '100 themes', '~/.conn/themes/', 'conn theme check', '?theme=<id>&mode=<mode>']) {
+  for (const s of ['64 KB', '256 KB', '100 themes', '~/.config/conn/themes/', 'conn theme check', '?theme=<id>&mode=<mode>']) {
     assert.ok(guide.includes(s), `docs/themes.md lacks ${s}`)
   }
 })

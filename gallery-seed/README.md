@@ -11,7 +11,7 @@ index.json          the list conn reads: made by a script, never edited by hand
 README.md
 ```
 
-A theme is `theme.json` alone: colors, type, shape and named effects. No CSS, no images, no fonts (it can name the fonts conn already bundles). conn installs the file only if it hashes to the value in `index.json` and passes the same checks as a theme in `~/.conn/themes/`, contrast included.
+A theme is `theme.json` alone: colors, type, shape and named effects. No CSS, no images, no fonts (it can name the fonts conn already bundles). conn installs the file only if it hashes to the value in `index.json` and passes the same checks as a theme in `~/.config/conn/themes/`, contrast included.
 
 ## Add a theme
 
