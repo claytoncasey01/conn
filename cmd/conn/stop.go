@@ -8,19 +8,22 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/app"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/instance"
 )
 
-// stopWait bounds the wait for a stopped Conn to let its data folder go: its server gives open
-// requests shutdownTimeout to finish.
-const stopWait = 10 * time.Second
+const (
+	// stopWait bounds the wait for a stopped Conn to let its data folder go: its server gives
+	// open requests a shutdown timeout to finish.
+	stopWait = 10 * time.Second
+	// stopPoll is how often the lock file is read while waiting for the folder to be let go.
+	stopPoll = 50 * time.Millisecond
+)
 
 var (
-	errStoppedMeanwhile = errors.New("the running conn stopped while it was being asked")
-	errNoAddress        = errors.New("the running conn did not say where it listens")
-	errDidNotStop       = errors.New("the running conn did not stop")
-	errNotConn          = errors.New("the lock file names a process that is not a conn")
+	errDidNotStop = errors.New("the running conn did not stop")
+	errNotConn    = errors.New("the lock file names a process that is not a conn")
 )
 
 // stop stops the conn serve holding the data folder, and waits until it has let the folder go.
@@ -41,8 +44,8 @@ func stop(ctx context.Context, lookup config.LookupFunc, stdout, stderr io.Write
 		return exitOK
 	}
 
-	holder, err := waitForHolder(ctx, dataDir)
-	if errors.Is(err, errStoppedMeanwhile) {
+	holder, err := app.WaitForHolder(ctx, dataDir)
+	if errors.Is(err, app.ErrStoppedMeanwhile) {
 		_, _ = fmt.Fprintln(stdout, "conn not running")
 
 		return exitOK
@@ -91,7 +94,7 @@ func terminate(ctx context.Context, dataDir string, pid int) error {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("waiting for process %d to stop: %w", pid, ctx.Err())
-		case <-time.After(holderPoll):
+		case <-time.After(stopPoll):
 		}
 	}
 

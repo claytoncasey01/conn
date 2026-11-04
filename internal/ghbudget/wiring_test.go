@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestTheServerMakesOneBudget: cmd/conn makes exactly one budget, in the parts both Reviews and
+// TestTheServerMakesOneBudget: internal/app makes exactly one budget, in the parts both Reviews and
 // My PRs are made from, and each hands that one to its poller.
 func TestTheServerMakesOneBudget(t *testing.T) {
 	t.Parallel()
@@ -33,17 +33,17 @@ func TestTheServerMakesOneBudget(t *testing.T) {
 
 			got := len(tt.pattern.FindAllString(source, -1))
 			if got != tt.want {
-				t.Errorf("%s appears %d times in cmd/conn, want %d", tt.pattern, got, tt.want)
+				t.Errorf("%s appears %d times in internal/app, want %d", tt.pattern, got, tt.want)
 			}
 		})
 	}
 }
 
-// commandSource is every non-test Go file of cmd/conn, joined.
+// commandSource is every non-test Go file of internal/app, the server's wiring, joined.
 func commandSource(t *testing.T) string {
 	t.Helper()
 
-	paths, err := filepath.Glob("../../cmd/conn/*.go")
+	paths, err := filepath.Glob("../../internal/app/*.go")
 	if err != nil {
 		t.Fatal(err)
 	}

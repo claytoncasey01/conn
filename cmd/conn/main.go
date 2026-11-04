@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn"
+	"github.com/claytoncasey01/conn/internal/app"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/instance"
 	"github.com/claytoncasey01/conn/internal/server"
@@ -144,9 +145,9 @@ func serve(ctx context.Context, lookup config.LookupFunc, stdout, stderr io.Writ
 	defer func() { _ = held.Release() }()
 
 	logger := log.New(stderr, "", 0)
-	store := loadSettings(cfg.DataDir, logger, stderr)
+	store := app.LoadSettings(cfg.DataDir, logger, stderr)
 
-	cfg, removeSeed := seedDry(cfg, store, stderr)
+	cfg, removeSeed := app.SeedDry(cfg, store, stderr)
 	defer removeSeed()
 
 	listener, err := listen(ctx, portNumber)
@@ -168,9 +169,23 @@ func serve(ctx context.Context, lookup config.LookupFunc, stdout, stderr io.Writ
 
 	_, _ = fmt.Fprintf(stdout, "conn listening on %s\n", address)
 
-	handler := newHandler(ctx, cfg, store, logger, ui(lookup))
+	handler := app.NewHandler(ctx, cfg, store, logger, ui(lookup))
 
 	return run(ctx, newHTTPServer(handler), listener, stderr)
+}
+
+// alreadyRunning says where the Conn holding the data folder answers.
+func alreadyRunning(ctx context.Context, dataDir string, stdout, stderr io.Writer) int {
+	holder, err := app.WaitForHolder(ctx, dataDir)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
+
+		return exitError
+	}
+
+	_, _ = fmt.Fprintf(stdout, "conn is already running on %s\n", holder.URL)
+
+	return exitOK
 }
 
 // run serves on listener until ctx ends or the server stops by itself.

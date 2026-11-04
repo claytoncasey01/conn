@@ -15,9 +15,9 @@ import (
 
 // The scope as My PRs reads it, through the real settings holder
 // over a temp data folder, and the hook that reaches SettingsChanged (the holder's OnChange,
-// which cmd/conn/wiring.go hands MyPrs.SettingsChanged). The recorded answers (section scope)
+// which internal/app/wiring.go hands MyPrs.SettingsChanged). The recorded answers (section scope)
 // cover ScopeOf over plain settings. The clone lookup is internal/origin's Reader.CloneFor,
-// tested there (TestCloneFor*: a wrong origin, a bad name). The wiring is cmd/conn/wiring.go,
+// tested there (TestCloneFor*: a wrong origin, a bad name). The wiring is internal/app/wiring.go,
 // which compiles or not, so no test reads its source.
 
 // eStore is a settings holder over a fresh data folder holding file as settings.json ("" for
