@@ -141,6 +141,9 @@ func serve(ctx context.Context, lookup config.LookupFunc, stdout, stderr io.Writ
 	logger := log.New(stderr, "", 0)
 	store := loadSettings(cfg.DataDir, logger, stderr)
 
+	cfg, removeSeed := seedDry(cfg, store, stderr)
+	defer removeSeed()
+
 	listener, err := listen(ctx, portNumber)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)

@@ -6,16 +6,20 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"os"
 	"time"
 
 	"github.com/claytoncasey01/conn"
 	"github.com/claytoncasey01/conn/internal/claude"
 	"github.com/claytoncasey01/conn/internal/config"
+	"github.com/claytoncasey01/conn/internal/dryseed"
 	"github.com/claytoncasey01/conn/internal/gallery"
 	"github.com/claytoncasey01/conn/internal/gh"
+	"github.com/claytoncasey01/conn/internal/ghbudget"
 	"github.com/claytoncasey01/conn/internal/instance"
 	"github.com/claytoncasey01/conn/internal/modules"
 	"github.com/claytoncasey01/conn/internal/origin"
+	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/server"
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settings"
@@ -30,6 +34,39 @@ const (
 	// holderPoll is how often the lock file is read while waiting.
 	holderPoll = 50 * time.Millisecond
 )
+
+// seedDry seeds the dry settings into a temp folder when a dry switch is on and there is no
+// settings.json (see dryseed), and answers the configuration the run goes on with (every module
+// dry in a seeded run) and what removes the seed when the server stops.
+func seedDry(cfg config.Config, store *settings.Store, stderr io.Writer) (config.Config, func()) {
+	decision := dryseed.Decide(dryseed.FactsOf(cfg, store))
+	if !decision.Seed {
+		if decision.Why != "" {
+			_, _ = fmt.Fprintf(stderr, "conn: %s\n", decision.Why)
+		}
+
+		return cfg, func() {}
+	}
+
+	dir, err := os.MkdirTemp("", "conn-dry-settings-")
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "conn: could not seed the dry settings: %v\n", err)
+
+		return cfg, func() {}
+	}
+
+	// Held for this run only: a save from the Settings page goes there too, and nothing is
+	// written into the data folder.
+	store.Reload(dir)
+
+	if why := dryseed.Seed(cfg.Dry, dir, store); why != "" {
+		_, _ = fmt.Fprintf(stderr, "conn: could not seed the dry settings: %s\n", why)
+	}
+
+	cfg.Dry = dryseed.SeededDry()
+
+	return cfg, func() { _ = os.RemoveAll(dir) }
+}
 
 // loadSettings reads settings.json once, at boot: a hand edit or a deletion takes a restart, and
 // a PUT replaces it in memory and on disk. A bad file is the defaults (setup), never a failed
@@ -54,36 +91,35 @@ func newHandler(
 	reader := origin.NewReader()
 	runner := claude.Runner{Bin: cfg.ClaudeBin}
 	archived := openHistory(ctx, cfg, store, reader, logger.Writer())
-	live := newSessions(ctx, cfg, store, reader, archived, logger.Writer())
+
+	// The snapshot hook reads Reviews, which is made once the session list it reads is.
+	var reviewsTab *reviews.Reviews
+
+	live := newSessions(ctx, cfg, store, reader, archived, logger.Writer(),
+		func() any { return reviewsTab.Snapshot() })
+
+	statuses := newStatuses(store, runner)
+
+	// My PRs and Reviews poll GitHub as the same account: they share its hourly budget and a
+	// rate limit that either runs into.
+	budget := ghbudget.New()
+	reviewsTab = newReviews(ctx, reviewsParts{
+		cfg: cfg, store: store, reader: reader, statuses: statuses, budget: budget,
+		runner: runner, logger: logger,
+	}, live)
 
 	// The snapshot is cached by version: a change of the allowlist must reach the page (the
-	// first-launch redirect) at once.
+	// first-launch redirect) at once. A saved allowlist, source or channel reaches Reviews at
+	// once too (and the first allowlist migrates an old reviews.json).
 	store.OnChange(func(settings.Settings) { live.Bump() })
+	store.OnChange(func(settings.Settings) { reviewsTab.SettingsChanged() })
 
 	go live.Run(ctx)
+	go reviewsTab.Run(ctx)
 
-	liveIDs := func(ctx context.Context) map[string]bool {
-		ids := map[string]bool{}
-		for _, session := range live.LiveSessions(ctx) {
-			ids[session.SessionID] = true
-		}
-
-		return ids
-	}
+	liveIDs := liveIDsOf(live)
 
 	archived.startBackfill(ctx, cfg, store, live, func() map[string]bool { return liveIDs(ctx) })
-
-	// The module statuses are read from memory, filled by helper runs and by a CHECK press, the
-	// only thing that runs a probe.
-	statuses := modules.NewStatuses(modules.Deps{
-		Enabled: func(name string) bool { return store.Get().Switch(name) },
-		Probes: map[string]modules.Probe{
-			settings.ModuleGitHub:    modules.GitHubProbe(modules.GhAuthStatus),
-			settings.ModuleSlack:     modules.ConnectorProbe(modules.Slack, runner.Run),
-			settings.ModuleAtlassian: modules.ConnectorProbe(modules.Atlassian, runner.Run),
-		},
-		Now: time.Now,
-	})
 
 	api := settingsapi.New(settingsapi.Deps{
 		Settings:     store,
@@ -111,8 +147,35 @@ func newHandler(
 	return &server.Server{
 		UI: bundle, Clients: live.Hub().Count, Settings: api, Logger: logger, Sessions: live,
 		History: archived.newAPI(cfg, store, liveIDs), HistoryOff: archived.offReason,
+		Reviews: reviewsTab,
 		Themes:  themes.New(builtin, themes.Disk(cfg.ThemesUser), logger),
 		Gallery: gallery.NewAPI(themesGallery, cfg.ThemeIndex, now),
+	}
+}
+
+// newStatuses are the module statuses: read from memory, filled by helper runs and by a CHECK
+// press, the only thing that runs a probe.
+func newStatuses(store *settings.Store, runner claude.Runner) *modules.Statuses {
+	return modules.NewStatuses(modules.Deps{
+		Enabled: func(name string) bool { return store.Get().Switch(name) },
+		Probes: map[string]modules.Probe{
+			settings.ModuleGitHub:    modules.GitHubProbe(modules.GhAuthStatus),
+			settings.ModuleSlack:     modules.ConnectorProbe(modules.Slack, runner.Run),
+			settings.ModuleAtlassian: modules.ConnectorProbe(modules.Atlassian, runner.Run),
+		},
+		Now: time.Now,
+	})
+}
+
+// liveIDsOf answers the ids of the live sessions, read when it is called.
+func liveIDsOf(live *sessions.Loop) func(ctx context.Context) map[string]bool {
+	return func(ctx context.Context) map[string]bool {
+		ids := map[string]bool{}
+		for _, session := range live.LiveSessions(ctx) {
+			ids[session.SessionID] = true
+		}
+
+		return ids
 	}
 }
 

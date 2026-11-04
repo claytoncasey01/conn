@@ -117,5 +117,5 @@ func (s *Server) recovered(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendJSON(w, http.StatusInternalServerError,
-		errorBody{Error: "the server could not handle that request"})
+		errorBody{Error: textFailed})
 }

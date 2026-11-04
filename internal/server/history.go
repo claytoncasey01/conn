@@ -48,7 +48,7 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request, urlPath string)
 		}
 
 		sendJSON(w, http.StatusInternalServerError,
-			errorBody{Error: "the server could not handle that request"})
+			errorBody{Error: textFailed})
 
 		return true
 	}

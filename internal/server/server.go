@@ -15,6 +15,7 @@ import (
 
 	"github.com/claytoncasey01/conn/internal/gallery"
 	"github.com/claytoncasey01/conn/internal/historyapi"
+	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settingsapi"
 	"github.com/claytoncasey01/conn/internal/themes"
@@ -39,6 +40,8 @@ const (
 	textForbidden = "forbidden"
 	textNotFound  = "not found"
 	textMethod    = "method not allowed"
+	// textFailed is what a request that failed inside the server answers.
+	textFailed = "the server could not handle that request"
 )
 
 // Server answers Conn's HTTP requests.
@@ -58,6 +61,8 @@ type Server struct {
 	// History answers /api/history; nil while History is off, which HistoryOff explains.
 	History    *historyapi.API
 	HistoryOff string
+	// Reviews answers /api/reviews; nil leaves the routes out.
+	Reviews *reviews.Reviews
 	// Logger is told about a request that failed.
 	Logger *log.Logger
 }
@@ -103,6 +108,10 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, urlPath string) boo
 	}
 
 	if s.history(w, r, urlPath) {
+		return true
+	}
+
+	if s.reviews(w, r, urlPath) {
 		return true
 	}
 
