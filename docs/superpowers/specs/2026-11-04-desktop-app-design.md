@@ -156,3 +156,123 @@ needs `local()` loosened comes back to the owner first.
 - Universal bundle or one per architecture, and the bundle's identifier and version stamp.
 - Whether CI can run the app's pure tests on macOS only, and a smoke test that the bundle starts
   and answers on its port.
+
+## Spike result (Task 1)
+
+**Verdict: the external loopback page works.** A Wails window opened on `http://127.0.0.1:7799`
+loaded the whole UI, made a write that the server accepted, hid on close, came back on the
+reopen event, and quit from the menu, from an Apple event and from `kill -TERM`. No guard in the
+server was touched. The fallback in "First step of the plan" is not needed. The spike program was
+throwaway and is not in the repo.
+
+### Which Wails, and why
+
+**Wails v3.1.0** (`github.com/wailsapp/wails/v3 v3.1.0`), pinned to that exact version. The module
+proxy and GitHub releases on 2026-11-04 show two stable lines: v3.0.0 (26 October 2026, the first
+stable v3) with v3.1.0 (1 November 2026, a weekly release), and v2.17.1 (1 November 2026). v3 is
+chosen because the three things this design needs are plain options there:
+
+- `WebviewWindowOptions.URL` loads an external address. v2.17.1 has no such option (it serves its
+  own assets), so it would need a workaround.
+- A `WindowClosing` hook that calls `Hide()` and `Cancel()` is hide-on-close.
+- `events.Mac.ApplicationShouldHandleReopen` is the Dock-click event.
+
+The cost: v3 has been stable for only nine days and ships weekly, so the API may move. Pin the
+version and read the release notes before bumping it. v3 needs Go 1.26 or newer (the repo is on
+1.27.1). v2 was not built.
+
+### Build
+
+No Wails CLI is needed, and no build tags. A plain `go build` yields a runnable binary; the
+`.app` bundle is assembled by hand (a folder, one `Info.plist`, the binary, then an ad-hoc
+`codesign`). The command that was used, per architecture:
+
+```
+MACOSX_DEPLOYMENT_TARGET=13.0 CGO_ENABLED=1 \
+CGO_CFLAGS=-mmacosx-version-min=13.0 CGO_LDFLAGS=-mmacosx-version-min=13.0 \
+GOARCH=arm64 go build -o ConnSpike.app/Contents/MacOS/conn-spike .
+```
+
+- **cgo and Xcode.** Wails v3 needs `CGO_ENABLED=1` and a C compiler. The Command Line Tools
+  were enough here (`xcode-select -p` is `/Library/Developer/CommandLineTools`; full Xcode is not
+  installed). With `CGO_ENABLED=0` and no tag the build stops at Wails's own build guard.
+- **Set `CGO_ENABLED=1` for the other architecture.** Go switches cgo off when `GOARCH` differs
+  from the host, so the `GOARCH=amd64` build failed on that guard until it was set explicitly.
+  Built that way, an arm64 and an x86_64 binary joined with `lipo -create` gave a universal
+  binary (both slices `minos 13.0`). The x86_64 slice was linked but not run.
+- **Without the version flags** the link prints a `built for newer 'macOS' version` warning per
+  object and the header says `minos 11.0`, which is wrong. The three variables above fix both.
+- **Minimum macOS is 13 (Ventura).** The floor comes from Go 1.27, not Wails: the Go 1.27 release
+  notes say it requires macOS 13. Wails's own build template targets 12.0, and its newest APIs
+  (macOS 14 and 26) are behind runtime `@available` checks. Write 13 in the README and in
+  `LSMinimumSystemVersion`.
+- **A CGO-free build exists but is experimental.** v3.1.0 added a macOS backend that builds with
+  `CGO_ENABLED=0 go build -tags purego`. The spike binary built that way (16 MB, no Cocoa
+  libraries linked) loaded the page, hid on close and quit on SIGTERM. Not adopted: its release
+  note calls it experimental, and it was not tried from Linux. Worth a look later if cgo on the
+  macOS runner becomes a burden.
+- **The CLI is unaffected.** `CGO_ENABLED=0 go build ./cmd/conn` in the repo still succeeds, and
+  the repo's `go.mod` and `go.sum` were not touched.
+- **Linux checks with a darwin-only app package.** In a scratch module, `GOOS=linux go vet ./...`
+  and `go build ./...` skipped a `cmd/app` whose only file had `//go:build darwin` and exited 0.
+  Naming that package explicitly fails with `build constraints exclude all Go files`. So `./...`
+  is safe, but golangci-lint on Linux will not see the app's files; they need a macOS lint run
+  in CI. Every file in that package, tests included, needs the constraint, or must live in an
+  untagged package so the pure logic still runs on Linux.
+
+### Verified by running it
+
+Server on `CONN_PORT=7799` with a temporary `CONN_DATA`; the real Conn was never touched.
+
+- **The UI loaded.** Through a logging reverse proxy (port 7798 to 7799, same guards) the webview
+  requested `/`, `/assets/*.js`, `/assets/*.css`, `/api/themes`, `/api/events` and
+  `/api/settings`. On a direct run on 7799 the server's `/api/health` went from `clients:0` to
+  `clients:1` (the page's event stream connected). Edit > Select All then Copy put the page text
+  on the clipboard.
+- **A write from the webview succeeded.** A `PUT /api/settings/repos` with `X-Conn: 1` and
+  `Origin: http://127.0.0.1:7798`, sent by script from inside the loaded page, returned 200 and
+  `GET /api/settings` showed the new value. That script was injected by the logging proxy, not by
+  the UI: the UI's own save buttons were not clicked.
+- **Hide on close.** Clicking the window's close button (System Events works here without extra
+  permission) logged the close hook, left the process running and the window count at 0. The
+  event stream stayed connected (`clients:1`) while hidden.
+- **Reopen event.** `tell application id "..." to reopen` and `open Bundle.app` on the running
+  bundle both delivered `ShouldHandleReopen`, showed the window, and started no second process.
+  This is the event a Dock click sends; a real Dock click was not made.
+- **Menu.** The app menu has About, Services, Hide, Hide Others, Show All and Quit; the Edit menu
+  has Undo, Redo, Cut, Copy, Paste, Paste and Match Style, Delete, Select All. Hide hid the app
+  and reopen brought it back.
+- **Native dialog.** `app.Dialog.Info()` showed an `AXDialog` with the title, the message and an
+  OK button, both over the open window and with the main window hidden. Clicking OK returned
+  control to Go.
+- **Quit.** The Quit menu item, `tell application id "..." to quit` and `kill -TERM` each ended
+  the process in under 500 ms, ran `ShouldQuit` and `OnShutdown`, and the server's client count
+  fell to 0. `SIGTERM` worked with the window hidden too. Wails handles SIGINT and SIGTERM by
+  default and routes them through the same quit path.
+
+### Surprises
+
+- **The Wails JS bridge is absent on the external page.** From inside the page,
+  `window._wails` and `window.wails` are `undefined`. Go-to-page calls do not work either:
+  `WebviewWindow.ExecJS` queues the script until the page reports `wails:runtime:ready`, which an
+  external page never does, so it silently never runs. This does not matter for this design,
+  because everything native is set from Go. Do not use `ExecJS`, frontend events or bindings.
+- **`App.Show()` and `App.Hide()` crash off the main thread.** Calling `app.Show()` from the
+  reopen handler raised `SIGTRAP` (AppKit main-thread check). Wrap it:
+  `application.InvokeSync(app.Show)`. `Window.Show()` and `Window.Hide()` are already safe.
+- **Reopen needs more than `window.Show()` to come forward.** With only `window.Show()` the app
+  was visible but not frontmost when reopened from the background. The handler that worked is
+  `InvokeSync(app.Show)`, then `window.Show()`, then `window.Focus()`.
+- **There is no `HideWindowOnClose` option in v3.** It is the close hook shown above.
+- **Wails logs `INF` lines to stderr** (build and platform info) unless a logger is set.
+
+### Not verified: needs the owner's eyes
+
+- A real Dock click after closing the window (only the equivalent reopen event was sent).
+- Cmd-Q and Cmd-H from the keyboard, and Cmd-V paste. The menu items and the Apple event were
+  used, and copy was checked.
+- How the native dialog looks, and how the window looks: screen capture is blocked here, so no
+  screenshot was taken.
+- The splash flash: the window shows blank until the first response arrives. Not measured.
+- What the window shows if the server goes away while it is open.
+- Running the x86_64 slice, and running a bundle on macOS 13 itself (tested on 27.0.1 only).
