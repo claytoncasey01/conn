@@ -208,7 +208,11 @@ func checkName(name string) error {
 // Find is the item of a kind with a name.
 func Find(items []Item, kind Kind, name string) (Item, bool) {
 	index := slices.IndexFunc(items, func(item Item) bool {
-		return item.Kind == kind && item.Name == name
+		if item.Kind != kind {
+			return false
+		}
+
+		return item.Name == name
 	})
 	if index < 0 {
 		return Item{}, false
