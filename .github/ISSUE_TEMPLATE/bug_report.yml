@@ -1,0 +1,35 @@
+name: Bug report
+description: Something in Conn does not work as its docs say
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not put a token, a prompt or a session's text in this report. For a security problem,
+        use the private report linked on the issue chooser instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you saw instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Conn version
+      description: The output of `conn version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [macOS, Linux, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: The page, the log lines from the terminal running `conn serve`, whether cmux or `gh` is in use.

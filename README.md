@@ -118,7 +118,8 @@ Layout:
 | `src/effects/` | Theme effects such as the Matrix rain and the CRT tube |
 | `themes/` | Built-in themes, and `_template/` to copy |
 | `gallery-seed/` | Example gallery themes |
-| `agents/` | Read-only helper agents that Open work build sessions use. Copy them to `~/.claude/agents/` |
+| `agents/` | Read-only helper agents that Open work build sessions use. Conn links them into `~/.claude/agents/` when it starts |
+| `skills/` | Skills Conn provides. Each is linked into `~/.claude/skills/` only when you press INSTALL on the Settings page |
 | `cmd/dev/` | The development loop behind `make dev` |
 | `testdata/` | Cases the UI's tests and the server's tests share |
 | `docs/` | Reference for each feature |
@@ -126,6 +127,14 @@ Layout:
 Run `conn theme check` after editing a theme.
 
 To keep names out of the repository, such as your employer's, list them in `.company-terms` at the repository root. The file is git-ignored. Put one term per line, use `#` for a comment, and start a line with `re:` for a regular expression. `go test ./...` then fails, naming the file and line, if a tracked file or file name contains a term. `CONN_GUARD_TERMS=<path>` points at a list kept elsewhere. Without a list the check is skipped.
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) says how to build, test and send a change. Report a security problem as [SECURITY.md](SECURITY.md) describes, not in a public issue. Themes for the gallery go to [conn-themes](https://github.com/claytoncasey01/conn-themes).
+
+## License
+
+Apache-2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE). The Matrix rain's glyph font, `src/effects/fonts/matrix-code/`, is SIL OFL 1.1.
 
 ## Status
 

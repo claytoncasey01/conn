@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/claytoncasey01/conn/security/advisories/new
+    about: Report it privately here, not in a public issue. See SECURITY.md.
+  - name: Submit a theme to the gallery
+    url: https://github.com/claytoncasey01/conn-themes
+    about: Gallery themes live in their own repository.

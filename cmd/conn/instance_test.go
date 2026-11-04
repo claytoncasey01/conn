@@ -217,14 +217,36 @@ func TestServeSaysWhatSettingsJSONDroppedAndServesTheSettings(t *testing.T) {
 		t.Errorf("stderr = %q, want what settings.json lost", stderr.String())
 	}
 
-	holder, running, err := instance.Running(dataDir)
-	if err != nil {
-		t.Fatal(err)
+	folderReleased(t, dataDir)
+}
+
+// folderReleased fails the test unless dataDir is free within holderWait. A lock lasts until
+// every copy of its file descriptor is closed, and a process another parallel test is starting
+// holds a copy between fork and exec, so the folder can read as held for a moment after the
+// server that held it has closed its file.
+func folderReleased(t *testing.T, dataDir string) {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(holderWait))
+
+	var holder instance.Holder
+
+	for time.Now().Before(deadline) {
+		current, running, err := instance.Running(dataDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !running {
+			return
+		}
+
+		holder = current
+
+		time.Sleep(10 * time.Millisecond)
 	}
 
-	if running {
-		t.Errorf("the folder is still held by %+v after serve returned", holder)
-	}
+	t.Errorf("the folder is still held by %+v after serve returned", holder)
 }
 
 func fetch(t *testing.T, url string) string {
