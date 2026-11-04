@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// Bun's myPrsDry.test.ts: the server's snapshot says why My PRs reads nothing (setup, GitHub
-// off), and a dry run with no settings file reads the seeded allowlist. No case here can reach
-// the real gh: no page is open, so nothing polls, and the seeded run is dry throughout.
+// A dry My PRs: the server's snapshot says why My PRs reads nothing (setup, GitHub off), and a dry
+// run with no settings file reads the seeded allowlist. No case here can reach the real gh: no page
+// is open, so nothing polls, and the seeded run is dry throughout.
 
 type myPrsFlags struct {
 	MyPrs struct {

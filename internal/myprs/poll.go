@@ -342,7 +342,7 @@ type keyedEntry struct {
 }
 
 // listed are the PRs on the list now with their keys, in order: what an iteration over the
-// list in Bun sees, since the list is only ever replaced, never changed in place.
+// list sees, since the list is only ever replaced, never changed in place.
 func (m *MyPrs) listed() []keyedPR {
 	out := make([]keyedPR, 0, m.prs.Len())
 

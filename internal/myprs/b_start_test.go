@@ -1,8 +1,7 @@
 package myprs_test
 
 // SELF-REVIEW and RE-REVIEW presses: names that read alike, the same number in two repos, a
-// launch that failed, a session of the PR's folder, and CONN_MYPRS_DRY. Bun's myPrs.test.ts
-// "---- start: Self-Review and Re-Review ----", second half.
+// launch that failed, a session of the PR's folder, and CONN_MYPRS_DRY.
 
 import (
 	"os"
@@ -15,7 +14,7 @@ import (
 
 const bPaste = "cd /wt && claude"
 
-// Bun: 'session names that read the same for two PRs never block each other'.
+// Session names that read the same for two PRs never block each other.
 func TestBNamesThatReadAlikeNeverBlock(t *testing.T) {
 	t.Parallel()
 
@@ -38,7 +37,7 @@ func TestBNamesThatReadAlikeNeverBlock(t *testing.T) {
 	bEqual(t, "web status", bRowOf(t, tab, "org/web").Status, "idle")
 }
 
-// Bun: 'the same number in two repos launches separately, within the same 30 s'.
+// The same number in two repos launches separately, within the same 30 s.
 func TestBSameNumberInTwoReposLaunchesSeparately(t *testing.T) {
 	t.Parallel()
 
@@ -67,8 +66,8 @@ func TestBSameNumberInTwoReposLaunchesSeparately(t *testing.T) {
 	bEqual(t, "b saved", len(bLaunches(file, "org/b", 5)), 1)
 }
 
-// Bun: 'a cmux failure records the round for the session pasted by hand (armed, at the
-// worktree's commit, marked manual) and still answers the command'.
+// A cmux failure records the round for the session pasted by hand (armed, at the
+// worktree's commit, marked manual) and still answers the command.
 func TestBCmuxFailureRecordsAManualRound(t *testing.T) {
 	t.Parallel()
 
@@ -101,8 +100,8 @@ func TestBCmuxFailureRecordsAManualRound(t *testing.T) {
 	bEqual(t, "launched", len(bLaunched(world)), 1)
 }
 
-// Bun: 'a round to paste that is not live yet holds a press for the usual 5 minutes, and the
-// refusal says to paste the command'.
+// A round to paste that is not live yet holds a press for the usual 5 minutes, and the
+// refusal says to paste the command.
 func TestBRoundToPasteHoldsAPressFiveMinutes(t *testing.T) {
 	t.Parallel()
 
@@ -125,8 +124,8 @@ func TestBRoundToPasteHoldsAPressFiveMinutes(t *testing.T) {
 		[]any{200, `{"ok":true,"name":"self-repo-7-2"}`})
 }
 
-// Bun: 'a launch failure with no command to paste (git, the prompt write) records nothing, and
-// the next press launches at once'.
+// A launch failure with no command to paste (git, the prompt write) records nothing, and
+// the next press launches at once.
 func TestBLaunchFailureWithoutACommandRecordsNothing(t *testing.T) {
 	t.Parallel()
 
@@ -155,8 +154,8 @@ func TestBLaunchFailureWithoutACommandRecordsNothing(t *testing.T) {
 	bEqual(t, "round", launched[2].Round, 1.0)
 }
 
-// Bun: 'a live session named like one of this PR's rounds, working in its folder (links
-// resolved), refuses a press whatever the records say'.
+// A live session named like one of this PR's rounds, working in its folder (links
+// resolved), refuses a press whatever the records say.
 func TestBSessionOfARoundInItsFolderRefusesAPress(t *testing.T) {
 	t.Parallel()
 
@@ -195,7 +194,7 @@ func TestBSessionOfARoundInItsFolderRefusesAPress(t *testing.T) {
 	bEqual(t, "free", bStart(t, tab, bRepo, 7, bSonnet).Code, 200)
 }
 
-// Bun: 'a session in the PR's folder is found when the data folder is reached through a link'.
+// A session in the PR's folder is found when the data folder is reached through a link.
 func TestBSessionInTheFolderFoundThroughALinkedDataFolder(t *testing.T) {
 	t.Parallel()
 
@@ -229,8 +228,8 @@ func TestBSessionInTheFolderFoundThroughALinkedDataFolder(t *testing.T) {
 	bEqual(t, "launched", len(bLaunched(world)), 0)
 }
 
-// Bun: 'a launch that throws is an error reply, records nothing and frees the PR'. Go's launch
-// has no error return: what Bun's throw becomes is a failed result with no command to paste.
+// A failed launch is an error reply, records nothing and frees the PR. The launch has no error
+// return: a failure is a failed result with no command to paste.
 func TestBLaunchErrorRepliesAndFreesThePR(t *testing.T) {
 	t.Parallel()
 
@@ -250,8 +249,8 @@ func TestBLaunchErrorRepliesAndFreesThePR(t *testing.T) {
 	bEqual(t, "next", bStart(t, tab, bRepo, 7, bSonnet).Code, 200)
 }
 
-// Bun: 'the label flips to Re-review after a launch, and the row is running while its session
-// is live'.
+// The label flips to Re-review after a launch, and the row is running while its session
+// is live.
 func TestBLabelFlipsAndRowRunsWhileItsSessionIsLive(t *testing.T) {
 	t.Parallel()
 
@@ -269,8 +268,8 @@ func TestBLabelFlipsAndRowRunsWhileItsSessionIsLive(t *testing.T) {
 	bContains(t, "reason", reason, "running")
 }
 
-// Bun: 'a press that is a no-op under CONN_MYPRS_DRY still checks its input and never
-// launches'.
+// A press that is a no-op under CONN_MYPRS_DRY still checks its input and never
+// launches.
 func TestBDryPressChecksItsInputAndNeverLaunches(t *testing.T) {
 	t.Parallel()
 

@@ -8,8 +8,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/server"
 )
 
-// Bun's myPrsApi.test.ts and the /api/myprs routes of index.ts, through a server: here the
-// handler with a dry My PRs, so nothing it can launch or write is real.
+// The /api/myprs routes through a server: here the handler with a dry My PRs, so nothing it can
+// launch or write is real.
 
 func newMyPrsRig(t *testing.T) reviewsRig {
 	t.Helper()

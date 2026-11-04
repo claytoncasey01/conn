@@ -12,7 +12,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/transcript"
 )
 
-// The answers in testdata/answers/sessions/model.json.gz are Bun's: seeded synthetic sessions
+// The answers in testdata/answers/sessions/model.json.gz are recorded: seeded synthetic sessions
 // (a lead transcript and its agents) fed through LeadState and AgentState, and the details,
 // statuses and agent pages built from them at three clocks.
 
@@ -80,7 +80,7 @@ func optional(value any) *string {
 	return &typed
 }
 
-// normal is a value's JSON as Bun's JSON.parse then JSON.stringify would give it: what Go
+// normal is a value's JSON as JSON.parse then JSON.stringify would give it: what the code
 // marshals, read back, so both sides compare as the same text.
 func normal(t *testing.T, value any) string {
 	t.Helper()
@@ -93,7 +93,7 @@ func normal(t *testing.T, value any) string {
 	return js.Stringify(parsed)
 }
 
-// check compares got with Bun's answer and reports where they first part.
+// check compares got with the recorded answer and reports where they first part.
 func check(t *testing.T, what string, got, want any) {
 	t.Helper()
 
@@ -241,7 +241,7 @@ func unique(list any) int {
 	return len(seen)
 }
 
-// withCounts swaps Bun's id lists for their sizes: Go keeps them as sets.
+// withCounts swaps the recorded id lists for their sizes, since the snapshot keeps them as sets.
 func withCounts(dump any, keys ...string) any {
 	object, _ := dump.(*js.Object)
 	for _, key := range keys {
@@ -272,7 +272,7 @@ func feed(recorded any) snapshot.Parts {
 	return parts
 }
 
-func TestSessionsMatchBun(t *testing.T) {
+func TestSessionsMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	answers := readModel(t)
@@ -383,7 +383,7 @@ func pages(parts snapshot.Parts, session snapshot.Live, now float64) []any {
 	return out
 }
 
-func TestSummariesAndSpawnsMatchBun(t *testing.T) {
+func TestSummariesAndSpawnsMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	answers := readModel(t)

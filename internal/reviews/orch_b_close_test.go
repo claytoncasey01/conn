@@ -1,7 +1,6 @@
 package reviews_test
 
 // Auto-close: a review session Conn launched is closed once it is finished, and only that one.
-// Bun's reviews.test.ts "---- Auto-close ----".
 
 import (
 	"slices"

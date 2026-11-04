@@ -12,8 +12,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// Bun's reviewLaunch.test.ts, launchReview: every dependency is a fake that records its calls in
-// order, and nothing touches the disk.
+// The launch of a review: every dependency is a fake that records its calls in order, and
+// nothing touches the disk.
 
 const (
 	dWorktree = "/data/conn/reviews/pr-412-acme--widget-app/widget-app"

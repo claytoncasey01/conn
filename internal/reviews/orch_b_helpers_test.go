@@ -1,7 +1,7 @@
 package reviews_test
 
-// Helpers for the REVIEW, auto-close and sweep tests, as Bun's ready(), launched(), mine(),
-// closedLaunch(), leaves() and seededLaunch() in reviews.test.ts.
+// Helpers for the REVIEW, auto-close and sweep tests: a ready PR, a launched one, one of mine, a
+// closed launch, the launches that leave, and a seeded launch.
 
 import (
 	"log"

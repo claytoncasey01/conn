@@ -67,7 +67,7 @@ func (r Reg) name() string {
 // key is the pid as the page names a session.
 func (r Reg) key() string { return js.Number(r.PID) }
 
-// changed is whether the fields Bun compares between two reads differ.
+// changed is whether the fields compared between two reads differ.
 func (r Reg) changed(next Reg) bool {
 	if r.Status != next.Status {
 		return true
@@ -113,8 +113,7 @@ func sameNumber(left, right *float64) bool {
 }
 
 // parseReg reads a registry file. A file that is not a JSON object, or whose pid is not a number
-// or whose sessionId or cwd is not a string, is not a session (Bun threw on the last two and lost
-// its tick; Go skips the file).
+// or whose sessionId or cwd is not a string, is not a session: the file is skipped.
 func parseReg(data []byte) (Reg, bool) {
 	parsed, err := js.Parse([]byte(js.DecodeUTF8(data, false)))
 	if err != nil {
@@ -171,8 +170,8 @@ func optionalNumber(object *js.Object, key string) *float64 {
 	return &number
 }
 
-// listDir is a folder's entries in the order the file system gives them, as readdirSync does
-// (os.ReadDir sorts them by name; Bun did not).
+// listDir is a folder's entries in the order the file system gives them, unsorted, as readdirSync
+// gives them (os.ReadDir would sort them by name).
 func listDir(dir string) []string {
 	folder, err := os.Open(dir)
 	if err != nil {

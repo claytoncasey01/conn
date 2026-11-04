@@ -184,8 +184,8 @@ func TestOrchCScanReadsThatHitTheRateLimitPauseGitHubForMyPRsToo(t *testing.T) {
 	fakes.with(func(state *world) { state.scanResult = cPosts(cPost(8)) })
 	fakes.advance(10 * minuteMs)
 	cRefresh(t, tab)
-	// The poll and the scan start in the same tick; as in Bun, the poll ends before the scan's
-	// read answers (a poll that ends later clears the pause, in Bun and in Go alike).
+	// The poll and the scan start in the same tick; the poll ends before the scan's read
+	// answers (a poll that ends later clears the pause all the same).
 	tab.Tick()
 	held.reached(t)
 	cWaitFor(t, "the poll", cPolledAt(t, tab, fakes.clock()))

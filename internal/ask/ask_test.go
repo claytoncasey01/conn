@@ -11,7 +11,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/js"
 )
 
-// The answers in testdata/answers/ask/ask.json.gz are Bun's: every screen the Bun tests parse,
+// The answers in testdata/answers/ask/ask.json.gz are recorded: every screen the parser tests use,
 // and seeded mutations of them (lines dropped, doubled, swapped, re-indented, rules and borders
 // added, emoji and line separators inserted), each through parseAsk, unreadAsk and promptState.
 
@@ -58,7 +58,7 @@ func list(value any) []any {
 	return items
 }
 
-// same compares a Go value with Bun's as JSON text, both read back the same way.
+// same compares a value with the recorded one as JSON text, both read back the same way.
 func same(t *testing.T, got, want any) bool {
 	t.Helper()
 
@@ -70,7 +70,7 @@ func same(t *testing.T, got, want any) bool {
 	return js.Stringify(parsed) == js.Stringify(want)
 }
 
-func TestScreensReadAsBunReadThem(t *testing.T) {
+func TestScreensMatchTheRecordedReads(t *testing.T) {
 	t.Parallel()
 
 	for index, row := range list(get(answers(t), "cases")) {
@@ -100,7 +100,7 @@ func TestScreensReadAsBunReadThem(t *testing.T) {
 	}
 }
 
-func TestOwnsTerminalAndIDsMatchBun(t *testing.T) {
+func TestOwnsTerminalAndIDsMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)

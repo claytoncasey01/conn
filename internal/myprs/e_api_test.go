@@ -12,10 +12,10 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// The port of myPrsApi.test.ts: the route parser, and the handler over a MyPrs of the fake world
-// (Bun's fake start and thread are MyPrs' own here, so a route is shown to reach them by
-// answering exactly what a direct call answers). Bun's server-process tests are run against the
-// handler with CONN_MYPRS_DRY (Config.Dry) and a seeded scope; the POST guard (GET, no x-conn,
+// The route parser, and the handler over a MyPrs of the fake world (start and thread are
+// MyPrs' own, so a route is shown to reach them by answering exactly what a direct call
+// answers). The server-process cases run against the handler with CONN_MYPRS_DRY (Config.Dry)
+// and a seeded scope; the POST guard (GET, no x-conn,
 // a foreign origin or host is 403) is internal/server's ownWrite, shared with Reviews.
 
 func eDry(ctx context.Context, t *testing.T, dry bool) *myprs.MyPrs {

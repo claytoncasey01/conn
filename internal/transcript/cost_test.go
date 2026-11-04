@@ -9,8 +9,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/transcript"
 )
 
-// The answers in testdata/answers/sessions/cost.json are Bun's, recorded for seeded usage blocks
-// and sequences of messages through one meter.
+// The answers in testdata/answers/sessions/cost.json were recorded for seeded usage blocks and
+// sequences of messages through one meter.
 func readAnswers(t *testing.T, name string) *js.Object {
 	t.Helper()
 
@@ -38,7 +38,7 @@ func list(object *js.Object, key string) []any {
 
 func same(left, right float64) bool { return math.Float64bits(left) == math.Float64bits(right) }
 
-func TestUsageCostMatchesBun(t *testing.T) {
+func TestUsageCostMatchesTheRecording(t *testing.T) {
 	t.Parallel()
 
 	for index, item := range list(readAnswers(t, "cost.json"), "singles") {
@@ -69,7 +69,7 @@ func TestUsageCostMatchesBun(t *testing.T) {
 	}
 }
 
-func TestUsageMeterMatchesBun(t *testing.T) {
+func TestUsageMeterMatchesTheRecording(t *testing.T) {
 	t.Parallel()
 
 	for index, item := range list(readAnswers(t, "cost.json"), "sequences") {

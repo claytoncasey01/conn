@@ -69,7 +69,7 @@ func (f *FailureError) Error() string { return f.Message }
 func failure(message string) error { return &FailureError{Message: message} }
 
 // asIsError is an error from a call outside the package, kept word for word: its text reaches
-// the page or the API as Bun worded it, so the wrapping adds nothing to it.
+// the page or the API as it was worded, so the wrapping adds nothing to it.
 type asIsError struct {
 	err error
 }

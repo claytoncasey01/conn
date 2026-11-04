@@ -38,8 +38,7 @@ const (
 
 var errTooManyCopies = errors.New("move some away")
 
-// Marshal is the file as JSON.stringify(f, null, 2) writes it, with the newline Bun ends it
-// with.
+// Marshal is the file as JSON.stringify(f, null, 2) writes it, ended with a newline.
 func (f *File) Marshal() []byte {
 	var out bytes.Buffer
 
@@ -601,5 +600,5 @@ func Prune(file *File, isOpen func(key string) bool, allow []string, now float64
 	}
 }
 
-// nodeError is a file error worded as Node words it, so a message that quotes it reads as Bun's.
+// nodeError is a file error worded as Node words it, so a message that quotes it reads the same.
 func nodeError(err error) error { return failure(settings.NodeError(err)) }

@@ -9,8 +9,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// Bun: 'an unmatched PR starts one scan, only with a client, then waits per the back-off and stops
-// after four'.
+// An unmatched PR starts one scan, only with a client, then waits per the back-off and stops
+// after four.
 func TestUnmatchedPRScansOnBackoffAndStopsAfterFour(t *testing.T) {
 	t.Parallel()
 
@@ -51,7 +51,7 @@ func TestUnmatchedPRScansOnBackoffAndStopsAfterFour(t *testing.T) {
 	}
 }
 
-// Bun: 'a scan does not start while one is running'.
+// A scan does not start while one is running.
 func TestScanDoesNotStartWhileOneRuns(t *testing.T) {
 	t.Parallel()
 
@@ -80,8 +80,8 @@ func TestScanDoesNotStartWhileOneRuns(t *testing.T) {
 	tab.Settle()
 }
 
-// Bun: 'a channel scan that finishes after Slack was switched off is dropped: no post, cursor,
-// try or "Slack ok"'.
+// A channel scan that finishes after Slack was switched off is dropped: no post, cursor,
+// try or "Slack ok".
 func TestChannelScanFinishingAfterSlackOffIsDropped(t *testing.T) {
 	t.Parallel()
 
@@ -118,8 +118,8 @@ func TestChannelScanFinishingAfterSlackOffIsDropped(t *testing.T) {
 	aEqual(t, "last scan", view(t, tab).LastScanAt, (*float64)(nil))
 }
 
-// Bun: 'a DM scan that finishes after the DM switch was turned off is dropped: no DM, cursor or
-// "Slack ok"'.
+// A DM scan that finishes after the DM switch was turned off is dropped: no DM, cursor or
+// "Slack ok".
 func TestDMScanFinishingAfterDMsOffIsDropped(t *testing.T) {
 	t.Parallel()
 
@@ -168,7 +168,7 @@ func aDMOf(file *reviews.File) *reviews.DMPost {
 	return entry.DM
 }
 
-// Bun: 'a post attaches to its PR and lists it, and the cursor moves up and never back'.
+// A post attaches to its PR and lists it, and the cursor moves up and never back.
 func TestPostAttachesAndCursorNeverMovesBack(t *testing.T) {
 	t.Parallel()
 
@@ -231,8 +231,8 @@ func aCursorSteps(t *testing.T, tab *reviews.Reviews, fakes *world) {
 	aEqual(t, "signed-out cursor", aCursor(fakes), reviews.MsTS(aMinutes(20)))
 }
 
-// Bun: 'a post about a PR not known yet is read from GitHub before it counts: open, it is listed
-// with its post; closed or gone, it is dropped'.
+// A post about a PR not known yet is read from GitHub before it counts: open, it is listed
+// with its post; closed or gone, it is dropped.
 func TestPostAboutUnknownPRIsReadFirst(t *testing.T) {
 	t.Parallel()
 

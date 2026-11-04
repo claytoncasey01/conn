@@ -5,11 +5,10 @@ package myprs
 // server hands it the live sessions), and Tick never waits: a slow or failing gh only shows up as
 // an error in the view, with the last good rows kept.
 //
-// Concurrency: one mutex stands for Bun's event loop, as in Reviews. Every stretch of work
-// between two calls to the outside (gh, git, cmux, claude) runs holding it, and every call to the
-// outside is made without it, so the state moves in the same steps Bun's does. Nothing that holds
-// the mutex ever waits on the session list's goroutine: the live sessions are read from what its
-// last tick published.
+// Concurrency: one mutex works as a single event loop, as in Reviews. Every stretch of work between
+// two calls to the outside (gh, git, cmux, claude) runs holding it, and every call to the outside
+// is made without it, so the state moves in whole steps. Nothing that holds the mutex ever waits on
+// the session list's goroutine: the live sessions are read from what its last tick published.
 
 import (
 	"context"
@@ -344,7 +343,7 @@ func seenOf(file *File) map[string]float64 {
 	return out
 }
 
-// message is an error's text, cleaned and cut as Bun shows it.
+// message is an error's text, cleaned and cut as the view shows it.
 func message(err error) string { return Clean(err.Error(), messageUnitsMax) }
 
 // Refresh polls on the next tick. It answers this press's number: the snapshot's refresh.done
@@ -476,8 +475,8 @@ func (m *MyPrs) SettingsChanged() {
 	m.bump()
 }
 
-// safeTick is a tick that cannot take the server down: a failure is logged, as Bun's "myprs
-// tick failed", and the next tick runs as usual.
+// safeTick is a tick that cannot take the server down: a failure is logged as "myprs tick
+// failed", and the next tick runs as usual.
 func (m *MyPrs) safeTick() {
 	defer m.recovered("myprs tick failed")
 
@@ -533,7 +532,7 @@ func (m *MyPrs) record(name string, ok bool, detail string) {
 }
 
 func (m *MyPrs) bump() {
-	// A failing listener must not stop the work that told it, as Bun's "myprs bump failed".
+	// A failing listener must not stop the work that told it: it is logged as "myprs bump failed".
 	defer m.recovered("myprs bump failed")
 
 	if m.deps.Bump != nil {

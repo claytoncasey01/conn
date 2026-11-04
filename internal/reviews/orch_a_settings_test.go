@@ -41,8 +41,8 @@ func aFileVersion(t *testing.T, path string) any {
 	return version
 }
 
-// Bun: 'in setup nothing is called at all: no gh, no scan, no DM scan, the file is not read, and
-// the tab says why'.
+// In setup nothing is called at all: no gh, no scan, no DM scan, the file is not read, and
+// the tab says why.
 func TestInSetupNothingIsCalled(t *testing.T) {
 	t.Parallel()
 
@@ -85,8 +85,8 @@ func TestInSetupNothingIsCalled(t *testing.T) {
 	aEqual(t, "rows after", aNumbers(view(t, tab).Rows), []int64{7})
 }
 
-// Bun: 'GitHub off: no gh call and no scan of any kind, the tab says so, and turning it on polls
-// at once without a restart'.
+// GitHub off: no gh call and no scan of any kind, the tab says so, and turning it on polls
+// at once without a restart.
 func TestGitHubOffCallsNothing(t *testing.T) {
 	t.Parallel()
 
@@ -123,8 +123,8 @@ func TestGitHubOffCallsNothing(t *testing.T) {
 	aEqual(t, "polls off", fakes.snapshotCalls().list, 1)
 }
 
-// Bun: 'Slack off: no channel scan and no DM scan, "Requests me" still lists; Slack on with no
-// channel scans no channel; the DM switch alone runs only the DM scan'.
+// Slack off: no channel scan and no DM scan, "Requests me" still lists; Slack on with no
+// channel scans no channel; the DM switch alone runs only the DM scan.
 func TestSlackSwitchesDecideTheScans(t *testing.T) {
 	t.Parallel()
 
@@ -158,8 +158,8 @@ func TestSlackSwitchesDecideTheScans(t *testing.T) {
 	}
 }
 
-// Bun: 'one scan run reads every chosen channel, each from its own cursor, and the prompt is
-// given only the allowed repos'.
+// One scan run reads every chosen channel, each from its own cursor, and the prompt is
+// given only the allowed repos.
 func TestOneScanReadsEveryChannelFromItsCursor(t *testing.T) {
 	t.Parallel()
 
@@ -194,8 +194,8 @@ func TestOneScanReadsEveryChannelFromItsCursor(t *testing.T) {
 	aEqual(t, "ship-it since", aSince(second, aShipIt), "1799999100.000100")
 }
 
-// Bun: 'a channel taken off the list no longer counts: its post stops listing the PR, and no
-// thread of it is read'.
+// A channel taken off the list no longer counts: its post stops listing the PR, and no
+// thread of it is read.
 func TestChannelOffTheListNoLongerCounts(t *testing.T) {
 	t.Parallel()
 
@@ -212,8 +212,8 @@ func TestChannelOffTheListNoLongerCounts(t *testing.T) {
 	aEqual(t, "rows back", aNumbers(view(t, tab).Rows), []int64{7})
 }
 
-// Bun: 'a repo taken off the list: its rows go at once, its records are neither read nor pruned,
-// and adding it back shows them again'.
+// A repo taken off the list: its rows go at once, its records are neither read nor pruned,
+// and adding it back shows them again.
 func TestRepoOffTheListIsNeitherReadNorPruned(t *testing.T) {
 	t.Parallel()
 

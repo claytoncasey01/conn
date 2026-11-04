@@ -12,8 +12,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// Bun's reviewLaunch.test.ts: writeLaunchFile on a temp folder, and the name tests the recorded
-// answers do not hold (the one-to-one sweep, the name pattern, the folder).
+// The launch file: writeLaunchFile on a temp folder, and the name tests the recorded answers do
+// not hold (the one-to-one sweep, the name pattern, the folder).
 
 func dMode(t *testing.T, path string) fs.FileMode {
 	t.Helper()

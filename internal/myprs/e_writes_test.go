@@ -13,11 +13,11 @@ import (
 	"github.com/claytoncasey01/conn/internal/myprs"
 )
 
-// The port of myPrsWrite.test.ts. The recorded answers (section writes) cover the argv of the
+// The gh writes. The recorded answers (section writes) cover the argv of the
 // ask and of a resolve, gh's failures and the answers that are not a confirmation; here are the
-// refusal lists, the argv of a reply with shell syntax in it and the queries' shape. Bun's rows
-// that are not a string or a number (42 as a repo, null, undefined, '7' as a number) cannot be
-// written in Go: the types refuse them.
+// refusal lists, the argv of a reply with shell syntax in it and the queries' shape. Rows that
+// are not a string or a number (42 as a repo, null, undefined, '7' as a number) cannot be
+// written: the types refuse them.
 
 const eThreadID = "PRRT_kwDOabc123"
 

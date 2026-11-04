@@ -19,7 +19,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
-// The port of myPrsThread.test.ts: the thread click (reply, then resolve) through the real
+// The thread click (reply, then resolve) through the real
 // myprs.Gh and myprs.Writes over a fake gh that records every call, so what is checked is the
 // exact command line. Nothing here reaches the real gh, cmux, git or ~/.conn.
 
@@ -49,7 +49,7 @@ type dThreadOpts struct {
 	dry       bool
 }
 
-// dThreadRig is Bun's rig(): My PRs over the world, with the real gh client and writes over a
+// dThreadRig is My PRs over the world, with the real gh client and writes over a
 // fake gh. Its fields after mu are guarded by mu: the fake runs on My PRs' goroutines.
 type dThreadRig struct {
 	t     *testing.T
@@ -375,7 +375,7 @@ func (r *dThreadRig) answerResolve() (string, error) {
 		`","isResolved":true}}}}`, nil
 }
 
-// checkCalls is Bun's closing test, for every rig: every gh call was the thread read, the reply
+// checkCalls is the closing check, for every rig: every gh call was the thread read, the reply
 // or the resolve, as a constant query with name=value variables, and nothing else.
 func (r *dThreadRig) checkCalls() {
 	queries := []string{
@@ -423,7 +423,7 @@ func (r *dThreadRig) checkCalls() {
 	}
 }
 
-// checkNothingElse is Bun's fakes that fail: neither the click nor the poll behind it checks a
+// checkNothingElse checks the fakes that fail: neither the click nor the poll behind it checks a
 // clone's origin, runs git, launches a round or drafts in Slack.
 func (r *dThreadRig) checkNothingElse() {
 	r.world.Change(func(w *World) {

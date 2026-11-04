@@ -1,8 +1,8 @@
 package reviews_test
 
-// Helpers for the orchestrator tests ported from the end of Bun's reviews.test.ts (the DM scan,
-// several repos, the fix rounds, the Settings cards, the poll cadence and the lows). Every name
-// starts with c, so it cannot clash with the helpers of the other parts.
+// Helpers for the last orchestrator tests (the DM scan, several repos, the fix rounds, the
+// Settings cards, the poll cadence and the lows). Every name starts with c, so it cannot clash
+// with the helpers of the other parts.
 
 import (
 	"context"
@@ -185,7 +185,7 @@ func cNum(value *float64) string {
 	return js.Number(*value)
 }
 
-// cEdit changes the saved file, as Bun's loadFile then saveFile.
+// cEdit changes the saved file: a load, the change, then a save.
 func cEdit(t *testing.T, path string, change func(file *reviews.File)) {
 	t.Helper()
 
@@ -306,7 +306,7 @@ func cFetched(fakes *world) []string {
 	return keys
 }
 
-// cJSON is a value as Bun's JSON.stringify writes it, for comparing shapes.
+// cJSON is a value as JSON.stringify writes it, for comparing shapes.
 func cJSON(value any) string { return string(js.Marshal(value)) }
 
 // cDecode reads JSON into out.
@@ -553,12 +553,12 @@ func cChanged(tab *reviews.Reviews, fakes *world, opts settingsOpts) {
 // cRateLimited is GitHub's rate limit used up until resetAt.
 func cRateLimited(resetAt float64) error { return &ghbudget.RateLimitError{ResetAt: &resetAt} }
 
-// cReply is a reply as Bun's deepEqual shows it: the code and the body.
+// cReply is a reply as text for comparing: the code and the body.
 func cReply(reply reviews.Reply) string {
 	return strconv.Itoa(reply.Code) + " " + js.Stringify(reply.Body)
 }
 
-// cKeysSorted are keys sorted as Bun's sort() sorts strings.
+// cKeysSorted are keys sorted as JavaScript's sort() sorts strings.
 func cKeysSorted(keys []string) []string {
 	sorted := append([]string{}, keys...)
 	slices.Sort(sorted)

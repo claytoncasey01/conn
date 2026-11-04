@@ -140,8 +140,8 @@ type Row struct {
 	Stale bool `json:"stale,omitempty"`
 }
 
-// same compares two names (logins, repos) whatever their case, as Bun compared their
-// toLowerCase: strings.EqualFold also folds letters lowercasing leaves apart (ſ and s).
+// same compares two names (logins, repos) whatever their case, by their lowercase forms:
+// strings.EqualFold also folds letters lowercasing leaves apart (ſ and s).
 func same(first, second string) bool {
 	lower := strings.ToLower(first)
 
@@ -397,7 +397,7 @@ func stateOrder(state string) float64 {
 }
 
 // SortRows is re-reviews first, then new, reviewing, waiting, done; the most recently updated
-// first within a state. Stable, as Bun's sort is.
+// first within a state. Stable, as JavaScript's sort is.
 func SortRows(rows []*Row) []*Row {
 	sorted := slices.Clone(rows)
 

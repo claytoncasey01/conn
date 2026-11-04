@@ -22,8 +22,8 @@ func aInChannel(rows []*reviews.Row) []string {
 // test builds.
 func aNoDMs() *bool { return new(false) }
 
-// Bun: 'a signed-out Slack lists nothing it alone would list (no fallback to every open PR), and
-// burns no try'.
+// A signed-out Slack lists nothing it alone would list (no fallback to every open PR), and
+// burns no try.
 func TestSignedOutSlackListsNothingItAloneWould(t *testing.T) {
 	t.Parallel()
 
@@ -95,8 +95,8 @@ func aSignedOutAgain(t *testing.T, tab *reviews.Reviews, fakes *world) {
 	aEqual(t, "links", aSortedStrings(links), []string{"7 true", "8 false"})
 }
 
-// Bun: 'a failed channel scan hides what only Slack lists, and a failed DM scan what only a DM
-// lists, until each reads again'.
+// A failed channel scan hides what only Slack lists, and a failed DM scan what only a DM
+// lists, until each reads again.
 func TestFailedScansHideWhatOnlyTheyList(t *testing.T) {
 	t.Parallel()
 
@@ -129,8 +129,8 @@ func TestFailedScansHideWhatOnlyTheyList(t *testing.T) {
 	aEqual(t, "start", aStart(t, tab, worldRepo, "8", aSonnet).Code, 404)
 }
 
-// Bun: 'a signed-out Slack waits longer after each outcome in a row (to an hour), and a success
-// starts it over'.
+// A signed-out Slack waits longer after each outcome in a row (to an hour), and a success
+// starts it over.
 func TestSignedOutSlackBacksOffToAnHour(t *testing.T) {
 	t.Parallel()
 
@@ -179,7 +179,7 @@ func TestSignedOutSlackBacksOffToAnHour(t *testing.T) {
 	aEqual(t, "a poll interval, not an hour", aScans(fakes), scans+1)
 }
 
-// Bun: 'refresh() clears the signed-out wait'.
+// Refresh() clears the signed-out wait.
 func TestRefreshClearsSignedOutWait(t *testing.T) {
 	t.Parallel()
 
@@ -194,8 +194,8 @@ func TestRefreshClearsSignedOutWait(t *testing.T) {
 	aEqual(t, "scans after refresh", aScans(fakes), 2)
 }
 
-// Bun: 'a PR first seen while no client was connected is scanned once for every step already
-// due, and the schedule is spent'.
+// A PR first seen while no client was connected is scanned once for every step already
+// due, and the schedule is spent.
 func TestPRSeenWithoutClientScansOnceForEveryDueStep(t *testing.T) {
 	t.Parallel()
 
@@ -217,7 +217,7 @@ func TestPRSeenWithoutClientScansOnceForEveryDueStep(t *testing.T) {
 	aEqual(t, "scans later", aScans(fakes), 1)
 }
 
-// Bun: 'a ScanError that carries needsAuth is the same signed-out state, with no try burned'.
+// A ScanError that carries needsAuth is the same signed-out state, with no try burned.
 func TestScanErrorWithNeedsAuthIsSignedOut(t *testing.T) {
 	t.Parallel()
 
@@ -248,8 +248,8 @@ func TestScanErrorWithNeedsAuthIsSignedOut(t *testing.T) {
 	aEqual(t, "slack after", view(t, tab).Slack, "ok")
 }
 
-// Bun: 'any other scan failure shows the error, keeps the last rows, and counts a try so it
-// cannot loop'.
+// Any other scan failure shows the error, keeps the last rows, and counts a try so it
+// cannot loop.
 func TestOtherScanFailureCountsATry(t *testing.T) {
 	t.Parallel()
 

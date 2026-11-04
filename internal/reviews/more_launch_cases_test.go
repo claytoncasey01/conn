@@ -9,7 +9,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// The rest of Bun's launchReview tests, on the rig in more_launch_test.go.
+// The rest of the launch tests, on the rig in more_launch_test.go.
 
 // TestDLaunchKeepsAQuotedPathWhole: a path with a space and a single quote reaches git and open
 // as one intact argument.
@@ -62,7 +62,7 @@ func TestDLaunchWorktreeIsThePRsOwnFolder(t *testing.T) {
 }
 
 // TestDLaunchRefusesHostileInputsBeforeAnyCall: a hostile ref, number, name, repo, model, sha,
-// clone or data folder makes zero calls. (Bun's 1.5, '12abc' and NaN numbers cannot be an int64;
+// clone or data folder makes zero calls. (The numbers 1.5, '12abc' and NaN cannot be an int64;
 // the route test sends them as JSON.)
 func TestDLaunchRefusesHostileInputsBeforeAnyCall(t *testing.T) {
 	t.Parallel()

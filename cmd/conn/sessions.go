@@ -47,7 +47,7 @@ type tabViews struct {
 }
 
 // sessionHooks are what the rest of the server puts in the snapshot. Open work is not in yet:
-// it gives what Bun gives before it has started.
+// it gives what it shows before it has started.
 func sessionHooks(store *settings.Store, history func() any, views tabViews) sessions.Hooks {
 	return sessions.Hooks{
 		Runs:    func() []sessions.Run { return []sessions.Run{} },

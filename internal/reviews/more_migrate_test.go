@@ -11,8 +11,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// Bun's reviewStore.test.ts, the migration on a real-shaped data folder: worktrees whose .git is
-// a pointer file, read for their origin by the real reader; the backups openFile keeps.
+// The store's migration on a real-shaped data folder: worktrees whose .git is a pointer file,
+// read for their origin by the real reader; the backups openFile keeps.
 
 // dCloneWithWorktree makes a clone at <root>/projects/<folder> whose origin is url, and a
 // worktree of it at worktree (its .git a pointer file, the gitdir with a commondir).

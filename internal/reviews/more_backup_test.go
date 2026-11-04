@@ -9,7 +9,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// Bun's reviewStore.test.ts, the copies openFile keeps before it writes over a file.
+// The store's copies: the ones openFile keeps before it writes over a file.
 
 func dExists(path string) bool {
 	_, err := os.Stat(path)

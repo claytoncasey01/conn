@@ -1,7 +1,6 @@
 package reviews_test
 
-// A boot with GitHub off, and the poll cadence and the budget shared with My PRs. Bun's
-// reviews.test.ts after "---- Auto-close ----" and "---- The poll cadence ... ----".
+// A boot with GitHub off, and the poll cadence and the budget shared with My PRs.
 
 import (
 	"errors"

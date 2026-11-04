@@ -6,7 +6,8 @@ import "math/bits"
 // natural runs (an insertion sort below 8 items, short runs topped up to 64 by insertion,
 // galloping merges), after WebKit's StableSort.h. It is stable, and an item goes before another
 // only when compare(item, other) is below 0, so a comparator that gives NaN (a time that did not
-// parse) leaves items exactly where Bun left them, not only where a correct sort would.
+// parse) leaves items exactly where JavaScriptCore's sort leaves them, not only where a correct
+// sort would.
 func Sort[T any](items []T, compare func(left, right T) float64) {
 	sorter := powersort[T]{
 		items:     items,

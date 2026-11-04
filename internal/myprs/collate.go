@@ -4,8 +4,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/js"
 )
 
-// Collation weights: String.prototype.localeCompare as Bun's ICU orders the characters a repo
-// name holds. Punctuation comes before digits, digits before letters, and a letter's case is a
+// Collation weights: String.prototype.localeCompare as ICU orders the characters a repo name
+// holds. Punctuation comes before digits, digits before letters, and a letter's case is a
 // later level: it decides only between names that are otherwise the same.
 const (
 	weightUnderscore = 1

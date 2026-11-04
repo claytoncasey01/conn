@@ -15,8 +15,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
-// Bun's reviewGh.test.ts, the GraphQL source: what the recorded calls do not hold (the chunking
-// of a full allowlist, the node limit, a fetch's gone and rate-free answers).
+// The GraphQL source: what the recorded calls do not hold (the chunking of a full allowlist,
+// the node limit, a fetch's gone and rate-free answers).
 
 // dNodeLimit is GitHub's limit on the nodes one GraphQL call may return.
 const dNodeLimit = 500_000

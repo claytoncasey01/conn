@@ -9,8 +9,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
-// Bun's reviewsApi.test.ts, the route parser and the handler. Bun's handler takes fakes; Go's is a
-// method of Reviews, so it runs over the dry view, which calls nothing.
+// The route parser and the handler. The handler is a method of Reviews, so it runs over the dry
+// view, which calls nothing.
 
 // TestDRouteOfParsesTheThreeRoutes: and nothing else under the prefix is one.
 func TestDRouteOfParsesTheThreeRoutes(t *testing.T) {

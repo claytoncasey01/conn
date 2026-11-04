@@ -1,7 +1,7 @@
 package reviews_test
 
 // The worktree sweep over launches a run before a restart left in reviews.json, and when it
-// runs. Bun's reviews.test.ts "---- The worktree sweep ----", second half.
+// runs.
 
 import (
 	"context"

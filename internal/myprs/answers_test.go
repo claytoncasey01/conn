@@ -23,10 +23,10 @@ import (
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
-// The answers in testdata/answers/myprs/pure.json.gz are Bun's (scratchpad recorder p9/rec.ts):
-// text cleaning, GitHub answers parsed, the searches and thread reads (argv and results), the
-// rules, the replies file, the writes, the Slack draft runs, the launches (every git, write and
-// cmux call), myprs.json files read, saved and pruned, the scope and the order of repo names.
+// The recorded answers in testdata/answers/myprs/pure.json.gz cover text cleaning, GitHub answers
+// parsed, the searches and thread reads (argv and results), the rules, the replies file, the
+// writes, the Slack draft runs, the launches (every git, write and cmux call), myprs.json files
+// read, saved and pruned, the scope and the order of repo names.
 
 const trigger = "@greptile review"
 
@@ -121,7 +121,7 @@ func decode[T any](t *testing.T, value any) T {
 	return out
 }
 
-// same compares got, as JSON.stringify would write it, with Bun's answer.
+// same compares got, as JSON.stringify would write it, with the recorded answer.
 func same(t *testing.T, what string, index int, got, want any) {
 	t.Helper()
 
@@ -131,7 +131,8 @@ func same(t *testing.T, what string, index int, got, want any) {
 	}
 
 	if js.Stringify(parsed) != js.Stringify(want) {
-		t.Errorf("%s %d:\n go  %s\n bun %s", what, index, js.Stringify(parsed), js.Stringify(want))
+		t.Errorf("%s %d:\n got  %s\n want %s", what, index, js.Stringify(parsed),
+			js.Stringify(want))
 	}
 }
 
@@ -139,7 +140,7 @@ func defaults() config.Config {
 	return config.FromEnv(func(string) (string, bool) { return "", false })
 }
 
-func TestTextMatchesBun(t *testing.T) {
+func TestTextMatchesTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -155,7 +156,7 @@ func TestTextMatchesBun(t *testing.T) {
 	}
 }
 
-func TestParsingMatchesBun(t *testing.T) {
+func TestParsingMatchesTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -236,7 +237,7 @@ type searchOut struct {
 	Rate   *ghbudget.RateInfo    `json:"rate"`
 }
 
-func TestSearchesMatchBun(t *testing.T) {
+func TestSearchesMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -279,7 +280,7 @@ func TestSearchesMatchBun(t *testing.T) {
 	}
 }
 
-func TestRulesMatchBun(t *testing.T) {
+func TestRulesMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -332,7 +333,7 @@ func factsOf(t *testing.T, value any) myprs.RoundFacts {
 	return facts
 }
 
-func TestFlowMatchesBun(t *testing.T) {
+func TestFlowMatchesTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -389,7 +390,7 @@ func setOf(value any) map[string]bool {
 	return out
 }
 
-func TestRepliesMatchBun(t *testing.T) {
+func TestRepliesMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	for index, one := range cases(t, answers(t), "replies") {
@@ -399,7 +400,7 @@ func TestRepliesMatchBun(t *testing.T) {
 	}
 }
 
-func TestWritesMatchBun(t *testing.T) {
+func TestWritesMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	for index, one := range cases(t, answers(t), "writes") {
@@ -439,7 +440,7 @@ func outOrError(found string, err error) any {
 	return out
 }
 
-func TestDraftsMatchBun(t *testing.T) {
+func TestDraftsMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -478,8 +479,8 @@ func TestDraftsMatchBun(t *testing.T) {
 	}
 }
 
-// draftRun is the recorder's fake helper run for mode; asked gets the options as Bun's fake kept
-// them.
+// draftRun is the recorder's fake helper run for mode; asked gets the options as the recorder's
+// fake kept them.
 func draftRun(mode string, asked *any) reviews.Run {
 	answers := map[string]any{"ok": okAnswer(true), "notok": okAnswer(false)}
 
@@ -550,7 +551,7 @@ func selfOf() myprs.Self {
 	return myprs.Self{Pattern: cfg.SelfNamePattern, Prompt: cfg.SelfReviewPrompt}
 }
 
-func TestLaunchNamesMatchBun(t *testing.T) {
+func TestLaunchNamesMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)
@@ -690,7 +691,7 @@ func launchResultOf(result myprs.LaunchResult) *js.Object {
 	return out
 }
 
-func TestLaunchesMatchBun(t *testing.T) {
+func TestLaunchesMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	self := selfOf()
@@ -722,7 +723,7 @@ func TestLaunchesMatchBun(t *testing.T) {
 	}
 }
 
-func TestStoreFilesMatchBun(t *testing.T) {
+func TestStoreFilesMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -739,7 +740,7 @@ func TestStoreFilesMatchBun(t *testing.T) {
 		same(t, "loaded", index, loaded, get(one, "loaded"))
 
 		if string(loaded.Marshal()) != text(get(one, "saved")) {
-			t.Errorf("saved %d:\n go  %s\n bun %s", index, loaded.Marshal(),
+			t.Errorf("saved %d:\n got  %s\n want %s", index, loaded.Marshal(),
 				text(get(one, "saved")))
 		}
 
@@ -753,7 +754,7 @@ func TestStoreFilesMatchBun(t *testing.T) {
 	}
 }
 
-func TestScopeAndOrderMatchBun(t *testing.T) {
+func TestScopeAndOrderMatchTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)

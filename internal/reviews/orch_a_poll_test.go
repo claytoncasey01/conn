@@ -12,7 +12,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// Bun: 'the view carries the chosen channels and the sources, in every shape (live, off, dry)'.
+// The view carries the chosen channels and the sources, in every shape (live, off, dry).
 func TestViewCarriesChannelsAndSources(t *testing.T) {
 	t.Parallel()
 
@@ -37,7 +37,7 @@ func TestViewCarriesChannelsAndSources(t *testing.T) {
 	aEqual(t, "dry channel", aDrySnapshot(t, dry).Channel, aCodeReview)
 }
 
-// Bun: 'a poll runs every reviewPollMs, and login is read once'.
+// A poll runs every reviewPollMs, and login is read once.
 func TestPollRunsEveryPollMsAndLoginOnce(t *testing.T) {
 	t.Parallel()
 
@@ -54,7 +54,7 @@ func TestPollRunsEveryPollMsAndLoginOnce(t *testing.T) {
 	aEqual(t, "logins", fakes.snapshotCalls().login, 1)
 }
 
-// Bun: 'refresh polls now'.
+// Refresh polls now.
 func TestRefreshPollsNow(t *testing.T) {
 	t.Parallel()
 
@@ -66,7 +66,7 @@ func TestRefreshPollsNow(t *testing.T) {
 	aEqual(t, "polls", fakes.snapshotCalls().list, 2)
 }
 
-// Bun: 'a tick that finds a poll still running starts no second one'.
+// A tick that finds a poll still running starts no second one.
 func TestTickWithPollRunningStartsNoSecond(t *testing.T) {
 	t.Parallel()
 
@@ -94,7 +94,7 @@ func TestTickWithPollRunningStartsNoSecond(t *testing.T) {
 	aEqual(t, "last poll", *shown.LastPollAt, fakes.clock())
 }
 
-// Bun: 'a gh failure keeps the previous rows, sets the error, and never throws out of tick'.
+// A gh failure keeps the previous rows, sets the error, and never throws out of tick.
 func TestGhFailureKeepsRowsAndSetsError(t *testing.T) {
 	t.Parallel()
 
@@ -124,8 +124,8 @@ func TestGhFailureKeepsRowsAndSetsError(t *testing.T) {
 	aEqual(t, "error after", aText(view(t, tab).Error), "<nil>")
 }
 
-// Bun: 'a gh that fails from the start gives an error and an empty list, and the tab is off with
-// that reason'.
+// A gh that fails from the start gives an error and an empty list, and the tab is off with
+// that reason.
 func TestGhFailingFromStartTurnsTheTabOff(t *testing.T) {
 	t.Parallel()
 
@@ -169,7 +169,7 @@ func (g aWideGh) Search(_ context.Context, _ []reviews.Query) (
 	return []reviews.SearchResult{{PRs: open, Capped: false, Error: nil}}, nil, nil
 }
 
-// Bun: 'every PR a search returns is checked against the list again'.
+// Every PR a search returns is checked against the list again.
 func TestEverySearchedPRIsCheckedAgainstTheList(t *testing.T) {
 	t.Parallel()
 
@@ -182,7 +182,7 @@ func TestEverySearchedPRIsCheckedAgainstTheList(t *testing.T) {
 	aEqual(t, "rows", aKeys(view(t, tab).Rows), []string{keyOf(7)})
 }
 
-// Bun: 'the saved file is plain JSON that loads back'.
+// The saved file is plain JSON that loads back.
 func TestSavedFileIsPlainJSON(t *testing.T) {
 	t.Parallel()
 

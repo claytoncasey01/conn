@@ -1,8 +1,7 @@
 package myprs_test
 
 // The worktree sweep: a PR that left the open list has the worktrees of its rounds removed from
-// the clone, never forced, never one Conn did not write. Bun's myPrs.test.ts "---- the worktree
-// sweep ----".
+// the clone, never forced, never one Conn did not write.
 
 import (
 	"errors"
@@ -43,7 +42,7 @@ type bSweep struct {
 	log   *bLog
 }
 
-// bLaunchAt is Bun's launchAt(): a disarmed round of org/repo#7 in worktree.
+// bLaunchAt is a disarmed round of org/repo#7 in worktree.
 func bLaunchAt(worktree string, round float64) *myprs.Launch {
 	name := "self-repo-7"
 	if round > 1 {
@@ -57,8 +56,8 @@ func bLaunchAt(worktree string, round float64) *myprs.Launch {
 	}
 }
 
-// bSwept is Bun's swept(): the PR of opts.key has launches in worktrees, all present, and is
-// off the list unless opts.list has it.
+// bSwept is a sweep where the PR of opts.key has launches in worktrees, all present, and is off
+// the list unless opts.list has it.
 func bSwept(t *testing.T, worktrees []string, opts bSweepOpts) *bSweep {
 	t.Helper()
 
@@ -174,7 +173,7 @@ func (s *bSweep) answer(answer func(args []string, dir string) (string, error)) 
 // bDirty is what git status says of a worktree with a change.
 const bDirty = " M a.ts\n"
 
-// Bun: 'a PR that left the list has its clean worktree removed from the clone, without force'.
+// A PR that left the list has its clean worktree removed from the clone, without force.
 func TestBCleanWorktreeOfAPROffTheListIsRemoved(t *testing.T) {
 	t.Parallel()
 
@@ -198,7 +197,7 @@ func TestBCleanWorktreeOfAPROffTheListIsRemoved(t *testing.T) {
 	}
 }
 
-// Bun: 'rounds that share one worktree are swept once; each distinct worktree is swept'.
+// Rounds that share one worktree are swept once; each distinct worktree is swept.
 func TestBSharedWorktreeIsSweptOnce(t *testing.T) {
 	t.Parallel()
 
@@ -222,8 +221,8 @@ func TestBSharedWorktreeIsSweptOnce(t *testing.T) {
 	bEqual(t, "statuses", statuses, 2)
 }
 
-// Bun: 'a dirty worktree is kept and looked at again on the next poll, then removed once
-// clean, saying nothing'.
+// A dirty worktree is kept and looked at again on the next poll, then removed once
+// clean, saying nothing.
 func TestBDirtyWorktreeIsKeptThenRemovedOnceClean(t *testing.T) {
 	t.Parallel()
 
@@ -249,7 +248,7 @@ func TestBDirtyWorktreeIsKeptThenRemovedOnceClean(t *testing.T) {
 	bEqual(t, "logged", swept.log.all(), []string{})
 }
 
-// Bun: 'a git failure keeps the worktree and is reported once, not on every poll'.
+// A git failure keeps the worktree and is reported once, not on every poll.
 func TestBGitFailureIsReportedOnce(t *testing.T) {
 	t.Parallel()
 
@@ -267,7 +266,7 @@ func TestBGitFailureIsReportedOnce(t *testing.T) {
 	}
 }
 
-// Bun: 'nothing is removed when the list was capped or the poll failed' (the failed poll, and
+// Nothing is removed when the list was capped or the poll failed (the failed poll, and
 // the whole list on the poll after).
 func TestBFailedPollRemovesNothingAndTheNextWholeListSweeps(t *testing.T) {
 	t.Parallel()
@@ -284,7 +283,7 @@ func TestBFailedPollRemovesNothingAndTheNextWholeListSweeps(t *testing.T) {
 	bEqual(t, "after", swept.gits(), []string{"status", "worktree"})
 }
 
-// Bun: 'nothing is removed when the list was capped' (the capped list), 'a PR that is still
+// Nothing is removed when the list was capped (the capped list), 'a PR that is still
 // listed keeps its worktree', 'a worktree that is already gone costs no git call', 'an entry
 // with no launch has nothing to sweep, and the sweep touches only paths its entries recorded',
 // 'a PR that is not in the open list but has no local clone keeps its worktree' and 'a
@@ -325,7 +324,7 @@ func TestBSweepLeavesTheseAlone(t *testing.T) {
 	}
 }
 
-// Bun: 'a worktree is kept while a live session works in it or under it'.
+// A worktree is kept while a live session works in it or under it.
 func TestBWorktreeIsKeptWhileASessionWorksInIt(t *testing.T) {
 	t.Parallel()
 
@@ -338,7 +337,7 @@ func TestBWorktreeIsKeptWhileASessionWorksInIt(t *testing.T) {
 	bEqual(t, "removed", swept.gits(), []string{"status", "worktree"})
 }
 
-// Bun: 'a session that appears while git status runs stops the removal'.
+// A session that appears while git status runs stops the removal.
 func TestBSessionAppearingDuringStatusStopsTheRemoval(t *testing.T) {
 	t.Parallel()
 
@@ -354,7 +353,7 @@ func TestBSessionAppearingDuringStatusStopsTheRemoval(t *testing.T) {
 	bEqual(t, "git", swept.gits(), []string{"status"})
 }
 
-// Bun: 'a worktree is removed from its own repo's clone'.
+// A worktree is removed from its own repo's clone.
 func TestBWorktreeIsRemovedFromItsOwnClone(t *testing.T) {
 	t.Parallel()
 
@@ -368,8 +367,8 @@ func TestBWorktreeIsRemovedFromItsOwnClone(t *testing.T) {
 	bEqual(t, "git", swept.wheres(), [][2]string{{"status", worktree}, {"worktree", "/lib-clone"}})
 }
 
-// Bun: 'a swept worktree is not looked at again, but a dirty one, or one that could not be
-// removed, is'.
+// A swept worktree is not looked at again, but a dirty one, or one that could not be
+// removed, is.
 func TestBSweptWorktreeIsNotLookedAtAgain(t *testing.T) {
 	t.Parallel()
 
@@ -394,7 +393,7 @@ func TestBSweptWorktreeIsNotLookedAtAgain(t *testing.T) {
 	bEqual(t, "git", swept.wheres(), [][2]string{{"status", dirty}})
 }
 
-// Bun: 'a worktree found gone is not looked at again'.
+// A worktree found gone is not looked at again.
 func TestBWorktreeFoundGoneIsNotLookedAtAgain(t *testing.T) {
 	t.Parallel()
 
@@ -405,8 +404,8 @@ func TestBWorktreeFoundGoneIsNotLookedAtAgain(t *testing.T) {
 	bEqual(t, "exists", swept.exists(), []string{bWT})
 }
 
-// Bun: 'a recorded path outside <dataDir>/myprs (a linked worktree of the clone, a review
-// worktree, the data root, the myprs root) never reaches git'.
+// A recorded path outside <dataDir>/myprs (a linked worktree of the clone, a review
+// worktree, the data root, the myprs root) never reaches git.
 func TestBPathOutsideTheMyprsFolderNeverReachesGit(t *testing.T) {
 	t.Parallel()
 
@@ -423,7 +422,7 @@ func TestBPathOutsideTheMyprsFolderNeverReachesGit(t *testing.T) {
 	bEqual(t, "exists", len(swept.exists()), 0)
 }
 
-// Bun: 'a path inside <dataDir>/myprs still sweeps'.
+// A path inside <dataDir>/myprs still sweeps.
 func TestBPathInsideTheMyprsFolderSweeps(t *testing.T) {
 	t.Parallel()
 
@@ -432,7 +431,7 @@ func TestBPathInsideTheMyprsFolderSweeps(t *testing.T) {
 	bEqual(t, "git", swept.gits(), []string{"status", "worktree"})
 }
 
-// Bun: 'an entry off the list for 14 days is swept in the poll that prunes it'.
+// An entry off the list for 14 days is swept in the poll that prunes it.
 func TestBEntryPrunedIsSweptInTheSamePoll(t *testing.T) {
 	t.Parallel()
 
@@ -445,8 +444,8 @@ func TestBEntryPrunedIsSweptInTheSamePoll(t *testing.T) {
 	bEqual(t, "pruned", myprs.LoadFile(swept.file).PRs.Has(myprs.EntryKey(bRepo, 7)), false)
 }
 
-// Bun: 'a dirty worktree of an entry pruned in the same poll is left on disk, and nothing is
-// retried'.
+// A dirty worktree of an entry pruned in the same poll is left on disk, and nothing is
+// retried.
 func TestBDirtyWorktreeOfAPrunedEntryIsLeft(t *testing.T) {
 	t.Parallel()
 
@@ -465,8 +464,8 @@ func TestBDirtyWorktreeOfAPrunedEntryIsLeft(t *testing.T) {
 	bEqual(t, "second", swept.gits(), []string{"status"})
 }
 
-// Bun: 'a poll that prunes an entry while a sweep is still running does not lose its last
-// chance'.
+// A poll that prunes an entry while a sweep is still running does not lose its last
+// chance.
 func TestBPruneDuringASweepKeepsItsLastChance(t *testing.T) {
 	t.Parallel()
 

@@ -15,7 +15,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
-// The port of myPrsSettings.test.ts: My PRs under the settings, which repos are searched, what a
+// My PRs under the settings: which repos are searched, what a
 // change of the allowlist or a switch does, and which writes follow which module. Every
 // dependency is a fake (the world): nothing here reaches the real gh, Slack or ~/.conn.
 
@@ -36,7 +36,7 @@ type dSettingsOpts struct {
 	deps func(deps *myprs.Deps)
 }
 
-// dSettings is Bun's rig() of myPrsSettings.test.ts over the world.
+// dSettings is the settings rig over the world.
 type dSettings struct {
 	t    *testing.T
 	w    *World
@@ -44,7 +44,7 @@ type dSettings struct {
 	file string
 }
 
-// dAcme is Bun's pr() of this file: acme/widgets#7.
+// dAcme is the PR of this file: acme/widgets#7.
 func dAcme(change ...func(pull *myprs.PR)) *myprs.PR {
 	named := func(pull *myprs.PR) {
 		pull.Repo = "acme/widgets"
@@ -181,7 +181,7 @@ func (r *dSettings) records() []string {
 	return out
 }
 
-// dLastPatterns are the patterns of the search being answered (Bun's search(patterns)).
+// dLastPatterns are the patterns of the search being answered.
 func dLastPatterns(world *World) []string {
 	var out []string
 
@@ -570,7 +570,7 @@ func dReviewed() *myprs.PR {
 	})
 }
 
-// dReady is Bun's readyRig: a PR whose draft is due, polled once after tweak.
+// dReady is a PR whose draft is due, polled once after tweak.
 func dReady(t *testing.T, tweak func(scope *myprs.Scope)) *dSettings {
 	t.Helper()
 

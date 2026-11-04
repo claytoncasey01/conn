@@ -9,7 +9,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/js"
 )
 
-// The expected values in this file are what Bun printed for the same inputs.
+// The expected values in this file are the recorded outputs for the same inputs.
 
 func TestDecodeUTF8(t *testing.T) {
 	t.Parallel()

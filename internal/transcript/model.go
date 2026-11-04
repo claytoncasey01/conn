@@ -7,7 +7,7 @@ import (
 )
 
 // What one transcript line says, read the way the server has always read it. A line or a
-// content block that is not an object says nothing (Bun threw on a null block; Go skips it).
+// content block that is not an object says nothing, and a null block is skipped.
 
 const (
 	// summaryUnits is how much of a tool call's input its one-line summary keeps.

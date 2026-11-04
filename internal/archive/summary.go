@@ -303,7 +303,7 @@ func (s *Summarizer) Enqueue(ctx context.Context, sessionID, model string, follo
 		return
 	}
 
-	// The first job starts before Enqueue returns, as Bun's did: its state is running by the
+	// The first job starts before Enqueue returns: its state is running by the
 	// time the request that queued it reads the entry back.
 	s.busy = true
 	next := s.pop()

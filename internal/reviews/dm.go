@@ -112,7 +112,7 @@ func AcceptDMPosts(raw any, allow []string, nowMs float64) []DMFind {
 	return out
 }
 
-// dmSchema is the answer a DM scan must give, as Bun writes it.
+// dmSchema is the answer a DM scan must give, as JSON text.
 const dmSchema = `{"type":"object","properties":{"posts":{"type":"array","items":{"type":` +
 	`"object","properties":{"ts":{"type":"string"},"permalink":{"type":"string"},"prUrl":` +
 	`{"type":"string"},"fromMe":{"type":"boolean"}},"required":["ts","permalink","prUrl",` +

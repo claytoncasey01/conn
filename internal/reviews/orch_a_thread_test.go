@@ -38,8 +38,8 @@ func aReviewedAt(head string) *reviews.PR {
 	})
 }
 
-// Bun: 'a waiting PR whose head moved gets a thread check naming the post and the time of the
-// review'.
+// A waiting PR whose head moved gets a thread check naming the post and the time of the
+// review.
 func TestHeadMovedGetsThreadCheck(t *testing.T) {
 	t.Parallel()
 
@@ -60,8 +60,8 @@ func TestHeadMovedGetsThreadCheck(t *testing.T) {
 	}})
 }
 
-// Bun: 'a thread ask makes the waiting PR rereview; with no ask it is checked on the back-off,
-// which restarts when the head moves'.
+// A thread ask makes the waiting PR rereview; with no ask it is checked on the back-off,
+// which restarts when the head moves.
 func TestThreadAskMakesRereviewAndBackoffRestarts(t *testing.T) {
 	t.Parallel()
 
@@ -129,7 +129,7 @@ func aAuthorPushesAgain(t *testing.T, tab *reviews.Reviews, fakes *world) {
 	aEqual(t, "scans after", aScans(fakes), 5)
 }
 
-// Bun: 'a thread check is not made for a PR whose head is the reviewed commit'.
+// A thread check is not made for a PR whose head is the reviewed commit.
 func TestNoThreadCheckAtTheReviewedCommit(t *testing.T) {
 	t.Parallel()
 
@@ -147,8 +147,8 @@ func aBusy(name, cwd string) sessions.LiveSession {
 	return aSession(name, cwd, "busy", "sid-"+name, 1)
 }
 
-// Bun: 'a PR is reviewing while the session its launch record names is live; a session merely
-// named like one is not'.
+// A PR is reviewing while the session its launch record names is live; a session merely
+// named like one is not.
 func TestReviewingOnlyWhileTheLaunchSessionIsLive(t *testing.T) {
 	t.Parallel()
 
@@ -194,7 +194,7 @@ func TestReviewingOnlyWhileTheLaunchSessionIsLive(t *testing.T) {
 	aEqual(t, "elsewhere", aRow(view(t, tab).Rows, 7).State, "new")
 }
 
-// Bun: 'a draft PR is not listed and starts no scan'.
+// A draft PR is not listed and starts no scan.
 func TestDraftIsNotListedAndStartsNoScan(t *testing.T) {
 	t.Parallel()
 

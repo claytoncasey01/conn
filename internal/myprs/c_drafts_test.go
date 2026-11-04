@@ -12,7 +12,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/myprs"
 )
 
-// The Slack draft of a ready round (myPrs.test.ts, "The Slack draft").
+// The Slack draft of a ready round.
 
 const cTwoHoursMs = 2 * hourMs
 
@@ -307,7 +307,7 @@ func TestCRoundToPasteThenEmptyRoundLeavesTheReviewedHeadReady(t *testing.T) {
 	cSame(t, "asks at the end", len(round.asks()), 0)
 }
 
-// The alerts half of Bun's test (diffAlerts from src/lib/alerts.ts) is page code: only the
+// The alerts half of this case (diffAlerts from src/lib/alerts.ts) is page code: only the
 // server half is here.
 func TestCReReviewThatPushesNothingLeavesTheRowReadyAgain(t *testing.T) {
 	t.Parallel()

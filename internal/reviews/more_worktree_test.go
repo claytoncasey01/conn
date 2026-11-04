@@ -8,8 +8,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// Bun's worktreeClone, real and within (reviews.ts), on folders made as git makes them: the
-// worktree's .git is a pointer file, and the gitdir's commondir leads back to <clone>/.git.
+// The clone of a worktree, real and within, on folders made as git makes them: the worktree's
+// .git is a pointer file, and the gitdir's commondir leads back to <clone>/.git.
 
 // dWorktreeOf makes a clone folder with a gitdir for one worktree, and the worktree with pointer
 // as its .git file; commondir is written when not nil. It answers the clone and the worktree.

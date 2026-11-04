@@ -14,11 +14,10 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// The port of myPrsDraft.test.ts. The recorded answers (draftText, drafts) cover the options the
-// helper gets (tools, deny list, schema, prompt, model, budget, timeout), the draft that exists
-// already and a signed-out Slack; here are the refusal lists and each answer Bun's tests name.
-// Bun's run that throws at once and its rejection with a plain string are one case in Go: a run
-// returns an error.
+// The Slack draft. The recorded answers (draftText, drafts) cover the options the helper gets
+// (tools, deny list, schema, prompt, model, budget, timeout), the draft that exists already and
+// a signed-out Slack; here are the refusal lists and each named answer. A run that fails at once
+// and one that fails later are one case: a run returns an error.
 
 const ePRURL = "https://github.com/org/repo/pull/7"
 
@@ -296,12 +295,12 @@ func TestERunDraftKeepsTheConnectorsAndIsStrict(t *testing.T) {
 	run := &eRun{answer: `{"ok":true}`}
 	eDraft(run.run, "#code-review")
 
-	// Bun's noMcp is unset: the run needs the claude.ai Slack connector.
+	// NoMCP is unset: the run needs the claude.ai Slack connector.
 	if run.opts.NoMCP {
 		t.Error("the run has no MCP servers")
 	}
 
-	// Bun's strict is not false: a denied tool fails the run.
+	// The run is strict: a denied tool fails it.
 	if run.opts.Lenient {
 		t.Error("the run is lenient")
 	}

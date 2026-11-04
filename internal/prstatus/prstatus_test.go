@@ -10,7 +10,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/prstatus"
 )
 
-// The answers in testdata/answers/prstatus/prstatus.json.gz are Bun's, for seeded check
+// The answers in testdata/answers/prstatus/prstatus.json.gz were recorded for seeded check
 // rollups, PR views and fix messages.
 
 func answers(t *testing.T) any {
@@ -60,7 +60,7 @@ func same(got, want any) bool {
 	return js.Stringify(parsed) == js.Stringify(want)
 }
 
-func TestPRStatusMatchesBun(t *testing.T) {
+func TestPRStatusMatchesTheRecording(t *testing.T) {
 	t.Parallel()
 
 	data := answers(t)

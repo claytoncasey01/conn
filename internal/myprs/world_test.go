@@ -13,17 +13,17 @@ import (
 	"github.com/claytoncasey01/conn/internal/sessions"
 )
 
-// The My PRs poller's test world, the port of myPrs.test.ts's make(): every dependency is a fake
+// The My PRs poller's test world: every dependency is a fake
 // (gh, the clock, the clones, a temp state file), so nothing here reaches the real gh or ~/.conn.
 // Every field is guarded by the world's mutex: MyPrs calls the fakes from its own goroutines.
 
-// The clock and the fixture times of Bun's tests.
+// The clock and the fixture times of the tests.
 const (
 	worldT0 = 1_800_000_000_000
 	hourMs  = 3_600_000
 	// pollMs is config.reviewPollMs.
 	pollMs = 180_000
-	// greptileBot is config.greptileBot, and findingBot config.findingBots[0] (Bun's BOT).
+	// greptileBot is config.greptileBot, and findingBot config.findingBots[0].
 	greptileBot = "greptile-apps"
 	findingBot  = "greptile-apps"
 )
@@ -370,9 +370,9 @@ func (x worldWrites) ResolveThread(_ context.Context, threadID string) error {
 	return x.w.ResolveErr
 }
 
-// ---- fixtures, as Bun's pr() and thread() ----
+// ---- fixtures: pr() and thread() ----
 
-// pr is Bun's pr(): org/repo#7, created 5 h before T0, head abc on feature/a; change edits it.
+// pr is org/repo#7, created 5 h before T0, head abc on feature/a; change edits it.
 func pr(change ...func(p *myprs.PR)) *myprs.PR {
 	branch := "main"
 	pull := &myprs.PR{
@@ -391,7 +391,7 @@ func pr(change ...func(p *myprs.PR)) *myprs.PR {
 	return pull
 }
 
-// thread is Bun's thread(): id t by sam on a.ts:1, an hour before T0; change edits it.
+// thread is a thread with id t by sam on a.ts:1, an hour before T0; change edits it.
 func thread(change ...func(t *myprs.Thread)) myprs.Thread {
 	path := "a.ts"
 	line := 1.0
@@ -407,7 +407,7 @@ func thread(change ...func(t *myprs.Thread)) myprs.Thread {
 	return out
 }
 
-// tick ticks once and waits for the work it started (Bun's tick then flush).
+// tick ticks once and waits for the work it started.
 func tick(m *myprs.MyPrs) {
 	m.Tick()
 	m.Settle()

@@ -1,6 +1,6 @@
 package reviews_test
 
-// Several repos: discovery, clones, the old records (Bun's "Several repos" section).
+// Several repos: discovery, clones, the old records.
 
 import (
 	"os"

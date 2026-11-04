@@ -6,16 +6,16 @@ import (
 	"github.com/claytoncasey01/conn/internal/myprs"
 )
 
-// The port of myPrsFlow.test.ts. The recorded answers (roundOver, askDue) cover the round's end
-// and the ask with every boundary Bun's tests name; here are readyFor and askedLaunch case by
-// case, which the answers only reach at random and always with one Greptile login.
+// The round's flow. The recorded answers (roundOver, askDue) cover the round's end and the ask at
+// every boundary; here are readyFor and askedLaunch case by case, which the answers only reach at
+// random and always with one Greptile login.
 
 const (
 	eMinute = 60_000
 	eDevin  = "devin-ai-integration"
 )
 
-// eLaunch is myPrsFlow.test.ts's launch(): round 1 at T0 from head old, armed, not asked.
+// eLaunch is round 1 at T0 from head old, armed, not asked.
 func eLaunch(change ...func(l *myprs.Launch)) *myprs.Launch {
 	out := &myprs.Launch{
 		At: worldT0, Model: "sonnet", Name: "self-repo-7", Worktree: "/data/myprs/wt",
@@ -40,7 +40,7 @@ func eAsked(sha string, at, round float64) *myprs.Launch {
 	})
 }
 
-// eFlowPR is myPrsFlow.test.ts's pr(): head new, change edits it.
+// eFlowPR is a PR at head new; change edits it.
 func eFlowPR(change ...func(p *myprs.PR)) *myprs.PR {
 	return pr(append([]func(p *myprs.PR){func(p *myprs.PR) { p.HeadSha = "new" }}, change...)...)
 }

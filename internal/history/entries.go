@@ -68,7 +68,7 @@ ON CONFLICT (session_id) DO UPDATE SET detail_json = excluded.detail_json,
   agents_json = excluded.agents_json, first_prompt = excluded.first_prompt,
   final_message = excluded.final_message`
 
-// number is a JavaScript number as SQLite gets it from Bun: an integer when it is one.
+// number is a JavaScript number as SQLite stores it: an integer when it is one.
 func number(value float64) any {
 	if value == float64(int64(value)) {
 		return int64(value)

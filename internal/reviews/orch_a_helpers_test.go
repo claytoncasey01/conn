@@ -1,8 +1,7 @@
 package reviews_test
 
-// Helpers for the orchestrator tests ported from Bun's reviews.test.ts (its tests from "the view
-// carries the chosen channels" up to the auto-close ones). Every name starts with `a` so it
-// cannot clash with the helpers of the other ported files.
+// Helpers for the orchestrator tests from the view's chosen channels up to auto-close. Every
+// name starts with `a` so it cannot clash with the helpers of the other orchestrator files.
 
 import (
 	"errors"
@@ -229,7 +228,7 @@ func aEqual(t *testing.T, label string, got, want any) {
 	}
 }
 
-// aOnce is one tick, waited out (Bun's `r.tick(); await settle()`).
+// aOnce is one tick, waited out.
 func aOnce(tab *reviews.Reviews) {
 	tab.Tick()
 	tab.Settle()
