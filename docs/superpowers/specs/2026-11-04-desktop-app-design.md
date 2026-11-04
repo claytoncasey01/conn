@@ -43,6 +43,10 @@ The browser and the terminal command are not part of the day-to-day.
 
 ## Decided (by the assistant, to be checked)
 
+The spike has run. "Spike result (Task 1)" at the end of this file settles the Wails version
+(v3.1.0), the minimum macOS (13), the universal bundle and SIGTERM handling, and overrides any
+older wording below.
+
 - **The window loads the server's own loopback address**, `http://127.0.0.1:PORT`, not Wails's
   own asset scheme. The page makes relative `/api` calls and the server accepts only loopback
   `Host` and `Origin`, so this works with every guard unchanged. Serving the page from Wails
@@ -86,9 +90,9 @@ The browser and the terminal command are not part of the day-to-day.
 - **The port stays fixed** (see above). Falling back to another port would silently drop the
   page's saved state, and a held 7777 is rare; it is a dialog that names the port and the
   `CONN_PORT` variable.
-- **Both architectures are built**, as one universal bundle if the build allows and otherwise one
-  bundle per architecture. The minimum macOS version is whatever the chosen Wails release
-  requires, written in the README. That ad-hoc signing and a `curl` install open without a
+- **Both architectures are built**, as one universal bundle (settled by the spike: `lipo` joins
+  the arm64 and x86_64 builds). The minimum macOS version is 13 (Ventura), set by Go 1.27 and
+  written in the README. That ad-hoc signing and a `curl` install open without a
   warning is checked once by hand on a clean Apple-silicon Mac before the first release, not in
   CI.
 
@@ -124,9 +128,9 @@ needs `local()` loosened comes back to the owner first.
 ## Release and install
 
 - The CLI archives (`conn_<os>_<arch>.tar.gz`) are built as today: pure Go, on Ubuntu.
-- The app is built in its own job on a macOS runner, because Wails needs cgo there. One bundle
-  per architecture (or one universal bundle: the builder chooses), zipped as an asset beside the
-  CLI archives, in `checksums.txt`.
+- The app is built in its own job on a macOS runner, because Wails needs cgo there. One
+  universal bundle (see "Spike result (Task 1)"), zipped as an asset beside the CLI archives,
+  in `checksums.txt`.
 - On Apple silicon a program must carry at least an ad-hoc signature to run, so the bundle is
   ad-hoc signed in the build. Developer ID signing and notarization is a later step on the same
   job (`codesign` with the identity, then `notarytool`), not a redesign.
@@ -146,21 +150,23 @@ needs `local()` loosened comes back to the owner first.
 
 ## Left to the builder
 
-- Wails v2 or v3, whichever is the stable release when this is built, and its allowlist entry in
-  `.golangci.yml`.
+- The `.golangci.yml` allowlist entry for Wails. The version is settled: v3.1.0, pinned (see
+  "Spike result (Task 1)").
 - The splash content (a plain page or the app's own mark), the window's size and minimum size,
   and its remembered position.
 - The app icon (a placeholder is fine; the owner supplies the final one).
 - The app menu (at least Quit, Hide, and the standard Edit items so copy and paste work).
-- How the app receives SIGTERM from `conn stop` and quits cleanly.
-- Universal bundle or one per architecture, and the bundle's identifier and version stamp.
+- The bundle's identifier and version stamp. (Settled by the spike: SIGTERM and SIGINT already
+  quit cleanly through Wails's default signal handler, and the bundle is universal.)
 - Whether CI can run the app's pure tests on macOS only, and a smoke test that the bundle starts
   and answers on its port.
 
 ## Spike result (Task 1)
 
 **Verdict: the external loopback page works.** A Wails window opened on `http://127.0.0.1:7799`
-loaded the whole UI, made a write that the server accepted, hid on close, came back on the
+loaded the whole UI, made a write that the server accepted (a script-injected request from the
+proxied origin `127.0.0.1:7798`, not the UI's own save: Tasks 4 and 5 must check a real UI save
+through the actual app), hid on close, came back on the
 reopen event, and quit from the menu, from an Apple event and from `kill -TERM`. No guard in the
 server was touched. The fallback in "First step of the plan" is not needed. The spike program was
 throwaway and is not in the repo.
@@ -178,14 +184,15 @@ chosen because the three things this design needs are plain options there:
 - `events.Mac.ApplicationShouldHandleReopen` is the Dock-click event.
 
 The cost: v3 has been stable for only nine days and ships weekly, so the API may move. Pin the
-version and read the release notes before bumping it. v3 needs Go 1.26 or newer (the repo is on
-1.27.1). v2 was not built.
+version and read the release notes before bumping it. v3.1.0's `go.mod` says `go 1.26.0`, so it
+needs Go 1.26 or newer (the repo is on 1.27.1). v2 was not built.
 
 ### Build
 
 No Wails CLI is needed, and no build tags. A plain `go build` yields a runnable binary; the
 `.app` bundle is assembled by hand (a folder, one `Info.plist`, the binary, then an ad-hoc
-`codesign`). The command that was used, per architecture:
+`codesign`). The command that was used is the form for the host architecture (arm64); the
+x86_64 build changes only `GOARCH`:
 
 ```
 MACOSX_DEPLOYMENT_TARGET=13.0 CGO_ENABLED=1 \
@@ -240,15 +247,17 @@ Server on `CONN_PORT=7799` with a temporary `CONN_DATA`; the real Conn was never
   bundle both delivered `ShouldHandleReopen`, showed the window, and started no second process.
   This is the event a Dock click sends; a real Dock click was not made.
 - **Menu.** The app menu has About, Services, Hide, Hide Others, Show All and Quit; the Edit menu
-  has Undo, Redo, Cut, Copy, Paste, Paste and Match Style, Delete, Select All. Hide hid the app
-  and reopen brought it back.
+  has Undo, Redo, Cut, Copy, Paste, Paste and Match Style, Delete, Select All. The Hide
+  item hid the app (`visible` false, process alive) and the reopen event brought it back,
+  frontmost.
 - **Native dialog.** `app.Dialog.Info()` showed an `AXDialog` with the title, the message and an
   OK button, both over the open window and with the main window hidden. Clicking OK returned
   control to Go.
 - **Quit.** The Quit menu item, `tell application id "..." to quit` and `kill -TERM` each ended
   the process in under 500 ms, ran `ShouldQuit` and `OnShutdown`, and the server's client count
-  fell to 0. `SIGTERM` worked with the window hidden too. Wails handles SIGINT and SIGTERM by
-  default and routes them through the same quit path.
+  fell to 0. `SIGTERM` worked with the window hidden too. `kill -INT` quit it the same way, with
+  the window visible and hidden, logging "Quitting application...", so Wails's default handler
+  covers both signals and routes them through the same quit path.
 
 ### Surprises
 
@@ -257,9 +266,11 @@ Server on `CONN_PORT=7799` with a temporary `CONN_DATA`; the real Conn was never
   `WebviewWindow.ExecJS` queues the script until the page reports `wails:runtime:ready`, which an
   external page never does, so it silently never runs. This does not matter for this design,
   because everything native is set from Go. Do not use `ExecJS`, frontend events or bindings.
-- **`App.Show()` and `App.Hide()` crash off the main thread.** Calling `app.Show()` from the
-  reopen handler raised `SIGTRAP` (AppKit main-thread check). Wrap it:
-  `application.InvokeSync(app.Show)`. `Window.Show()` and `Window.Hide()` are already safe.
+- **`App.Show()` crashes off the main thread.** Calling `app.Show()` from a goroutine (the
+  reopen handler, and again from a bare goroutine, twice) raised `SIGTRAP` every time. Wrap it:
+  `application.InvokeSync(app.Show)`. `app.Hide()` from a goroutine did not crash in the test,
+  and `window.Hide()` and `window.Show()` from a goroutine worked, but the source calls the
+  native function directly for `App.Hide()` too, so wrap both to be safe.
 - **Reopen needs more than `window.Show()` to come forward.** With only `window.Show()` the app
   was visible but not frontmost when reopened from the background. The handler that worked is
   `InvokeSync(app.Show)`, then `window.Show()`, then `window.Focus()`.
