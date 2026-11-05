@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -31,15 +30,8 @@ func (s *shell) runUpdates(ctx context.Context, lookup config.LookupFunc) {
 		return
 	}
 
-	base, found := lookup(update.BaseVariable)
-	if !found {
-		base = update.ReleasesURL
-	}
-
-	if strings.TrimSpace(base) == "" {
-		base = update.ReleasesURL
-	}
-
+	raw, _ := lookup(update.BaseVariable)
+	base := update.BaseFrom(raw)
 	client := update.NewClient()
 	current := conn.Version()
 	events := make(chan update.Event, updateEventsMax)
@@ -66,18 +58,29 @@ func (s *shell) runUpdates(ctx context.Context, lookup config.LookupFunc) {
 // so a check never waits on the main thread, which a dialog may hold.
 func (s *shell) tellUpdates(ctx context.Context, events <-chan update.Event, current string) {
 	for {
+		// A done context wins over an outcome queued at the same moment, as in update.Run.
+		if ctx.Err() != nil {
+			return
+		}
+
 		select {
 		case <-ctx.Done():
 			return
 		case event := <-events:
-			s.tellUpdate(event, current)
+			s.tellUpdate(ctx, event, current)
 		}
 	}
 }
 
 // tellUpdate notes the outcome on stderr, relabels the menu item on the main thread, and shows
-// the dialog on its own goroutine, because Show waits for the dialog to be dismissed.
-func (s *shell) tellUpdate(event update.Event, current string) {
+// the dialog on its own goroutine, because Show waits for the dialog to be dismissed. Once ctx
+// has ended the app is quitting, and an outcome queued meanwhile is dropped: the main thread
+// may be the one waiting for the quit, so nothing is asked of it then.
+func (s *shell) tellUpdate(ctx context.Context, event update.Event, current string) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	notice := update.Tell(event, current)
 
 	if notice.Note != "" {
@@ -85,17 +88,28 @@ func (s *shell) tellUpdate(event update.Event, current string) {
 	}
 
 	if notice.Label != "" {
+		if ctx.Err() != nil {
+			return
+		}
+
 		application.InvokeSync(func() { s.updateItem.SetLabel(notice.Label) })
 	}
 
 	dialog := s.updateDialog(notice, event.Result.Latest)
-	if dialog != nil {
-		go dialog.Show()
+	if dialog == nil {
+		return
 	}
+
+	if ctx.Err() != nil {
+		return
+	}
+
+	go dialog.Show()
 }
 
 // updateDialog is the dialog notice asks for, or nil for none. The offer's buttons run on the
-// main thread, so each hands its work to a goroutine: the clipboard and the browser need it.
+// main thread, and their work runs there directly: Wails runs main-thread work in place when
+// already on it, and opening the browser starts the open program without waiting for it.
 func (s *shell) updateDialog(notice update.Notice, latest string) *application.MessageDialog {
 	switch notice.Dialog {
 	case update.DialogNone:
@@ -104,10 +118,10 @@ func (s *shell) updateDialog(notice update.Notice, latest string) *application.M
 		dialog := s.app.Dialog.Info().SetTitle(notice.Title).SetMessage(notice.Message)
 		dialog.AddButton(update.ButtonLater).SetAsCancel()
 		dialog.AddButton(update.ButtonNotes).OnClick(func() {
-			go s.openReleaseNotes(latest)
+			s.openReleaseNotes(latest)
 		})
 		dialog.AddButton(update.ButtonCopy).SetAsDefault().OnClick(func() {
-			go s.copyCommand()
+			s.copyCommand()
 		})
 
 		return dialog

@@ -132,7 +132,8 @@ func TestOfferText(t *testing.T) {
 		want string
 	}{
 		{"title names the release", notice.Title, "v1.2.4"},
-		{"message names what the person has", notice.Message, "You have v1.2.3."},
+		{"message names the release", notice.Message, "Conn v1.2.4 is available"},
+		{"message names what the person has", notice.Message, "(you have v1.2.3)"},
 		{"message says to quit first", notice.Message, "quit Conn first"},
 		{"message holds the command", notice.Message, update.Command},
 	}
@@ -188,21 +189,66 @@ func TestFailureReason(t *testing.T) {
 func TestFailedTextHoldsNoServerText(t *testing.T) {
 	t.Parallel()
 
-	event := update.Event{
-		Result: update.Result{
-			Kind:   update.Failed,
-			Latest: "",
-			Err:    fmt.Errorf("%s: %w", serverText, update.ErrRequest),
-		},
-		Manual: true,
-		Fresh:  true,
+	failed := update.Result{
+		Kind:   update.Failed,
+		Latest: "",
+		Err:    fmt.Errorf("%s: %w", serverText, update.ErrRequest),
 	}
-	notice := update.Tell(event, "v1.2.3")
 
-	for _, text := range []string{notice.Title, notice.Message, notice.Note} {
-		if strings.Contains(text, serverText) {
-			t.Errorf("%q holds the server's text", text)
-		}
+	tests := []struct {
+		name  string
+		event update.Event
+	}{
+		{"asked for", newEvent(failed, true, true)},
+		{"by itself", newEvent(failed, false, false)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			notice := update.Tell(tt.event, "v1.2.3")
+			fields := []struct {
+				name string
+				text string
+			}{
+				{"Title", notice.Title},
+				{"Message", notice.Message},
+				{"Note", notice.Note},
+				{"Label", notice.Label},
+			}
+
+			for _, field := range fields {
+				if strings.Contains(field.text, serverText) {
+					t.Errorf("%s %q holds the server's text", field.name, field.text)
+				}
+			}
+		})
+	}
+}
+
+func TestBaseFrom(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"unset", "", update.ReleasesURL},
+		{"blank", " \t", update.ReleasesURL},
+		{"set", "http://127.0.0.1:8080/x/releases", "http://127.0.0.1:8080/x/releases"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := update.BaseFrom(tt.raw)
+			if got != tt.want {
+				t.Errorf("BaseFrom(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -220,7 +266,7 @@ func TestReleaseNotesURL(t *testing.T) {
 func TestTextRefusesATagThatIsNotAVersion(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tags := []struct {
 		name string
 		tag  string
 	}{
@@ -230,18 +276,35 @@ func TestTextRefusesATagThatIsNotAVersion(t *testing.T) {
 		{"too long", "v1.2.4-" + strings.Repeat("a", 64)},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	texts := []struct {
+		name string
+		text func(tag string) string
+	}{
+		{"ReleaseNotesURL", update.ReleaseNotesURL},
+		{"AvailableLabel", update.AvailableLabel},
+		{"OfferTitle", update.OfferTitle},
+		{"OfferMessage", func(tag string) string { return update.OfferMessage("v1.2.3", tag) }},
+		{"Tell", func(tag string) string {
+			result := update.Result{Kind: update.Available, Latest: tag, Err: nil}
 
-			defer func() {
-				if recover() == nil {
-					t.Errorf("ReleaseNotesURL(%q) did not panic", tt.tag)
-				}
-			}()
+			return update.Tell(newEvent(result, false, true), "v1.2.3").Title
+		}},
+	}
 
-			_ = update.ReleaseNotesURL(tt.tag)
-		})
+	for _, text := range texts {
+		for _, tag := range tags {
+			t.Run(text.name+" "+tag.name, func(t *testing.T) {
+				t.Parallel()
+
+				defer func() {
+					if recover() == nil {
+						t.Errorf("%s(%q) did not panic", text.name, tag.tag)
+					}
+				}()
+
+				_ = text.text(tag.tag)
+			})
+		}
 	}
 }
 

@@ -3,6 +3,7 @@ package update
 import (
 	"context"
 	"errors"
+	"strings"
 )
 
 const (
@@ -100,10 +101,22 @@ func OfferTitle(latest string) string {
 	return "Conn " + releaseTag(latest) + " is available"
 }
 
-// OfferMessage says what the person has, that Conn must be quit first, and the command.
-func OfferMessage(current string) string {
-	return "You have " + current + ". To update, quit Conn first, because the installer " +
-		"will not replace a running app. Then run this command in Terminal:\n\n" + Command
+// OfferMessage says what is available and what the person has, that Conn must be quit first,
+// and the command.
+func OfferMessage(current, latest string) string {
+	return "Conn " + releaseTag(latest) + " is available (you have " + current + "). " +
+		"To update, quit Conn first, because the installer will not replace a running app. " +
+		"Then run this command in Terminal:\n\n" + Command
+}
+
+// BaseFrom is the releases address to ask, given the value of CONN_UPDATE_BASE: ReleasesURL
+// when it is unset or blank, so only a developer's deliberate setting replaces it.
+func BaseFrom(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ReleasesURL
+	}
+
+	return raw
 }
 
 // ReleaseNotesURL is the page of the release tag on ReleasesURL. It is built only from the
@@ -144,7 +157,7 @@ func tellAvailable(event Event, current string) Notice {
 	if event.Fresh {
 		notice.Dialog = DialogOffer
 		notice.Title = OfferTitle(latest)
-		notice.Message = OfferMessage(current)
+		notice.Message = OfferMessage(current, latest)
 	}
 
 	return notice
