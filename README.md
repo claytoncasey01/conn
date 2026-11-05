@@ -118,7 +118,8 @@ make lint     # golangci-lint, every linter on (.golangci.yml)
 make fmt      # gofumpt and goimports
 make check    # make lint, then svelte-check
 make build    # bin/conn
-scripts/build-app.sh <out>   # Conn.app in a zip, with its checksums, in <out>
+scripts/build-app.sh <out>        # Conn.app in a zip, with its checksums, in <out>
+scripts/check-app.sh <Conn.app>   # the signature, both architectures, and that the binary starts
 ```
 
 Building the app needs a Mac, the Xcode command line tools and cgo. Run `bun run build` first, because the app embeds the page. Everything else is pure Go, and `conn` builds and tests on Linux.

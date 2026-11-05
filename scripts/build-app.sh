@@ -4,8 +4,9 @@
 # downloads these.
 #
 # This script is where those names are decided: Conn_darwin_universal.zip, checksums-app.txt and
-# Conn.app/Contents/MacOS/conn-app. install.sh, .github/workflows/ci.yml and release.yml repeat
-# them, and internal/installscript fails when install.sh and this script disagree.
+# Conn.app/Contents/MacOS/conn-app. install.sh, scripts/check-app.sh, .github/workflows/ci.yml and
+# release.yml repeat them, and internal/installscript fails when install.sh and this script
+# disagree.
 #
 #   scripts/build-app.sh <out-folder>
 #
