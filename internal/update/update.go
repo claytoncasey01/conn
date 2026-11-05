@@ -67,6 +67,9 @@ type version struct {
 
 var errNotVersion = errors.New("not a release version like v1.2.3")
 
+// errTagTooLong means a release tag is longer than tagBytesMax, so it is too long to show.
+var errTagTooLong = errors.New("release tag is too long")
+
 // versionPattern matches vMAJOR.MINOR.PATCH with an optional -pre-release and +build.
 var versionPattern = regexp.MustCompile(fmt.Sprintf(
 	`^v(\d{1,%[1]d})\.(\d{1,%[1]d})\.(\d{1,%[1]d})(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$`,
@@ -141,6 +144,12 @@ func Evaluate(current, latest string, fetchErr error) Result {
 		return Result{Kind: Failed, Latest: "", Err: fetchErr}
 	}
 
+	if len(latest) > tagBytesMax {
+		wrapped := fmt.Errorf("reading the latest release: %w", errTagTooLong)
+
+		return Result{Kind: Failed, Latest: "", Err: wrapped}
+	}
+
 	_, err = parse(latest)
 	if err != nil {
 		wrapped := fmt.Errorf("reading the latest release: %w", err)
@@ -157,8 +166,14 @@ func Evaluate(current, latest string, fetchErr error) Result {
 
 // Enabled reports whether the update check is on, given the value of CONN_UPDATE_CHECK. Only the
 // off values switch it off; unset, blank or anything else leaves it on.
+//
+// The off values are the ones config.ThemeIndexOff holds, so one list of words turns off every
+// switch; this package imports only the standard library, so a test holds the two lists equal.
+// config trims as JavaScript does and this does as strings.TrimSpace does, which differ only for
+// U+FEFF and U+0085. Neither is ever typed into a shell profile, so the difference cannot matter.
 func Enabled(raw string) bool {
-	offValues := []string{"off", "false", "0", "no", "none", "disabled"}
-
-	return !slices.Contains(offValues, strings.ToLower(strings.TrimSpace(raw)))
+	return !slices.Contains(offValues(), strings.ToLower(strings.TrimSpace(raw)))
 }
+
+// offValues are the words that switch the check off.
+func offValues() []string { return []string{"off", "false", "0", "no", "none", "disabled"} }

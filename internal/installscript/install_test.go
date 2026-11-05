@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/testtime"
+	"github.com/claytoncasey01/conn/internal/update"
 )
 
 const (
@@ -970,5 +971,42 @@ func TestInstallAndBuildAgreeOnTheAppNames(t *testing.T) {
 				t.Errorf("%s does not name %q", script, name)
 			}
 		}
+	}
+}
+
+// TestUpdateNoticeTextsAgreeWithTheInstaller fails when the text the app's update notice shows
+// (the install command and the releases address) is not what install.sh and the README say: the
+// notice tells people to run the command, so a change to the script alone would leave it wrong.
+func TestUpdateNoticeTextsAgreeWithTheInstaller(t *testing.T) {
+	t.Parallel()
+
+	script := readText(t, "../../install.sh")
+	readme := readText(t, "../../README.md")
+
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{"install.sh header names the command", script, update.Command},
+		{"README install section names the command", readme, update.Command},
+		{
+			"install.sh header names the default address",
+			script, "(default: " + update.ReleasesURL + ")",
+		},
+		{
+			"install.sh code uses the default address",
+			script, "${CONN_INSTALL_BASE:-" + update.ReleasesURL + "}",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if !strings.Contains(tt.text, tt.want) {
+				t.Errorf("%s does not hold %q", tt.name, tt.want)
+			}
+		})
 	}
 }

@@ -77,6 +77,7 @@ func failureReasons() []failureReason {
 		{ErrNoRedirect, noRelease},
 		{ErrBadLocation, noRelease},
 		{errNotVersion, noRelease},
+		{errTagTooLong, noRelease},
 	}
 }
 

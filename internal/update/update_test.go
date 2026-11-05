@@ -2,10 +2,20 @@ package update_test
 
 import (
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/update"
 )
+
+// longTag is a release tag of the version shape that is exactly size bytes long.
+func longTag(size int) string {
+	const prefix = "v1.2.3-"
+
+	return prefix + strings.Repeat("a", size-len(prefix))
+}
 
 func TestNewer(t *testing.T) {
 	t.Parallel()
@@ -58,6 +68,9 @@ var errFetch = errors.New("network down")
 func TestEvaluate(t *testing.T) {
 	t.Parallel()
 
+	atLimit := longTag(update.TagBytesMax)
+	overLimit := longTag(update.TagBytesMax + 1)
+
 	tests := []struct {
 		name       string
 		current    string
@@ -70,6 +83,8 @@ func TestEvaluate(t *testing.T) {
 		{"dev never checks", "dev", "v9.0.0", nil, update.Unchecked, "", nil},
 		{"fetch error", "v1.0.0", "", errFetch, update.Failed, "", errFetch},
 		{"garbage latest", "v1.0.0", "garbage", nil, update.Failed, "", nil},
+		{"tag at the limit", "v1.0.0", atLimit, nil, update.Available, atLimit, nil},
+		{"tag over the limit", "v1.0.0", overLimit, nil, update.Failed, "", nil},
 		{"newer", "v1.0.0", "v1.1.0", nil, update.Available, "v1.1.0", nil},
 		{"equal", "v1.1.0", "v1.1.0", nil, update.UpToDate, "v1.1.0", nil},
 	}
@@ -121,6 +136,11 @@ func TestEnabled(t *testing.T) {
 		{"no", false},
 		{"none", false},
 		{"Disabled", false},
+		// The whitespace config's tests wrap its off values in.
+		{" off\n", false},
+		{" 0 ", false},
+		{"\tdisabled\n", false},
+		{"   ", true},
 	}
 
 	for _, tt := range tests {
@@ -132,5 +152,24 @@ func TestEnabled(t *testing.T) {
 				t.Errorf("Enabled(%q) = %v, want %v", tt.raw, got, tt.want)
 			}
 		})
+	}
+}
+
+// The off values are config.ThemeIndexOff's, so one list of words turns off every switch. The
+// package keeps its own copy because it imports only the standard library.
+func TestEnabledOffValuesAreConfigs(t *testing.T) {
+	t.Parallel()
+
+	for _, word := range config.ThemeIndexOff() {
+		if update.Enabled(word) {
+			t.Errorf("Enabled(%q) = true, want false: config turns the gallery off by it", word)
+		}
+	}
+
+	// The reverse: every word this package turns the check off by is config's.
+	for _, word := range update.OffValues() {
+		if !slices.Contains(config.ThemeIndexOff(), word) {
+			t.Errorf("%q turns the check off here and is not one of config's off values", word)
+		}
 	}
 }

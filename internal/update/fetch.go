@@ -33,8 +33,12 @@ const (
 	// GitHub answers a HEAD in well under a second, so a longer wait is a stuck server.
 	responseHeaderTimeout = 3 * time.Second
 
+	// dialFallbackDelay is how long a dial waits for the first address family before it tries
+	// the other one at the same time. It is net's default, stated as a decision made here.
+	dialFallbackDelay = 300 * time.Millisecond
+
 	// idleConnectionTimeout is how long an idle connection would be kept. None is kept, because
-	// keep-alives are off; the value is the smallest the transport takes.
+	// keep-alives are off, so any positive value does; zero would mean no limit.
 	idleConnectionTimeout = time.Second
 
 	// expectContinueTimeout is zero because the request has no body to wait to send.
@@ -87,8 +91,9 @@ func NewClient() *http.Client {
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   dialTimeout,
-			KeepAlive: -1,
+			Timeout:       dialTimeout,
+			FallbackDelay: dialFallbackDelay,
+			KeepAlive:     -1,
 		}).DialContext,
 		TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12},
 		TLSHandshakeTimeout:    tlsHandshakeTimeout,
@@ -152,8 +157,9 @@ func Latest(ctx context.Context, client *http.Client, base string) (string, erro
 	return "", statusError(response.StatusCode)
 }
 
-// parseBase reads the releases address. It must carry no user, query or fragment, so nothing
-// but the path can reach the request, and no credential can be sent.
+// parseBase reads the releases address. It must be an http or https address with a host and carry
+// no user, query or fragment, so nothing but the path can reach the request, and no credential
+// can be sent.
 func parseBase(base string) (*url.URL, error) {
 	baseURL, err := url.Parse(base)
 	if err != nil {
@@ -176,8 +182,19 @@ func parseBase(base string) (*url.URL, error) {
 		return nil, fmt.Errorf("the releases address has a fragment: %w", ErrBadBase)
 	}
 
+	if !slices.Contains(schemes(), baseURL.Scheme) {
+		return nil, fmt.Errorf("the releases address is not http or https: %w", ErrBadBase)
+	}
+
+	if baseURL.Host == "" {
+		return nil, fmt.Errorf("the releases address has no host: %w", ErrBadBase)
+	}
+
 	return baseURL, nil
 }
+
+// schemes are the address schemes the check speaks.
+func schemes() []string { return []string{"http", "https"} }
 
 // requestError replaces an error from net/http by ErrRequest, because it can hold text the
 // server sent. Only a context error is kept, so a caller can still tell a deadline or a

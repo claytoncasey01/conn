@@ -3,6 +3,7 @@ package update_test
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/http"
@@ -214,7 +215,11 @@ func TestLatestEndsAtTheContextDeadline(t *testing.T) {
 	defer server.Close()
 	defer close(release)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testtime.Scaled(100*time.Millisecond))
+	// A slow machine stretches the wait, but never past half the client's own header timeout, or
+	// that timeout would end the request before the context does.
+	wait := min(testtime.Scaled(100*time.Millisecond), update.ResponseHeaderTimeout/2)
+
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
 
 	_, err := update.Latest(ctx, update.NewClient(), server.URL+releasesPath)
@@ -360,6 +365,13 @@ func TestLatestRejectsAnUnusableBase(t *testing.T) {
 		{"query", "http://127.0.0.1:1" + releasesPath + "?a=1"},
 		{"empty query", "http://127.0.0.1:1" + releasesPath + "?"},
 		{"fragment", "http://127.0.0.1:1" + releasesPath + "#top"},
+		{"no scheme", "example.com" + releasesPath},
+		{"empty", ""},
+		{"path only", releasesPath},
+		{"scheme other than http", "ftp://example.com" + releasesPath},
+		{"file scheme", "file:///tmp" + releasesPath},
+		{"no host", "https://" + releasesPath},
+		{"no host with http", "http:///x"},
 	}
 
 	for _, tt := range tests {
@@ -369,6 +381,55 @@ func TestLatestRejectsAnUnusableBase(t *testing.T) {
 			_, err := update.Latest(context.Background(), update.NewClient(), tt.base)
 			if !errors.Is(err, update.ErrBadBase) {
 				t.Errorf("error = %v, want ErrBadBase", err)
+			}
+		})
+	}
+}
+
+// TestNewClientKeepsItsLimits pins the client's TLS floor and every named limit of its transport,
+// so a change to one is a decision shown in review.
+func TestNewClientKeepsItsLimits(t *testing.T) {
+	t.Parallel()
+
+	client := update.NewClient()
+
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport is a %T, want *http.Transport", client.Transport)
+	}
+
+	if transport.TLSClientConfig == nil {
+		t.Fatal("TLSClientConfig = nil, want a minimum version")
+	}
+
+	const kilobyte = 1 << 10
+
+	tests := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"client timeout", client.Timeout, 5 * time.Second},
+		{"cookie jar", client.Jar, http.CookieJar(nil)},
+		{"TLS minimum version", transport.TLSClientConfig.MinVersion, uint16(tls.VersionTLS12)},
+		{"TLS handshake timeout", transport.TLSHandshakeTimeout, 3 * time.Second},
+		{"response header timeout", transport.ResponseHeaderTimeout, 3 * time.Second},
+		{"expect continue timeout", transport.ExpectContinueTimeout, time.Duration(0)},
+		{"idle connection timeout", transport.IdleConnTimeout, time.Second},
+		{"idle connections", transport.MaxIdleConns, 1},
+		{"idle connections per host", transport.MaxIdleConnsPerHost, 1},
+		{"connections per host", transport.MaxConnsPerHost, 1},
+		{"response header bytes", transport.MaxResponseHeaderBytes, int64(64 * kilobyte)},
+		{"keep-alives disabled", transport.DisableKeepAlives, true},
+		{"HTTP/2 attempted", transport.ForceAttemptHTTP2, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if tt.got != tt.want {
+				t.Errorf("%s = %v, want %v", tt.name, tt.got, tt.want)
 			}
 		})
 	}

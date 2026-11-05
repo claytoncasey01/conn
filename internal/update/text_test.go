@@ -153,6 +153,7 @@ func TestFailureReason(t *testing.T) {
 	t.Parallel()
 
 	noRelease := "GitHub's answer did not name a release."
+	tooLong := update.Evaluate("v1.0.0", longTag(update.TagBytesMax+1), nil).Err
 
 	tests := []struct {
 		name string
@@ -169,6 +170,7 @@ func TestFailureReason(t *testing.T) {
 		{"no redirect", update.ErrNoRedirect, noRelease},
 		{"bad location", update.ErrBadLocation, noRelease},
 		{"not a version", update.Evaluate("v1.0.0", "garbage", nil).Err, noRelease},
+		{"tag too long", tooLong, noRelease},
 		{"server text", fmt.Errorf("%s: %w", serverText, update.ErrStatus), noRelease},
 		{"unknown", errServer, "The check failed for an unexpected reason."},
 		{"nil", nil, "The check failed for an unexpected reason."},
