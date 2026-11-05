@@ -2,6 +2,7 @@ package update
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -29,15 +30,24 @@ const (
 	tlsHandshakeTimeout = 3 * time.Second
 
 	// responseHeaderTimeout bounds the wait for the response headers after the request is sent.
-	responseHeaderTimeout = checkTimeout
+	// GitHub answers a HEAD in well under a second, so a longer wait is a stuck server.
+	responseHeaderTimeout = 3 * time.Second
+
+	// idleConnectionTimeout is how long an idle connection would be kept. None is kept, because
+	// keep-alives are off; the value is the smallest the transport takes.
+	idleConnectionTimeout = time.Second
+
+	// expectContinueTimeout is zero because the request has no body to wait to send.
+	expectContinueTimeout = 0
+
+	// connectionsMax is the most connections open at once, in total and per host: the check
+	// makes one request at a time. For idle connections it is the smallest limit the transport
+	// takes, as zero would mean no limit.
+	connectionsMax = 1
 
 	// headerBytesMax bounds all the response headers together. GitHub's security headers take a
 	// few kilobytes, so this leaves room and still stops a flood.
 	headerBytesMax = 64 << 10
-
-	// idleConnectionsMax is how many idle connections the client keeps: none, because the
-	// connection is closed after each check.
-	idleConnectionsMax = 0
 
 	// clientName is the only thing the request says about the sender.
 	clientName = "conn-app"
@@ -52,6 +62,9 @@ var (
 	ErrNoRedirect = errors.New("the answer did not point to a release")
 	// ErrStatus means the server answered with a status that is not a redirect.
 	ErrStatus = errors.New("unexpected status")
+	// ErrRequest means the request could not be made or answered. It stands in for the error
+	// from net/http, which can hold text the server sent; a context error stays reachable.
+	ErrRequest = errors.New("the request failed")
 	// ErrBadLocation means the redirect did not point to a release tag on the same server.
 	ErrBadLocation = errors.New("bad redirect location")
 )
@@ -77,10 +90,15 @@ func NewClient() *http.Client {
 			Timeout:   dialTimeout,
 			KeepAlive: -1,
 		}).DialContext,
+		TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12},
 		TLSHandshakeTimeout:    tlsHandshakeTimeout,
 		ResponseHeaderTimeout:  responseHeaderTimeout,
+		ExpectContinueTimeout:  expectContinueTimeout,
+		IdleConnTimeout:        idleConnectionTimeout,
+		MaxIdleConns:           connectionsMax,
+		MaxIdleConnsPerHost:    connectionsMax,
+		MaxConnsPerHost:        connectionsMax,
 		MaxResponseHeaderBytes: headerBytesMax,
-		MaxIdleConns:           idleConnectionsMax,
 		DisableKeepAlives:      true,
 		ForceAttemptHTTP2:      true,
 	}
@@ -99,33 +117,82 @@ func NewClient() *http.Client {
 // names. The answer is hostile input: only a redirect to a tag on the same server is believed,
 // and the body is never read.
 func Latest(ctx context.Context, client *http.Client, base string) (string, error) {
-	baseURL, err := url.Parse(base)
+	baseURL, err := parseBase(base)
 	if err != nil {
-		return "", fmt.Errorf("reading the releases address: %w", ErrBadBase)
+		return "", err
 	}
 
-	basePath := strings.TrimRight(baseURL.Path, "/")
 	requestURL := baseURL.JoinPath("latest")
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodHead, requestURL.String(), nil)
 	if err != nil {
-		return "", fmt.Errorf("building the request: %w", err)
+		return "", fmt.Errorf("building the request: %w", ErrBadBase)
 	}
 
 	request.Header.Set("User-Agent", clientName)
 
 	response, err := client.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("asking for the latest release: %w", err)
+		return "", requestError(err)
 	}
 
 	defer func() { _ = response.Body.Close() }()
 
 	if slices.Contains(redirectStatuses(), response.StatusCode) {
-		return tagFrom(response.Header.Get("Location"), requestURL, basePath)
+		locations := response.Header.Values("Location")
+		if len(locations) != 1 {
+			return "", fmt.Errorf("%d location headers: %w", len(locations), ErrBadLocation)
+		}
+
+		basePath := strings.TrimRight(baseURL.Path, "/")
+
+		return tagFrom(locations[0], requestURL, basePath)
 	}
 
 	return "", statusError(response.StatusCode)
+}
+
+// parseBase reads the releases address. It must carry no user, query or fragment, so nothing
+// but the path can reach the request, and no credential can be sent.
+func parseBase(base string) (*url.URL, error) {
+	baseURL, err := url.Parse(base)
+	if err != nil {
+		return nil, fmt.Errorf("the releases address is not an address: %w", ErrBadBase)
+	}
+
+	if baseURL.User != nil {
+		return nil, fmt.Errorf("the releases address has a user: %w", ErrBadBase)
+	}
+
+	if baseURL.RawQuery != "" {
+		return nil, fmt.Errorf("the releases address has a query: %w", ErrBadBase)
+	}
+
+	if baseURL.ForceQuery {
+		return nil, fmt.Errorf("the releases address has a query: %w", ErrBadBase)
+	}
+
+	if baseURL.Fragment != "" {
+		return nil, fmt.Errorf("the releases address has a fragment: %w", ErrBadBase)
+	}
+
+	return baseURL, nil
+}
+
+// requestError replaces an error from net/http by ErrRequest, because it can hold text the
+// server sent. Only a context error is kept, so a caller can still tell a deadline or a
+// cancellation from any other failure.
+func requestError(err error) error {
+	const prefix = "asking for the latest release"
+
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("%s: %w: %w", prefix, ErrRequest, context.DeadlineExceeded)
+	case errors.Is(err, context.Canceled):
+		return fmt.Errorf("%s: %w: %w", prefix, ErrRequest, context.Canceled)
+	default:
+		return fmt.Errorf("%s: %w", prefix, ErrRequest)
+	}
 }
 
 // statusError says why a status that is not a redirect cannot name a release.

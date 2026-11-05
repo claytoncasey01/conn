@@ -1,8 +1,10 @@
 package update_test
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,6 +23,8 @@ const releasesPath = "/claytoncasey01/conn/releases"
 type answer struct {
 	status   int
 	location string
+	// second, when set, is a second Location header.
+	second string
 }
 
 // seenRequest is what the fake server recorded of one request.
@@ -53,6 +57,10 @@ func serve(t *testing.T, given answer) (*httptest.Server, func() []seenRequest) 
 			w.Header().Set("Location", location)
 		}
 
+		if given.second != "" {
+			w.Header().Add("Location", given.second)
+		}
+
 		w.WriteHeader(given.status)
 	}))
 
@@ -66,9 +74,24 @@ func serve(t *testing.T, given answer) (*httptest.Server, func() []seenRequest) 
 	return server, requests
 }
 
+// checkContext is a context that ends after the check's time limit, stretched for slow machines.
+func checkContext(t *testing.T) context.Context {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testtime.Scaled(update.CheckTimeout))
+	t.Cleanup(cancel)
+
+	return ctx
+}
+
 // found is the answer GitHub gives: a 302 to location.
 func found(location string) answer {
 	return answer{status: http.StatusFound, location: location}
+}
+
+// twice is a 302 with two Location headers.
+func twice(first, second string) answer {
+	return answer{status: http.StatusFound, location: first, second: second}
 }
 
 // redirect is an answer with another status.
@@ -105,6 +128,7 @@ func TestLatest(t *testing.T) {
 		{"another repository", found("/other/repo/releases/tag/v1.2.3"), "", bad},
 		{"too long", found(tag + "v1.2.3-" + strings.Repeat("a", 600)), "", bad},
 		{"no location", found(""), "", bad},
+		{"two locations", twice(tag+"v1.2.3", tag+"v1.2.4"), "", bad},
 		{"not a redirect", redirect(http.StatusOK, ""), "", update.ErrNoRedirect},
 		{"not found", redirect(http.StatusNotFound, ""), "", update.ErrStatus},
 		{"server error", redirect(http.StatusInternalServerError, ""), "", update.ErrStatus},
@@ -118,8 +142,7 @@ func TestLatest(t *testing.T) {
 			server, _ := serve(t, tt.given)
 			defer server.Close()
 
-			ctx, cancel := context.WithTimeout(context.Background(), testtime.Scaled(5*time.Second))
-			defer cancel()
+			ctx := checkContext(t)
 
 			got, err := update.Latest(ctx, update.NewClient(), server.URL+releasesPath)
 			if !errors.Is(err, tt.wantErr) {
@@ -139,8 +162,7 @@ func TestLatestSendsNothingOfTheUser(t *testing.T) {
 	server, requests := serve(t, found(releasesPath+"/tag/v1.2.3"))
 	t.Cleanup(server.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testtime.Scaled(5*time.Second))
-	t.Cleanup(cancel)
+	ctx := checkContext(t)
 
 	_, err := update.Latest(ctx, update.NewClient(), server.URL+releasesPath)
 	if err != nil {
@@ -199,14 +221,156 @@ func TestLatestEndsAtTheContextDeadline(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("error = %v, want the context's deadline", err)
 	}
+
+	if !errors.Is(err, update.ErrRequest) {
+		t.Errorf("error = %v, want ErrRequest", err)
+	}
 }
 
-func TestLatestRejectsABaseThatIsNotAnAddress(t *testing.T) {
+func TestLatestEndsAtACancelledContext(t *testing.T) {
 	t.Parallel()
 
-	_, err := update.Latest(context.Background(), update.NewClient(), "://bad")
-	if !errors.Is(err, update.ErrBadBase) {
-		t.Errorf("error = %v, want ErrBadBase", err)
+	server, _ := serve(t, found(releasesPath+"/tag/v1.2.3"))
+	t.Cleanup(server.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := update.Latest(ctx, update.NewClient(), server.URL+releasesPath)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want the context's cancellation", err)
+	}
+
+	if !errors.Is(err, update.ErrRequest) {
+		t.Errorf("error = %v, want ErrRequest", err)
+	}
+}
+
+func TestLatestMakesOneRequestWhenTheAnswerRedirectsAgain(t *testing.T) {
+	t.Parallel()
+
+	server, requests := serve(t, found(releasesPath+"/latest"))
+	t.Cleanup(server.Close)
+
+	ctx := checkContext(t)
+
+	_, err := update.Latest(ctx, update.NewClient(), server.URL+releasesPath)
+	if !errors.Is(err, update.ErrBadLocation) {
+		t.Errorf("error = %v, want ErrBadLocation", err)
+	}
+
+	if got := len(requests()); got != 1 {
+		t.Errorf("requests = %d, want 1", got)
+	}
+}
+
+// serveRaw starts a TCP server that answers every connection with the given bytes, whatever the
+// request, and returns its address. It stops with the test.
+func serveRaw(t *testing.T, response string) string {
+	t.Helper()
+
+	var config net.ListenConfig
+
+	listener, err := config.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	t.Cleanup(func() { _ = listener.Close() })
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+
+			answerRaw(conn, response)
+		}
+	}()
+
+	return listener.Addr().String()
+}
+
+// answerRaw reads one request's headers, writes the response and closes the connection.
+func answerRaw(conn net.Conn, response string) {
+	defer func() { _ = conn.Close() }()
+
+	_ = conn.SetDeadline(time.Now().Add(testtime.Scaled(update.CheckTimeout)))
+
+	reader := bufio.NewReader(conn)
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return
+		}
+
+		if line == "\r\n" {
+			break
+		}
+	}
+
+	_, _ = conn.Write([]byte(response))
+}
+
+func TestLatestHidesWhatTheServerSends(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		response string
+	}{
+		{"malformed status line", "HOSTILE-TEXT\r\n\r\n"},
+		{"malformed status code", "HTTP/1.1 HOSTILE-TEXT OK\r\n\r\n"},
+		{"bad content length", "HTTP/1.1 302 Found\r\nContent-Length: HOSTILE-TEXT\r\n\r\n"},
+		{"bad header", "HTTP/1.1 302 Found\r\nHOSTILE-TEXT\r\n\r\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			address := serveRaw(t, tt.response)
+
+			ctx := checkContext(t)
+
+			_, err := update.Latest(ctx, update.NewClient(), "http://"+address+releasesPath)
+			if !errors.Is(err, update.ErrRequest) {
+				t.Fatalf("error = %v, want ErrRequest", err)
+			}
+
+			if strings.Contains(err.Error(), "HOSTILE-TEXT") {
+				t.Errorf("error %q repeats what the server sent", err)
+			}
+		})
+	}
+}
+
+func TestLatestRejectsAnUnusableBase(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		base string
+	}{
+		{"not an address", "://bad"},
+		{"user and password", "http://user:secret@127.0.0.1:1" + releasesPath},
+		{"user only", "http://user@127.0.0.1:1" + releasesPath},
+		{"query", "http://127.0.0.1:1" + releasesPath + "?a=1"},
+		{"empty query", "http://127.0.0.1:1" + releasesPath + "?"},
+		{"fragment", "http://127.0.0.1:1" + releasesPath + "#top"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := update.Latest(context.Background(), update.NewClient(), tt.base)
+			if !errors.Is(err, update.ErrBadBase) {
+				t.Errorf("error = %v, want ErrBadBase", err)
+			}
+		})
 	}
 }
 
@@ -233,6 +397,8 @@ func TestTagFrom(t *testing.T) {
 		{"no slash before tag", releasesPath + "/tagv1.2.3", "", bad},
 		{"uppercase v", tag + "V1.2.3", "", bad},
 		{"newline", tag + "v1.2.3%0A", "", bad},
+		{"encoded slash", releasesPath + "/tag/v1.2.3%2Fextra", "", bad},
+		{"encoded dot dots", releasesPath + "/tag/%2e%2e/v1.2.3", "", bad},
 		{"dot segments", releasesPath + "/x/../tag/v1.2.3", "v1.2.3", nil},
 		{"tag over 64 bytes", tag + "v1.2.3-" + strings.Repeat("a", 60), "", bad},
 		{"location over 512 bytes", tag + "v1.2.3?" + strings.Repeat("a", 512), "", bad},
