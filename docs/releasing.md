@@ -14,7 +14,7 @@ A release is made by publishing one on GitHub. Nothing is built or published fro
    - `checksums-app.txt`, the SHA-256 of the zip.
 
    The CLI archives and `checksums.txt` come from the `build` job, and the zip and `checksums-app.txt` from the `app` job. Each job uploads only its own files, so a re-run of one does not touch the other's.
-4. Watch the run under **Actions**. If `build` fails, the release page has no files and the install URL finds nothing: fix the cause, then re-run the workflow (it uploads with `--clobber`, so a re-run replaces files). If only `app` fails, the release has the CLI and no app: `install.sh` then installs the command-line tool only and says so, and re-running the `app` job adds the app. A tag that is wrong is deleted with its release and made again.
+4. Watch the run under **Actions**. If `build` fails, the release page has no files and the install URL finds nothing: fix the cause, then re-run the workflow (it uploads with `--clobber`, so a re-run replaces files). If only `app` fails, the release has the CLI and no app: `install.sh` then installs the command-line tool only and says "this release has no app", and re-running the `app` job adds the app. That message from `install.sh` means the `app` job failed or has not finished yet; a failed `app` job also says so in its run's summary. Before it uploads, the `app` job runs the same checks as CI's `app bundle` job: the signature, both architectures, and `--print-env`. A tag that is wrong is deleted with its release and made again.
 
 `https://github.com/claytoncasey01/conn/releases/latest/download/install.sh` always names the newest release that is not marked a pre-release. A pre-release is installed with `CONN_INSTALL_VERSION=v1.2.3-rc.1`.
 
@@ -33,13 +33,13 @@ scripts/build-release.sh /tmp/conn-release
 These steps need a Mac and a person, so the build cannot do them. Do them once, before the first release that carries the app.
 
 1. Push the branch and watch CI. Both legs of `lint and type check`, the `app bundle` job and the `test` legs must pass.
-2. On a clean Apple-silicon Mac, run `install.sh` and open `~/Applications/Conn.app`. It must open without a Gatekeeper warning.
-3. Download the zip in a browser, unzip it and open the app. Note the warning. It is cleared by `xattr -dr com.apple.quarantine Conn.app`.
+2. On a clean Apple-silicon Mac, run `install.sh` and open `~/Applications/Conn.app`. It must open without a Gatekeeper warning. `install.sh` needs a release that carries the app: publish a pre-release (`v1.2.3-rc.1`) and install it with `CONN_INSTALL_VERSION=v1.2.3-rc.1`, or serve the files `scripts/build-release.sh` and `scripts/build-app.sh` write under `<address>/download/<tag>/` and run `install.sh` with `CONN_INSTALL_BASE=<address>` and `CONN_INSTALL_VERSION=<tag>`.
+3. Download the zip in a browser (from that pre-release), unzip it and open the app. Note the warning. It is cleared by `xattr -dr com.apple.quarantine Conn.app`.
 4. Look at the window by eye: the splash, the error dialog, and the real UI with a click-through (change a setting and save it in the app). Click a PR link (My PRs or Reviews) and see it open in the default browser while the window stays on Conn; click a link to a page of Conn and see it stay in the window. Click the Dock icon after closing the window. Press Cmd-Q, Cmd-H, Cmd-C and Cmd-V on the keyboard.
 5. Quit with `kill -TERM` while the error dialog is open. Start the app on a port that another program holds, with an isolated `CONN_DATA`, so the real data folder is not touched.
 6. Kill the server under an attached window and watch the app recover.
 7. Run the x86_64 slice (under Rosetta, or on an Intel Mac) and the bundle on macOS 13.
-8. Set the branch protection's required checks to the new names: `lint and type check (ubuntu-latest)` and `lint and type check (macos-latest)`.
+8. Set the branch protection's required checks to the new names: `lint and type check (ubuntu-latest)`, `lint and type check (macos-latest)` and `app bundle (macos-latest)`.
 
 ## macOS
 

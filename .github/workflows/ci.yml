@@ -117,6 +117,7 @@ jobs:
       - name: Build the page
         run: bun run build
 
+      # The file names below are those scripts/build-app.sh writes.
       - name: Build the app bundle
         run: scripts/build-app.sh app-files
 
@@ -143,9 +144,10 @@ jobs:
           esac
 
       # --print-env answers before any window code runs, so this starts the binary without a
-      # display. The marker begins with a NUL byte, so only its visible text is searched for.
+      # display. The markers begin with a NUL byte, so only the end marker's visible text is
+      # searched for: it is written after the last entry. release.yml runs the same checks.
       - name: Check that the binary starts
         run: |
           set -eu
           app-check/Conn.app/Contents/MacOS/conn-app --print-env > app-check/env.out
-          tr -d '\0' < app-check/env.out | grep -q CONN-ENV
+          tr -d '\0' < app-check/env.out | grep -q CONN-ENV-END

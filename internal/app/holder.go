@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	// holderWait bounds the wait for a Conn that holds the data folder to say where it listens:
-	// it takes the lock a moment before it opens its port.
-	holderWait = 5 * time.Second
+	// HolderWait bounds the wait for a Conn that holds the data folder to say where it listens:
+	// it takes the lock a moment before it opens its port. The app's window waits as long.
+	HolderWait = 5 * time.Second
 	// holderPoll is how often the lock file is read while waiting.
 	holderPoll = 50 * time.Millisecond
 )
@@ -20,14 +20,14 @@ const (
 var (
 	// ErrStoppedMeanwhile is a Conn that let the data folder go while WaitForHolder waited.
 	ErrStoppedMeanwhile = errors.New("the running conn stopped while it was being asked")
-	// ErrNoAddress is a Conn that held the data folder for holderWait without saying where it
+	// ErrNoAddress is a Conn that held the data folder for HolderWait without saying where it
 	// listens.
 	ErrNoAddress = errors.New("the running conn did not say where it listens")
 )
 
 // WaitForHolder is the Conn holding the data folder, once it has said where it listens.
 func WaitForHolder(ctx context.Context, dataDir string) (instance.Holder, error) {
-	deadline := time.Now().Add(holderWait)
+	deadline := time.Now().Add(HolderWait)
 
 	for {
 		holder, running, err := instance.Running(dataDir)
@@ -44,7 +44,7 @@ func WaitForHolder(ctx context.Context, dataDir string) (instance.Holder, error)
 		}
 
 		if time.Now().After(deadline) {
-			return instance.Holder{}, fmt.Errorf("%w within %s", ErrNoAddress, holderWait)
+			return instance.Holder{}, fmt.Errorf("%w within %s", ErrNoAddress, HolderWait)
 		}
 
 		select {

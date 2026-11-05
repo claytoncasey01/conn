@@ -24,8 +24,10 @@ runs as you. The [README](README.md#what-conn-touches) lists what it reads, writ
 The macOS app, `Conn.app`, is the same server in a window. It opens no listener of its own, changes
 no check, and keeps its data in the same folder, so everything below holds for it as for
 `conn serve`. At start it runs your login shell once and reads the shell's environment into its own
-process, so that `claude`, `gh` and `git` are found. It never writes that environment to a file or
-a log.
+process, so that `claude`, `gh` and `git` are found. Every program the server starts (`claude`,
+`gh`, `git`) inherits that whole environment, tokens included, as it would in a terminal. Conn
+itself never writes that environment to a file or a log, and when the shell fails it shows only a
+short reason, never what the shell printed.
 
 These are in scope, because Conn promises them:
 

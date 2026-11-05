@@ -22,9 +22,10 @@ const (
 	// server's tests and conn's command tests use it too.
 	probePath = "/api/health"
 
-	// probeTimeout bounds one probe, connection and answer together, and each step of it. desk
-	// gives each probe a context with its own limit too; this one holds even if that changes.
-	probeTimeout = 2 * time.Second
+	// probeTimeout bounds one probe, connection and answer together, and each step of it. It is
+	// desk's limit for a probe, so the client never outlives the context desk gives it, and holds
+	// even if desk stops giving one.
+	probeTimeout = desk.ProbeTimeout
 
 	// probeIdleTimeout is how long the probe's connection is kept between probes: longer than
 	// the 2 s desk waits between them, so one connection serves them all.

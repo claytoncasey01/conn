@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
+	"github.com/claytoncasey01/conn/internal/app"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/desk"
 )
@@ -28,9 +29,10 @@ const (
 	// environmentTitle is the title of the dialog that says the shell's environment is missing.
 	environmentTitle = "Conn is using the app's own environment"
 
-	// deskStopTimeout bounds the wait at quit for desk.Run to return: a little above the server's
-	// own 2 s shutdown, so an owned server shuts down and lets the data folder go first.
-	deskStopTimeout = 3 * time.Second
+	// deskStopTimeout bounds the wait at quit for desk.Run to return: deskStopMargin above the
+	// server's own shutdown, so an owned server shuts down and lets the data folder go first.
+	deskStopTimeout = app.ShutdownTimeout + deskStopMargin
+	deskStopMargin  = time.Second
 )
 
 // shell is the running app: the Wails application, its one window, the server it shows, and the

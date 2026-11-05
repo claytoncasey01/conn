@@ -31,7 +31,8 @@ const (
 
 	runTimeout = 30 * time.Second
 
-	// The app's release files and the program inside the bundle.
+	// The app's release files and the program inside the bundle. scripts/build-app.sh is where
+	// they are named; TestInstallAndBuildAgreeOnTheAppNames checks install.sh uses the same.
 	appZipName  = "Conn_darwin_universal.zip"
 	appSumsName = "checksums-app.txt"
 	appBinary   = "Conn.app/Contents/MacOS/conn-app"
@@ -788,7 +789,7 @@ func TestARunningAppStopsTheInstallBeforeAnythingChanges(t *testing.T) {
 		t.Fatalf("install succeeded, want it to fail:\n%s", got.output)
 	}
 
-	for _, want := range []string{"quit Conn first", "conn stop", "--cli-only"} {
+	for _, want := range []string{"quit Conn first", "Cmd-Q", "--cli-only"} {
 		if !strings.Contains(got.output, want) {
 			t.Errorf("output lacks %q:\n%s", want, got.output)
 		}
@@ -946,5 +947,28 @@ func TestOnlyANotFoundMeansTheReleaseHasNoApp(t *testing.T) {
 				t.Error("the command-line tool is not installed")
 			}
 		})
+	}
+}
+
+// TestInstallAndBuildAgreeOnTheAppNames fails when install.sh and scripts/build-app.sh, which
+// makes the files install.sh downloads, name the app's files differently: a rename in one alone
+// would make every release look like one without an app.
+func TestInstallAndBuildAgreeOnTheAppNames(t *testing.T) {
+	t.Parallel()
+
+	scripts := map[string]string{
+		"install.sh":           readText(t, "../../install.sh"),
+		"scripts/build-app.sh": readText(t, "../../scripts/build-app.sh"),
+	}
+
+	// The program's place inside the bundle: build-app.sh writes it under "$app/".
+	names := []string{appZipName, appSumsName, strings.TrimPrefix(appBinary, "Conn.app/")}
+
+	for script, text := range scripts {
+		for _, name := range names {
+			if !strings.Contains(text, name) {
+				t.Errorf("%s does not name %q", script, name)
+			}
+		}
 	}
 }

@@ -20,15 +20,17 @@ const (
 	// probeEvery is how often an attached window asks its server whether it is there.
 	probeEvery = 2 * time.Second
 
-	// probeTimeout bounds one of those questions.
-	probeTimeout = 2 * time.Second
+	// ProbeTimeout bounds one of those questions. The app's probe client takes its own limits
+	// from it.
+	ProbeTimeout = 2 * time.Second
 
 	// probeFailuresMax is how many questions in a row go unanswered before the window starts over.
 	probeFailuresMax = 3
 
 	// addressWaitMax is the longest the window waits for a Conn that holds the folder to say where
-	// it listens. A Conn writes its address a moment after it takes the lock.
-	addressWaitMax = 5 * time.Second
+	// it listens. A Conn writes its address a moment after it takes the lock; conn's own wait for
+	// it is the same.
+	addressWaitMax = app.HolderWait
 
 	// restartsInARowMax is how many times the window may start over with no answer from a Conn in
 	// between. One more is a Conn that keeps stopping or never answers, and the window says so
@@ -271,7 +273,7 @@ func (s *session) attach(ctx context.Context, url string) (result, error) {
 
 // probe is one question to the server, with a time limit.
 func (s *session) probe(ctx context.Context, url string) error {
-	probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
 	defer cancel()
 
 	return s.deps.Probe(probeCtx, url)

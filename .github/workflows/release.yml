@@ -108,5 +108,46 @@ jobs:
       - name: Build the app
         run: scripts/build-app.sh release-files
 
+      # The same checks as ci.yml's app bundle job, so a release never carries a zip CI would
+      # have failed. The file names are those scripts/build-app.sh writes.
+      - name: Check the signature
+        run: |
+          set -eu
+          mkdir app-check
+          unzip -q release-files/Conn_darwin_universal.zip -d app-check
+          codesign --verify --deep --strict app-check/Conn.app
+
+      - name: Check that the binary holds both architectures
+        run: |
+          set -eu
+          archs=$(lipo -archs app-check/Conn.app/Contents/MacOS/conn-app)
+          echo "archs: $archs"
+          case "$archs" in
+            *x86_64*) ;;
+            *) echo "no x86_64 slice" >&2; exit 1 ;;
+          esac
+          case "$archs" in
+            *arm64*) ;;
+            *) echo "no arm64 slice" >&2; exit 1 ;;
+          esac
+
+      - name: Check that the binary starts
+        run: |
+          set -eu
+          app-check/Conn.app/Contents/MacOS/conn-app --print-env > app-check/env.out
+          tr -d '\0' < app-check/env.out | grep -q CONN-ENV-END
+
       - name: Attach it to the release
         run: gh release upload "$TAG" release-files/Conn_darwin_universal.zip release-files/checksums-app.txt --clobber
+
+      # A release whose app job failed still has the CLI, and install.sh then says "this release
+      # has no app". The summary says so on the run's page, so the failure is not silent.
+      - name: Say that the release has no app
+        if: failure()
+        run: |
+          {
+            echo "## The app was not attached to $TAG"
+            echo
+            echo "The release has the command-line tool only: install.sh installs it and says"
+            echo "\"this release has no app\". Fix the cause and re-run this job to add the app."
+          } >> "$GITHUB_STEP_SUMMARY"

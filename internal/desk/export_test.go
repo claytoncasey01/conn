@@ -4,6 +4,5 @@ package desk
 const (
 	ProbeEvery       = probeEvery
 	ProbeFailuresMax = probeFailuresMax
-	ProbeTimeout     = probeTimeout
 	RestartsMax      = restartsInARowMax
 )

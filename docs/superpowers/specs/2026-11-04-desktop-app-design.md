@@ -74,17 +74,27 @@ older wording below.
   `SSH_AUTH_SOCK`, API keys, and so on). Nothing would work. At start the app runs the user's
   login shell (`$SHELL`) once and takes **every** variable from it, with no filtering by name:
   it starts from the app's own environment and each variable the shell reports replaces or adds
-  to it. The shell prints them with `env -0`, so values with newlines survive. The shell may be
-  fish, zsh or bash, so the builder picks the flags per shell, and the interactive startup files
-  must be read the way a terminal reads them, because that is where many people set theirs.
-  The run has a timeout and a limit on the output size, both named constants. If the shell fails
-  or times out, the app starts with what it has and says so in the splash, not silently. The
-  environment is built once and handed to the in-process server and to everything it starts,
-  never written to a log or a file. This keeps attach mode and own-server mode on the same data
+  to it. The shell runs the app's own binary with `--print-env`, which prints a start marker,
+  each `NAME=VALUE` followed by a NUL (so values with newlines survive), and an end marker after
+  the last entry. Fish, zsh, bash and sh all take the same flags (`-l -i -c`), so there is one
+  set, and the interactive startup files are read the way a terminal reads them, because that is
+  where many people set theirs. The run has a timeout and a limit on the output size, both named
+  constants. The environment between the two markers is used whenever both are there and the
+  output cap was not hit, however the shell ended: a job a profile leaves in the background
+  keeps the output open and fails the run after the environment was printed. If there is no
+  complete environment, the app starts with what it has and says so, not silently: on stderr, on
+  the splash and in a dialog that does not stop Conn, with a short reason only (exit code,
+  signal, time limit, output cap, no environment), never what the shell printed, because a
+  traced profile prints its exports. The splash is up while the shell runs; the environment is
+  set before the server starts. The environment is built once and handed to the in-process
+  server and to everything it starts, never written to a log or a file. This keeps attach mode and own-server mode on the same data
   folder as the CLI, so there is no second configuration source.
 - **When the server the window is on goes away**, the app runs the startup steps again: lock free
-  means it starts its own server and reloads; lock held means it attaches to the new holder;
-  neither working in a few seconds is a dialog. There is one rule for "which server", not a
+  means it starts its own server and reloads; lock held means it attaches to the new holder.
+  Six restarts in a row with no answered probe in between is a dialog, with no time window: a
+  server that hangs (holds the lock, accepts connections, never answers) makes each restart slow,
+  and a count over a minute would never fill. Only an answered probe resets the count, so an
+  owned server that ends by itself counts toward it however long it ran. There is one rule for "which server", not a
   separate watcher with its own states. The app notices by the page's event stream closing or a
   periodic request to `/api` failing; the builder picks.
 - **The port stays fixed** (see above). Falling back to another port would silently drop the
@@ -118,19 +128,23 @@ needs `local()` loosened comes back to the owner first.
 3. Closing the window hides it; the app and server keep running. Clicking the Dock icon opens
    the window again. Opening the app a second time does not start a second one.
 4. Quit (Cmd-Q, app menu): if the app owns the server, it shuts it down (the 2 s
-   `shutdownTimeout`) and releases the lock. Otherwise it only closes.
+   `app.ShutdownTimeout`) and releases the lock. Otherwise it only closes.
 5. `conn stop` works on an app that owns the server: it sends SIGTERM to the PID in the lock, and
    the app quits as if told to. A terminal `conn serve` while the app owns the server says
    "already running", as today.
 6. A failure before the window shows (data folder unreadable, port taken, another program on the
    lock) is a dialog that says what to do, not a silent exit.
+7. Links: Wails 3.1 on macOS answers neither WebKit's new-window request nor its navigation
+   policy, so the app adds both methods to Wails' window delegate class before the window is
+   made. A clicked link to the server's own origin stays in the window, any other http or https
+   address opens in the default browser, and any other scheme is refused (`desk.LinkTarget`).
 
 ## Release and install
 
 - The CLI archives (`conn_<os>_<arch>.tar.gz`) are built as today: pure Go, on Ubuntu.
 - The app is built in its own job on a macOS runner, because Wails needs cgo there. One
   universal bundle (see "Spike result (Task 1)"), zipped as an asset beside the CLI archives,
-  in `checksums.txt`.
+  with its own checksum file, `checksums-app.txt`, so each job uploads only its own files.
 - On Apple silicon a program must carry at least an ad-hoc signature to run, so the bundle is
   ad-hoc signed in the build. Developer ID signing and notarization is a later step on the same
   job (`codesign` with the identity, then `notarytool`), not a redesign.

@@ -27,6 +27,10 @@ const (
 	portMax     = 65535
 )
 
+// ShutdownTimeout is how long a stopping server gives open requests to finish before it closes
+// them. The app waits a little longer than this at quit, so it is exported.
+const ShutdownTimeout = 2 * time.Second
+
 // The HTTP server's limits. writeTimeout is 0 on purpose: a page's live-update stream stays open
 // for as long as the page does, and a write deadline would cut it.
 const (
@@ -34,7 +38,6 @@ const (
 	readTimeout       = 30 * time.Second
 	writeTimeout      = 0
 	idleTimeout       = 60 * time.Second
-	shutdownTimeout   = 2 * time.Second
 
 	// headerBytesMax is net/http's default (http.DefaultMaxHeaderBytes), set here so the limit is
 	// a decision in this file rather than a default nobody looked at.
@@ -82,7 +85,7 @@ func (s *Server) Err() error {
 }
 
 // Start takes the data folder's lock, loads settings, listens on Port(lookup), publishes
-// {PID, URL} in the lock and serves until ctx ends, then shuts down within shutdownTimeout.
+// {PID, URL} in the lock and serves until ctx ends, then shuts down within ShutdownTimeout.
 // It returns instance.ErrHeld (wrapped) when another Conn holds the folder, and a PortTakenError
 // when another program holds the port.
 func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Server, error) {
@@ -149,7 +152,7 @@ func listenAndPublish(
 }
 
 // serve serves on listener until ctx ends or the server stops by itself, then runs end and
-// closes Done. A server that outlives shutdownTimeout (a page's live-update stream) is closed.
+// closes Done. A server that outlives ShutdownTimeout (a page's live-update stream) is closed.
 func (s *Server) serve(
 	ctx context.Context, httpServer *http.Server, listener net.Listener, end func(),
 ) {
@@ -172,7 +175,7 @@ func (s *Server) serve(
 	case <-ctx.Done():
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownTimeout)
 	defer cancel()
 
 	err := httpServer.Shutdown(shutdownCtx)

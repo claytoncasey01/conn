@@ -68,20 +68,22 @@ sha256_of() {
 # program is not safe, and nothing has been changed yet at this point. Without pgrep there is
 # nothing to ask, so the check is skipped. The first letter is in brackets so that the pattern
 # does not match the command line of a process that merely holds it, such as this script run as
-# "sh -c" with the text in it.
+# "sh -c" with the text in it. The bundle's names come from scripts/build-app.sh, which makes it.
 app_is_running() {
 	command -v pgrep >/dev/null 2>&1 || return 0
 
 	if pgrep -f '[C]onn\.app/Contents/MacOS/conn-app' >/dev/null 2>&1; then
-		fail "Conn is running: quit Conn first (Cmd-Q, or conn stop) and run the installer again. Use --cli-only to update just the command-line tool. Nothing was installed."
+		fail "Conn is running: quit Conn first (Cmd-Q) and run the installer again. Use --cli-only to update just the command-line tool. Nothing was installed."
 	fi
 }
 
 # fetch_app downloads the app's zip and checks it against the release's checksums-app.txt, then
 # unpacks it into $scratch/app. It sets app_ready to "no" when the release has no app, which only
 # a 404 for checksums-app.txt means: any other failure (a network fault, a 5xx) is an error, so a
-# passing fault is not reported as a statement about the release. curl -f cannot tell these
-# apart, so the status is read from -w instead.
+# transient fault is not reported as a statement about the release. curl -f cannot tell these
+# apart, so the status is read from -w instead. The file names (Conn_darwin_universal.zip,
+# checksums-app.txt, Conn.app/Contents/MacOS/conn-app) are those scripts/build-app.sh writes, and
+# internal/installscript fails when the two disagree.
 fetch_app() {
 	app_zip=Conn_darwin_universal.zip
 	app_ready=no

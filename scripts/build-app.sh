@@ -3,6 +3,10 @@
 # holds one binary for Apple silicon and Intel, and checksums-app.txt over the zip. install.sh
 # downloads these.
 #
+# This script is where those names are decided: Conn_darwin_universal.zip, checksums-app.txt and
+# Conn.app/Contents/MacOS/conn-app. install.sh, .github/workflows/ci.yml and release.yml repeat
+# them, and internal/installscript fails when install.sh and this script disagree.
+#
 #   scripts/build-app.sh <out-folder>
 #
 # Run it on a Mac: the app is built with cgo, which needs the Xcode command line tools, and the
@@ -30,11 +34,13 @@ if [ ! -f dist/index.html ]; then
 	exit 1
 fi
 
-# bundle_version prints the numeric core of the VERSION file for CFBundleVersion: v1.2.3 and
-# v1.2.3-rc.1 give 1.2.3, and dev (or anything else that is not x.y.z) gives 0.0.0.
+# bundle_version prints the numeric core of the VERSION file for CFBundleVersion: v1.2.3,
+# v1.2.3-rc.1 and v1.2.3+build.5 give 1.2.3, and dev (or anything else that is not x.y.z) gives
+# 0.0.0.
 bundle_version() {
 	core=$(tr -d '[:space:]' <VERSION)
 	core=${core#v}
+	core=${core%%+*}
 	core=${core%%-*}
 	if printf '%s\n' "$core" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
 		echo "$core"
