@@ -47,7 +47,7 @@ tested on Linux too (the same split as `internal/desk`).
   redirects switched off. GitHub answers with a redirect whose `Location` ends in `/tag/<tag>`; the
   tag is read from that. No GitHub API, so no rate limit and no token, and it works the same as the
   installer (which only counts published releases that are not pre-releases).
-- **Is it newer?** `Newer(current, latest string) bool`: both must be `vMAJOR.MINOR.PATCH` (an
+- **Is it newer?** `newer(current, latest string) bool`: both must be `vMAJOR.MINOR.PATCH` (an
   optional `-rc1`-style suffix and `+build` are allowed; the numbers, of at most 9 digits, are
   compared as numbers, not text, and a suffix is compared only by being there or not). A current
   version that is not of that shape (`dev`, as in the repository's `VERSION` file) never checks at
@@ -55,7 +55,7 @@ tested on Linux too (the same split as `internal/desk`).
   offered, so a downgrade is never suggested.
 - **When.** `Run(ctx, deps)` takes its clock, request, asks and reporter as plain fields (`Fetch`,
   `After`, `Asked`, `Report`, with `Current`, the build's version), like `desk.Deps`, and returns
-  when the context ends. It waits `StartDelay` (10 s), checks, then waits `CheckEvery` (24 h) and
+  when the context ends. It waits `startDelay` (10 s), checks, then waits `checkEvery` (24 h) and
   checks again. A failed check is retried at the next interval, not sooner: there is no retry
   loop. One goroutine does all of it, so there is never a second request in flight.
 - **Limits, named as constants.** Request timeout `checkTimeout` (5 s), with shorter limits on
@@ -63,7 +63,7 @@ tested on Linux too (the same split as `internal/desk`).
   only for its status and `Location` header. Only a redirect status is read, with exactly one
   `Location`, capped at `locationBytesMax` (512), on the same scheme and host as the request, with
   no user, query or fragment, and a path that is the releases path plus `/tag/` plus a tag of at
-  most `tagBytesMax` (64) in the version shape. At most one request per `CheckEvery`, plus one each
+  most `tagBytesMax` (64) in the version shape. At most one request per `checkEvery`, plus one each
   time the user chooses the menu item; asks made while a check runs become at most one more check
   (the ask channel holds one).
 - **In the app.** `cmd/conn-app` starts `update.Run` (`update_darwin.go`) after the login shell's

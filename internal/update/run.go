@@ -46,7 +46,7 @@ type checker struct {
 	told string
 }
 
-// Run checks for a newer release StartDelay after it starts and every CheckEvery after the last
+// Run checks for a newer release startDelay after it starts and every checkEvery after the last
 // automatic check, and at once whenever Asked fires, until ctx ends. One goroutine does all of
 // it, so there is never a second request in flight: an ask made during a check waits for it.
 // A failed automatic check is reported and not retried before the next interval. A Current that
@@ -60,7 +60,7 @@ func Run(ctx context.Context, deps Deps) {
 	// A nil channel never fires, which is how a build with no version never checks by itself.
 	var automatic <-chan time.Time
 	if state.versioned {
-		automatic = deps.After(StartDelay)
+		automatic = deps.After(startDelay)
 	}
 
 	for {
@@ -75,7 +75,7 @@ func Run(ctx context.Context, deps Deps) {
 		case <-automatic:
 			state.check(ctx, false)
 
-			automatic = deps.After(CheckEvery)
+			automatic = deps.After(checkEvery)
 		case <-deps.Asked:
 			state.check(ctx, true)
 		}
@@ -107,7 +107,7 @@ func (state *checker) check(ctx context.Context, manual bool) {
 
 	if state.versioned {
 		latest, err := state.deps.Fetch(ctx)
-		result = Evaluate(state.deps.Current, latest, err)
+		result = evaluate(state.deps.Current, latest, err)
 	}
 
 	if ctx.Err() != nil {
@@ -127,7 +127,7 @@ func (state *checker) fresh(result Result, manual bool) bool {
 
 	news := state.told == ""
 	if !news {
-		news = Newer(state.told, result.Latest)
+		news = newer(state.told, result.Latest)
 	}
 
 	if news {

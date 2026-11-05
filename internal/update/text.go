@@ -55,8 +55,8 @@ type Notice struct {
 	Label string
 }
 
-// failureReason is a short, fixed reason for one kind of failed check.
-type failureReason struct {
+// failureRow is a short, fixed reason for one kind of failed check.
+type failureRow struct {
 	err    error
 	reason string
 }
@@ -66,23 +66,23 @@ const failureReasonDefault = "The check failed for an unexpected reason."
 
 // failureReasons maps what went wrong to what the person is told, first match wins. The reason
 // is fixed text, never the error's own, so nothing the server sent can reach the screen.
-func failureReasons() []failureReason {
+func failureReasons() []failureRow {
 	const noRelease = "GitHub's answer did not name a release."
 
-	return []failureReason{
+	return []failureRow{
 		{context.DeadlineExceeded, "GitHub did not answer in time."},
-		{ErrRequest, "Could not reach GitHub."},
-		{ErrBadBase, "The releases address in " + BaseVariable + " is not usable."},
-		{ErrStatus, noRelease},
-		{ErrNoRedirect, noRelease},
-		{ErrBadLocation, noRelease},
+		{errRequest, "Could not reach GitHub."},
+		{errBadBase, "The releases address in " + BaseVariable + " is not usable."},
+		{errStatus, noRelease},
+		{errNoRedirect, noRelease},
+		{errBadLocation, noRelease},
 		{errNotVersion, noRelease},
 		{errTagTooLong, noRelease},
 	}
 }
 
-// FailureReason is a short sentence saying why a check failed, chosen from fixed text.
-func FailureReason(err error) string {
+// failureReason is a short sentence saying why a check failed, chosen from fixed text.
+func failureReason(err error) string {
 	for _, row := range failureReasons() {
 		if errors.Is(err, row.err) {
 			return row.reason
@@ -92,19 +92,19 @@ func FailureReason(err error) string {
 	return failureReasonDefault
 }
 
-// AvailableLabel is the menu item's label once latest is known to be available.
-func AvailableLabel(latest string) string {
+// availableLabel is the menu item's label once latest is known to be available.
+func availableLabel(latest string) string {
 	return "Update Available: " + releaseTag(latest) + "…"
 }
 
-// OfferTitle is the title of the update offer.
-func OfferTitle(latest string) string {
+// offerTitle is the title of the update offer.
+func offerTitle(latest string) string {
 	return "Conn " + releaseTag(latest) + " is available"
 }
 
-// OfferMessage says what is available and what the person has, that Conn must be quit first,
+// offerMessage says what is available and what the person has, that Conn must be quit first,
 // and the command.
-func OfferMessage(current, latest string) string {
+func offerMessage(current, latest string) string {
 	return "Conn " + releaseTag(latest) + " is available (you have " + current + "). " +
 		"To update, quit Conn first, because the installer will not replace a running app. " +
 		"Then run this command in Terminal:\n\n" + Command
@@ -152,13 +152,13 @@ func tellAvailable(event Event, current string) Notice {
 		Title:   "",
 		Message: "",
 		Note:    "Conn " + latest + " is available (you have " + current + ")",
-		Label:   AvailableLabel(latest),
+		Label:   availableLabel(latest),
 	}
 
 	if event.Fresh {
 		notice.Dialog = DialogOffer
-		notice.Title = OfferTitle(latest)
-		notice.Message = OfferMessage(current, latest)
+		notice.Title = offerTitle(latest)
+		notice.Message = offerMessage(current, latest)
 	}
 
 	return notice
@@ -166,7 +166,7 @@ func tellAvailable(event Event, current string) Notice {
 
 // tellFailed notes the failure, and answers with it when asked.
 func tellFailed(event Event) Notice {
-	reason := FailureReason(event.Result.Err)
+	reason := failureReason(event.Result.Err)
 	notice := Notice{
 		Dialog: DialogNone, Title: "", Message: "", Label: "",
 		Note: "could not check for updates: " + reason,

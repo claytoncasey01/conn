@@ -21,11 +21,11 @@ const (
 	// Command installs the latest release. Conn only shows it; the person runs it.
 	Command = "curl -fsSL " + ReleasesURL + "/latest/download/install.sh | sh"
 
-	// StartDelay is how long the app runs before its first check, so a check never slows a start.
-	StartDelay = 10 * time.Second
+	// startDelay is how long the app runs before its first check, so a check never slows a start.
+	startDelay = 10 * time.Second
 
-	// CheckEvery is the time between two checks.
-	CheckEvery = 24 * time.Hour
+	// checkEvery is the time between two checks.
+	checkEvery = 24 * time.Hour
 )
 
 // versionDigitsMax is the most digits one number of a version may have, so it always fits an int.
@@ -99,11 +99,11 @@ func parse(tag string) (version, error) {
 	return parsed, nil
 }
 
-// Newer reports whether latest is a newer release than current. When either is not a version
+// newer reports whether latest is a newer release than current. When either is not a version
 // (a dev build, an empty tag, garbage) the answer is no, so a doubt never becomes an offer.
 // Pre-releases are compared only by presence, never by order: a release follows its own
 // pre-release, and one pre-release never follows another.
-func Newer(current, latest string) bool {
+func newer(current, latest string) bool {
 	currentVersion, err := parse(current)
 	if err != nil {
 		return false
@@ -132,9 +132,9 @@ func Newer(current, latest string) bool {
 	return latestVersion.preRelease == ""
 }
 
-// Evaluate turns what a check read into a Result. fetchErr is the error from reading the latest
+// evaluate turns what a check read into a Result. fetchErr is the error from reading the latest
 // tag, nil when it was read.
-func Evaluate(current, latest string, fetchErr error) Result {
+func evaluate(current, latest string, fetchErr error) Result {
 	_, err := parse(current)
 	if err != nil {
 		return Result{Kind: Unchecked, Latest: "", Err: nil}
@@ -157,7 +157,7 @@ func Evaluate(current, latest string, fetchErr error) Result {
 		return Result{Kind: Failed, Latest: "", Err: wrapped}
 	}
 
-	if Newer(current, latest) {
+	if newer(current, latest) {
 		return Result{Kind: Available, Latest: latest, Err: nil}
 	}
 
