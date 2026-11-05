@@ -989,7 +989,12 @@ func TestUpdateNoticeTextsAgreeWithTheInstaller(t *testing.T) {
 		want string
 	}{
 		{"install.sh header names the command", script, update.Command},
-		{"README install section names the command", readme, update.Command},
+		// On a line of its own, so the --cli-only variant, which starts with the same text,
+		// does not satisfy it.
+		{
+			"README install section names the command",
+			readme, "\n" + update.Command + "\n",
+		},
 		{
 			"install.sh header names the default address",
 			script, "(default: " + update.ReleasesURL + ")",
