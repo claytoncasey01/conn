@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/claytoncasey01/conn/internal/run"
 	"github.com/claytoncasey01/conn/internal/shellenv"
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
@@ -20,10 +21,15 @@ import (
 const shellRunsScript = "#!/bin/sh\nprintf 'welcome\\n'\nexec sh -c \"$4\"\n"
 
 // exePrintsEnvironment is a fake exe: the marker, then entries one of which holds a newline and
-// one the value of a variable the app's environment sets.
+// one the value of a variable the app's environment sets, then the end marker.
 const exePrintsEnvironment = "#!/bin/sh\n" +
 	"printf '\\000CONN-ENV\\000'\n" +
-	"printf 'B=9\\000C=line1\\nline2\\000SEEN=%s\\000junk\\000' \"$FROM_BASE\"\n"
+	"printf 'B=9\\000C=line1\\nline2\\000SEEN=%s\\000junk\\000' \"$FROM_BASE\"\n" +
+	"printf '\\000CONN-ENV-END\\000'\n"
+
+// tracedExport is what a shell prints to its error output for an export when its profile is
+// traced with set -x. No error Load gives may hold any of it.
+const tracedExport = "PROFILE_VALUE=do-not-show-this"
 
 // writeScript saves an executable script. Tests write every script before they run in parallel,
 // because a process forked while a script is open for writing makes running it fail with "text
@@ -53,40 +59,56 @@ func TestParse(t *testing.T) {
 		{
 			name: "entries after a banner",
 			output: "welcome\n" + shellenv.Marker +
-				"A=1\x00B=two words\x00C=line1\nline2\x00D=x=y\x00junk\x00=novalue\x00",
+				"A=1\x00B=two words\x00C=line1\nline2\x00D=x=y\x00junk\x00=novalue\x00" +
+				shellenv.MarkerEnd,
 			want: []string{"A=1", "B=two words", "C=line1\nline2", "D=x=y"},
 		},
 		{
 			name:   "an empty value is kept",
-			output: shellenv.Marker + "A=\x00",
+			output: shellenv.Marker + "A=\x00" + shellenv.MarkerEnd,
 			want:   []string{"A="},
 		},
 		{
 			name:   "an unfinished last entry is dropped",
-			output: shellenv.Marker + "A=1\x00B=2",
+			output: shellenv.Marker + "A=1\x00B=2" + shellenv.MarkerEnd,
 			want:   []string{"A=1"},
 		},
 		{
-			name:   "a terminal escape after the entries is dropped",
-			output: shellenv.Marker + "A=1\x00\x1b]7;file://host/p?x=y",
+			name:   "a terminal escape after the end marker is dropped",
+			output: shellenv.Marker + "A=1\x00" + shellenv.MarkerEnd + "\x1b]7;file://host/p?x=y",
 			want:   []string{"A=1"},
 		},
 		{
-			name:   "a logout message after the entries is dropped",
-			output: shellenv.Marker + "A=1\x00logout\n",
+			name:   "a logout message after the end marker is dropped",
+			output: shellenv.Marker + "A=1\x00" + shellenv.MarkerEnd + "logout\nB=2\x00",
 			want:   []string{"A=1"},
 		},
 		{
 			name:   "text with an equals sign and no entry before it is dropped",
-			output: shellenv.Marker + "x=y",
+			output: shellenv.Marker + "x=y" + shellenv.MarkerEnd,
 			want:   []string{},
 		},
 		{
-			name:   "a second marker is only text",
-			output: shellenv.Marker + "A=1\x00" + shellenv.Marker + "B=2\x00",
-			want:   []string{"A=1", "B=2"},
+			name: "a second marker is only text",
+			output: shellenv.Marker + "A=1\x00" + shellenv.Marker + "B=2\x00" +
+				shellenv.MarkerEnd,
+			want: []string{"A=1", "B=2"},
 		},
-		{name: "marker and nothing else", output: shellenv.Marker, want: []string{}},
+		{
+			name:   "the markers and nothing between",
+			output: shellenv.Marker + shellenv.MarkerEnd,
+			want:   []string{},
+		},
+		{
+			name:    "an environment cut short has no end marker",
+			output:  shellenv.Marker + "A=1\x00B=2\x00",
+			wantErr: shellenv.ErrNoEnvironment,
+		},
+		{
+			name:    "an end marker before the marker does not end it",
+			output:  shellenv.MarkerEnd + shellenv.Marker + "A=1\x00",
+			wantErr: shellenv.ErrNoEnvironment,
+		},
 		{name: "no marker", output: "welcome\nA=1\x00", wantErr: shellenv.ErrNoEnvironment},
 		{name: "no output", output: "", wantErr: shellenv.ErrNoEnvironment},
 	}
@@ -188,7 +210,9 @@ func TestArgs(t *testing.T) {
 func TestPrint(t *testing.T) {
 	t.Parallel()
 
-	environ := []string{"A=1", "B=two words", "C=line1\nline2"}
+	// Entries with no '=' or no name are not written: Parse would drop them.
+	environ := []string{"A=1", "junk", "B=two words", "=novalue", "C=line1\nline2"}
+	entries := []string{"A=1", "B=two words", "C=line1\nline2"}
 
 	var output bytes.Buffer
 
@@ -197,7 +221,7 @@ func TestPrint(t *testing.T) {
 		t.Fatalf("Print: %v", err)
 	}
 
-	want := shellenv.Marker + "A=1\x00B=two words\x00C=line1\nline2\x00"
+	want := shellenv.Marker + "A=1\x00B=two words\x00C=line1\nline2\x00" + shellenv.MarkerEnd
 	if output.String() != want {
 		t.Errorf("Print wrote %q, want %q", output.String(), want)
 	}
@@ -207,8 +231,8 @@ func TestPrint(t *testing.T) {
 		t.Fatalf("Parse of Print: %v", err)
 	}
 
-	if !slices.Equal(got, environ) {
-		t.Errorf("Parse of Print = %q, want %q", got, environ)
+	if !slices.Equal(got, entries) {
+		t.Errorf("Parse of Print = %q, want %q", got, entries)
 	}
 }
 
@@ -234,8 +258,9 @@ var errDisk = errors.New("disk full")
 func TestPrintStopsAtTheFirstWriteError(t *testing.T) {
 	t.Parallel()
 
-	// Writes accepted before the failure: none (the marker fails), one (an entry fails).
-	for _, writesMax := range []int{0, 1} {
+	// Writes accepted before the failure: none (the marker fails), one (an entry fails), three
+	// (the end marker fails).
+	for _, writesMax := range []int{0, 1, 3} {
 		writer := &failingWriter{writesMax: writesMax, writes: 0, err: errDisk}
 
 		err := shellenv.Print(writer, []string{"A=1", "B=2"})
@@ -251,12 +276,11 @@ func TestPrintStopsAtTheFirstWriteError(t *testing.T) {
 
 // loadCase is one row of TestLoad: a fake shell, the environment the app has, and what Load gives.
 type loadCase struct {
-	name          string
-	shellBody     string
-	base          []string
-	want          []string
-	wantErr       error
-	wantRunFailed bool
+	name      string
+	shellBody string
+	base      []string
+	want      []string
+	wantErr   error
 }
 
 // writeShells saves the fake shell of each case and returns their paths. A case with no body gets
@@ -276,17 +300,20 @@ func writeShells(t *testing.T, dir string, tests []loadCase) []string {
 	return shells
 }
 
-func TestLoad(t *testing.T) {
-	dir := t.TempDir()
-	exe := writeScript(t, dir, "fake conn app", exePrintsEnvironment)
+// loadCases are TestLoad's rows.
+func loadCases() []loadCase {
+	merged := []string{"A=1", "B=9", "FROM_BASE=kept", "C=line1\nline2", "SEEN=kept"}
+	base := []string{"A=1", "B=2", "FROM_BASE=kept"}
 
-	tests := []loadCase{
+	return []loadCase{
 		{
 			name: "the shell's entries merged over base", shellBody: shellRunsScript,
-			base: []string{"A=1", "B=2", "FROM_BASE=kept"},
-			want: []string{
-				"A=1", "B=9", "FROM_BASE=kept", "C=line1\nline2", "SEEN=kept",
-			},
+			base: base, want: merged, wantErr: nil,
+		},
+		{
+			name:      "a complete environment is used though the shell then exits 3",
+			shellBody: "#!/bin/sh\nsh -c \"$4\"\nexit 3\n",
+			base:      base, want: merged, wantErr: nil,
 		},
 		{
 			name: "the shell prints no environment", shellBody: "#!/bin/sh\nprintf 'hi\\n'\n",
@@ -294,14 +321,30 @@ func TestLoad(t *testing.T) {
 		},
 		{
 			name: "the shell exits 1", shellBody: "#!/bin/sh\nprintf 'hi\\n'\nexit 1\n",
-			base: []string{"A=1"}, want: []string{"A=1"}, wantRunFailed: true,
+			base: []string{"A=1"}, want: []string{"A=1"}, wantErr: shellenv.ErrShellFailed,
+		},
+		{
+			name:      "the shell's error output is never in the error",
+			shellBody: "#!/bin/sh\nprintf '+ export " + tracedExport + "\\n' >&2\nexit 1\n",
+			base:      []string{"A=1"}, want: []string{"A=1"}, wantErr: shellenv.ErrShellFailed,
+		},
+		{
+			name: "the shell prints more than the cap",
+			shellBody: fmt.Sprintf("#!/bin/sh\nhead -c %d /dev/zero\nexec sh -c \"$4\"\n",
+				shellenv.OutputBytesMax+1),
+			base: []string{"A=1"}, want: []string{"A=1"}, wantErr: shellenv.ErrOutputTooLarge,
 		},
 		{
 			name: "the shell is missing", shellBody: "",
-			base: []string{"A=1"}, want: []string{"A=1"}, wantRunFailed: true,
+			base: []string{"A=1"}, want: []string{"A=1"}, wantErr: shellenv.ErrShellFailed,
 		},
 	}
+}
 
+func TestLoad(t *testing.T) {
+	dir := t.TempDir()
+	exe := writeScript(t, dir, "fake conn app", exePrintsEnvironment)
+	tests := loadCases()
 	shells := writeShells(t, dir, tests)
 
 	t.Parallel()
@@ -316,24 +359,68 @@ func TestLoad(t *testing.T) {
 				t.Errorf("Load = %q, want %q", got, test.want)
 			}
 
-			var runErr *run.Error
-
-			if errors.As(err, &runErr) != test.wantRunFailed {
-				t.Errorf("Load error = %v, run failure expected: %v", err, test.wantRunFailed)
+			if !errors.Is(err, test.wantErr) {
+				t.Errorf("Load error = %v, want %v", err, test.wantErr)
 			}
 
-			if !test.wantRunFailed {
-				if !errors.Is(err, test.wantErr) {
-					t.Errorf("Load error = %v, want %v", err, test.wantErr)
-				}
+			if err != nil {
+				checkShort(t, err)
 			}
 		})
 	}
 }
 
+// checkShort fails the test when an error from Load holds what a shell printed, or is longer than
+// a short reason.
+func checkShort(t *testing.T, err error) {
+	t.Helper()
+
+	const reasonBytesMax = 200
+
+	if strings.Contains(err.Error(), tracedExport) {
+		t.Errorf("Load error %q holds the shell's error output", err)
+	}
+
+	if len(err.Error()) > reasonBytesMax {
+		t.Errorf("Load error is %d bytes, want at most %d", len(err.Error()), reasonBytesMax)
+	}
+}
+
+// TestLoadKeepsAnEnvironmentABackgroundJobHolds is a profile that leaves a job running in the
+// background with the shell's output open (cmd &, a plugin's update check): the run fails once
+// the output has stayed open too long, but the environment was printed whole and is used, and
+// the wait for the job is bounded.
+func TestLoadKeepsAnEnvironmentABackgroundJobHolds(t *testing.T) {
+	dir := t.TempDir()
+	shell := writeScript(t, dir, "shell with a job", "#!/bin/sh\nsleep 6 &\nexec sh -c \"$4\"\n")
+	exe := writeScript(t, dir, "fake conn app", exePrintsEnvironment)
+	base := []string{"A=1", "FROM_BASE=kept"}
+
+	t.Parallel()
+
+	started := time.Now()
+
+	got, err := shellenv.Load(context.Background(), shell, exe, base)
+	if err != nil {
+		t.Fatalf("Load error = %v, want the environment", err)
+	}
+
+	want := []string{"A=1", "FROM_BASE=kept", "B=9", "C=line1\nline2", "SEEN=kept"}
+	if !slices.Equal(got, want) {
+		t.Errorf("Load = %q, want %q", got, want)
+	}
+
+	if elapsed := time.Since(started); elapsed > testtime.Scaled(5*time.Second) {
+		t.Errorf("Load took %v, want it to wait for the job no longer than run's limit", elapsed)
+	}
+}
+
+// TestLoadStopsAShellThatNeverAnswers is a shell that starts the environment and then hangs, so
+// it never prints the end marker: it is stopped at the time limit and the environment is not used.
 func TestLoadStopsAShellThatNeverAnswers(t *testing.T) {
 	dir := t.TempDir()
-	shell := writeScript(t, dir, "slow shell", "#!/bin/sh\nprintf 'welcome\\n'\nexec sleep 60\n")
+	shell := writeScript(t, dir, "slow shell",
+		"#!/bin/sh\nprintf 'welcome\\n\\000CONN-ENV\\000B=9\\000'\nexec sleep 60\n")
 	exe := writeScript(t, dir, "fake conn app", exePrintsEnvironment)
 	base := []string{"A=1", "PATH=" + os.Getenv("PATH")}
 
@@ -344,15 +431,8 @@ func TestLoadStopsAShellThatNeverAnswers(t *testing.T) {
 	got, err := shellenv.LoadWith(
 		context.Background(), shell, exe, base, testtime.Scaled(200*time.Millisecond),
 	)
-
-	var runErr *run.Error
-
-	if !errors.As(err, &runErr) {
-		t.Fatalf("Load error = %v, want a run failure", err)
-	}
-
-	if !runErr.Killed {
-		t.Errorf("Load error = %v, want the shell killed", err)
+	if !errors.Is(err, shellenv.ErrTimedOut) {
+		t.Errorf("Load error = %v, want %v", err, shellenv.ErrTimedOut)
 	}
 
 	if !slices.Equal(got, base) {

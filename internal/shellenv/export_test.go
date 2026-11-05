@@ -8,6 +8,12 @@ import (
 // Marker is the text that starts the environment in the shell's output.
 const Marker = marker
 
+// MarkerEnd is the text that follows the last entry.
+const MarkerEnd = markerEnd
+
+// OutputBytesMax is the cap on what the shell may print.
+const OutputBytesMax = outputBytesMax
+
 // Script is the command the login shell is asked to run.
 const Script = script
 
