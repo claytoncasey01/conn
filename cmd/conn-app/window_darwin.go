@@ -50,6 +50,12 @@ type shell struct {
 	stopDesk context.CancelFunc
 	// deskDone is closed when desk.Run has returned.
 	deskDone chan struct{}
+
+	// updateItem is the app menu's Check for Updates…, changed only on the main thread.
+	updateItem *application.MenuItem
+	// updateAsks carries the menu item's asks to update.Run: a buffer of one, sent to without
+	// waiting, so asks made during a check become at most one more.
+	updateAsks chan struct{}
 }
 
 // run opens the window on the splash, then reads the login shell's environment and runs desk.Run
@@ -62,6 +68,7 @@ func run(proc process) int {
 	opened := &shell{
 		app: nil, window: nil, proc: proc, shown: atomic.Pointer[string]{},
 		stopDesk: stopDesk, deskDone: make(chan struct{}),
+		updateItem: nil, updateAsks: make(chan struct{}, 1),
 	}
 
 	// The links go in before the window is made; without them the app still works.
@@ -92,7 +99,9 @@ func run(proc process) int {
 	})
 
 	opened.keepInDock()
-	opened.app.Menu.Set(appMenu(opened.app))
+	bar := appMenu(opened.app, opened.updateAsks)
+	opened.updateItem = bar.updateItem
+	opened.app.Menu.Set(bar.menu)
 	opened.startDeskWhenReady(deskCtx)
 
 	err = opened.app.Run()
@@ -146,7 +155,8 @@ func (s *shell) startDeskWhenReady(ctx context.Context) {
 
 // runDesk reads the login shell's environment, then keeps the window on a live Conn until ctx
 // ends at quit, and closes deskDone. The environment is set before desk.Run, so the server and
-// what it starts inherit it.
+// what it starts inherit it, and before the update check, so its request goes through the
+// shell's proxy. The check runs on its own goroutine, which the quit does not wait for.
 func (s *shell) runDesk(ctx context.Context) {
 	defer close(s.deskDone)
 
@@ -160,6 +170,8 @@ func (s *shell) runDesk(ctx context.Context) {
 	if loadErr != nil {
 		s.tellEnvironmentFailed(loadErr.Error())
 	}
+
+	go s.runUpdates(ctx, s.proc.lookup)
 
 	err := desk.Run(ctx, s.deps(s.proc.lookup, s.proc.stderr))
 	if err != nil {
