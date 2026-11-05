@@ -33,6 +33,7 @@ var (
 	errNotOK                = errors.New("not a 200")
 	errStartedOnAHeldFolder = errors.New("start was called on a held folder")
 	errLockUnreadable       = errors.New("the lock file is unreadable")
+	errServing              = errors.New("accept tcp 127.0.0.1:7777: the listener failed")
 )
 
 // errHeldMeanwhile is what Start gives when another Conn took the folder after Run looked.
@@ -62,6 +63,20 @@ func TestDecide(t *testing.T) {
 				t.Errorf("Decide(%t, %q) = %v, want %v", tt.running, tt.holderURL, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestAddressWait is the wait for an address: whole polls, and never shorter than the limit.
+func TestAddressWait(t *testing.T) {
+	t.Parallel()
+
+	if desk.AddressWait() < desk.AddressWaitMax {
+		t.Errorf("the polls wait %s, want at least %s", desk.AddressWait(), desk.AddressWaitMax)
+	}
+
+	if desk.AddressWait() >= desk.AddressWaitMax+desk.ProbeEvery {
+		t.Errorf("the polls wait %s, want less than one poll more than %s",
+			desk.AddressWait(), desk.AddressWaitMax)
 	}
 }
 
@@ -97,6 +112,7 @@ type scenario struct {
 	cancelAfterProbes   int
 	endServerAfterOpens int
 	cancelOnWait        bool
+	startEndedWith      error
 	env                 map[string]string
 	cancel              context.CancelFunc
 
@@ -142,6 +158,14 @@ func (s *scenario) open(url string) {
 
 func (s *scenario) fail(message string) { s.failed = append(s.failed, message) }
 
+// startEnded is a server that has already ended with the scenario's error.
+func (s *scenario) startEnded() (*app.Server, error) {
+	server := app.Ended(deadURL, s.startEndedWith)
+	s.started = append(s.started, server)
+
+	return server, nil
+}
+
 // start is app.Start on a data folder of its own, so the server it gives is a real one, unless
 // the scenario says Start fails.
 func (s *scenario) start(ctx context.Context) (*app.Server, error) {
@@ -149,6 +173,10 @@ func (s *scenario) start(ctx context.Context) (*app.Server, error) {
 
 	index := min(s.starts, len(s.startErrs)-1)
 	s.starts++
+
+	if s.startEndedWith != nil {
+		return s.startEnded()
+	}
 
 	if index >= 0 {
 		if s.startErrs[index] != nil {
@@ -212,6 +240,7 @@ func TestRun(t *testing.T) {
 		cancelAfterProbes   int
 		endServerAfterOpens int
 		cancelOnWait        bool
+		startEndedWith      error
 		wantErr             error
 		wantOpened          []string
 		wantStarts          int
@@ -260,6 +289,14 @@ func TestRun(t *testing.T) {
 			replies: []reply{free()}, endServerAfterOpens: 1, cancelAfterOpens: 2, wantErr: nil,
 			wantOpened: []string{startedURL, startedURL}, wantStarts: 2, wantFails: 0,
 			wantStopped: true,
+		},
+		{
+			name:    "an owned server that keeps ending with an error is given up on, saying why",
+			replies: []reply{free()}, startEndedWith: errServing, cancelAfterOpens: 0,
+			wantErr:    desk.ErrGaveUp,
+			wantOpened: repeatedURLs(deadURL, desk.RestartsMax+1),
+			wantStarts: desk.RestartsMax + 1, wantFails: 1,
+			wantFailHas: []string{"ended with: " + errServing.Error(), deadURL},
 		},
 		{
 			name:    "a folder taken between the look and the start is looked at again",
@@ -314,8 +351,9 @@ func TestRun(t *testing.T) {
 				replies: tt.replies, probes: tt.probes, startErrs: tt.startErrs,
 				cancelAfterOpens: tt.cancelAfterOpens, cancelAfterProbes: tt.cancelAfterProbes,
 				endServerAfterOpens: tt.endServerAfterOpens, cancelOnWait: tt.cancelOnWait,
-				env: environment(t), cancel: cancel, asked: 0, probed: 0, starts: 0,
-				endServer: nil, opened: nil, started: nil, startDone: nil, failed: nil,
+				startEndedWith: tt.startEndedWith, env: environment(t), cancel: cancel,
+				asked: 0, probed: 0, starts: 0, endServer: nil, opened: nil, started: nil,
+				startDone: nil, failed: nil,
 			}
 
 			err := runBounded(ctx, t, cancel, world.deps())
@@ -360,8 +398,9 @@ func TestRunGivesUpOnAServerThatHangs(t *testing.T) {
 	world := &scenario{
 		replies: []reply{held(deadURL)}, probes: []error{errNoAnswer}, startErrs: nil,
 		cancelAfterOpens: opensMax, cancelAfterProbes: 0, endServerAfterOpens: 0,
-		cancelOnWait: false, env: environment(t), cancel: cancel, asked: 0, probed: 0,
-		starts: 0, endServer: nil, opened: nil, started: nil, startDone: nil, failed: nil,
+		cancelOnWait: false, startEndedWith: nil, env: environment(t), cancel: cancel,
+		asked: 0, probed: 0, starts: 0, endServer: nil, opened: nil, started: nil,
+		startDone: nil, failed: nil,
 	}
 
 	clock := &slowClock{elapsed: 0}

@@ -39,39 +39,40 @@ const (
 	restartsInARowMax = 5
 )
 
-// addressPolls is how many times the window looks at the lock while it waits for an address.
-const addressPolls = int(addressWaitMax / probeEvery)
+// addressPolls is how many times the window looks at the lock while it waits for an address: the
+// wait is rounded up to a whole number of polls, so it is never shorter than addressWaitMax.
+const addressPolls = int((addressWaitMax + probeEvery - 1) / probeEvery)
 
-// ErrGaveUp is a window that started over more than restartsInARowMax times in a row with no
+// errGaveUp is a window that started over more than restartsInARowMax times in a row with no
 // answer from a Conn in between.
-var ErrGaveUp = errors.New("conn keeps stopping")
+var errGaveUp = errors.New("conn keeps stopping")
 
-// Action is what the window does about the data folder.
-type Action int
+// action is what the window does about the data folder.
+type action int
 
 // The three things a window does, by who holds the data folder.
 const (
-	// Own is to start a Conn, because nobody holds the folder.
-	Own Action = iota
-	// Attach is to show the Conn that holds the folder.
-	Attach
-	// WaitForAddress is to wait for the Conn that holds the folder to say where it listens.
-	WaitForAddress
+	// ownAction is to start a Conn, because nobody holds the folder.
+	ownAction action = iota
+	// attachAction is to show the Conn that holds the folder.
+	attachAction
+	// waitForAddressAction is to wait for the Conn that holds the folder to say where it listens.
+	waitForAddressAction
 )
 
-// Decide is what to do given whether a Conn holds the folder and the address it wrote: a free
+// decide is what to do given whether a Conn holds the folder and the address it wrote: a free
 // lock is ours to take, a lock held with an address is one to attach to, and a lock held without
 // one yet is one to wait on.
-func Decide(running bool, holderURL string) Action {
+func decide(running bool, holderURL string) action {
 	if !running {
-		return Own
+		return ownAction
 	}
 
 	if holderURL == "" {
-		return WaitForAddress
+		return waitForAddressAction
 	}
 
-	return Attach
+	return attachAction
 }
 
 // Deps is everything Run touches outside itself.
@@ -102,12 +103,15 @@ const (
 	restarted
 )
 
-// session is the state of one Run: its Deps, the address it showed last, and how many times it
-// has started over since a Conn last answered a probe.
+// session is the state of one Run: its Deps, the address it showed last, how many times it has
+// started over since a Conn last answered a probe, and why the server of the latest pass ended.
 type session struct {
 	deps           Deps
 	lastURL        string
 	restartsInARow int
+	// serverErr is the error the owned server of the latest pass ended with, or nil when that
+	// pass did not end that way (or the server ended cleanly).
+	serverErr error
 }
 
 // Run opens the window and keeps it on a live server until ctx ends. When nobody holds the data
@@ -116,14 +120,14 @@ type session struct {
 // and probeFailuresMax in a row starts over from the top, as does an owned server that ends by
 // itself. Only an answered probe resets the count of restarts, so an owned server that ends by
 // itself counts toward it however long it ran. More than restartsInARowMax restarts in a row is
-// Fail and an error wrapping ErrGaveUp. An attached window never stops the server it attached to.
+// Fail and an error wrapping errGaveUp. An attached window never stops the server it attached to.
 //
 // The restart count bounds the passes: each pass that does not end Run counts toward it, and only
 // a pass that got an answer, and so waited at least probeEvery, resets it.
 func Run(ctx context.Context, deps Deps) error {
 	requireDeps(deps)
 
-	running := &session{deps: deps, lastURL: "", restartsInARow: 0}
+	running := &session{deps: deps, lastURL: "", restartsInARow: 0, serverErr: nil}
 
 	for {
 		outcome, err := running.pass(ctx)
@@ -179,21 +183,23 @@ func (s *session) pass(ctx context.Context) (result, error) {
 		return finished, nil
 	}
 
+	s.serverErr = nil
+
 	holder, running, err := s.deps.Holder()
 	if err != nil {
 		return finished, s.failWith("Conn could not check its data folder", err)
 	}
 
-	switch Decide(running, holder.URL) {
-	case Own:
+	switch decide(running, holder.URL) {
+	case ownAction:
 		return s.own(ctx)
-	case Attach:
+	case attachAction:
 		return s.attach(ctx, holder.URL)
-	case WaitForAddress:
+	case waitForAddressAction:
 		return s.waitForAddress(ctx)
 	}
 
-	panic("desk.pass: Decide gave an action this switch does not know")
+	panic("desk.pass: decide gave an action this switch does not know")
 }
 
 // own starts a Conn, shows it, and keeps it until ctx ends or it ends by itself.
@@ -220,6 +226,9 @@ func (s *session) own(ctx context.Context) (result, error) {
 		if ended(ctx) {
 			return finished, nil
 		}
+
+		// Err is read only after Done, as it must be, and is kept for the message if Run gives up.
+		s.serverErr = server.Err()
 
 		return restarted, nil
 	}
@@ -294,7 +303,7 @@ func (s *session) waitForAddress(ctx context.Context) (result, error) {
 			return finished, s.failWith("Conn could not check its data folder", err)
 		}
 
-		if Decide(running, holder.URL) != WaitForAddress {
+		if decide(running, holder.URL) != waitForAddressAction {
 			return restarted, nil
 		}
 	}
@@ -310,19 +319,28 @@ func (s *session) failWith(what string, err error) error {
 }
 
 // giveUp tells the person that the window has started over too many times, and says where it was
-// last pointed. It does not say why each restart happened (a Conn that stopped, that never
-// answered, or that took the folder first), because the count does not keep it.
+// last pointed and, when an owned server's end was the cause of the last restart, why it ended.
+// It does not say why each earlier restart happened (a Conn that stopped, that never answered,
+// or that took the folder first), because the count does not keep it.
 func (s *session) giveUp() error {
 	last := s.lastURL
 	if last == "" {
 		last = "no address yet"
 	}
 
+	sentence, clause := "", ""
+
+	if s.serverErr != nil {
+		ended := shortReason(s.serverErr.Error())
+		sentence = " The Conn it started last ended with: " + ended + "."
+		clause = ", the last Conn ended with: " + ended
+	}
+
 	s.deps.Fail(fmt.Sprintf(
 		"Conn could not be kept open: this window started over %d times in a row without an "+
-			"answer from Conn, so it gave up. It was last on %s.",
-		s.restartsInARow, last))
+			"answer from Conn, so it gave up. It was last on %s.%s",
+		s.restartsInARow, last, sentence))
 
-	return fmt.Errorf("%w: %d restarts in a row with no answer, last on %s",
-		ErrGaveUp, s.restartsInARow, last)
+	return fmt.Errorf("%w: %d restarts in a row with no answer, last on %s%s",
+		errGaveUp, s.restartsInARow, last, clause)
 }
