@@ -76,9 +76,12 @@ func (s *shell) tellUpdates(ctx context.Context, events <-chan update.Event, cur
 }
 
 // tellUpdate notes the outcome on stderr, relabels the menu item on the main thread, and shows
-// the dialog on its own goroutine, because Show waits for the dialog to be dismissed. Once ctx
-// has ended the app is quitting, and an outcome queued meanwhile is dropped: the main thread
-// may be the one waiting for the quit, so nothing is asked of it then.
+// the dialog. In Wails v3.1.0 Show waits only until the main thread has queued the dialog, as
+// SetLabel waits for the main thread, and returns before the dialog is dismissed, so it is called
+// here and not on a goroutine of its own: the dialogs keep the order of the outcomes, and none
+// outlives the bounded queue. Once ctx has ended the app is quitting, and an outcome queued
+// meanwhile is dropped: the main thread may be the one waiting for the quit, so nothing is asked
+// of it then.
 func (s *shell) tellUpdate(ctx context.Context, event update.Event, current string) {
 	if ctx.Err() != nil {
 		return
@@ -107,7 +110,7 @@ func (s *shell) tellUpdate(ctx context.Context, event update.Event, current stri
 		return
 	}
 
-	go dialog.Show()
+	dialog.Show()
 }
 
 // updateDialog is the dialog notice asks for, or nil for none. The offer's buttons run on the
