@@ -59,6 +59,9 @@ type world struct {
 	// appReplies are AppAttached's answers in order, repeating the last; none means attached.
 	appReplies []appReply
 	appTags    chan string
+	// appHeld, when set, makes AppAttached wait for its context to end, as a request that never
+	// answers does.
+	appHeld bool
 
 	calls    atomic.Int32
 	appCalls atomic.Int32
@@ -81,6 +84,7 @@ func newWorld(t *testing.T, gated bool, replies ...reply) *world {
 		asked:      make(chan struct{}, 1),
 		appReplies: nil,
 		appTags:    make(chan string, channelSlots),
+		appHeld:    false,
 		calls:      atomic.Int32{},
 		appCalls:   atomic.Int32{},
 		inFlight:   atomic.Int32{},
@@ -144,9 +148,15 @@ func (w *world) fetch(ctx context.Context) (string, error) {
 	return answer.latest, answer.err
 }
 
-func (w *world) appAttached(_ context.Context, tag string) (bool, error) {
+func (w *world) appAttached(ctx context.Context, tag string) (bool, error) {
 	call := int(w.appCalls.Add(1))
 	w.appTags <- tag
+
+	if w.appHeld {
+		<-ctx.Done()
+
+		return false, fmt.Errorf("app question ended: %w", context.Cause(ctx))
+	}
 
 	if len(w.appReplies) == 0 {
 		return true, nil
@@ -706,6 +716,23 @@ func TestRunReturnsWhenItsContextEnds(t *testing.T) {
 				t.Errorf("fetches still running = %d, want 0", world.inFlight.Load())
 			}
 		})
+	}
+}
+
+func TestRunEndedDuringAnAppQuestionReportsNothing(t *testing.T) {
+	t.Parallel()
+
+	world := newWorld(t, false, reply{latest: "v1.1.0", err: nil})
+	world.appHeld = true
+	run := start(t, world.deps("v1.0.0"))
+
+	world.nextTimer().fire <- time.Time{}
+
+	receive(t, world.appTags, "an app question")
+	run.stop()
+
+	if len(world.events) != 0 {
+		t.Errorf("%d reports after the context ended, want none", len(world.events))
 	}
 }
 
