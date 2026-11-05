@@ -253,6 +253,8 @@ type outcome struct {
 	output string
 	failed bool
 	home   string
+	// curlCalls is the arguments of each call of curl, one string a call.
+	curlCalls []string
 }
 
 // writeTool puts a fake command first on the PATH of a run.
@@ -265,17 +267,43 @@ func writeTool(t *testing.T, folder, name, body string) {
 	}
 }
 
-// fakePgrep answers like pgrep -f: it prints a pid when the pattern, read as an extended regular
-// expression, matches a line of $FAKE_PS (the process list a test supplies), and exits 1
-// otherwise.
+// fakePgrep answers like pgrep -u UID -f PATTERN: it prints a pid when the pattern, read as an
+// extended regular expression, matches the command of a line of $FAKE_PS (the process list a test
+// supplies, one "UID COMMAND" a line) whose UID is the one asked for, and exits 1 otherwise. It
+// exits 2 when it is not asked about one user, as the real one matches every user's processes
+// then.
 const fakePgrep = `#!/bin/sh
-[ "$1" = -f ] || exit 2
-if printf '%s\n' "${FAKE_PS:-}" | grep -E -- "$2" >/dev/null; then
+[ "$1" = -u ] || exit 2
+[ "$3" = -f ] || exit 2
+if printf '%s\n' "${FAKE_PS:-}" | grep -E -- "^$2 .*$4" >/dev/null; then
 	echo 4242
 	exit 0
 fi
 exit 1
 `
+
+// fakeMv is mv, except that it fails when a test asks: FAKE_MV_FAILS is a comma-separated list
+// holding "new" to fail moving the staged bundle into place, and "restore" to fail moving the old
+// bundle back.
+const fakeMv = `#!/bin/sh
+fails=",${FAKE_MV_FAILS:-},"
+case "$1" in
+*/.Conn.app.new.*) case $fails in *,new,*) exit 1 ;; esac ;;
+*/.Conn.app.old.*) case $fails in *,restore,*) exit 1 ;; esac ;;
+esac
+exec /bin/mv "$@"
+`
+
+// fakeCurl writes the arguments of each call to $FAKE_CURL_LOG, then is the real curl.
+const fakeCurl = `#!/bin/sh
+printf '%s\n' "$*" >> "$FAKE_CURL_LOG"
+exec "$REAL_CURL" "$@"
+`
+
+// process is a line of the process list a test gives fakePgrep: who runs which command.
+func process(uid int, command string) string {
+	return fmt.Sprintf("%d %s", uid, command)
+}
 
 // run runs install.sh with a fresh HOME, a fake uname answering os and machine, a fake pgrep
 // and extra environment as KEY=value pairs.
@@ -297,6 +325,15 @@ func runWith(
 	writeTool(t, tools, "uname", "#!/bin/sh\ncase \"$1\" in\n-s) echo "+osName+" ;;\n-m) echo "+
 		machine+" ;;\nesac\n")
 	writeTool(t, tools, "pgrep", fakePgrep)
+	writeTool(t, tools, "mv", fakeMv)
+	writeTool(t, tools, "curl", fakeCurl)
+
+	realCurl, err := exec.LookPath("curl")
+	if err != nil {
+		t.Skip("curl is not on PATH, so install.sh cannot run")
+	}
+
+	curlLog := filepath.Join(tools, "curl calls")
 
 	ctx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(runTimeout))
 	defer cancel()
@@ -306,11 +343,24 @@ func runWith(
 	command.Env = append([]string{
 		"HOME=" + home, "PATH=" + tools + ":" + os.Getenv("PATH"),
 		"CONN_INSTALL_BASE=" + fake.server.URL,
+		"REAL_CURL=" + realCurl, "FAKE_CURL_LOG=" + curlLog,
 	}, extra...)
 
 	combined, err := command.CombinedOutput()
 
-	return outcome{output: string(combined), failed: err != nil, home: home}
+	return outcome{
+		output: string(combined), failed: err != nil, home: home, curlCalls: callsIn(curlLog),
+	}
+}
+
+// callsIn is the lines of the log of calls, or none when nothing was logged.
+func callsIn(log string) []string {
+	text, err := os.ReadFile(log)
+	if err != nil {
+		return nil
+	}
+
+	return strings.Split(strings.TrimSpace(string(text)), "\n")
 }
 
 func TestInstallsTheLatestRelease(t *testing.T) {
@@ -554,7 +604,7 @@ func TestInstallsTheAppOnMacOSByDefault(t *testing.T) {
 	fake := macRelease(t)
 
 	// The process list holds only the installer itself, which must not look like a running Conn.
-	got := run(t, fake, "Darwin", "arm64", "FAKE_PS=sh ../../install.sh")
+	got := run(t, fake, "Darwin", "arm64", "FAKE_PS="+process(os.Getuid(), "sh ../../install.sh"))
 	if got.failed {
 		t.Fatalf("install failed: %s", got.output)
 	}
@@ -614,7 +664,7 @@ func TestCLIOnlyLeavesTheAppAlone(t *testing.T) {
 	folder := appFolder(t)
 
 	got := runWith(t, fake, "Darwin", "arm64", []string{"--cli-only"},
-		[]string{"CONN_INSTALL_APP_DIR=" + folder, "FAKE_PS=" + runningApp})
+		[]string{"CONN_INSTALL_APP_DIR=" + folder, "FAKE_PS=" + process(os.Getuid(), runningApp)})
 	if got.failed {
 		t.Fatalf("install failed: %s", got.output)
 	}
@@ -756,13 +806,11 @@ func TestABadAppFailsAndKeepsTheCLI(t *testing.T) {
 	}
 }
 
-// plantApp puts an app in folder whose program holds content, and returns the bundle's path.
-func plantApp(t *testing.T, folder, content string) string {
+// plantApp puts an app in folder whose program holds content.
+func plantApp(t *testing.T, folder, content string) {
 	t.Helper()
 
-	bundle := filepath.Join(folder, "Conn.app")
-
-	err := os.MkdirAll(filepath.Join(bundle, "Contents", "MacOS"), 0o700)
+	err := os.MkdirAll(filepath.Join(folder, "Conn.app", "Contents", "MacOS"), 0o700)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -771,8 +819,6 @@ func plantApp(t *testing.T, folder, content string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	return bundle
 }
 
 func TestARunningAppStopsTheInstallBeforeAnythingChanges(t *testing.T) {
@@ -784,7 +830,7 @@ func TestARunningAppStopsTheInstallBeforeAnythingChanges(t *testing.T) {
 	plantApp(t, folder, "the app that is running")
 
 	got := run(t, fake, "Darwin", "arm64",
-		"CONN_INSTALL_APP_DIR="+folder, "FAKE_PS="+runningApp)
+		"CONN_INSTALL_APP_DIR="+folder, "FAKE_PS="+process(os.Getuid(), runningApp))
 	if !got.failed {
 		t.Fatalf("install succeeded, want it to fail:\n%s", got.output)
 	}
@@ -814,6 +860,26 @@ func TestARunningAppStopsTheInstallBeforeAnythingChanges(t *testing.T) {
 
 	if len(leftovers) != 0 {
 		t.Errorf("temp files left behind: %v", leftovers)
+	}
+}
+
+// TestAnotherUsersRunningAppDoesNotStopTheInstall is a Conn.app another account runs on the same
+// machine: it is another bundle, so only this user's processes count.
+func TestAnotherUsersRunningAppDoesNotStopTheInstall(t *testing.T) {
+	t.Parallel()
+	needUnzip(t)
+
+	fake := macRelease(t)
+	folder := appFolder(t)
+
+	got := run(t, fake, "Darwin", "arm64",
+		"CONN_INSTALL_APP_DIR="+folder, "FAKE_PS="+process(os.Getuid()+1, runningApp))
+	if got.failed {
+		t.Fatalf("install failed: %s", got.output)
+	}
+
+	if !exists(filepath.Join(folder, appBinary)) {
+		t.Errorf("the app is not installed:\n%s", got.output)
 	}
 }
 
@@ -968,6 +1034,165 @@ func TestInstallAndBuildAgreeOnTheAppNames(t *testing.T) {
 		for _, name := range names {
 			if !strings.Contains(text, name) {
 				t.Errorf("%s does not name %q", script, name)
+			}
+		}
+	}
+}
+
+// whereTheOldAppIs is where a failed install leaves the app that was there before it.
+type whereTheOldAppIs int
+
+const (
+	// nowhere is no old app at all: there was none.
+	nowhere whereTheOldAppIs = iota
+	// backInPlace is the old app at Conn.app again.
+	backInPlace
+	// asideInTheFolder is the old app under a name of its own beside Conn.app: it could not be put
+	// back, and it must not be deleted.
+	asideInTheFolder
+)
+
+// TestAFailedMoveIntoPlaceSaysWhatBecameOfTheOldApp is the last step of the app's install failing:
+// the message must say whether the old app was put back, and the old app is never lost.
+func TestAFailedMoveIntoPlaceSaysWhatBecameOfTheOldApp(t *testing.T) {
+	t.Parallel()
+	needUnzip(t)
+
+	tests := []struct {
+		name    string
+		oldApp  bool
+		mvFails string
+		want    string
+		wantNot string
+		wantOld whereTheOldAppIs
+	}{
+		{
+			name: "the old app is put back", oldApp: true, mvFails: "new",
+			want: "the old one was put back", wantNot: "could not be put back",
+			wantOld: backInPlace,
+		},
+		{
+			name: "the old app cannot be put back", oldApp: true, mvFails: "new,restore",
+			want: "the old one could not be put back", wantNot: "was put back",
+			wantOld: asideInTheFolder,
+		},
+		{
+			name: "there was no old app", oldApp: false, mvFails: "new",
+			want: "could not move the app into", wantNot: "put back",
+			wantOld: nowhere,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := macRelease(t)
+			folder := appFolder(t)
+
+			if tt.oldApp {
+				plantApp(t, folder, "the old app")
+			}
+
+			got := run(t, fake, "Darwin", "arm64",
+				"CONN_INSTALL_APP_DIR="+folder, "FAKE_MV_FAILS="+tt.mvFails)
+			if !got.failed {
+				t.Fatalf("install succeeded, want it to fail:\n%s", got.output)
+			}
+
+			if !strings.Contains(got.output, tt.want) {
+				t.Errorf("output lacks %q:\n%s", tt.want, got.output)
+			}
+
+			if strings.Contains(got.output, tt.wantNot) {
+				t.Errorf("output holds %q:\n%s", tt.wantNot, got.output)
+			}
+
+			checkOldApp(t, folder, tt.wantOld)
+		})
+	}
+}
+
+// checkOldApp fails the test unless the old app is where it should be, and nothing but the old
+// app (never the staged new one) is left beside it.
+func checkOldApp(t *testing.T, folder string, want whereTheOldAppIs) {
+	t.Helper()
+
+	aside, err := filepath.Glob(filepath.Join(folder, ".Conn.app.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	switch want {
+	case nowhere:
+		checkNoApp(t, folder, aside)
+	case backInPlace:
+		checkAppBack(t, folder, aside)
+	case asideInTheFolder:
+		checkAppAside(t, aside)
+	}
+}
+
+func checkNoApp(t *testing.T, folder string, aside []string) {
+	t.Helper()
+
+	if exists(filepath.Join(folder, "Conn.app")) {
+		t.Error("the folder holds a Conn.app")
+	}
+
+	if len(aside) != 0 {
+		t.Errorf("temp files left behind: %v", aside)
+	}
+}
+
+func checkAppBack(t *testing.T, folder string, aside []string) {
+	t.Helper()
+
+	if got := readText(t, filepath.Join(folder, appBinary)); got != "the old app" {
+		t.Errorf("the app in place = %q, want the old one", got)
+	}
+
+	if len(aside) != 0 {
+		t.Errorf("temp files left behind: %v", aside)
+	}
+}
+
+func checkAppAside(t *testing.T, aside []string) {
+	t.Helper()
+
+	if len(aside) != 1 {
+		t.Fatalf("the folder holds %v beside Conn.app, want only the old app", aside)
+	}
+
+	kept := readText(t, filepath.Join(aside[0], "Contents", "MacOS", "conn-app"))
+	if kept != "the old app" {
+		t.Errorf("the app set aside = %q, want the old one", kept)
+	}
+}
+
+// TestEveryDownloadHasTimeLimits fails when a call of curl in a full install has no limit on
+// connecting or on the whole transfer.
+func TestEveryDownloadHasTimeLimits(t *testing.T) {
+	t.Parallel()
+	needUnzip(t)
+
+	fake := macRelease(t)
+
+	got := run(t, fake, "Darwin", "arm64", "CONN_INSTALL_APP_DIR="+appFolder(t))
+	if got.failed {
+		t.Fatalf("install failed: %s", got.output)
+	}
+
+	// The latest tag, the archive, its checksums, the app's checksums and the app.
+	const callsMin = 5
+	if len(got.curlCalls) < callsMin {
+		t.Fatalf("curl was called %d times, want at least %d: %q",
+			len(got.curlCalls), callsMin, got.curlCalls)
+	}
+
+	for _, call := range got.curlCalls {
+		for _, flag := range []string{"--connect-timeout ", "--max-time "} {
+			if !strings.Contains(call, flag) {
+				t.Errorf("curl %s has no %s", call, strings.TrimSpace(flag))
 			}
 		}
 	}

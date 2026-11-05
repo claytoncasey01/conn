@@ -19,6 +19,14 @@
 # script.
 set -eu
 
+# Limits on every download, in seconds, so a server that stops answering is an error and not a
+# wait without end. Connecting must take less than connect_seconds_max. A whole transfer must take
+# less than small_seconds_max for a redirect or a checksums file, and download_seconds_max for an
+# archive or the app.
+connect_seconds_max=20
+small_seconds_max=60
+download_seconds_max=600
+
 fail() {
 	printf 'install: %s\n' "$1" >&2
 	exit 1
@@ -43,7 +51,8 @@ platform() {
 
 # latest_tag prints the tag the latest release has: the address /latest redirects to ends in it.
 latest_tag() {
-	final=$(curl -fsSL -o /dev/null -w '%{url_effective}' "$1/latest") ||
+	final=$(curl -fsSL --connect-timeout "$connect_seconds_max" --max-time "$small_seconds_max" \
+		-o /dev/null -w '%{url_effective}' "$1/latest") ||
 		fail "could not find the latest release at $1/latest"
 	tag=${final##*/}
 
@@ -64,15 +73,16 @@ sha256_of() {
 	fi
 }
 
-# app_is_running stops the install when Conn.app is running: replacing a bundle under a running
-# program is not safe, and nothing has been changed yet at this point. Without pgrep there is
-# nothing to ask, so the check is skipped. The first letter is in brackets so that the pattern
+# app_is_running stops the install when Conn.app is running for this user: replacing a bundle under
+# a running program is not safe, and nothing has been changed yet at this point. Another user's
+# Conn.app is another bundle in another folder, so only this user's processes are asked about.
+# Without pgrep there is nothing to ask, so the check is skipped. The first letter is in brackets so that the pattern
 # does not match the command line of a process that merely holds it, such as this script run as
 # "sh -c" with the text in it. The bundle's names come from scripts/build-app.sh, which makes it.
 app_is_running() {
 	command -v pgrep >/dev/null 2>&1 || return 0
 
-	if pgrep -f '[C]onn\.app/Contents/MacOS/conn-app' >/dev/null 2>&1; then
+	if pgrep -u "$(id -u)" -f '[C]onn\.app/Contents/MacOS/conn-app' >/dev/null 2>&1; then
 		fail "Conn is running: quit Conn first (Cmd-Q) and run the installer again. Use --cli-only to update just the command-line tool. Nothing was installed."
 	fi
 }
@@ -90,7 +100,8 @@ fetch_app() {
 
 	sums_url=$base/download/$tag/checksums-app.txt
 	tool_note="the command-line tool is installed; the app was not"
-	code=$(curl -sSL -o "$scratch/checksums-app.txt" -w '%{http_code}' "$sums_url") ||
+	code=$(curl -sSL --connect-timeout "$connect_seconds_max" --max-time "$small_seconds_max" \
+		-o "$scratch/checksums-app.txt" -w '%{http_code}' "$sums_url") ||
 		fail "could not download $sums_url ($tool_note)"
 
 	case $code in
@@ -106,7 +117,8 @@ fetch_app() {
 	command -v unzip >/dev/null 2>&1 ||
 		fail "unzip is required to install the app ($tool_note; use --cli-only to skip the app)"
 
-	curl -fsSL -o "$scratch/$app_zip" "$base/download/$tag/$app_zip" ||
+	curl -fsSL --connect-timeout "$connect_seconds_max" --max-time "$download_seconds_max" \
+		-o "$scratch/$app_zip" "$base/download/$tag/$app_zip" ||
 		fail "could not download $base/download/$tag/$app_zip"
 
 	want=$(awk -v name="$app_zip" '$2 == name { print $1 }' "$scratch/checksums-app.txt")
@@ -146,9 +158,11 @@ place_app() {
 
 	if ! mv "$staged" "$app_dir/Conn.app"; then
 		rm -rf "$staged"
-		if [ -e "$old" ]; then
-			mv "$old" "$app_dir/Conn.app"
-		fi
+		# With no old app there is nothing to put back. The old one is left where it is when it
+		# cannot be put back, so that it is not lost.
+		[ -e "$old" ] || fail "could not move the app into $app_dir"
+		mv "$old" "$app_dir/Conn.app" ||
+			fail "could not move the app into $app_dir, and the old one could not be put back: it is at $old"
 		fail "could not move the app into $app_dir: the old one was put back"
 	fi
 
@@ -204,9 +218,11 @@ main() {
 
 	printf 'Installing conn %s for %s/%s\n' "$tag" "$os" "$arch"
 
-	curl -fsSL -o "$scratch/$archive" "$base/download/$tag/$archive" ||
+	curl -fsSL --connect-timeout "$connect_seconds_max" --max-time "$download_seconds_max" \
+		-o "$scratch/$archive" "$base/download/$tag/$archive" ||
 		fail "could not download $base/download/$tag/$archive"
-	curl -fsSL -o "$scratch/checksums.txt" "$base/download/$tag/checksums.txt" ||
+	curl -fsSL --connect-timeout "$connect_seconds_max" --max-time "$small_seconds_max" \
+		-o "$scratch/checksums.txt" "$base/download/$tag/checksums.txt" ||
 		fail "could not download $base/download/$tag/checksums.txt"
 
 	want=$(awk -v name="$archive" '$2 == name { print $1 }' "$scratch/checksums.txt")
