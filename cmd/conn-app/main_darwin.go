@@ -91,6 +91,12 @@ func loadEnvironment(ctx context.Context) error {
 
 	environ, loadErr := shellenv.Load(ctx, shell, exe, os.Environ())
 
+	// A quit while the shell ran ends ctx, and the app is going: nothing is set, because the main
+	// thread InvokeSync waits for may be the one waiting for this goroutine to end.
+	if ctx.Err() != nil {
+		return fmt.Errorf("reading the login shell's environment: %w", ctx.Err())
+	}
+
 	var setErr error
 
 	application.InvokeSync(func() { setErr = setEnvironment(environ) })

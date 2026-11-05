@@ -153,6 +153,12 @@ func (s *shell) runDesk(ctx context.Context, lookup config.LookupFunc, stderr io
 	defer close(s.deskDone)
 
 	loadErr := loadEnvironment(ctx)
+
+	// The app is quitting: there is nothing to tell and no server to start.
+	if ctx.Err() != nil {
+		return
+	}
+
 	if loadErr != nil {
 		s.tellEnvironmentFailed(loadErr.Error(), stderr)
 	}
