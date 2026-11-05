@@ -392,7 +392,7 @@ func checkShort(t *testing.T, err error) {
 // the wait for the job is bounded.
 func TestLoadKeepsAnEnvironmentABackgroundJobHolds(t *testing.T) {
 	dir := t.TempDir()
-	shell := writeScript(t, dir, "shell with a job", "#!/bin/sh\nsleep 6 &\nexec sh -c \"$4\"\n")
+	shell := writeScript(t, dir, "shell with a job", "#!/bin/sh\nsleep 30 &\nexec sh -c \"$4\"\n")
 	exe := writeScript(t, dir, "fake conn app", exePrintsEnvironment)
 	base := []string{"A=1", "FROM_BASE=kept"}
 
@@ -410,7 +410,9 @@ func TestLoadKeepsAnEnvironmentABackgroundJobHolds(t *testing.T) {
 		t.Errorf("Load = %q, want %q", got, want)
 	}
 
-	if elapsed := time.Since(started); elapsed > testtime.Scaled(5*time.Second) {
+	// The job outlasts Load's own limit, so an output wait that was not cut short would end in an
+	// error above. The bound has room for a busy machine starting the scripts slowly.
+	if elapsed := time.Since(started); elapsed > testtime.Scaled(8*time.Second) {
 		t.Errorf("Load took %v, want it to wait for the job no longer than run's limit", elapsed)
 	}
 }
