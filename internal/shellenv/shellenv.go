@@ -150,6 +150,15 @@ func merge(base, fromShell []string) []string {
 	return merged
 }
 
+// withoutExeVariable is entries without exeVariable. The app set it only to be run in the shell,
+// and the shell's environment printed it back, so merging it would leak the path of the app's
+// own executable into every program the app starts.
+func withoutExeVariable(entries []string) []string {
+	return slices.DeleteFunc(entries, func(entry string) bool {
+		return name(entry) == exeVariable
+	})
+}
+
 // name is the variable name of an entry: what comes before the first '='.
 func name(entry string) string {
 	before, _, _ := strings.Cut(entry, "=")
@@ -192,7 +201,7 @@ func loadWith(
 
 	fromShell, parseErr := parse([]byte(result.Stdout))
 	if parseErr == nil {
-		return merge(base, fromShell), nil
+		return merge(base, withoutExeVariable(fromShell)), nil
 	}
 
 	return base, reason(shell, why(result, limit, parseErr))
