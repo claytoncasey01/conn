@@ -13,7 +13,7 @@ const (
 	// LinkInApp is a page of the server the window shows: it loads in the window.
 	LinkInApp Link = iota
 	// LinkBrowser is any other web page (a pull request, a Slack thread): the default browser
-	// opens it, because the window shows one Conn and nothing else.
+	// opens it, so that following the link does not take the window away from Conn.
 	LinkBrowser
 	// LinkRefused is anything that is not an http or https address: it is not opened at all,
 	// because handing the system an arbitrary scheme would let a page start any program.

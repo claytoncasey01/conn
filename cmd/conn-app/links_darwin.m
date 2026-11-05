@@ -4,6 +4,10 @@
 // window delegate class, which is the WebKit view's UI and navigation delegate, so what Wails
 // does in that delegate (file pickers, the camera prompt, its navigation events) is kept. Each
 // link is decided by Go (connLinkFollowed, desk.LinkTarget), which also opens the browser.
+//
+// What it judges is a link the person clicks in the main frame, and a request to open a new
+// window: a clicked link to another site opens in the default browser instead. It does not stop
+// a navigation the page starts by itself (a script, a redirect, a form), or a link in a frame.
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
@@ -11,7 +15,10 @@
 #include "links_darwin.h"
 #include "_cgo_export.h"
 
-// linksHandle is the Go shell's handle, set once by connInstallLinks before any window exists.
+// linksHandle is the Go shell's handle, set once by connInstallLinks before any window exists and
+// never changed. It is the app's one piece of mutable package state: the functions below are
+// called by WebKit with only the delegate and the navigation, so they have nowhere else to find
+// the shell.
 static uintptr_t linksHandle;
 
 // linkFollowed asks Go where a link to url goes. A URL with no text is refused.
