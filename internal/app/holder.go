@@ -11,7 +11,8 @@ import (
 
 const (
 	// HolderWait bounds the wait for a Conn that holds the data folder to say where it listens:
-	// it takes the lock a moment before it opens its port. The app's window waits as long.
+	// it takes the lock a moment before it opens its port. The app's window waits at least as long
+	// (desk rounds its wait up to whole polls).
 	HolderWait = 5 * time.Second
 	// HolderPoll is how often the lock file is read while waiting, here and in conn stop's wait
 	// for the folder to be let go.

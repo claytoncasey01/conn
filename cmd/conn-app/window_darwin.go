@@ -169,8 +169,9 @@ func (s *shell) runDesk(ctx context.Context) {
 
 // tellEnvironmentFailed says that the login shell's environment could not be read, and why in
 // short: on stderr, on the splash, and in a dialog, because the splash is replaced as soon as the
-// server answers, often too soon to read. The dialog does not stop Conn: Wails' Show queues the
-// dialog on the main thread and returns at once, without waiting for it to be dismissed.
+// server answers, often too soon to read. The dialog does not stop Conn: Wails' Show waits only
+// for the main thread to take the dialog, not for it to be dismissed, and SetHTML above it waits
+// for the main thread the same way, so a goroutine would add nothing.
 func (s *shell) tellEnvironmentFailed(reason string) {
 	notice := desk.Notice(reason)
 

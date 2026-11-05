@@ -27,9 +27,9 @@ const (
 	// probeFailuresMax is how many questions in a row go unanswered before the window starts over.
 	probeFailuresMax = 3
 
-	// addressWaitMax is the longest the window waits for a Conn that holds the folder to say where
-	// it listens. A Conn writes its address a moment after it takes the lock; conn's own wait for
-	// it is the same.
+	// addressWaitMax is the least the window waits for a Conn that holds the folder to say where
+	// it listens, rounded up to whole polls (see addressPolls). A Conn writes its address a moment
+	// after it takes the lock; conn's own wait for it is this long, to the poll.
 	addressWaitMax = app.HolderWait
 
 	// restartsInARowMax is how many times the window may start over with no answer from a Conn in
