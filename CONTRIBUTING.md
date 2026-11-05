@@ -19,6 +19,9 @@ alike; read it before your first change, because it is stricter than most Go pro
 You need [Go](https://go.dev) 1.27 or later and [Bun](https://bun.sh) 1.4 or later, and
 `golangci-lint` v2 for the lint. The [README](README.md#build-from-source) has the rest.
 
+Building the macOS app (`scripts/build-app.sh`) needs a Mac, the Xcode command line tools and cgo.
+Everything else stays pure Go: the command-line tool builds and tests on Linux.
+
 ```sh
 make dev     # hot reload: UI on :5173, API on :7778, data in ~/.config/conn-dev
 make serve   # build, then run on :7777
