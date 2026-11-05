@@ -105,9 +105,15 @@ func offerTitle(latest string) string {
 // offerMessage says what is available and what the person has, that Conn must be quit first,
 // and the command.
 func offerMessage(current, latest string) string {
-	return "Conn " + releaseTag(latest) + " is available (you have " + current + "). " +
+	return availableSentence(current, latest) + ". " +
 		"To update, quit Conn first, because the installer will not replace a running app. " +
 		"Then run this command in Terminal:\n\n" + Command
+}
+
+// availableSentence says that latest is available and which version the person has, with no
+// full stop, so the offer and the stderr note say it the same way.
+func availableSentence(current, latest string) string {
+	return "Conn " + releaseTag(latest) + " is available (you have " + current + ")"
 }
 
 // BaseFrom is the releases address to ask, given the value of CONN_UPDATE_BASE without the space
@@ -153,7 +159,7 @@ func tellAvailable(event Event, current string) Notice {
 		Dialog:  DialogNone,
 		Title:   "",
 		Message: "",
-		Note:    "Conn " + latest + " is available (you have " + current + ")",
+		Note:    availableSentence(current, latest),
 		Label:   availableLabel(latest),
 	}
 
