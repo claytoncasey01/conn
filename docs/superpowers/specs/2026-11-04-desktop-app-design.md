@@ -136,11 +136,13 @@ needs `local()` loosened comes back to the owner first.
    lock) is a dialog that says what to do, not a silent exit.
 7. Links: Wails 3.1 on macOS answers neither WebKit's new-window request nor its navigation
    policy, so the app adds both methods to Wails' window delegate class before the window is
-   made. A clicked link to the server's own origin stays in the window, any other http or https
+   made. An address on the server's own origin stays in the window, any other http or https
    address opens in the default browser, and any other scheme is refused (`desk.LinkTarget`).
-   Only a link the person clicks in the main frame, and a request to open a new window, is
-   judged: a navigation the page starts by itself (a script, a redirect, a form) and a link
-   inside a frame are not, so the window is not guaranteed to show only Conn.
+   Every move of the main frame to an address is judged this way, whatever started it (a click,
+   a form, a script setting `location`, a redirect), and so is every request for a new window.
+   The window's own loads (reload, back and forward, Wails' first pages) and anything inside a
+   frame are not. Checked by hand on 2026-11-05 against a test page that clicked, submitted a form,
+   set `location`, redirected and opened windows to another origin: none loaded in the window.
 
 ## Release and install
 

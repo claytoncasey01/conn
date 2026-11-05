@@ -5,9 +5,12 @@
 // does in that delegate (file pickers, the camera prompt, its navigation events) is kept. Each
 // link is decided by Go (connLinkFollowed, desk.LinkTarget), which also opens the browser.
 //
-// What it judges is a link the person clicks in the main frame, and a request to open a new
-// window: a clicked link to another site opens in the default browser instead. It does not stop
-// a navigation the page starts by itself (a script, a redirect, a form), or a link in a frame.
+// What it judges is every move of the window's main frame to an address, whatever started it (a
+// click, a form, a script setting location, a redirect), and every request to open a new window.
+// A page of the server loads; any other web address opens in the default browser, and the window
+// stays where it was. A form sent to another site is opened there as a plain address: the browser
+// gets no form data. The window's own loads (a reload, back and forward, Wails' first pages) are
+// not moves. A frame inside a page is not judged.
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
@@ -43,18 +46,38 @@ static WKWebView *createWebView(id self, SEL command, WKWebView *webView,
 	return nil;
 }
 
-// decidePolicy lets every navigation through but a link the person clicked in the main frame,
-// which Go decides. Loads Conn makes itself (the splash, the server's address, a reload) are not
-// clicks, so they are never stopped. decisionHandler is called once on every path, as WebKit
-// requires.
-static void decidePolicy(id self, SEL command, WKWebView *webView, WKNavigationAction *action,
-		void (^decisionHandler)(WKNavigationActionPolicy)) {
-	if (action.navigationType != WKNavigationTypeLinkActivated) {
-		decisionHandler(WKNavigationActionPolicyAllow);
-		return;
+// ownLoad says whether a main-frame navigation is one the window makes of itself and not a
+// move to somewhere else: a reload, a step back or forward in the history, and the two pages
+// Wails loads before the app does: wails://localhost/, its own address, and the blank page that
+// the splash is loaded into (loadHTMLString with no base address). Loading the server's address
+// is not one of these: it goes to Go like any other address, which lets it in because the
+// address is the server's own.
+static BOOL ownLoad(WKNavigationAction *action) {
+	switch (action.navigationType) {
+	case WKNavigationTypeReload:
+	case WKNavigationTypeBackForward:
+		return YES;
+	default:
+		break;
 	}
 
-	// A link with no target frame opens a new window, which createWebView answers.
+	NSString *address = action.request.URL.absoluteString;
+	if ([address isEqualToString:@"about:blank"]) {
+		return YES;
+	}
+
+	return [address isEqualToString:@"wails://localhost/"];
+}
+
+// decidePolicy lets a navigation of the main frame through only when Go says its address is a
+// page of the server the window shows (or the navigation is an ownLoad), whatever started it: a
+// link the person clicked, a form, a script setting location, or a redirect. Anything else Go
+// has already sent to the browser or refused, and the window stays where it was. A link with no
+// target frame opens a new window, which createWebView answers, and what happens inside a
+// frame other than the main one is left alone. decisionHandler is called once on every path, as
+// WebKit requires.
+static void decidePolicy(id self, SEL command, WKWebView *webView, WKNavigationAction *action,
+		void (^decisionHandler)(WKNavigationActionPolicy)) {
 	WKFrameInfo *target = action.targetFrame;
 	if (target == nil) {
 		decisionHandler(WKNavigationActionPolicyAllow);
@@ -62,6 +85,11 @@ static void decidePolicy(id self, SEL command, WKWebView *webView, WKNavigationA
 	}
 
 	if (!target.isMainFrame) {
+		decisionHandler(WKNavigationActionPolicyAllow);
+		return;
+	}
+
+	if (ownLoad(action)) {
 		decisionHandler(WKNavigationActionPolicyAllow);
 		return;
 	}
