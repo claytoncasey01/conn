@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	// probePath is the route a probe asks: the list of the agents and skills Conn provides. The
-	// page reads it too, so it is part of the contract with the UI and does not change unnoticed;
-	// it reads a few links on disk and starts nothing.
-	probePath = "/api/provided"
+	// probePath is the route a probe asks: the server's health. It is a liveness check only: the
+	// server answers it before any other route, with no disk, process or network work, so only a
+	// server that is gone fails it, never a disk check that would make the window reload. The
+	// server's tests and conn's command tests use it too.
+	probePath = "/api/health"
 
 	// probeTimeout bounds one probe, connection and answer together, and each step of it. desk
 	// gives each probe a context with its own limit too; this one holds even if that changes.
@@ -35,9 +36,8 @@ const (
 	// probeHeaderBytesMax caps a probe answer's headers: the server sends a handful.
 	probeHeaderBytesMax = 16 << 10
 
-	// probeBodyBytesMax is as much of a probe's answer as is read: a short list of names and
-	// paths.
-	probeBodyBytesMax = 64 << 10
+	// probeBodyBytesMax is as much of a probe's answer as is read: {"ok":true,"clients":N}.
+	probeBodyBytesMax = 1 << 10
 
 	// probeIdleConnections is how many connections the probe keeps open between probes: one
 	// server, asked one question at a time.
