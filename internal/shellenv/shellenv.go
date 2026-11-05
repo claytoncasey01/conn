@@ -63,7 +63,7 @@ var (
 
 // Print writes marker, then each NAME=VALUE entry of environ followed by NUL, then markerEnd:
 // what the app prints for --print-env. An entry with no '=' or an empty name is left out, as
-// Parse would drop it. It returns the first write error.
+// parse would drop it. It returns the first write error.
 func Print(out io.Writer, environ []string) error {
 	_, err := io.WriteString(out, marker)
 	if err != nil {
@@ -89,12 +89,12 @@ func Print(out io.Writer, environ []string) error {
 	return nil
 }
 
-// Parse is the NUL-terminated entries between the first marker and the first markerEnd after
+// parse is the NUL-terminated entries between the first marker and the first markerEnd after
 // it. Anything before the marker (a banner) or after the end marker (what a shell prints as it
 // exits, such as a logout message or a terminal escape) is ignored. An entry with no '=' or an
 // empty name is dropped. It returns ErrNoEnvironment when the output holds no marker, or no end
 // marker after it: an environment cut short is not used, because it may lack PATH or a token.
-func Parse(output []byte) ([]string, error) {
+func parse(output []byte) ([]string, error) {
 	_, after, found := bytes.Cut(output, []byte(marker))
 	if !found {
 		return nil, ErrNoEnvironment
@@ -125,9 +125,9 @@ func isEntry(entry string) bool {
 	return strings.Index(entry, "=") > 0
 }
 
-// Merge is base with each entry of fromShell replacing the entry of the same name or being added
+// merge is base with each entry of fromShell replacing the entry of the same name or being added
 // after them. The order of base is kept, and base is not changed.
-func Merge(base, fromShell []string) []string {
+func merge(base, fromShell []string) []string {
 	merged := slices.Clone(base)
 	places := make(map[string]int, len(base)+len(fromShell))
 
@@ -150,6 +150,15 @@ func Merge(base, fromShell []string) []string {
 	return merged
 }
 
+// withoutExeVariable is entries without exeVariable. The app set it only to be run in the shell,
+// and the shell's environment printed it back, so merging it would leak the path of the app's
+// own executable into every program the app starts.
+func withoutExeVariable(entries []string) []string {
+	return slices.DeleteFunc(entries, func(entry string) bool {
+		return name(entry) == exeVariable
+	})
+}
+
 // name is the variable name of an entry: what comes before the first '='.
 func name(entry string) string {
 	before, _, _ := strings.Cut(entry, "=")
@@ -157,10 +166,10 @@ func name(entry string) string {
 	return before
 }
 
-// Args are the arguments that make shell run the script as a login, interactive shell. Fish, zsh,
-// bash and sh all take the same flags, so the shell's name does not change them; the parameter is
-// the one place a shell that needs different flags would be told apart.
-func Args(_ string) []string {
+// loginShellArgs are the arguments that make a shell run the script as a login, interactive
+// shell. Fish, zsh, bash and sh all take the same flags, so the shell's name does not change
+// them.
+func loginShellArgs() []string {
 	return []string{"-l", "-i", "-c", script}
 }
 
@@ -178,7 +187,7 @@ func Load(ctx context.Context, shell, exe string, base []string) ([]string, erro
 func loadWith(
 	ctx context.Context, shell, exe string, base []string, limit time.Duration,
 ) ([]string, error) {
-	result := run.Cmd(ctx, shell, Args(shell), run.Opts{
+	result := run.Cmd(ctx, shell, loginShellArgs(), run.Opts{
 		Dir:            "",
 		Timeout:        limit,
 		OutputBytesMax: outputBytesMax,
@@ -190,16 +199,16 @@ func loadWith(
 			outputBytesMax))
 	}
 
-	fromShell, parseErr := Parse([]byte(result.Stdout))
+	fromShell, parseErr := parse([]byte(result.Stdout))
 	if parseErr == nil {
-		return Merge(base, fromShell), nil
+		return merge(base, withoutExeVariable(fromShell)), nil
 	}
 
 	return base, reason(shell, why(result, limit, parseErr))
 }
 
 // why is the short reason a run gave no environment: how the shell ended when that was an
-// error, else what Parse said. It never holds what the shell printed: run's own error carries
+// error, else what parse said. It never holds what the shell printed: run's own error carries
 // the shell's error output, which a profile with tracing on fills with its exports.
 func why(result run.Result, limit time.Duration, parseErr error) error {
 	switch {

@@ -17,8 +17,6 @@ const (
 	// stopWait bounds the wait for a stopped Conn to let its data folder go: its server gives
 	// open requests a shutdown timeout to finish.
 	stopWait = 10 * time.Second
-	// stopPoll is how often the lock file is read while waiting for the folder to be let go.
-	stopPoll = 50 * time.Millisecond
 )
 
 var (
@@ -94,7 +92,7 @@ func terminate(ctx context.Context, dataDir string, pid int) error {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("waiting for process %d to stop: %w", pid, ctx.Err())
-		case <-time.After(stopPoll):
+		case <-time.After(app.HolderPoll):
 		}
 	}
 

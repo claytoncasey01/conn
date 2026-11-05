@@ -122,32 +122,11 @@ jobs:
         run: scripts/build-app.sh app-files
 
       # The zip is unpacked as a user would unpack it, so a seal broken by the zip itself shows.
-      - name: Check the signature
+      # scripts/check-app.sh checks the signature, both architectures and that the binary starts;
+      # release.yml runs the same script.
+      - name: Check the app
         run: |
           set -eu
           mkdir app-check
           unzip -q app-files/Conn_darwin_universal.zip -d app-check
-          codesign --verify --deep --strict app-check/Conn.app
-
-      - name: Check that the binary holds both architectures
-        run: |
-          set -eu
-          archs=$(lipo -archs app-check/Conn.app/Contents/MacOS/conn-app)
-          echo "archs: $archs"
-          case "$archs" in
-            *x86_64*) ;;
-            *) echo "no x86_64 slice" >&2; exit 1 ;;
-          esac
-          case "$archs" in
-            *arm64*) ;;
-            *) echo "no arm64 slice" >&2; exit 1 ;;
-          esac
-
-      # --print-env answers before any window code runs, so this starts the binary without a
-      # display. The markers begin with a NUL byte, so only the end marker's visible text is
-      # searched for: it is written after the last entry. release.yml runs the same checks.
-      - name: Check that the binary starts
-        run: |
-          set -eu
-          app-check/Conn.app/Contents/MacOS/conn-app --print-env > app-check/env.out
-          tr -d '\0' < app-check/env.out | grep -q CONN-ENV-END
+          scripts/check-app.sh app-check/Conn.app

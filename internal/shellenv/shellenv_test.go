@@ -20,11 +20,13 @@ import (
 // script it was given as its fourth argument (after -l -i -c).
 const shellRunsScript = "#!/bin/sh\nprintf 'welcome\\n'\nexec sh -c \"$4\"\n"
 
-// exePrintsEnvironment is a fake exe: the marker, then entries one of which holds a newline and
-// one the value of a variable the app's environment sets, then the end marker.
+// exePrintsEnvironment is a fake exe: the marker, then entries one of which holds a newline, one
+// the value of a variable the app's environment sets, and one the marker variable that Load gives
+// the shell (as the real exe prints it), then the end marker.
 const exePrintsEnvironment = "#!/bin/sh\n" +
 	"printf '\\000CONN-ENV\\000'\n" +
-	"printf 'B=9\\000C=line1\\nline2\\000SEEN=%s\\000junk\\000' \"$FROM_BASE\"\n" +
+	"printf 'B=9\\000C=line1\\nline2\\000SEEN=%s\\000' \"$FROM_BASE\"\n" +
+	"printf 'CONN_ENV_EXE=%s\\000junk\\000' \"$CONN_ENV_EXE\"\n" +
 	"printf '\\000CONN-ENV-END\\000'\n"
 
 // tracedExport is what a shell prints to its error output for an export when its profile is
@@ -181,29 +183,16 @@ func TestMerge(t *testing.T) {
 func TestArgs(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct{ name, shell string }{
-		{name: "fish", shell: "/opt/homebrew/bin/fish"},
-		{name: "zsh", shell: "/bin/zsh"},
-		{name: "bash", shell: "/bin/bash"},
-		{name: "sh", shell: "/bin/sh"},
-		{name: "no shell", shell: ""},
+	// Fish, zsh, bash and sh all take these flags, so one list serves every shell.
+	want := []string{"-l", "-i", "-c", `"$CONN_ENV_EXE" --print-env`}
+
+	got := shellenv.Args()
+	if !slices.Equal(got, want) {
+		t.Errorf("Args() = %q, want %q", got, want)
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			want := []string{"-l", "-i", "-c", `"$CONN_ENV_EXE" --print-env`}
-
-			got := shellenv.Args(test.shell)
-			if !slices.Equal(got, want) {
-				t.Errorf("Args(%q) = %q, want %q", test.shell, got, want)
-			}
-
-			if shellenv.Script != want[3] {
-				t.Errorf("script = %q, want %q", shellenv.Script, want[3])
-			}
-		})
+	if shellenv.Script != want[3] {
+		t.Errorf("script = %q, want %q", shellenv.Script, want[3])
 	}
 }
 
@@ -307,8 +296,9 @@ func loadCases() []loadCase {
 
 	return []loadCase{
 		{
-			name: "the shell's entries merged over base", shellBody: shellRunsScript,
-			base: base, want: merged, wantErr: nil,
+			name:      "the shell's entries merged over base, without the app's marker variable",
+			shellBody: shellRunsScript,
+			base:      base, want: merged, wantErr: nil,
 		},
 		{
 			name:      "a complete environment is used though the shell then exits 3",

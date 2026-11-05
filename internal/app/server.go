@@ -84,12 +84,22 @@ func (s *Server) Err() error {
 	}
 }
 
-// Start takes the data folder's lock, loads settings, listens on Port(lookup), publishes
+// Ended is a Server at url that has already shut down with err (nil for a clean shutdown). A
+// running server ends with an error only when its listener fails, which no caller can make
+// happen, so the code that reacts to such an end is tested with this.
+func Ended(url string, err error) *Server {
+	done := make(chan struct{})
+	close(done)
+
+	return &Server{URL: url, done: done, err: err}
+}
+
+// Start takes the data folder's lock, loads settings, listens on port(lookup), publishes
 // {PID, URL} in the lock and serves until ctx ends, then shuts down within ShutdownTimeout.
 // It returns instance.ErrHeld (wrapped) when another Conn holds the folder, and a PortTakenError
 // when another program holds the port.
 func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Server, error) {
-	portNumber, err := Port(lookup)
+	portNumber, err := port(lookup)
 	if err != nil {
 		return nil, err
 	}
@@ -213,8 +223,8 @@ func newHTTPServer(handler http.Handler) *http.Server {
 	}
 }
 
-// Port is CONN_PORT, or 7777 when it is unset or blank. 0 lets the system pick a free port.
-func Port(lookup config.LookupFunc) (int, error) {
+// port is CONN_PORT, or 7777 when it is unset or blank. 0 lets the system pick a free port.
+func port(lookup config.LookupFunc) (int, error) {
 	value, _ := lookup("CONN_PORT")
 	value = strings.TrimSpace(value)
 

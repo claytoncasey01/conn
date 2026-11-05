@@ -7,7 +7,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/config"
 )
 
-func TestPort(t *testing.T) {
+func TestPortFromEnvironment(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -35,7 +35,7 @@ func TestPort(t *testing.T) {
 				env["CONN_PORT"] = tt.value
 			}
 
-			got, err := Port(lookupFrom(env))
+			got, err := port(lookupFrom(env))
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("error %v, want %v", err, tt.wantErr)
 			}

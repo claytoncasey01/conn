@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -43,6 +44,14 @@ const (
 	// probeIdleConnections is how many connections the probe keeps open between probes: one
 	// server, asked one question at a time.
 	probeIdleConnections = 1
+
+	// probeTLSHandshakeTimeout bounds a TLS handshake. The probe asks a loopback http address, so
+	// none happens; the limit is set so that an https address would still be bounded.
+	probeTLSHandshakeTimeout = probeTimeout
+
+	// probeExpectContinueTimeout is 0: a probe is a GET with no body, so it never sends
+	// "Expect: 100-continue" and has nothing to wait for.
+	probeExpectContinueTimeout = 0
 
 	// failTitle is the title of the dialog that says the window cannot go on.
 	failTitle = "Conn cannot open"
@@ -102,8 +111,9 @@ func (s *shell) fail(message string) {
 	dialog.Show()
 }
 
-// newProbeClient is the HTTP client for probes: loopback only, so no proxy, and a redirect is
-// an answer to report, not one to follow.
+// newProbeClient is the HTTP client for probes: loopback http only, so no proxy, no HTTP/2 (it
+// is negotiated only over TLS) and no TLS settings beyond a floor for a case that cannot happen,
+// connections kept between probes, and a redirect is an answer to report, not one to follow.
 func newProbeClient() *http.Client {
 	dialer := &net.Dialer{Timeout: probeTimeout, KeepAlive: probeKeepAlive}
 
@@ -111,6 +121,11 @@ func newProbeClient() *http.Client {
 		Transport: &http.Transport{
 			Proxy:                  nil,
 			DialContext:            dialer.DialContext,
+			TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12},
+			TLSHandshakeTimeout:    probeTLSHandshakeTimeout,
+			ExpectContinueTimeout:  probeExpectContinueTimeout,
+			DisableKeepAlives:      false,
+			ForceAttemptHTTP2:      false,
 			MaxIdleConns:           probeIdleConnections,
 			MaxIdleConnsPerHost:    probeIdleConnections,
 			MaxConnsPerHost:        probeIdleConnections,

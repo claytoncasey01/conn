@@ -138,6 +138,9 @@ needs `local()` loosened comes back to the owner first.
    policy, so the app adds both methods to Wails' window delegate class before the window is
    made. A clicked link to the server's own origin stays in the window, any other http or https
    address opens in the default browser, and any other scheme is refused (`desk.LinkTarget`).
+   Only a link the person clicks in the main frame, and a request to open a new window, is
+   judged: a navigation the page starts by itself (a script, a redirect, a form) and a link
+   inside a frame are not, so the window is not guaranteed to show only Conn.
 
 ## Release and install
 

@@ -90,7 +90,7 @@ func (s *shell) tellUpdate(ctx context.Context, event update.Event, current stri
 	notice := update.Tell(event, current)
 
 	if notice.Note != "" {
-		_, _ = fmt.Fprintf(s.stderr, "conn-app: %s\n", notice.Note)
+		_, _ = fmt.Fprintf(s.proc.stderr, "conn-app: %s\n", notice.Note)
 	}
 
 	if notice.Label != "" {
@@ -152,7 +152,9 @@ func (s *shell) openReleaseNotes(tag string) {
 	link := update.ReleaseNotesURL(tag)
 
 	if desk.LinkTarget(link, s.shownURL()) != desk.LinkBrowser {
-		_, _ = fmt.Fprintf(s.stderr, "conn-app: the release notes are not a web page: %s\n", link)
+		_, _ = fmt.Fprintf(
+			s.proc.stderr, "conn-app: the release notes are not a web page: %s\n", link,
+		)
 
 		return
 	}
@@ -163,6 +165,6 @@ func (s *shell) openReleaseNotes(tag string) {
 // copyCommand puts the install command on the clipboard, and says on stderr when it could not.
 func (s *shell) copyCommand() {
 	if !s.app.Clipboard.SetText(update.Command) {
-		_, _ = fmt.Fprintln(s.stderr, "conn-app: could not put the command on the clipboard")
+		_, _ = fmt.Fprintln(s.proc.stderr, "conn-app: could not put the command on the clipboard")
 	}
 }

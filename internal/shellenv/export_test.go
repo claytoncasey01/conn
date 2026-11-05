@@ -23,3 +23,18 @@ func LoadWith(
 ) ([]string, error) {
 	return loadWith(ctx, shell, exe, base, limit)
 }
+
+// Parse is parse, so a test states the rule on plain values.
+func Parse(output []byte) ([]string, error) {
+	return parse(output)
+}
+
+// Merge is merge.
+func Merge(base, fromShell []string) []string {
+	return merge(base, fromShell)
+}
+
+// Args is loginShellArgs.
+func Args() []string {
+	return loginShellArgs()
+}
