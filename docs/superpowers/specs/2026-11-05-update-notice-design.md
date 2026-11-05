@@ -148,8 +148,8 @@ tested on Linux too (the same split as `internal/desk`).
   `Available` result, and `withApp` turns its answer into the result; `Latest` stays one request.
 - A 200 for `checksums-app.txt` counts as attached, as a redirect does, because a test server
   serving the file itself answers 200, and `install.sh` (which follows redirects) reads a final
-  200 as present. The brief this was built from said any status other than a redirect or a 404 is
-  a failure; this one exception is the owner's to overrule.
+  200 as present. A stricter rule, counting only a redirect, would fail every try-it run against a
+  plain file server. It is the owner's to overrule.
 
 ## What was built differently
 
@@ -181,14 +181,17 @@ Where the proposal guessed, the build found otherwise, and this text above was c
 
 Inputs the spec implies and the tests must pin:
 
-1. **A hostile or odd answer.** A redirect to another host, a `Location` that is not a release tag,
-   an absurdly long header, a 200 with no redirect, a 404 or 5xx: each says "could not check", never
-   offers an update, and never builds a URL from the text.
+1. **A hostile or odd answer.** To the `/latest` request, a redirect to another host, a `Location`
+   that is not a release tag, an absurdly long header, a 200 with no redirect, a 404 or 5xx: each
+   says "could not check", never offers an update, and never builds a URL from the text. The
+   second request, for `checksums-app.txt`, reads only the status: a redirect (to any host) or a
+   200 means attached, a 404 means `Publishing`, and anything else says "could not check".
 2. **Version comparison.** `v1.10.0` is newer than `v1.9.0`; `v1.2.3` is not newer than itself; an
    `-rc` latest of the same numbers is not newer than the release; `dev` never checks.
-3. **No loop and no pile-up.** A slow or failing network gives one request per interval; choosing
-   the menu item while a check runs does not start a second at once (at most one more follows);
-   cancelling the context stops `Run` mid-wait and mid-request.
+3. **No loop and no pile-up.** A slow or failing network gives one check per interval (one request,
+   or two when a newer release is found); choosing the menu item while a check runs does not start a
+   second at once (at most one more follows); cancelling the context stops `Run` mid-wait and
+   mid-request.
 4. **Quit.** Quitting the app while a check is in flight does not wait for the check: the quit
    ends the context, which stops the check on its own goroutine (`runDesk`).
 5. **Off switch.** `CONN_UPDATE_CHECK=off` makes no request at all (a test server that fails on any
