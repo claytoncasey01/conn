@@ -78,18 +78,31 @@ app_is_running() {
 }
 
 # fetch_app downloads the app's zip and checks it against the release's checksums-app.txt, then
-# unpacks it into $scratch/app. It sets app_ready to "no" when the release has no app.
+# unpacks it into $scratch/app. It sets app_ready to "no" when the release has no app, which only
+# a 404 for checksums-app.txt means: any other failure (a network fault, a 5xx) is an error, so a
+# passing fault is not reported as a statement about the release. curl -f cannot tell these
+# apart, so the status is read from -w instead.
 fetch_app() {
 	app_zip=Conn_darwin_universal.zip
 	app_ready=no
 
-	if ! curl -fsSL -o "$scratch/checksums-app.txt" "$base/download/$tag/checksums-app.txt"; then
+	sums_url=$base/download/$tag/checksums-app.txt
+	tool_note="the command-line tool is installed; the app was not"
+	code=$(curl -sSL -o "$scratch/checksums-app.txt" -w '%{http_code}' "$sums_url") ||
+		fail "could not download $sums_url ($tool_note)"
+
+	case $code in
+	200) ;;
+	404)
+		rm -f "$scratch/checksums-app.txt"
 		printf 'this release has no app; installed the command-line tool only\n'
 		return 0
-	fi
+		;;
+	*) fail "$sums_url answered HTTP $code ($tool_note)" ;;
+	esac
 
 	command -v unzip >/dev/null 2>&1 ||
-		fail "unzip is required to install the app (the command-line tool is installed; use --cli-only to skip the app)"
+		fail "unzip is required to install the app ($tool_note; use --cli-only to skip the app)"
 
 	curl -fsSL -o "$scratch/$app_zip" "$base/download/$tag/$app_zip" ||
 		fail "could not download $base/download/$tag/$app_zip"
@@ -177,8 +190,9 @@ main() {
 		fi
 	fi
 
-	app_dir=${CONN_INSTALL_APP_DIR:-${HOME:?HOME is not set: set CONN_INSTALL_APP_DIR}/Applications}
 	if [ "$want_app" = yes ]; then
+		# HOME is needed for the app's folder only when the app is installed.
+		app_dir=${CONN_INSTALL_APP_DIR:-${HOME:?HOME is not set: set CONN_INSTALL_APP_DIR}/Applications}
 		app_is_running
 	fi
 

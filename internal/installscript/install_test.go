@@ -56,6 +56,7 @@ type release struct {
 	requests []string
 	app      []byte
 	appSums  func(name string) string
+	statuses map[string]int
 }
 
 // archiveOf is a .tar.gz holding one file, conn, which is fakeConn.
@@ -168,14 +169,32 @@ func (r *release) serveApp(appZip []byte, sums func(name string) string) {
 	r.appSums = sums
 }
 
+// answerWith makes the file with this name answer with the status, whatever else is set.
+func (r *release) answerWith(name string, status int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.statuses == nil {
+		r.statuses = map[string]int{}
+	}
+
+	r.statuses[name] = status
+}
+
 func (r *release) download(w http.ResponseWriter, req *http.Request) {
 	r.record(req.URL.Path)
 
+	name := filepath.Base(req.URL.Path)
+
 	r.mu.Lock()
-	appZip, appSums := r.app, r.appSums
+	appZip, appSums, status := r.app, r.appSums, r.statuses[name]
 	r.mu.Unlock()
 
-	name := filepath.Base(req.URL.Path)
+	if status != 0 {
+		http.Error(w, "the release server answers "+http.StatusText(status), status)
+
+		return
+	}
 
 	switch {
 	case name == "checksums.txt":
@@ -855,5 +874,77 @@ func TestRefusesAnOptionItDoesNotKnow(t *testing.T) {
 
 	if fake.asked() != "" {
 		t.Errorf("something was asked for: %s", fake.asked())
+	}
+}
+
+func TestTheToolNeedsNoHomeWhenTheFolderIsGiven(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, osName string
+		args         []string
+	}{
+		{"Linux", "Linux", nil},
+		{"macOS with --cli-only", "Darwin", []string{"--cli-only"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := macRelease(t)
+			folder := filepath.Join(t.TempDir(), "bin")
+
+			got := runWith(t, fake, tt.osName, "x86_64", tt.args,
+				[]string{"HOME=", "CONN_INSTALL_DIR=" + folder})
+			if got.failed {
+				t.Fatalf("install failed: %s", got.output)
+			}
+
+			if !exists(filepath.Join(folder, "conn")) {
+				t.Errorf("the command-line tool is not installed:\n%s", got.output)
+			}
+		})
+	}
+}
+
+func TestOnlyANotFoundMeansTheReleaseHasNoApp(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		status     int
+		wantFailed bool
+		message    string
+	}{
+		{"a 404", http.StatusNotFound, false, "this release has no app"},
+		{"a 500", http.StatusInternalServerError, true, "the command-line tool is installed"},
+		{"a 403", http.StatusForbidden, true, "the command-line tool is installed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := macRelease(t)
+			fake.answerWith(appSumsName, tt.status)
+
+			folder := appFolder(t)
+
+			got := run(t, fake, "Darwin", "arm64", "CONN_INSTALL_APP_DIR="+folder)
+			if got.failed != tt.wantFailed {
+				t.Errorf("failed = %v, want %v:\n%s", got.failed, tt.wantFailed, got.output)
+			}
+
+			if !strings.Contains(got.output, tt.message) {
+				t.Errorf("output lacks %q:\n%s", tt.message, got.output)
+			}
+
+			if exists(folder) {
+				t.Error("the app folder was made")
+			}
+
+			if !exists(cliPath(got.home)) {
+				t.Error("the command-line tool is not installed")
+			}
+		})
 	}
 }
