@@ -15,11 +15,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/shellenv"
 )
 
@@ -37,15 +39,45 @@ const (
 	shellDefault = "/bin/zsh"
 )
 
+// process is what the program is given: its environment, its executable, its output streams and
+// the files built into it. Only main fills it from the process, so everything after main is
+// tested through realMain with values of its own. The environment is read through functions
+// because it changes while the program runs (loadEnvironment sets it).
+type process struct {
+	// lookup reads one environment variable (os.LookupEnv).
+	lookup config.LookupFunc
+	// environ is the whole environment now, NAME=VALUE each (os.Environ).
+	environ func() []string
+	// executable is the path of this program (os.Executable).
+	executable func() (string, error)
+	stdout     io.Writer
+	stderr     io.Writer
+	// splash is the splash page with splashTextSlot in it once.
+	splash string
+}
+
 // main is the only place that touches the process: its arguments, environment, output streams
-// and exit code. --print-env is answered before any window code runs, because the login shell
-// runs this same program to print its environment.
+// and exit code. It hands them to realMain and exits with what that returns.
 func main() {
-	if printEnvAsked(os.Args) {
-		os.Exit(printEnv())
+	os.Exit(realMain(os.Args, process{
+		lookup:     os.LookupEnv,
+		environ:    os.Environ,
+		executable: os.Executable,
+		stdout:     os.Stdout,
+		stderr:     os.Stderr,
+		splash:     splashFile,
+	}))
+}
+
+// realMain is the program past the process boundary, and is its exit code. --print-env is
+// answered before any window code runs, because the login shell runs this same program to print
+// its environment. args is os.Args, so the program's name comes first.
+func realMain(args []string, proc process) int {
+	if printEnvAsked(args) {
+		return printEnv(proc)
 	}
 
-	os.Exit(run(os.LookupEnv, os.Stderr))
+	return run(proc)
 }
 
 // printEnvAsked says whether the program was run with --print-env: args is os.Args, so the
@@ -59,10 +91,10 @@ func printEnvAsked(args []string) bool {
 }
 
 // printEnv writes the environment for shellenv to read, and is the exit code.
-func printEnv() int {
-	err := shellenv.Print(os.Stdout, os.Environ())
+func printEnv(proc process) int {
+	err := shellenv.Print(proc.stdout, proc.environ())
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "conn-app: %v\n", err)
+		_, _ = fmt.Fprintf(proc.stderr, "conn-app: %v\n", err)
 
 		return exitError
 	}
@@ -78,18 +110,18 @@ func printEnv() int {
 //
 // The window is up by now, so other threads may read the environment: the variables are set on
 // the main thread, where Cocoa reads them, to keep setenv from racing those reads.
-func loadEnvironment(ctx context.Context) error {
-	shell := os.Getenv("SHELL")
+func loadEnvironment(ctx context.Context, proc process) error {
+	shell, _ := proc.lookup("SHELL")
 	if shell == "" {
 		shell = shellDefault
 	}
 
-	exe, err := os.Executable()
+	exe, err := proc.executable()
 	if err != nil {
 		return fmt.Errorf("finding this program to run in the login shell: %w", err)
 	}
 
-	environ, loadErr := shellenv.Load(ctx, shell, exe, os.Environ())
+	environ, loadErr := shellenv.Load(ctx, shell, exe, proc.environ())
 
 	// A quit while the shell ran ends ctx, and the app is going: nothing is set, because the main
 	// thread InvokeSync waits for may be the one waiting for this goroutine to end.

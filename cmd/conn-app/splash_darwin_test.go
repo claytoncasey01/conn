@@ -14,7 +14,7 @@ func TestSplashPage(t *testing.T) {
 	t.Parallel()
 
 	// pageBytesMax bounds the page whatever the reason: the template and a capped notice.
-	pageBytesMax := len(splashPage(desk.SplashText(""))) + 1024
+	pageBytesMax := len(splashPage(splashFile, desk.SplashText(""))) + 1024
 
 	tests := []struct {
 		name       string
@@ -45,7 +45,7 @@ func TestSplashPage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			page := splashPage(desk.SplashText(tt.reason))
+			page := splashPage(splashFile, desk.SplashText(tt.reason))
 
 			if !strings.Contains(page, tt.wantHas) {
 				t.Errorf("the splash page does not hold %q", tt.wantHas)

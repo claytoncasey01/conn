@@ -20,8 +20,12 @@ var errLinks = errors.New("links in the window will not open")
 // installLinks sends every link the window follows to desk.LinkTarget: the server's own pages
 // load in the window, other web pages open in the default browser, anything else is refused. It
 // must run before the window is made. The shell reaches the Objective-C side as a cgo.Handle, the
-// one way a callback from C finds a Go value without package state; it is never deleted, because
-// the window may follow a link until the process ends.
+// one way a callback from C finds a Go value. The Objective-C side keeps the handle in a static
+// variable (linksHandle in links_darwin.m), the one piece of mutable package state in the app:
+// it is set once here and never changed, and the methods added to Wails' delegate class are
+// called by WebKit with only the delegate and the navigation, so they have nowhere else to find
+// the shell. The handle is never deleted, because the window may follow a link until the process
+// ends.
 func (s *shell) installLinks() error {
 	handle := cgo.NewHandle(s)
 
@@ -63,6 +67,6 @@ func connLinkFollowed(handle C.uintptr_t, rawURL *C.char) C.int {
 func (s *shell) openInBrowser(link string) {
 	err := s.app.Browser.OpenURL(link)
 	if err != nil {
-		_, _ = fmt.Fprintf(s.stderr, "conn-app: opening a link in the browser: %v\n", err)
+		_, _ = fmt.Fprintf(s.proc.stderr, "conn-app: opening a link in the browser: %v\n", err)
 	}
 }
