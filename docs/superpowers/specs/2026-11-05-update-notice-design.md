@@ -23,7 +23,8 @@ and is not part of this: see issue #15 on signing and Sparkle, and "Not in this"
   version (`dev`) answers that it is a development build and does not check. A newer release whose
   app is not attached yet (below) answers "A new release is being published" and "Try again in a
   few minutes.", and offers nothing.
-- A check also runs by itself, about 10 seconds after the app has started and then once a day
+- A check also runs by itself, about 10 seconds after the app has finished starting (once it has
+  read the login shell's environment, which can take up to its own 10 s limit) and then once a day
   while the app stays open. When it finds a newer release, the menu item reads **Update
   Available: v1.2.4…** from then until the app quits, and a dialog is shown once for that version
   in this run of the app. A version the user has dismissed is not shown again until the next
@@ -102,10 +103,10 @@ tested on Linux too (the same split as `internal/desk`).
 ## What it touches
 
 - **Network.** One unauthenticated HEAD request to `github.com` about 10 seconds after the app has
-  started, and daily, and a second only when the first names a newer release, to learn whether its
-  app is attached yet. They send no version of Conn and nothing of the user's; GitHub sees the
-  address it came from and a plain client name (`conn-app`). The README's "What Conn touches"
-  section and SECURITY.md say so, and that `CONN_UPDATE_CHECK=off` turns it off.
+  finished starting, and daily, and a second only when the first names a newer release, to learn
+  whether its app is attached yet. They send no version of Conn and nothing of the user's; GitHub
+  sees the address it came from and a plain client name (`conn-app`). The README's "What Conn
+  touches" section and SECURITY.md say so, and that `CONN_UPDATE_CHECK=off` turns it off.
 - **Files.** None written.
 - **Server and page.** Unchanged: no route, no `src/` change, so every guard in `internal/server`
   is untouched. This is the reason the notice is a native menu item and not a banner in the page.
