@@ -1,0 +1,140 @@
+package update
+
+import (
+	"context"
+	"time"
+)
+
+// Event is what one check found and why it ran.
+type Event struct {
+	// Result is what the check found.
+	Result Result
+	// Manual is a check the user asked for, rather than one the clock started.
+	Manual bool
+	// Fresh is true the first time this run reports that Latest as Available, so the app shows
+	// its dialog once per version. It is always true for a Manual check, because the person
+	// asked and is waiting for the answer.
+	Fresh bool
+}
+
+// Deps is everything Run touches outside itself.
+type Deps struct {
+	// Current is the version of this build, such as "v1.2.3". A build with no release version
+	// (a dev build) is never checked on its own, and an ask is answered with Unchecked.
+	Current string
+	// Fetch reads the latest release tag (Latest with the app's client). It must end when ctx
+	// does.
+	Fetch func(ctx context.Context) (string, error)
+	// After is a channel that fires once d has passed (time.After), so a test never sleeps.
+	After func(d time.Duration) <-chan time.Time
+	// Asked receives a value each time the user chooses to check now. The app gives it a buffer
+	// of one and sends without blocking, so asks made during a check become at most one more.
+	// It may be nil, which is no asks.
+	Asked <-chan struct{}
+	// Report is told the outcome of every check, in order, from Run's own goroutine.
+	Report func(Event)
+}
+
+// checker is the state of one Run: its Deps, whether Current is a release version, and the
+// release it last told the app about.
+type checker struct {
+	deps      Deps
+	versioned bool
+	// told is the latest tag last reported as Fresh. Only the newest is kept, so the memory is
+	// fixed; a release withdrawn and published again after a newer one is told again.
+	told string
+}
+
+// Run checks for a newer release StartDelay after it starts and every CheckEvery after the last
+// automatic check, and at once whenever Asked fires, until ctx ends. One goroutine does all of
+// it, so there is never a second request in flight: an ask made during a check waits for it.
+// A failed automatic check is reported and not retried before the next interval. A Current that
+// is not a release version makes no request at all, and an ask is answered with Unchecked.
+func Run(ctx context.Context, deps Deps) {
+	requireDeps(deps)
+
+	// Evaluate gives Unchecked for a Current that is not a version, whatever the latest is.
+	versioned := Evaluate(deps.Current, "", nil).Kind != Unchecked
+	state := checker{deps: deps, versioned: versioned, told: ""}
+
+	// A nil channel never fires, which is how a build with no version never checks by itself.
+	var automatic <-chan time.Time
+	if state.versioned {
+		automatic = deps.After(StartDelay)
+	}
+
+	for {
+		// A done context wins over a timer or an ask that fired at the same moment.
+		if ctx.Err() != nil {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-automatic:
+			state.check(ctx, false)
+
+			automatic = deps.After(CheckEvery)
+		case <-deps.Asked:
+			state.check(ctx, true)
+		}
+	}
+}
+
+// requireDeps panics when a function Run calls is missing: that is a bug in the caller.
+func requireDeps(deps Deps) {
+	missing := []struct {
+		name string
+		nil  bool
+	}{
+		{"Fetch", deps.Fetch == nil},
+		{"After", deps.After == nil},
+		{"Report", deps.Report == nil},
+	}
+
+	for _, dep := range missing {
+		if dep.nil {
+			panic("update.Run: Deps." + dep.name + " is not set")
+		}
+	}
+}
+
+// check makes one check and reports it, unless ctx ended meanwhile: a check cut short by the
+// app quitting is not a failure to tell anyone about.
+func (state *checker) check(ctx context.Context, manual bool) {
+	result := Result{Kind: Unchecked, Latest: "", Err: nil}
+
+	if state.versioned {
+		latest, err := state.deps.Fetch(ctx)
+		result = Evaluate(state.deps.Current, latest, err)
+	}
+
+	if ctx.Err() != nil {
+		return
+	}
+
+	fresh := state.fresh(result, manual)
+	state.deps.Report(Event{Result: result, Manual: manual, Fresh: fresh})
+}
+
+// fresh says whether result is news to the person, and remembers an available release as told.
+func (state *checker) fresh(result Result, manual bool) bool {
+	if result.Kind != Available {
+		return manual
+	}
+
+	if manual {
+		state.told = result.Latest
+
+		return true
+	}
+
+	if result.Latest == state.told {
+		return false
+	}
+
+	state.told = result.Latest
+
+	return true
+}
