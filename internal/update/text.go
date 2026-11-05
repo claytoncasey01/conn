@@ -110,14 +110,16 @@ func offerMessage(current, latest string) string {
 		"Then run this command in Terminal:\n\n" + Command
 }
 
-// BaseFrom is the releases address to ask, given the value of CONN_UPDATE_BASE: ReleasesURL
-// when it is unset or blank, so only a developer's deliberate setting replaces it.
+// BaseFrom is the releases address to ask, given the value of CONN_UPDATE_BASE without the space
+// around it: ReleasesURL when it is unset or blank, so only a developer's deliberate setting
+// replaces it.
 func BaseFrom(raw string) string {
-	if strings.TrimSpace(raw) == "" {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
 		return ReleasesURL
 	}
 
-	return raw
+	return trimmed
 }
 
 // ReleaseNotesURL is the page of the release tag on ReleasesURL. It is built only from the

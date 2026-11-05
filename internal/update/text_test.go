@@ -232,6 +232,8 @@ func TestFailedTextHoldsNoServerText(t *testing.T) {
 func TestBaseFrom(t *testing.T) {
 	t.Parallel()
 
+	const testBase = "http://127.0.0.1:8080/x/releases"
+
 	tests := []struct {
 		name string
 		raw  string
@@ -240,6 +242,7 @@ func TestBaseFrom(t *testing.T) {
 		{"unset", "", update.ReleasesURL},
 		{"blank", " \t", update.ReleasesURL},
 		{"set", "http://127.0.0.1:8080/x/releases", "http://127.0.0.1:8080/x/releases"},
+		{"set with spaces", " " + testBase + "\n", testBase},
 	}
 
 	for _, tt := range tests {
