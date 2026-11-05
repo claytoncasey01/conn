@@ -26,7 +26,7 @@ printf 'v0.0.1\n' > VERSION            # put it back to "dev" afterwards
 scripts/build-release.sh /tmp/conn-release
 ```
 
-To try the app's update notice without a published release, build the app with a release version in `VERSION` (a `dev` build never checks), serve an address where `/x/releases/latest` redirects to `/x/releases/tag/v9.9.9`, and start the app with `CONN_UPDATE_BASE=<address>` set to the part before `/latest`, such as `http://127.0.0.1:8000/x/releases`. `CONN_UPDATE_BASE` replaces the address the check asks and is for this only; **Release Notes** still opens the real release page. The check starts about 10 seconds after the app has started, or at once from **Check for Updates…**.
+To try the app's update notice without a published release, build the app with a release version in `VERSION` (a `dev` build never checks), serve an address where `/x/releases/latest` redirects to `/x/releases/tag/v9.9.9` and `/x/releases/download/v9.9.9/checksums-app.txt` answers 200 or a redirect (a 404 there stands for a release whose app is not attached yet, and the app offers nothing but says on stderr that it is being published), and start the app with `CONN_UPDATE_BASE=<address>` set to the part before `/latest`, such as `http://127.0.0.1:8000/x/releases`. `CONN_UPDATE_BASE` replaces the address the check asks and is for this only; **Release Notes** still opens the real release page. The check starts about 10 seconds after the app has started, or at once from **Check for Updates…**.
 
 `internal/installscript` runs `install.sh` against a fake release server in the tests, so a change to the script is checked by `make test`.
 
@@ -45,6 +45,7 @@ These steps need a Mac and a person, so the build cannot do them. Do them once, 
    - An older build: put a version below the published one in `VERSION` (such as `v0.0.1`), run `bun run build` and `scripts/build-app.sh <out-folder>`, restore `VERSION` to `dev`, unzip `Conn_darwin_universal.zip` and open the app. About 10 seconds after it has started, the menu item reads **Update Available: <version>…** and a dialog appears. Check that it appears only once per run of the app.
    - In the dialog, check that **Copy Command** puts the install command on the clipboard, **Release Notes** opens the release in the browser, and **Later** closes it.
    - Check that **Check for Updates…** on the newest release says Conn is up to date.
+   - Check that a release whose `app` job has not attached the app yet is not offered: while the job runs, **Check for Updates…** on an older build says a new release is being published.
    - Check that with `CONN_UPDATE_CHECK=off` the item is gone. An app opened from the Dock or Finder does not inherit the terminal's environment: it reads the environment of your login shell, so set the variable in the shell's profile (for zsh, `~/.zprofile`), quit the app, open it again, and remove the line afterwards. The item is hidden once that environment has loaded, so look about 10 seconds after the app has started.
    - Check that Cmd-Q, Cmd-H, Cmd-Opt-H and the Services menu work, because the app menu is built by hand.
 9. Set the branch protection's required checks to the new names: `lint and type check (ubuntu-latest)`, `lint and type check (macos-latest)` and `app bundle (macos-latest)`.
