@@ -30,16 +30,18 @@ const (
 	// it listens. A Conn writes its address a moment after it takes the lock.
 	addressWaitMax = 5 * time.Second
 
-	// restartsMax is how many times the window may start over inside restartWindow. One more is a
-	// Conn that keeps stopping, and the window says so rather than start over for ever.
-	restartsMax   = 5
-	restartWindow = time.Minute
+	// restartsInARowMax is how many times the window may start over with no answer from a Conn in
+	// between. One more is a Conn that keeps stopping or never answers, and the window says so
+	// rather than start over for ever. There is no time window: a Conn that hangs makes each
+	// restart slow, and a count over a minute would then never fill.
+	restartsInARowMax = 5
 )
 
 // addressPolls is how many times the window looks at the lock while it waits for an address.
 const addressPolls = int(addressWaitMax / probeEvery)
 
-// ErrGaveUp is a window that started over more than restartsMax times inside restartWindow.
+// ErrGaveUp is a window that started over more than restartsInARowMax times in a row with no
+// answer from a Conn in between.
 var ErrGaveUp = errors.New("conn keeps stopping")
 
 // Action is what the window does about the data folder.
@@ -83,8 +85,6 @@ type Deps struct {
 	Open func(url string)
 	// Fail shows message in a native dialog: the window cannot go on.
 	Fail func(message string)
-	// Now is the clock, for counting restarts.
-	Now func() time.Time
 	// After is a channel that fires once d has passed (time.After), so a test never sleeps.
 	After func(d time.Duration) <-chan time.Time
 }
@@ -95,32 +95,33 @@ type result int
 const (
 	// finished is the context ending: Run returns.
 	finished result = iota
-	// again is a pass to run at once, because what it waited for has changed.
-	again
-	// restarted is a pass to run again after counting it as a restart.
+	// restarted is a pass to run again, counted as a restart: what it showed went away, or what
+	// it waited for changed.
 	restarted
 )
 
-// session is the state of one Run: its Deps, the address it showed last, and its restarts.
+// session is the state of one Run: its Deps, the address it showed last, and how many times it
+// has started over since a Conn last answered a probe.
 type session struct {
-	deps     Deps
-	lastURL  string
-	restarts restarts
+	deps           Deps
+	lastURL        string
+	restartsInARow int
 }
 
 // Run opens the window and keeps it on a live server until ctx ends. When nobody holds the data
 // folder it owns a server: Start, Open, and on the end of ctx it ends the server and waits for
 // it to let the folder go. When a Conn holds it, it attaches: Open, then Probe every probeEvery,
 // and probeFailuresMax in a row starts over from the top, as does an owned server that ends by
-// itself. More than restartsMax restarts inside restartWindow is Fail and an error wrapping
-// ErrGaveUp. An attached window never stops the server it attached to.
+// itself. Only an answered probe resets the count of restarts, so an owned server that ends by
+// itself counts toward it however long it ran. More than restartsInARowMax restarts in a row is
+// Fail and an error wrapping ErrGaveUp. An attached window never stops the server it attached to.
 //
-// The restart count bounds the passes: each pass that does not end Run counts as a restart or
-// waits for something that changed.
+// The restart count bounds the passes: each pass that does not end Run counts toward it, and only
+// a pass that got an answer, and so waited at least probeEvery, resets it.
 func Run(ctx context.Context, deps Deps) error {
 	requireDeps(deps)
 
-	running := &session{deps: deps, lastURL: "", restarts: restarts{times: nil}}
+	running := &session{deps: deps, lastURL: "", restartsInARow: 0}
 
 	for {
 		outcome, err := running.pass(ctx)
@@ -128,14 +129,13 @@ func Run(ctx context.Context, deps Deps) error {
 			return err
 		}
 
-		switch outcome {
-		case finished:
+		if outcome == finished {
 			return nil
-		case again:
-		case restarted:
-			if running.restarts.record(deps.Now()) {
-				return running.giveUp()
-			}
+		}
+
+		running.restartsInARow++
+		if running.restartsInARow > restartsInARowMax {
+			return running.giveUp()
 		}
 	}
 }
@@ -161,7 +161,6 @@ func requireDeps(deps Deps) {
 		{"Probe", deps.Probe == nil},
 		{"Open", deps.Open == nil},
 		{"Fail", deps.Fail == nil},
-		{"Now", deps.Now == nil},
 		{"After", deps.After == nil},
 	}
 
@@ -255,6 +254,7 @@ func (s *session) attach(ctx context.Context, url string) (result, error) {
 
 		if s.probe(ctx, url) == nil {
 			failures = 0
+			s.restartsInARow = 0
 
 			continue
 		}
@@ -293,7 +293,7 @@ func (s *session) waitForAddress(ctx context.Context) (result, error) {
 		}
 
 		if Decide(running, holder.URL) != WaitForAddress {
-			return again, nil
+			return restarted, nil
 		}
 	}
 
@@ -308,7 +308,8 @@ func (s *session) failWith(what string, err error) error {
 }
 
 // giveUp tells the person that the window has started over too many times, and says where it was
-// last pointed.
+// last pointed. It does not say why each restart happened (a Conn that stopped, that never
+// answered, or that took the folder first), because the count does not keep it.
 func (s *session) giveUp() error {
 	last := s.lastURL
 	if last == "" {
@@ -316,31 +317,10 @@ func (s *session) giveUp() error {
 	}
 
 	s.deps.Fail(fmt.Sprintf(
-		"Conn stopped answering %d times within %s, so this window gave up. It was last on %s.",
-		restartsMax+1, restartWindow, last))
+		"Conn could not be kept open: this window started over %d times in a row without an "+
+			"answer from Conn, so it gave up. It was last on %s.",
+		s.restartsInARow, last))
 
-	return fmt.Errorf("%w: more than %d restarts within %s, last on %s",
-		ErrGaveUp, restartsMax, restartWindow, last)
-}
-
-// restarts is when the window last started over, newest last.
-type restarts struct {
-	times []time.Time
-}
-
-// record notes a restart at now, forgets those older than restartWindow, and says whether more
-// than restartsMax are left. The list never holds more than restartsMax+1 times.
-func (r *restarts) record(now time.Time) bool {
-	kept := r.times[:0]
-
-	for _, when := range r.times {
-		if now.Sub(when) < restartWindow {
-			kept = append(kept, when)
-		}
-	}
-
-	kept = append(kept, now)
-	r.times = kept
-
-	return len(r.times) > restartsMax
+	return fmt.Errorf("%w: %d restarts in a row with no answer, last on %s",
+		ErrGaveUp, s.restartsInARow, last)
 }

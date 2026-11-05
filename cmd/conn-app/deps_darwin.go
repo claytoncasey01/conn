@@ -68,7 +68,6 @@ func (s *shell) deps(lookup config.LookupFunc, stderr io.Writer) desk.Deps {
 		},
 		Open:  s.open,
 		Fail:  s.fail,
-		Now:   time.Now,
 		After: time.After,
 	}
 }

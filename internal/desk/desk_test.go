@@ -65,53 +65,6 @@ func TestDecide(t *testing.T) {
 	}
 }
 
-func TestRestarts(t *testing.T) {
-	t.Parallel()
-
-	spread := desk.RestartWindow / 3
-
-	tests := []struct {
-		name  string
-		times []time.Duration
-		want  bool
-	}{
-		{"restartsMax together are allowed", repeated(desk.RestartsMax, 0), false},
-		{"one more together is too many", repeated(desk.RestartsMax+1, 0), true},
-		{
-			"restarts spread over more than the window are allowed",
-			[]time.Duration{0, spread, 2 * spread, 3 * spread, 4 * spread, 5 * spread},
-			false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			var counted desk.Restarts
-
-			base := time.Date(2026, time.November, 4, 9, 0, 0, 0, time.UTC)
-			exceeded := false
-
-			for _, offset := range tt.times {
-				exceeded = desk.RecordRestart(&counted, base.Add(offset))
-			}
-
-			if exceeded != tt.want {
-				t.Errorf("the last restart exceeded = %t, want %t", exceeded, tt.want)
-			}
-		})
-	}
-}
-
-func repeated(count int, offset time.Duration) []time.Duration {
-	offsets := make([]time.Duration, count)
-	for index := range offsets {
-		offsets[index] = offset
-	}
-
-	return offsets
-}
-
 // reply is what a fake Holder answers once.
 type reply struct {
 	holder  instance.Holder
@@ -225,14 +178,13 @@ func instantly(time.Duration) <-chan time.Time {
 	return fired
 }
 
-func (s *scenario) deps(now func() time.Time) desk.Deps {
+func (s *scenario) deps() desk.Deps {
 	return desk.Deps{
 		Start:  s.start,
 		Holder: s.holder,
 		Probe:  s.probe,
 		Open:   s.open,
 		Fail:   s.fail,
-		Now:    now,
 		After:  s.after,
 	}
 }
@@ -366,7 +318,7 @@ func TestRun(t *testing.T) {
 				endServer: nil, opened: nil, started: nil, startDone: nil, failed: nil,
 			}
 
-			err := runBounded(ctx, t, cancel, world.deps(time.Now))
+			err := runBounded(ctx, t, cancel, world.deps())
 
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("Run error = %v, want %v", err, tt.wantErr)
@@ -378,6 +330,59 @@ func TestRun(t *testing.T) {
 				checkStopped(t, world)
 			}
 		})
+	}
+}
+
+// slowClock is the time a Run would have taken on a real clock: each wait and each probe adds
+// the time it bounds, as on a server that hangs, without sleeping. Only Run's goroutine touches
+// it.
+type slowClock struct {
+	elapsed time.Duration
+}
+
+func (c *slowClock) after(wait time.Duration) <-chan time.Time {
+	c.elapsed += wait
+
+	return instantly(wait)
+}
+
+// TestRunGivesUpOnAServerThatHangs is a holder whose every probe runs to its time limit: a Conn
+// that holds the folder and accepts connections but never answers. Run must give up after the
+// restarts allowed in a row, however long each one took, rather than reload the window for ever.
+func TestRunGivesUpOnAServerThatHangs(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// Three times the opens a give-up allows: a Run that is still opening then never gives up.
+	opensMax := 3 * (desk.RestartsMax + 1)
+	world := &scenario{
+		replies: []reply{held(deadURL)}, probes: []error{errNoAnswer}, startErrs: nil,
+		cancelAfterOpens: opensMax, cancelAfterProbes: 0, endServerAfterOpens: 0,
+		cancelOnWait: false, env: environment(t), cancel: cancel, asked: 0, probed: 0,
+		starts: 0, endServer: nil, opened: nil, started: nil, startDone: nil, failed: nil,
+	}
+
+	clock := &slowClock{elapsed: 0}
+	deps := world.deps()
+	deps.After = clock.after
+	deps.Probe = func(probeCtx context.Context, url string) error {
+		clock.elapsed += desk.ProbeTimeout
+
+		return world.probe(probeCtx, url)
+	}
+
+	err := runBounded(ctx, t, cancel, deps)
+	if !errors.Is(err, desk.ErrGaveUp) {
+		t.Errorf("Run error = %v after %d opens, want %v", err, len(world.opened), desk.ErrGaveUp)
+	}
+
+	checkWorld(t, world, repeatedURLs(deadURL, desk.RestartsMax+1), 0, 1, []string{deadURL})
+
+	// A minute is the window the count once used; restarts this slow never filled it.
+	if clock.elapsed <= time.Minute {
+		t.Errorf("the restarts took %s on the clock, want more than a minute", clock.elapsed)
 	}
 }
 
@@ -545,7 +550,6 @@ func TestRunAttachesToARealServer(t *testing.T) {
 		},
 		Open: func(url string) { opened <- url },
 		Fail: func(message string) { t.Errorf("a window was told: %s", message) },
-		Now:  time.Now,
 		After: func(time.Duration) <-chan time.Time {
 			if probes < 2 {
 				return instantly(0)
