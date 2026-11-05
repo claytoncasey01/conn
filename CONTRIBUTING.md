@@ -29,8 +29,8 @@ them with invented data. The README's [Development](README.md#development) secti
 
 ## Check your change
 
-Run these before you push. CI runs the tests on Linux and macOS, and the lint and type check
-on Linux.
+Run these before you push. CI runs the tests and the lint and type check on Linux and macOS,
+and builds the app bundle on macOS.
 
 ```sh
 make fmt     # gofumpt and goimports
