@@ -35,7 +35,7 @@ These steps need a Mac and a person, so the build cannot do them. Do them once, 
 1. Push the branch and watch CI. Both legs of `lint and type check`, the `app bundle` job and the `test` legs must pass.
 2. On a clean Apple-silicon Mac, run `install.sh` and open `~/Applications/Conn.app`. It must open without a Gatekeeper warning.
 3. Download the zip in a browser, unzip it and open the app. Note the warning. It is cleared by `xattr -dr com.apple.quarantine Conn.app`.
-4. Look at the window by eye: the splash, the error dialog, and the real UI with a click-through (change a setting and save it in the app). Click the Dock icon after closing the window. Press Cmd-Q, Cmd-H, Cmd-C and Cmd-V on the keyboard.
+4. Look at the window by eye: the splash, the error dialog, and the real UI with a click-through (change a setting and save it in the app). Click a PR link (My PRs or Reviews) and see it open in the default browser while the window stays on Conn; click a link to a page of Conn and see it stay in the window. Click the Dock icon after closing the window. Press Cmd-Q, Cmd-H, Cmd-C and Cmd-V on the keyboard.
 5. Quit with `kill -TERM` while the error dialog is open. Start the app on a port that another program holds, with an isolated `CONN_DATA`, so the real data folder is not touched.
 6. Kill the server under an attached window and watch the app recover.
 7. Run the x86_64 slice (under Rosetta, or on an Intel Mac) and the bundle on macOS 13.

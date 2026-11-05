@@ -72,9 +72,21 @@ func (s *shell) deps(lookup config.LookupFunc, stderr io.Writer) desk.Deps {
 	}
 }
 
-// open loads url in the window. SetURL runs on the main thread itself.
+// open loads url in the window, and keeps it as the server whose pages the window's links may
+// load. SetURL runs on the main thread itself.
 func (s *shell) open(url string) {
+	s.shown.Store(&url)
 	s.window.SetURL(url)
+}
+
+// shownURL is the address the window was last opened on, or "" before the first.
+func (s *shell) shownURL() string {
+	shown := s.shown.Load()
+	if shown == nil {
+		return ""
+	}
+
+	return *shown
 }
 
 // fail shows message in a native dialog whose one button quits the app. It returns at once:

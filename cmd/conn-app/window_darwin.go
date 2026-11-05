@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -32,11 +33,16 @@ const (
 	deskStopTimeout = 3 * time.Second
 )
 
-// shell is the running app: the Wails application, its one window, and the desk.Run it waits
-// for at quit.
+// shell is the running app: the Wails application, its one window, the server it shows, and the
+// desk.Run it waits for at quit.
 type shell struct {
 	app    *application.App
 	window *application.WebviewWindow
+	stderr io.Writer
+
+	// shown is the address of the server the window was last opened on, empty until then. It is
+	// written by desk.Run's goroutine and read on the main thread when a link is followed.
+	shown atomic.Pointer[string]
 
 	// stopDesk ends the context desk.Run runs on.
 	stopDesk context.CancelFunc
@@ -51,7 +57,16 @@ func run(lookup config.LookupFunc, stderr io.Writer) int {
 	deskCtx, stopDesk := context.WithCancel(context.Background())
 	defer stopDesk()
 
-	opened := &shell{app: nil, window: nil, stopDesk: stopDesk, deskDone: make(chan struct{})}
+	opened := &shell{
+		app: nil, window: nil, stderr: stderr, shown: atomic.Pointer[string]{},
+		stopDesk: stopDesk, deskDone: make(chan struct{}),
+	}
+
+	// The links go in before the window is made; without them the app still works.
+	err := opened.installLinks()
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "conn-app: %v\n", err)
+	}
 
 	opened.app = application.New(application.Options{
 		Name:        appName,
@@ -78,7 +93,7 @@ func run(lookup config.LookupFunc, stderr io.Writer) int {
 	opened.app.Menu.Set(appMenu(opened.app))
 	opened.startDeskWhenReady(deskCtx, lookup, stderr)
 
-	err := opened.app.Run()
+	err = opened.app.Run()
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "conn-app: %v\n", err)
 
