@@ -181,29 +181,16 @@ func TestMerge(t *testing.T) {
 func TestArgs(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct{ name, shell string }{
-		{name: "fish", shell: "/opt/homebrew/bin/fish"},
-		{name: "zsh", shell: "/bin/zsh"},
-		{name: "bash", shell: "/bin/bash"},
-		{name: "sh", shell: "/bin/sh"},
-		{name: "no shell", shell: ""},
+	// Fish, zsh, bash and sh all take these flags, so one list serves every shell.
+	want := []string{"-l", "-i", "-c", `"$CONN_ENV_EXE" --print-env`}
+
+	got := shellenv.Args()
+	if !slices.Equal(got, want) {
+		t.Errorf("Args() = %q, want %q", got, want)
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			want := []string{"-l", "-i", "-c", `"$CONN_ENV_EXE" --print-env`}
-
-			got := shellenv.Args(test.shell)
-			if !slices.Equal(got, want) {
-				t.Errorf("Args(%q) = %q, want %q", test.shell, got, want)
-			}
-
-			if shellenv.Script != want[3] {
-				t.Errorf("script = %q, want %q", shellenv.Script, want[3])
-			}
-		})
+	if shellenv.Script != want[3] {
+		t.Errorf("script = %q, want %q", shellenv.Script, want[3])
 	}
 }
 
