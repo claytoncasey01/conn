@@ -43,7 +43,7 @@ body{background:var(--bg);color:var(--tx);font:12px/1.35 var(--font-ui,system-ui
 .page-scan{position:absolute;inset:0;pointer-events:none}
 .page-head{position:relative;display:flex;align-items:center;gap:4px;border-bottom:1px var(--border-style,solid) var(--line);margin-bottom:4px}
 .glint{position:absolute;left:0;right:0;bottom:-1px;height:1px}
-.brand{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:20px;padding:0 3px;margin-right:4px;border-radius:var(--radius,6px);background:var(--role-lead);color:var(--onac);font-size:9px;font-weight:700;letter-spacing:0}
+.brand{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:20px;padding:0 3px;margin-right:4px;border-radius:var(--radius,6px);background:var(--ac);color:var(--onac);font-size:9px;font-weight:700;letter-spacing:0}
 .tab{padding:3px 9px;color:var(--mu);border-bottom:2px solid transparent}
 .tab.on{color:var(--bright);border-bottom-color:var(--ac)}
 .label{font-size:10px;color:var(--mu);margin:0 0 4px}
