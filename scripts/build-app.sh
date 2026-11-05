@@ -77,6 +77,7 @@ sed -e "s|@IDENTIFIER@|$bundle_identifier|" \
 	-e "s|@VERSION@|$(bundle_version)|" \
 	scripts/Info.plist.tmpl >"$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist" >/dev/null
+# The icon is drawn by scripts/make-app-icon.swift, which rewrites this file.
 cp assets/app/Conn.icns "$app/Contents/Resources/Conn.icns"
 
 # Extended attributes (macOS adds some to files it considers downloaded or copied) would make
