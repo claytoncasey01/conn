@@ -172,7 +172,7 @@ func receive[T any](t *testing.T, channel <-chan T, what string) T {
 	case value := <-channel:
 		return value
 	case <-time.After(testtime.Scaled(waitMax)):
-		t.Fatalf("no %s within %s", what, waitMax)
+		t.Fatalf("no %s within %s", what, testtime.Scaled(waitMax))
 
 		var zero T
 
@@ -215,7 +215,7 @@ func (r *running) stop() {
 	select {
 	case <-r.done:
 	case <-time.After(testtime.Scaled(waitMax)):
-		r.t.Fatalf("Run did not return within %s of its context ending", waitMax)
+		r.t.Fatalf("Run did not return within %s of its context ending", testtime.Scaled(waitMax))
 	}
 }
 
@@ -302,6 +302,25 @@ func TestRunFresh(t *testing.T) {
 				{Result: update.Result{Kind: update.Available, Latest: "v1.1.0"}, Fresh: false},
 				{Result: update.Result{Kind: update.Available, Latest: "v1.2.0"}, Fresh: true},
 				{Result: update.Result{Kind: update.Available, Latest: "v1.2.0"}, Fresh: false},
+			},
+		},
+		{
+			"a lower release published again after a newer one is not news",
+			[]reply{{"v1.2.0", nil}, {"v1.3.0", nil}, {"v1.2.0", nil}, {"v1.3.0", nil}},
+			[]update.Event{
+				{Result: update.Result{Kind: update.Available, Latest: "v1.2.0"}, Fresh: true},
+				{Result: update.Result{Kind: update.Available, Latest: "v1.3.0"}, Fresh: true},
+				{Result: update.Result{Kind: update.Available, Latest: "v1.2.0"}, Fresh: false},
+				{Result: update.Result{Kind: update.Available, Latest: "v1.3.0"}, Fresh: false},
+			},
+		},
+		{
+			"a failed check then an available release is news once",
+			[]reply{{"", errNoNetwork}, {"v1.1.0", nil}, {"v1.1.0", nil}},
+			[]update.Event{
+				{Result: update.Result{Kind: update.Failed, Latest: ""}, Fresh: false},
+				{Result: update.Result{Kind: update.Available, Latest: "v1.1.0"}, Fresh: true},
+				{Result: update.Result{Kind: update.Available, Latest: "v1.1.0"}, Fresh: false},
 			},
 		},
 		{

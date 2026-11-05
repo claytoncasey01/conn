@@ -31,7 +31,8 @@ type Deps struct {
 	// of one and sends without blocking, so asks made during a check become at most one more.
 	// It may be nil, which is no asks.
 	Asked <-chan struct{}
-	// Report is told the outcome of every check, in order, from Run's own goroutine.
+	// Report is told the outcome of every check, in order, from Run's own goroutine. It must
+	// return promptly: Run cannot return while it blocks, and a panic in it is the caller's.
 	Report func(Event)
 }
 
@@ -40,8 +41,8 @@ type Deps struct {
 type checker struct {
 	deps      Deps
 	versioned bool
-	// told is the latest tag last reported as Fresh. Only the newest is kept, so the memory is
-	// fixed; a release withdrawn and published again after a newer one is told again.
+	// told is the highest release tag reported as Fresh. Only that one is kept, so the memory is
+	// fixed, and an older release published again after a newer one is not news.
 	told string
 }
 
@@ -53,9 +54,8 @@ type checker struct {
 func Run(ctx context.Context, deps Deps) {
 	requireDeps(deps)
 
-	// Evaluate gives Unchecked for a Current that is not a version, whatever the latest is.
-	versioned := Evaluate(deps.Current, "", nil).Kind != Unchecked
-	state := checker{deps: deps, versioned: versioned, told: ""}
+	_, err := parse(deps.Current)
+	state := checker{deps: deps, versioned: err == nil, told: ""}
 
 	// A nil channel never fires, which is how a build with no version never checks by itself.
 	var automatic <-chan time.Time
@@ -85,8 +85,8 @@ func Run(ctx context.Context, deps Deps) {
 // requireDeps panics when a function Run calls is missing: that is a bug in the caller.
 func requireDeps(deps Deps) {
 	missing := []struct {
-		name string
-		nil  bool
+		name    string
+		missing bool
 	}{
 		{"Fetch", deps.Fetch == nil},
 		{"After", deps.After == nil},
@@ -94,7 +94,7 @@ func requireDeps(deps Deps) {
 	}
 
 	for _, dep := range missing {
-		if dep.nil {
+		if dep.missing {
 			panic("update.Run: Deps." + dep.name + " is not set")
 		}
 	}
@@ -118,23 +118,25 @@ func (state *checker) check(ctx context.Context, manual bool) {
 	state.deps.Report(Event{Result: result, Manual: manual, Fresh: fresh})
 }
 
-// fresh says whether result is news to the person, and remembers an available release as told.
+// fresh says whether result is news to the person, and remembers the highest available release
+// as told. A manual check is always news, because the person asked and is waiting for it.
 func (state *checker) fresh(result Result, manual bool) bool {
 	if result.Kind != Available {
 		return manual
 	}
 
-	if manual {
-		state.told = result.Latest
+	news := state.told == ""
+	if !news {
+		news = Newer(state.told, result.Latest)
+	}
 
+	if news {
+		state.told = result.Latest
+	}
+
+	if manual {
 		return true
 	}
 
-	if result.Latest == state.told {
-		return false
-	}
-
-	state.told = result.Latest
-
-	return true
+	return news
 }
