@@ -26,6 +26,8 @@ printf 'v0.0.1\n' > VERSION            # put it back to "dev" afterwards
 scripts/build-release.sh /tmp/conn-release
 ```
 
+To try the app's update notice without a published release, build the app with a release version in `VERSION` (a `dev` build never checks), serve any address whose `/latest` answers a redirect to `<same path>/tag/v9.9.9`, and start the app with `CONN_UPDATE_BASE=<address>` set to the part before `/latest`, such as `http://127.0.0.1:8000/x/releases`. `CONN_UPDATE_BASE` replaces the address the check asks and is for this only; **Release Notes** still opens the real release page. The check starts about 10 seconds after launch, or at once from **Check for Updates…**.
+
 `internal/installscript` runs `install.sh` against a fake release server in the tests, so a change to the script is checked by `make test`.
 
 ## Before the first release with the app
@@ -39,7 +41,8 @@ These steps need a Mac and a person, so the build cannot do them. Do them once, 
 5. Quit with `kill -TERM` while the error dialog is open. Start the app on a port that another program holds, with an isolated `CONN_DATA`, so the real data folder is not touched.
 6. Kill the server under an attached window and watch the app recover.
 7. Run the x86_64 slice (under Rosetta, or on an Intel Mac) and the bundle on macOS 13.
-8. Set the branch protection's required checks to the new names: `lint and type check (ubuntu-latest)`, `lint and type check (macos-latest)` and `app bundle (macos-latest)`.
+8. The update notice, with the repository public and a newer release published: an older build shows the **Update Available** item and, once, the dialog. **Copy Command** puts the install command on the clipboard, **Release Notes** opens the release, and **Later** closes it. **Check for Updates…** on the newest release says Conn is up to date. With `CONN_UPDATE_CHECK=off` the item is gone. Cmd-Q, Cmd-H and the Services menu still work, because the app menu is built by hand.
+9. Set the branch protection's required checks to the new names: `lint and type check (ubuntu-latest)`, `lint and type check (macos-latest)` and `app bundle (macos-latest)`.
 
 ## macOS
 

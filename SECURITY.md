@@ -27,7 +27,10 @@ no check, and keeps its data in the same folder, so everything below holds for i
 process, so that `claude`, `gh` and `git` are found. Every program the server starts (`claude`,
 `gh`, `git`) inherits that whole environment, tokens included, as it would in a terminal. Conn
 itself never writes that environment to a file or a log, and when the shell fails it shows only a
-short reason, never what the shell printed.
+short reason, never what the shell printed. The app's update check is one unauthenticated `HEAD`
+request to `github.com` that only reads a redirect: it installs nothing, sends no version or
+identifier, and trusts only an answer that is a release tag on the same host, and
+`CONN_UPDATE_CHECK=off` turns it off.
 
 These are in scope, because Conn promises them:
 

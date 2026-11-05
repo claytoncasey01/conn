@@ -1,7 +1,8 @@
 # Update notice for the desktop app: design
 
-Status: proposed. Written 2026-11-05 on `update-notice-spec`, stacked on `desktop-app`. Nothing in it
-is built.
+Status: built on `update-notice-spec`, stacked on `desktop-app`, and not yet seen on a real Mac.
+Written 2026-11-05 as a proposal and corrected the same day to match what was built: where the two
+differed, this text now says what the code does, and "What was built differently" lists the changes.
 
 ## Why
 
@@ -16,17 +17,21 @@ and is not part of this: see issue #15 on signing and Sparkle, and "Not in this"
 ## What the user sees
 
 - The app menu (the one named Conn, beside the Apple menu) has an item, **Check for Updates…**,
-  always. Choosing it checks at once and answers in a dialog: either "Conn is up to date (v1.2.3)" or
-  the update dialog below. A failed check says so ("Could not reach GitHub").
+  directly under About, unless the check is off (below). Choosing it checks at once and answers in a
+  dialog: "Conn is up to date (v1.2.3)", the update dialog below, or, for a failed check, "Could not
+  check for updates" with a fixed reason ("Could not reach GitHub."). A build with no release version
+  (`dev`) answers that it is a development build and does not check.
 - A check also runs by itself, a few seconds after launch and then once a day while the app stays
   open. When it finds a newer release, the menu item reads **Update Available: v1.2.4…** from then
   until the app quits, and a dialog is shown once for that version in this run of the app. A
-  version the user has dismissed is not shown again until the next launch, and nothing is written to
-  disk.
-- The update dialog says: "Conn v1.2.4 is available (you have v1.2.3)." with the one-line install
-  command in the message, and three buttons: **Copy Command**, **Release Notes** (opens the
-  release's page in the default browser), **Later**. The message says to quit Conn first, because
-  the installer refuses to replace a running app.
+  version the user has dismissed is not shown again until the next launch (choosing the menu item
+  does show it again, because the person asked), and nothing is written to disk. Only the highest
+  version told is remembered: a release withdrawn after a newer one was told, which leaves a lower
+  one as the latest, is never told again.
+- The update dialog is titled "Conn v1.2.4 is available". Its message says "Conn v1.2.4 is
+  available (you have v1.2.3).", that Conn must be quit first because the installer refuses to
+  replace a running app, and the one-line install command. It has three buttons: **Copy Command**
+  (the default), **Release Notes** (opens the release's page in the default browser), **Later**.
 - Nothing else changes: no badge, no notification, no window of its own, no change to the page.
 
 The command in the dialog is the one the README gives:
@@ -43,32 +48,48 @@ tested on Linux too (the same split as `internal/desk`).
   tag is read from that. No GitHub API, so no rate limit and no token, and it works the same as the
   installer (which only counts published releases that are not pre-releases).
 - **Is it newer?** `Newer(current, latest string) bool`: both must be `vMAJOR.MINOR.PATCH` (an
-  optional `-rc1`-style suffix and `+build` are ignored for the comparison; the numbers are
-  compared as numbers, not text). A current version that is not of that shape (`dev`, as in the
+  optional `-rc1`-style suffix and `+build` are allowed; the numbers, of at most 9 digits, are
+  compared as numbers, not text, and a suffix is compared only by being there or not). A current version that is not of that shape (`dev`, as in the
   repository's `VERSION` file) never checks at all, and a latest that is not of that shape is
   ignored. An equal or older latest is never offered, so a downgrade is never suggested.
-- **When.** `Run(ctx, deps)` takes its clock, request and reporter as plain function fields
-  (`Check`, `After`, `Report`), like `desk.Deps`, and returns when the context ends. It waits
-  `startDelay` (10 s), checks, then waits `checkEvery` (24 h) and checks again. A failed check
-  is retried at the next interval, not sooner: there is no retry loop.
-- **Limits, named as constants.** Request timeout `checkTimeout` (5 s); no body is read; the
-  response is used only for its status and `Location` header, which is capped at `locationBytesMax`
-  (512); at most one request per `checkEvery`, plus one each time the user chooses the menu item
-  (and those are ignored while one is already running).
-- **In the app.** `cmd/conn-app` starts `update.Run` next to `desk.Run`, adds the menu item
-  (`menu_darwin.go`), and shows the dialog (`window_darwin.go`'s dialog helper). "Release Notes"
-  goes through `LinkTarget`'s browser path, so only an `https` URL on `github.com` is opened. The
-  tag is checked against `^v[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*$` before it is put in any URL or
-  text, because it came from the network.
-- **Turned off with `CONN_UPDATE_CHECK=off`**, in the same style as `CONN_THEME_INDEX=off`. The
-  menu item then does not appear. It is read where the app reads its other `CONN_*` settings.
+- **When.** `Run(ctx, deps)` takes its clock, request, asks and reporter as plain fields (`Fetch`,
+  `After`, `Asked`, `Report`, with `Current`, the build's version), like `desk.Deps`, and returns when
+  the context ends. It waits `StartDelay` (10 s), checks, then waits `CheckEvery` (24 h) and checks
+  again. A failed check is retried at the next interval, not sooner: there is no retry loop. One
+  goroutine does all of it, so there is never a second request in flight.
+- **Limits, named as constants.** Request timeout `checkTimeout` (5 s), with shorter limits on
+  connecting, the TLS handshake and the wait for headers; no body is read; the response is used
+  only for its status and `Location` header. Only a redirect status is read, with exactly one
+  `Location`, capped at `locationBytesMax` (512), on the same scheme and host as the request, with
+  no user, query or fragment, and a path that is the releases path plus `/tag/` plus a tag of at
+  most `tagBytesMax` (64) in the version shape. At most one request per `CheckEvery`, plus one each
+  time the user chooses the menu item; asks made while a check runs become at most one more check
+  (the ask channel holds one).
+- **In the app.** `cmd/conn-app` starts `update.Run` (`update_darwin.go`) after the login shell's
+  environment is loaded and before `desk.Run`: the check reads the proxy variables once, at its
+  first request, and `CONN_UPDATE_CHECK` may come only from the shell. The app menu is built by
+  hand from roles (`menu_darwin.go`), because Wails cannot add an item inside its stock app menu.
+  **Check for Updates…** sits directly under About, with no separator, because a separator cannot
+  be hidden with the item. The result is told on one goroutine, in order, so `Run` never waits on
+  the screen. "Release Notes" opens `ReleasesURL` plus `/tag/<tag>` through `desk.LinkTarget`.
+  `LinkTarget` accepts any `http` or `https` address with a host; what keeps the page on GitHub is
+  that the URL is built only from that constant and a validated tag, never from the address the
+  check asked. The tag must match the version shape (and be at most 64 bytes) before it is put in
+  any URL or text, because it came from the network. Failure reasons are fixed sentences chosen by
+  error kind, so no text from the server reaches the screen or stderr.
+- **Turned off with `CONN_UPDATE_CHECK=off`** (also `false`, `0`, `no`, `none`, `disabled`, in any
+  case). The check then makes no request and the menu item is hidden, not disabled. It is only
+  known after the login shell's environment loads, so the item starts visible and is hidden then.
+- **`CONN_UPDATE_BASE`** replaces the releases address that is asked (default `ReleasesURL`), for
+  trying a build against a fake release server. It is for developers, so it is in
+  `docs/releasing.md` and not in the README's table. Release Notes still opens the real page.
 
 ## What it touches
 
 - **Network.** One unauthenticated HEAD request to `github.com` at launch and daily. It sends
   nothing of the user's, no version and no identifier; GitHub sees the address it came from and a
-  plain client name (`conn-app`). The README's "What Conn touches" section and SECURITY.md gain a
-  line saying so, and that `CONN_UPDATE_CHECK=off` turns it off.
+  plain client name (`conn-app`). The README's "What Conn touches" section and SECURITY.md say so,
+  and that `CONN_UPDATE_CHECK=off` turns it off.
 - **Files.** None written.
 - **Server and page.** Unchanged: no route, no `src/` change, so every guard in `internal/server`
   is untouched. This is the reason the notice is a native menu item and not a banner in the page.
@@ -88,6 +109,33 @@ tested on Linux too (the same split as `internal/desk`).
   `install.sh`.
 - A daily interval and a 10 s launch delay, so the check never competes with the splash and the
   server starting.
+- The app menu is built by hand, because Wails cannot add an item inside its stock app menu. It holds
+  the same roles in the same order (About, Services, Hide, Hide Others, Show All, Quit), so the keys
+  and Services should behave as before; only a run on a Mac shows it.
+- The item is hidden when the check is off, not disabled, and sits directly under About with no
+  separator, because a separator cannot be hidden and would be left doubled.
+- The check starts after the login shell's environment is loaded, so it uses the person's proxy
+  and `CONN_UPDATE_CHECK` can be set in the shell. The cost is that the item shows for a moment
+  before it is hidden; an ask in that moment waits and is answered once the check starts, or is
+  dropped if the check turns out to be off.
+- A dev build starts `Run` too but never requests; an ask gets the development-build answer.
+- Failure reasons say "GitHub" even when `CONN_UPDATE_BASE` points elsewhere; only a bad
+  `CONN_UPDATE_BASE` is named.
+- Each found release is also noted on stderr, and each failure, at most once a day plus asks.
+
+## What was built differently
+
+Where the proposal guessed, the build found otherwise, and this text above was corrected:
+
+- Release Notes: `LinkTarget` does not limit the host; the URL's construction does.
+- The dependency field is `Fetch`, not `Check`, and `Run` also takes `Current` and `Asked`.
+- The app menu is hand-built, the item sits under About with no separator, and is hidden when off.
+- `Run` starts after the environment loads, not beside `desk.Run` at once.
+- `CONN_UPDATE_BASE` was added.
+- Asks made during a check become at most one more, not none; the offer is shown again on an ask.
+- A withdrawn lower release is never told again (the highest tag told is kept).
+- The tag pattern is the version shape with at most 9 digits a number, and at most 64 bytes.
+- The dialog helper is in `update_darwin.go`, not `window_darwin.go`.
 
 ## Not in this
 
@@ -106,14 +154,17 @@ Inputs the spec implies and the tests must pin:
 2. **Version comparison.** `v1.10.0` is newer than `v1.9.0`; `v1.2.3` is not newer than itself; an
    `-rc` latest of the same numbers is not newer than the release; `dev` never checks.
 3. **No loop and no pile-up.** A slow or failing network gives one request per interval; choosing
-   the menu item while a check runs does not start a second; cancelling the context stops
+   the menu item while a check runs does not start a second at once (at most one more follows); cancelling the context stops
    `Run` mid-wait and mid-request.
 4. **Quit.** Quitting the app while a check is in flight ends within the existing stop timeout.
 5. **Off switch.** `CONN_UPDATE_CHECK=off` makes no request at all (a test server that fails on any
-   request), and removes the menu item.
+   request), and hides the menu item.
 
 ## What needs the owner's eyes (cannot be done headless)
 
-- The menu item and both dialogs look right on a real Mac, including dark mode.
+- The menu item and both dialogs look right on a real Mac, including dark mode, and the item sits
+  under About. Cmd-Q, Cmd-H, Cmd-Opt-H and Services still work in the hand-built menu, and the
+  item is gone with `CONN_UPDATE_CHECK=off`.
+- The proxy over HTTPS (a tunnel to the real `github.com`) was not exercised; a plain proxy was.
 - **Copy Command** really puts the command on the clipboard; **Release Notes** opens the release.
 - With the repository public and a newer release published, a launched older build offers it.
