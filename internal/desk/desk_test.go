@@ -19,7 +19,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
-// runWait bounds a Run in a test: one that does not return in this long has looped.
+// runWait bounds a Run in a test: one that does not return in this long has looped or hung.
 const runWait = 10 * time.Second
 
 // deadURL is where a holder says it listens when nothing does.
@@ -355,7 +355,7 @@ func TestRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(runWait))
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			world := &scenario{
@@ -366,7 +366,7 @@ func TestRun(t *testing.T) {
 				endServer: nil, opened: nil, started: nil, startDone: nil, failed: nil,
 			}
 
-			err := desk.Run(ctx, world.deps(time.Now))
+			err := runBounded(ctx, t, cancel, world.deps(time.Now))
 
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("Run error = %v, want %v", err, tt.wantErr)
@@ -378,6 +378,29 @@ func TestRun(t *testing.T) {
 				checkStopped(t, world)
 			}
 		})
+	}
+}
+
+// runBounded is Run in a goroutine, and a failed test when it has not returned within runWait,
+// so a Run that loops or ignores its context fails with a message instead of hanging the test
+// binary. On the timeout it ends the context first, so the goroutine can end.
+func runBounded(
+	ctx context.Context, t *testing.T, cancel context.CancelFunc, deps desk.Deps,
+) error {
+	t.Helper()
+
+	result := make(chan error, 1)
+
+	go func() { result <- desk.Run(ctx, deps) }()
+
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(testtime.Scaled(runWait)):
+		cancel()
+		t.Fatalf("Run did not return within %s", runWait)
+
+		return nil
 	}
 }
 
@@ -414,8 +437,23 @@ func checkWorld(
 		}
 	}
 
+	checkOpened(t, world, wantOpened)
+}
+
+// checkOpened fails the test unless the windows opened on wantOpened, in order, each startedURL
+// standing for the next server Start started.
+func checkOpened(t *testing.T, world *scenario, wantOpened []string) {
+	t.Helper()
+
 	if len(world.opened) != len(wantOpened) {
 		t.Fatalf("windows opened on %q, want %q", world.opened, wantOpened)
+	}
+
+	startedWanted := countStartedURLs(wantOpened)
+
+	if len(world.started) < startedWanted {
+		t.Fatalf("servers started = %d, but %d windows were to open on one",
+			len(world.started), startedWanted)
 	}
 
 	startedSoFar := 0
@@ -430,6 +468,19 @@ func checkWorld(
 			t.Errorf("open %d was %q, want %q", index, world.opened[index], want)
 		}
 	}
+}
+
+// countStartedURLs is how many of urls are the address of a server the test's Start started.
+func countStartedURLs(urls []string) int {
+	count := 0
+
+	for _, url := range urls {
+		if url == startedURL {
+			count++
+		}
+	}
+
+	return count
 }
 
 // checkStopped fails the test unless the end of Run's context ended the servers Run started, and
