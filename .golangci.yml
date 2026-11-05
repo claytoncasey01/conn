@@ -17,9 +17,13 @@ linters:
           allow:
             - $gostd
             - github.com/claytoncasey01/conn
-            # The History archive is a SQLite file; this driver is pure Go, so conn builds
-            # without cgo.
+            # The History archive is a SQLite file; this driver is pure Go, so the CLI
+            # (cmd/conn) builds without cgo.
             - modernc.org/sqlite
+            # The macOS app's window, menu, Dock and dialogs (cmd/conn-app, darwin only). It is
+            # the one cgo exception: Wails v3 binds Cocoa and WebKit through cgo. Pinned to an
+            # exact version; read its release notes before bumping it.
+            - github.com/wailsapp/wails/v3
     gosec:
       excludes:
         # Conn's job is running gh, git, ps and claude with arguments built from settings and

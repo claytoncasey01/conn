@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Conn</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --background: #f6f6f4;
+        --text: #1d1d1b;
+        --muted: #6b6b66;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --background: #161615;
+          --text: #ededea;
+          --muted: #9a9a94;
+        }
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--background);
+        color: var(--text);
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      main {
+        max-width: 36rem;
+        padding: 0 2rem;
+        color: var(--muted);
+        text-align: center;
+        white-space: pre-line;
+      }
+      main::first-line {
+        color: var(--text);
+        font-size: 20px;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>{{TEXT}}</main>
+  </body>
+</html>
