@@ -34,6 +34,12 @@ type reply struct {
 	err    error
 }
 
+// appReply is what the fake AppAttached answers to one call.
+type appReply struct {
+	attached bool
+	err      error
+}
+
 // timer is one wait Run asked After for: how long, and the way to fire it.
 type timer struct {
 	wait time.Duration
@@ -50,8 +56,12 @@ type world struct {
 	started chan struct{}
 	events  chan update.Event
 	asked   chan struct{}
+	// appReplies are AppAttached's answers in order, repeating the last; none means attached.
+	appReplies []appReply
+	appTags    chan string
 
 	calls    atomic.Int32
+	appCalls atomic.Int32
 	inFlight atomic.Int32
 	peak     atomic.Int32
 }
@@ -62,16 +72,19 @@ func newWorld(t *testing.T, gated bool, replies ...reply) *world {
 	t.Helper()
 
 	world := &world{
-		t:        t,
-		replies:  replies,
-		gate:     nil,
-		timers:   make(chan timer, channelSlots),
-		started:  make(chan struct{}, channelSlots),
-		events:   make(chan update.Event, channelSlots),
-		asked:    make(chan struct{}, 1),
-		calls:    atomic.Int32{},
-		inFlight: atomic.Int32{},
-		peak:     atomic.Int32{},
+		t:          t,
+		replies:    replies,
+		gate:       nil,
+		timers:     make(chan timer, channelSlots),
+		started:    make(chan struct{}, channelSlots),
+		events:     make(chan update.Event, channelSlots),
+		asked:      make(chan struct{}, 1),
+		appReplies: nil,
+		appTags:    make(chan string, channelSlots),
+		calls:      atomic.Int32{},
+		appCalls:   atomic.Int32{},
+		inFlight:   atomic.Int32{},
+		peak:       atomic.Int32{},
 	}
 
 	if gated {
@@ -83,11 +96,12 @@ func newWorld(t *testing.T, gated bool, replies ...reply) *world {
 
 func (w *world) deps(current string) update.Deps {
 	return update.Deps{
-		Current: current,
-		Fetch:   w.fetch,
-		After:   w.after,
-		Asked:   w.asked,
-		Report:  func(event update.Event) { w.events <- event },
+		Current:     current,
+		Fetch:       w.fetch,
+		AppAttached: w.appAttached,
+		After:       w.after,
+		Asked:       w.asked,
+		Report:      func(event update.Event) { w.events <- event },
 	}
 }
 
@@ -128,6 +142,19 @@ func (w *world) fetch(ctx context.Context) (string, error) {
 	answer := w.replies[min(call, len(w.replies))-1]
 
 	return answer.latest, answer.err
+}
+
+func (w *world) appAttached(_ context.Context, tag string) (bool, error) {
+	call := int(w.appCalls.Add(1))
+	w.appTags <- tag
+
+	if len(w.appReplies) == 0 {
+		return true, nil
+	}
+
+	answer := w.appReplies[min(call, len(w.appReplies))-1]
+
+	return answer.attached, answer.err
 }
 
 // ask is what the app does when the menu item is chosen: a send that never blocks.
@@ -349,6 +376,124 @@ func TestRunFresh(t *testing.T) {
 			run.stop()
 		})
 	}
+}
+
+func TestRunAsksForTheAppOnlyAboutANewerRelease(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		reply        reply
+		wantAppCalls int32
+	}{
+		{"a newer release", reply{"v1.1.0", nil}, 1},
+		{"the same release", reply{"v1.0.0", nil}, 0},
+		{"an older release", reply{"v0.9.0", nil}, 0},
+		{"a failed fetch", reply{"", errNoNetwork}, 0},
+		{"not a version", reply{"garbage", nil}, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			world := newWorld(t, false, tt.reply)
+			run := start(t, world.deps("v1.0.0"))
+
+			world.nextTimer().fire <- time.Time{}
+
+			world.nextEvent()
+			run.stop()
+
+			if world.appCalls.Load() != tt.wantAppCalls {
+				t.Errorf("app questions = %d, want %d", world.appCalls.Load(), tt.wantAppCalls)
+			}
+		})
+	}
+}
+
+func TestRunAsksForTheAppOfTheNewerTag(t *testing.T) {
+	t.Parallel()
+
+	world := newWorld(t, false, reply{latest: "v1.1.0", err: nil})
+	run := start(t, world.deps("v1.0.0"))
+
+	world.nextTimer().fire <- time.Time{}
+
+	world.nextEvent()
+	run.stop()
+
+	tag := receive(t, world.appTags, "an app question")
+	if tag != "v1.1.0" {
+		t.Errorf("tag asked about = %q, want %q", tag, "v1.1.0")
+	}
+}
+
+func TestRunPublishing(t *testing.T) {
+	t.Parallel()
+
+	publishing := update.Result{Kind: update.Publishing, Latest: "v1.1.0"}
+	available := update.Result{Kind: update.Available, Latest: "v1.1.0"}
+	tests := []struct {
+		name       string
+		appReplies []appReply
+		want       []update.Event
+	}{
+		{
+			"an app attached later is news once",
+			[]appReply{{false, nil}, {false, nil}, {true, nil}, {true, nil}},
+			[]update.Event{
+				{Result: publishing, Fresh: false},
+				{Result: publishing, Fresh: false},
+				{Result: available, Fresh: true},
+				{Result: available, Fresh: false},
+			},
+		},
+		{
+			"a failed app question then an attached app is news once",
+			[]appReply{{false, errNoNetwork}, {true, nil}},
+			[]update.Event{
+				{Result: update.Result{Kind: update.Failed, Latest: ""}, Fresh: false},
+				{Result: available, Fresh: true},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			world := newWorld(t, false, reply{latest: "v1.1.0", err: nil})
+			world.appReplies = tt.appReplies
+			run := start(t, world.deps("v1.0.0"))
+
+			for _, want := range tt.want {
+				world.nextTimer().fire <- time.Time{}
+
+				checkEvent(t, world.nextEvent(), want)
+			}
+
+			run.stop()
+		})
+	}
+}
+
+func TestRunManualWhilePublishing(t *testing.T) {
+	t.Parallel()
+
+	world := newWorld(t, false, reply{latest: "v1.1.0", err: nil})
+	world.appReplies = []appReply{{false, nil}}
+	run := start(t, world.deps("v1.0.0"))
+
+	world.ask()
+
+	checkEvent(t, world.nextEvent(), update.Event{
+		Result: update.Result{Kind: update.Publishing, Latest: "v1.1.0"},
+		Manual: true,
+		Fresh:  true,
+	})
+
+	run.stop()
 }
 
 func TestRunManual(t *testing.T) {
@@ -632,6 +777,7 @@ func TestRunPanicsOnMissingDeps(t *testing.T) {
 		remove func(deps *update.Deps)
 	}{
 		{"no Fetch", func(deps *update.Deps) { deps.Fetch = nil }},
+		{"no AppAttached", func(deps *update.Deps) { deps.AppAttached = nil }},
 		{"no After", func(deps *update.Deps) { deps.After = nil }},
 		{"no Report", func(deps *update.Deps) { deps.Report = nil }},
 	}

@@ -43,6 +43,9 @@ func (s *shell) runUpdates(ctx context.Context, lookup config.LookupFunc) {
 		Fetch: func(ctx context.Context) (string, error) {
 			return update.Latest(ctx, client, base)
 		},
+		AppAttached: func(ctx context.Context, tag string) (bool, error) {
+			return update.AppAttached(ctx, client, base, tag)
+		},
 		After: time.After,
 		Asked: s.updateAsks,
 		Report: func(event update.Event) {

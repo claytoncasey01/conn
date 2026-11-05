@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	// checkTimeout bounds one whole check, from connecting to the last header.
+	// checkTimeout bounds one request, from connecting to the last header. A check makes one
+	// request, or two when it finds a newer release.
 	checkTimeout = 5 * time.Second
 
 	// locationBytesMax is the longest Location header read. A real one is about 60 bytes.
@@ -55,6 +56,11 @@ const (
 
 	// clientName is the only thing the request says about the sender.
 	clientName = "conn-app"
+
+	// appChecksumsName is the release file whose presence says the app is attached. The release
+	// workflow uploads it with the app's zip, and install.sh asks for it to tell whether a
+	// release has an app.
+	appChecksumsName = "checksums-app.txt"
 )
 
 // Sentinel errors for what was wrong with the answer. None of them carries text from the answer,
@@ -71,6 +77,8 @@ var (
 	errRequest = errors.New("the request failed")
 	// errBadLocation means the redirect did not point to a release tag on the same server.
 	errBadLocation = errors.New("bad redirect location")
+	// errAppStatus means the answer about the release's app file was neither there nor missing.
+	errAppStatus = errors.New("unexpected status for the release's app file")
 )
 
 // redirectStatuses are the statuses that can point to the latest release.
@@ -129,16 +137,9 @@ func Latest(ctx context.Context, client *http.Client, base string) (string, erro
 
 	requestURL := baseURL.JoinPath("latest")
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodHead, requestURL.String(), nil)
+	response, err := head(ctx, client, requestURL, "asking for the latest release")
 	if err != nil {
-		return "", fmt.Errorf("building the request: %w", errBadBase)
-	}
-
-	request.Header.Set("User-Agent", clientName)
-
-	response, err := client.Do(request)
-	if err != nil {
-		return "", requestError(err)
+		return "", err
 	}
 
 	defer func() { _ = response.Body.Close() }()
@@ -155,6 +156,80 @@ func Latest(ctx context.Context, client *http.Client, base string) (string, erro
 	}
 
 	return "", statusError(response.StatusCode)
+}
+
+// AppAttached asks base (the releases address) whether the app is attached to the release tag,
+// by asking for the release's checksums-app.txt. GitHub names a release as the latest as soon as
+// it is published, and the app is attached up to half an hour later, or never when its build
+// fails. Only the status is read: no header, no body, and no redirect is followed. The address is
+// built from base and a tag of the version shape alone.
+func AppAttached(ctx context.Context, client *http.Client, base, tag string) (bool, error) {
+	baseURL, err := parseBase(base)
+	if err != nil {
+		return false, err
+	}
+
+	if len(tag) > tagBytesMax {
+		return false, fmt.Errorf("asking whether the release has its app: %w", errTagTooLong)
+	}
+
+	if !versionPattern.MatchString(tag) {
+		return false, fmt.Errorf("asking whether the release has its app: %w", errNotVersion)
+	}
+
+	requestURL := baseURL.JoinPath("download", tag, appChecksumsName)
+
+	response, err := head(ctx, client, requestURL, "asking whether the release has its app")
+	if err != nil {
+		return false, err
+	}
+
+	defer func() { _ = response.Body.Close() }()
+
+	return attachedFrom(response.StatusCode)
+}
+
+// attachedFrom reads the status of the request for checksums-app.txt. GitHub redirects a file
+// that is attached to its storage host; a server that serves the file itself, such as one for
+// trying a build, answers 200. Both mean attached. A 404 means not attached yet, and any other
+// status cannot tell.
+func attachedFrom(status int) (bool, error) {
+	if status == http.StatusOK {
+		return true, nil
+	}
+
+	if slices.Contains(redirectStatuses(), status) {
+		return true, nil
+	}
+
+	if status == http.StatusNotFound {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("status %d: %w", status, errAppStatus)
+}
+
+// head makes one HEAD request to target, saying only the client name, and returns the answer for
+// the caller to read and close. doing says what the request is for, in the error.
+func head(
+	ctx context.Context,
+	client *http.Client,
+	target *url.URL,
+	doing string,
+) (*http.Response, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodHead, target.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("building the request: %w", errBadBase)
+	}
+
+	request.Header.Set("User-Agent", clientName)
+
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, requestError(doing, err)
+	}
+
+	return response, nil
 }
 
 // parseBase reads the releases address. It must be an http or https address with a host and carry
@@ -197,18 +272,16 @@ func parseBase(base string) (*url.URL, error) {
 func schemes() []string { return []string{"http", "https"} }
 
 // requestError replaces an error from net/http by errRequest, because it can hold text the
-// server sent. Only a context error is kept, so a caller can still tell a deadline or a
-// cancellation from any other failure.
-func requestError(err error) error {
-	const prefix = "asking for the latest release"
-
+// server sent, and says what the request was for. Only a context error is kept, so a caller can
+// still tell a deadline or a cancellation from any other failure.
+func requestError(doing string, err error) error {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
-		return fmt.Errorf("%s: %w: %w", prefix, errRequest, context.DeadlineExceeded)
+		return fmt.Errorf("%s: %w: %w", doing, errRequest, context.DeadlineExceeded)
 	case errors.Is(err, context.Canceled):
-		return fmt.Errorf("%s: %w: %w", prefix, errRequest, context.Canceled)
+		return fmt.Errorf("%s: %w: %w", doing, errRequest, context.Canceled)
 	default:
-		return fmt.Errorf("%s: %w", prefix, errRequest)
+		return fmt.Errorf("%s: %w", doing, errRequest)
 	}
 }
 

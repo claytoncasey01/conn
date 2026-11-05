@@ -498,3 +498,194 @@ func TestErrorsNeverEchoTheLocation(t *testing.T) {
 		t.Errorf("error %q echoes the header", err)
 	}
 }
+
+func TestAppAttached(t *testing.T) {
+	t.Parallel()
+
+	storage := "https://objects.example.com/release-assets/1?signature=abc"
+	tooLong := "https://objects.example.com/" + strings.Repeat("a", 4096)
+	tests := []struct {
+		name    string
+		given   answer
+		want    bool
+		wantErr error
+	}{
+		{"redirect to the storage host", found(storage), true, nil},
+		{"redirect with an over-long location", found(tooLong), true, nil},
+		{"redirect with no location", found(""), true, nil},
+		{"redirect with two locations", twice(storage, storage), true, nil},
+		{"moved permanently", redirect(http.StatusMovedPermanently, storage), true, nil},
+		{"temporary redirect", redirect(http.StatusTemporaryRedirect, storage), true, nil},
+		{"served directly", redirect(http.StatusOK, ""), true, nil},
+		{"not attached yet", redirect(http.StatusNotFound, ""), false, nil},
+		{"server error", redirect(http.StatusInternalServerError, ""), false, update.ErrAppStatus},
+		{"forbidden", redirect(http.StatusForbidden, ""), false, update.ErrAppStatus},
+		{"not modified", redirect(http.StatusNotModified, ""), false, update.ErrAppStatus},
+		{"no content", redirect(http.StatusNoContent, ""), false, update.ErrAppStatus},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server, requests := serve(t, tt.given)
+			defer server.Close()
+
+			ctx := checkContext(t)
+
+			got, err := update.AppAttached(
+				ctx, update.NewClient(), server.URL+releasesPath, "v1.2.3",
+			)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+
+			if got != tt.want {
+				t.Errorf("attached = %v, want %v", got, tt.want)
+			}
+
+			if count := len(requests()); count != 1 {
+				t.Errorf("requests = %d, want 1: a redirect is never followed", count)
+			}
+		})
+	}
+}
+
+func TestAppAttachedSendsNothingOfTheUser(t *testing.T) {
+	t.Parallel()
+
+	server, requests := serve(t, found(releasesPath+"/download/v1.2.3/checksums-app.txt"))
+	t.Cleanup(server.Close)
+
+	ctx := checkContext(t)
+
+	_, err := update.AppAttached(ctx, update.NewClient(), server.URL+releasesPath, "v1.2.3")
+	if err != nil {
+		t.Fatalf("AppAttached: %v", err)
+	}
+
+	seen := requests()
+	if len(seen) != 1 {
+		t.Fatalf("requests = %d, want 1", len(seen))
+	}
+
+	request := seen[0]
+
+	tests := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"method", request.method, http.MethodHead},
+		{"path", request.path, releasesPath + "/download/v1.2.3/checksums-app.txt"},
+		{"user agent", request.header.Get("User-Agent"), "conn-app"},
+		{"cookie", request.header.Get("Cookie"), ""},
+		{"authorization", request.header.Get("Authorization"), ""},
+		{"referer", request.header.Get("Referer"), ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if tt.got != tt.want {
+				t.Errorf("%s = %q, want %q", tt.name, tt.got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAppAttachedRefusesATagThatIsNotAVersion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		tag  string
+	}{
+		{"empty", ""},
+		{"path", "v1.2.3/../../evil"},
+		{"query", "v1.2.3?x=1"},
+		{"not a version", "latest"},
+		{"too long", "v1.2.3-" + strings.Repeat("a", update.TagBytesMax)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server, requests := serve(t, found(""))
+			defer server.Close()
+
+			ctx := checkContext(t)
+
+			_, err := update.AppAttached(ctx, update.NewClient(), server.URL+releasesPath, tt.tag)
+			if err == nil {
+				t.Error("error = nil, want one")
+			}
+
+			if count := len(requests()); count != 0 {
+				t.Errorf("requests = %d, want 0", count)
+			}
+		})
+	}
+}
+
+func TestAppAttachedRejectsAnUnusableBase(t *testing.T) {
+	t.Parallel()
+
+	_, err := update.AppAttached(
+		context.Background(), update.NewClient(), "ftp://example.com"+releasesPath, "v1.2.3",
+	)
+	if !errors.Is(err, update.ErrBadBase) {
+		t.Errorf("error = %v, want ErrBadBase", err)
+	}
+}
+
+func TestAppAttachedEndsAtTheContextDeadline(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+
+	defer server.Close()
+	defer close(release)
+
+	// As for Latest, the wait stays under half the client's own header timeout.
+	wait := min(testtime.Scaled(100*time.Millisecond), update.ResponseHeaderTimeout/2)
+
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	defer cancel()
+
+	_, err := update.AppAttached(ctx, update.NewClient(), server.URL+releasesPath, "v1.2.3")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error = %v, want the context's deadline", err)
+	}
+
+	if !errors.Is(err, update.ErrRequest) {
+		t.Errorf("error = %v, want ErrRequest", err)
+	}
+}
+
+func TestAppAttachedHidesWhatTheServerSends(t *testing.T) {
+	t.Parallel()
+
+	address := serveRaw(t, "HTTP/1.1 HOSTILE-TEXT OK\r\n\r\n")
+
+	ctx := checkContext(t)
+
+	_, err := update.AppAttached(
+		ctx, update.NewClient(), "http://"+address+releasesPath, "v1.2.3",
+	)
+	if !errors.Is(err, update.ErrRequest) {
+		t.Fatalf("error = %v, want ErrRequest", err)
+	}
+
+	if strings.Contains(err.Error(), "HOSTILE-TEXT") {
+		t.Errorf("error %q repeats what the server sent", err)
+	}
+}

@@ -78,6 +78,7 @@ func failureReasons() []failureRow {
 		{errBadLocation, noRelease},
 		{errNotVersion, noRelease},
 		{errTagTooLong, noRelease},
+		{errAppStatus, "GitHub's answer did not say whether the release's app is ready."},
 	}
 }
 
@@ -135,8 +136,8 @@ func ReleaseNotesURL(tag string) string {
 }
 
 // Tell is what the app says about event, given the version of this build. An offer is shown
-// once per release (Fresh) and always when asked; an answer only when asked; a found release
-// and a failure are noted on stderr every time.
+// once per release (Fresh) and always when asked; an answer only when asked; a found release, a
+// release being published and a failure are noted on stderr every time.
 func Tell(event Event, current string) Notice {
 	switch event.Result.Kind {
 	case Available:
@@ -147,6 +148,8 @@ func Tell(event Event, current string) Notice {
 		return tellUpToDate(event, current)
 	case Unchecked:
 		return tellUnchecked(event, current)
+	case Publishing:
+		return tellPublishing(event)
 	}
 
 	panic("update.Tell: a Kind this switch does not know")
@@ -217,6 +220,24 @@ func tellUnchecked(event Event, current string) Notice {
 		Note:    "",
 		Label:   "",
 	}
+}
+
+// tellPublishing notes a release whose app is not attached yet, and answers with it when asked.
+// It offers nothing and claims no failure, because the next check looks again.
+func tellPublishing(event Event) Notice {
+	latest := releaseTag(event.Result.Latest)
+	notice := Notice{
+		Dialog: DialogNone, Title: "", Message: "", Label: "",
+		Note: "Conn " + latest + " is being published, without its app yet",
+	}
+
+	if event.Manual {
+		notice.Dialog = DialogInfo
+		notice.Title = "A new release is being published"
+		notice.Message = "Try again in a few minutes."
+	}
+
+	return notice
 }
 
 // releaseTag returns tag when it is a release tag short enough to show. Run reports only such

@@ -25,6 +25,11 @@ type Deps struct {
 	// Fetch reads the latest release tag (Latest with the app's client). It must end when ctx
 	// does.
 	Fetch func(ctx context.Context) (string, error)
+	// AppAttached says whether the app is attached to the release tag (AppAttached with the
+	// app's client). Run asks it only about a release newer than Current, which GitHub names as
+	// the latest as soon as it is published, before the app is built and attached. It must end
+	// when ctx does.
+	AppAttached func(ctx context.Context, tag string) (bool, error)
 	// After is a channel that fires once d has passed (time.After), so a test never sleeps.
 	After func(d time.Duration) <-chan time.Time
 	// Asked receives a value each time the user chooses to check now. The app gives it a buffer
@@ -89,6 +94,7 @@ func requireDeps(deps Deps) {
 		missing bool
 	}{
 		{"Fetch", deps.Fetch == nil},
+		{"AppAttached", deps.AppAttached == nil},
 		{"After", deps.After == nil},
 		{"Report", deps.Report == nil},
 	}
@@ -103,12 +109,7 @@ func requireDeps(deps Deps) {
 // check makes one check and reports it, unless ctx ended meanwhile: a check cut short by the
 // app quitting is not a failure to tell anyone about.
 func (state *checker) check(ctx context.Context, manual bool) {
-	result := Result{Kind: Unchecked, Latest: "", Err: nil}
-
-	if state.versioned {
-		latest, err := state.deps.Fetch(ctx)
-		result = evaluate(state.deps.Current, latest, err)
-	}
+	result := state.read(ctx)
 
 	if ctx.Err() != nil {
 		return
@@ -118,8 +119,30 @@ func (state *checker) check(ctx context.Context, manual bool) {
 	state.deps.Report(Event{Result: result, Manual: manual, Fresh: fresh})
 }
 
+// read asks for the latest release and, only when it is newer than this build, whether its app
+// is attached yet: one request, or two for a newer release, and none for a build with no release
+// version.
+func (state *checker) read(ctx context.Context) Result {
+	if !state.versioned {
+		return Result{Kind: Unchecked, Latest: "", Err: nil}
+	}
+
+	latest, err := state.deps.Fetch(ctx)
+
+	result := evaluate(state.deps.Current, latest, err)
+	if result.Kind != Available {
+		return result
+	}
+
+	attached, err := state.deps.AppAttached(ctx, result.Latest)
+
+	return withApp(result, attached, err)
+}
+
 // fresh says whether result is news to the person, and remembers the highest available release
-// as told. A manual check is always news, because the person asked and is waiting for it.
+// as told. A manual check is always news, because the person asked and is waiting for it. Only an
+// Available result is remembered, so a release first seen while Publishing is still news once its
+// app is attached.
 func (state *checker) fresh(result Result, manual bool) bool {
 	if result.Kind != Available {
 		return manual

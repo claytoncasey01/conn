@@ -27,6 +27,7 @@ var (
 	ErrStatus      = errStatus
 	ErrRequest     = errRequest
 	ErrBadLocation = errBadLocation
+	ErrAppStatus   = errAppStatus
 )
 
 // TagFrom exposes tagFrom to the tests in package update_test.
@@ -56,3 +57,8 @@ func OfferTitle(latest string) string { return offerTitle(latest) }
 
 // OfferMessage exposes offerMessage to the tests in package update_test.
 func OfferMessage(current, latest string) string { return offerMessage(current, latest) }
+
+// WithApp exposes withApp to the tests in package update_test.
+func WithApp(available Result, attached bool, appErr error) Result {
+	return withApp(available, attached, appErr)
+}

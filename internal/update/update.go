@@ -46,13 +46,17 @@ const (
 	Available
 	// Failed means the check could not tell, and Result.Err says why.
 	Failed
+	// Publishing means a newer release exists but its app is not attached to it yet, so the
+	// install command would leave the app as it is. It is neither news nor a failure: the next
+	// check looks again.
+	Publishing
 )
 
 // Result is the outcome of one check.
 type Result struct {
 	// Kind is what the check found.
 	Kind Kind
-	// Latest is the latest release tag, set for UpToDate and Available.
+	// Latest is the latest release tag, set for UpToDate, Available and Publishing.
 	Latest string
 	// Err is why the check failed, set only for Failed.
 	Err error
@@ -162,6 +166,27 @@ func evaluate(current, latest string, fetchErr error) Result {
 	}
 
 	return Result{Kind: UpToDate, Latest: latest, Err: nil}
+}
+
+// withApp is what an Available result becomes once the check has asked whether the release's
+// app is attached: attached and appErr are that answer. A release without its app yet is
+// Publishing, because the install command cannot update the app until it is attached.
+func withApp(available Result, attached bool, appErr error) Result {
+	if available.Kind != Available {
+		panic("update.withApp: the result is not Available")
+	}
+
+	if appErr != nil {
+		wrapped := fmt.Errorf("asking whether %s has its app: %w", available.Latest, appErr)
+
+		return Result{Kind: Failed, Latest: "", Err: wrapped}
+	}
+
+	if !attached {
+		return Result{Kind: Publishing, Latest: available.Latest, Err: nil}
+	}
+
+	return available
 }
 
 // Enabled reports whether the update check is on, given the value of CONN_UPDATE_CHECK. Only the

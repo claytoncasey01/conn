@@ -23,6 +23,7 @@ func TestTellDialog(t *testing.T) {
 	available := update.Result{Kind: update.Available, Latest: "v1.2.4", Err: nil}
 	upToDate := update.Result{Kind: update.UpToDate, Latest: "v1.2.3", Err: nil}
 	unchecked := update.Result{Kind: update.Unchecked, Latest: "", Err: nil}
+	publishing := update.Result{Kind: update.Publishing, Latest: "v1.2.4", Err: nil}
 
 	tests := []struct {
 		name   string
@@ -54,6 +55,11 @@ func TestTellDialog(t *testing.T) {
 			"dev build asked for", newEvent(unchecked, true, true), update.DialogInfo,
 			"This is a development build, which does not check for updates",
 		},
+		{"publishing by itself", newEvent(publishing, false, false), update.DialogNone, ""},
+		{
+			"publishing asked for", newEvent(publishing, true, true), update.DialogInfo,
+			"A new release is being published",
+		},
 	}
 
 	for _, tt := range tests {
@@ -78,6 +84,7 @@ func TestTellNoteAndLabel(t *testing.T) {
 	failed := update.Result{Kind: update.Failed, Latest: "", Err: update.ErrRequest}
 	available := update.Result{Kind: update.Available, Latest: "v1.2.4", Err: nil}
 	upToDate := update.Result{Kind: update.UpToDate, Latest: "v1.2.3", Err: nil}
+	publishing := update.Result{Kind: update.Publishing, Latest: "v1.2.4", Err: nil}
 
 	tests := []struct {
 		name  string
@@ -98,6 +105,10 @@ func TestTellNoteAndLabel(t *testing.T) {
 			"could not check for updates: Could not reach GitHub.", "",
 		},
 		{"up to date", newEvent(upToDate, true, true), "", ""},
+		{
+			"publishing", newEvent(publishing, false, false),
+			"Conn v1.2.4 is being published, without its app yet", "",
+		},
 	}
 
 	for _, tt := range tests {
@@ -149,6 +160,21 @@ func TestOfferText(t *testing.T) {
 	}
 }
 
+func TestPublishingAnswerClaimsNoFailure(t *testing.T) {
+	t.Parallel()
+
+	event := update.Event{
+		Result: update.Result{Kind: update.Publishing, Latest: "v1.2.4", Err: nil},
+		Manual: true,
+		Fresh:  true,
+	}
+
+	notice := update.Tell(event, "v1.2.3")
+	if notice.Message != "Try again in a few minutes." {
+		t.Errorf("Message = %q, want %q", notice.Message, "Try again in a few minutes.")
+	}
+}
+
 func TestFailureReason(t *testing.T) {
 	t.Parallel()
 
@@ -172,6 +198,10 @@ func TestFailureReason(t *testing.T) {
 		{"not a version", update.Evaluate("v1.0.0", "garbage", nil).Err, noRelease},
 		{"tag too long", tooLong, noRelease},
 		{"server text", fmt.Errorf("%s: %w", serverText, update.ErrStatus), noRelease},
+		{
+			"app status", update.ErrAppStatus,
+			"GitHub's answer did not say whether the release's app is ready.",
+		},
 		{"unknown", errServer, "The check failed for an unexpected reason."},
 		{"nil", nil, "The check failed for an unexpected reason."},
 	}

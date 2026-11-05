@@ -173,3 +173,52 @@ func TestEnabledOffValuesAreConfigs(t *testing.T) {
 		}
 	}
 }
+
+func TestWithApp(t *testing.T) {
+	t.Parallel()
+
+	available := update.Result{Kind: update.Available, Latest: "v1.1.0", Err: nil}
+	tests := []struct {
+		name       string
+		attached   bool
+		appErr     error
+		wantKind   update.Kind
+		wantLatest string
+		wantErr    error
+	}{
+		{"attached", true, nil, update.Available, "v1.1.0", nil},
+		{"not attached yet", false, nil, update.Publishing, "v1.1.0", nil},
+		{"the question failed", false, update.ErrRequest, update.Failed, "", update.ErrRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := update.WithApp(available, tt.attached, tt.appErr)
+			if got.Kind != tt.wantKind {
+				t.Errorf("Kind = %v, want %v", got.Kind, tt.wantKind)
+			}
+
+			if got.Latest != tt.wantLatest {
+				t.Errorf("Latest = %q, want %q", got.Latest, tt.wantLatest)
+			}
+
+			if !errors.Is(got.Err, tt.wantErr) {
+				t.Errorf("Err = %v, want %v", got.Err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestWithAppPanicsOnAResultThatIsNotAvailable(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		if recover() == nil {
+			t.Error("WithApp did not panic")
+		}
+	}()
+
+	update.WithApp(update.Result{Kind: update.UpToDate, Latest: "v1.0.0", Err: nil}, true, nil)
+}

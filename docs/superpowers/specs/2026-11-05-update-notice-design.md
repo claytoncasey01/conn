@@ -20,7 +20,9 @@ and is not part of this: see issue #15 on signing and Sparkle, and "Not in this"
   directly under About, unless the check is off (below). Choosing it checks at once and answers in a
   dialog: "Conn is up to date (v1.2.3)", the update dialog below, or, for a failed check, "Could
   not check for updates" with a fixed reason ("Could not reach GitHub."). A build with no release
-  version (`dev`) answers that it is a development build and does not check.
+  version (`dev`) answers that it is a development build and does not check. A newer release whose
+  app is not attached yet (below) answers "A new release is being published" and "Try again in a
+  few minutes.", and offers nothing.
 - A check also runs by itself, about 10 seconds after the app has started and then once a day
   while the app stays open. When it finds a newer release, the menu item reads **Update
   Available: v1.2.4…** from then until the app quits, and a dialog is shown once for that version
@@ -39,7 +41,7 @@ The command in the dialog is the one the README gives:
 
 ## How it works
 
-A package `internal/update` holds the rules and the one request. It has no Wails in it, so it is
+A package `internal/update` holds the rules and the requests. It has no Wails in it, so it is
 tested on Linux too (the same split as `internal/desk`).
 
 - **Finding the latest release.** One HEAD request to
@@ -53,19 +55,31 @@ tested on Linux too (the same split as `internal/desk`).
   version that is not of that shape (`dev`, as in the repository's `VERSION` file) never checks at
   all, and a latest that is not of that shape is ignored. An equal or older latest is never
   offered, so a downgrade is never suggested.
-- **When.** `Run(ctx, deps)` takes its clock, request, asks and reporter as plain fields (`Fetch`,
-  `After`, `Asked`, `Report`, with `Current`, the build's version), like `desk.Deps`, and returns
-  when the context ends. It waits `startDelay` (10 s), checks, then waits `checkEvery` (24 h) and
-  checks again. A failed check is retried at the next interval, not sooner: there is no retry
-  loop. One goroutine does all of it, so there is never a second request in flight.
-- **Limits, named as constants.** Request timeout `checkTimeout` (5 s), with shorter limits on
-  connecting, the TLS handshake and the wait for headers; no body is read; the response is used
+- **Is its app attached yet?** GitHub names a release as the latest the moment it is published,
+  but the release workflow's `app` job attaches `Conn_darwin_universal.zip` and
+  `checksums-app.txt` up to about half an hour later, or never when it fails. In that window the
+  install command updates only the command line and says "this release has no app", so offering
+  it would be wrong. So when the latest tag is newer than this build, and only then, the check
+  makes one more HEAD request, to `<base>/download/<tag>/checksums-app.txt` (`AppAttached`), the
+  file `install.sh` asks for too. It uses the same client, limits and discipline: redirects off,
+  the address built only from the base and the validated tag, and only the status read. A
+  redirect (GitHub sends a present file to its storage host) or a 200 (a test server serving the
+  file itself) means attached; a 404 means not yet, and the result is `Publishing`; any other
+  status is a failed check with a fixed reason.
+- **When.** `Run(ctx, deps)` takes its clock, requests, asks and reporter as plain fields (`Fetch`,
+  `AppAttached`, `After`, `Asked`, `Report`, with `Current`, the build's version), like `desk.Deps`,
+  and returns when the context ends. It waits `startDelay` (10 s), checks, then waits `checkEvery`
+  (24 h) and checks again. A failed check is retried at the next interval, not sooner: there is no
+  retry loop. One goroutine does all of it, so there is never a second request in flight.
+- **Limits, named as constants.** Timeout for each request `checkTimeout` (5 s), with shorter limits
+  on connecting, the TLS handshake and the wait for headers; no body is read; the response is used
   only for its status and `Location` header. Only a redirect status is read, with exactly one
   `Location`, capped at `locationBytesMax` (512), on the same scheme and host as the request, with
   no user, query or fragment, and a path that is the releases path plus `/tag/` plus a tag of at
-  most `tagBytesMax` (64) in the version shape. At most one request per `checkEvery`, plus one each
-  time the user chooses the menu item; asks made while a check runs become at most one more check
-  (the ask channel holds one).
+  most `tagBytesMax` (64) in the version shape. The second request reads only the status. Each check
+  makes one request, or two when it finds a newer release, at most once per `checkEvery`, plus one
+  check each time the user chooses the menu item; asks made while a check runs become at most one
+  more check (the ask channel holds one).
 - **In the app.** `cmd/conn-app` starts `update.Run` (`update_darwin.go`) after the login shell's
   environment is loaded and before `desk.Run`: the check reads the proxy variables once, at its
   first request, and `CONN_UPDATE_CHECK` may come only from the shell. The app menu is built by
@@ -87,8 +101,9 @@ tested on Linux too (the same split as `internal/desk`).
 
 ## What it touches
 
-- **Network.** One unauthenticated HEAD request to `github.com` about 10 seconds after the app
-  has started, and daily. It sends no version of Conn and nothing of the user's; GitHub sees the
+- **Network.** One unauthenticated HEAD request to `github.com` about 10 seconds after the app has
+  started, and daily, and a second only when the first names a newer release, to learn whether its
+  app is attached yet. They send no version of Conn and nothing of the user's; GitHub sees the
   address it came from and a plain client name (`conn-app`). The README's "What Conn touches"
   section and SECURITY.md say so, and that `CONN_UPDATE_CHECK=off` turns it off.
 - **Files.** None written.
@@ -123,6 +138,17 @@ tested on Linux too (the same split as `internal/desk`).
 - Failure reasons say "GitHub" even when `CONN_UPDATE_BASE` points elsewhere; only a bad
   `CONN_UPDATE_BASE` is named.
 - Each found release is also noted on stderr, and each failure, at most once a day plus asks.
+- A newer release whose app is not attached yet is its own `Kind`, `Publishing`, not a field on
+  `Result` and not `UpToDate`: the dialog it needs on an ask differs from both "up to date" and
+  "available", and a `Kind` keeps `Result` three plain fields that `Tell` switches on. It is
+  neither news nor a failure: no offer, no menu label, no warning, and the highest tag told is not
+  advanced by it, so the release is offered once its app is attached. It is noted on stderr.
+- The app question is a second `Deps` function (`AppAttached`), called by `Run` only for an
+  `Available` result, and `withApp` turns its answer into the result; `Latest` stays one request.
+- A 200 for `checksums-app.txt` counts as attached, as a redirect does, because a test server
+  serving the file itself answers 200, and `install.sh` (which follows redirects) reads a final
+  200 as present. The brief this was built from said any status other than a redirect or a 404 is
+  a failure; this one exception is the owner's to overrule.
 
 ## What was built differently
 
@@ -139,6 +165,9 @@ Where the proposal guessed, the build found otherwise, and this text above was c
 - The dialog helper is in `update_darwin.go`, not `window_darwin.go`.
 - A `CONN_UPDATE_BASE` that is not an `http` or `https` address with a host is a bad base, and a
   latest tag over 64 bytes is a failed check, not a panic in the text.
+- A second request asks whether the newer release's app is attached, and a release without it is
+  `Publishing`, not offered: the proposal offered a release as soon as `/latest` named it, which
+  could send the person to a command that cannot update the app yet.
 
 ## Not in this
 
