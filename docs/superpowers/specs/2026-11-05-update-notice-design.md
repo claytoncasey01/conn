@@ -18,16 +18,16 @@ and is not part of this: see issue #15 on signing and Sparkle, and "Not in this"
 
 - The app menu (the one named Conn, beside the Apple menu) has an item, **Check for Updates…**,
   directly under About, unless the check is off (below). Choosing it checks at once and answers in a
-  dialog: "Conn is up to date (v1.2.3)", the update dialog below, or, for a failed check, "Could not
-  check for updates" with a fixed reason ("Could not reach GitHub."). A build with no release version
-  (`dev`) answers that it is a development build and does not check.
-- A check also runs by itself, a few seconds after launch and then once a day while the app stays
-  open. When it finds a newer release, the menu item reads **Update Available: v1.2.4…** from then
-  until the app quits, and a dialog is shown once for that version in this run of the app. A
-  version the user has dismissed is not shown again until the next launch (choosing the menu item
-  does show it again, because the person asked), and nothing is written to disk. Only the highest
-  version told is remembered: a release withdrawn after a newer one was told, which leaves a lower
-  one as the latest, is never told again.
+  dialog: "Conn is up to date (v1.2.3)", the update dialog below, or, for a failed check, "Could
+  not check for updates" with a fixed reason ("Could not reach GitHub."). A build with no release
+  version (`dev`) answers that it is a development build and does not check.
+- A check also runs by itself, about 10 seconds after the app has started and then once a day
+  while the app stays open. When it finds a newer release, the menu item reads **Update
+  Available: v1.2.4…** from then until the app quits, and a dialog is shown once for that version
+  in this run of the app. A version the user has dismissed is not shown again until the next
+  launch (choosing the menu item does show it again, because the person asked), and nothing is
+  written to disk. Only the highest version told is remembered: a release withdrawn after a newer
+  one was told, which leaves a lower one as the latest, is never told again.
 - The update dialog is titled "Conn v1.2.4 is available". Its message says "Conn v1.2.4 is
   available (you have v1.2.3).", that Conn must be quit first because the installer refuses to
   replace a running app, and the one-line install command. It has three buttons: **Copy Command**
@@ -49,14 +49,15 @@ tested on Linux too (the same split as `internal/desk`).
   installer (which only counts published releases that are not pre-releases).
 - **Is it newer?** `Newer(current, latest string) bool`: both must be `vMAJOR.MINOR.PATCH` (an
   optional `-rc1`-style suffix and `+build` are allowed; the numbers, of at most 9 digits, are
-  compared as numbers, not text, and a suffix is compared only by being there or not). A current version that is not of that shape (`dev`, as in the
-  repository's `VERSION` file) never checks at all, and a latest that is not of that shape is
-  ignored. An equal or older latest is never offered, so a downgrade is never suggested.
+  compared as numbers, not text, and a suffix is compared only by being there or not). A current
+  version that is not of that shape (`dev`, as in the repository's `VERSION` file) never checks at
+  all, and a latest that is not of that shape is ignored. An equal or older latest is never
+  offered, so a downgrade is never suggested.
 - **When.** `Run(ctx, deps)` takes its clock, request, asks and reporter as plain fields (`Fetch`,
-  `After`, `Asked`, `Report`, with `Current`, the build's version), like `desk.Deps`, and returns when
-  the context ends. It waits `StartDelay` (10 s), checks, then waits `CheckEvery` (24 h) and checks
-  again. A failed check is retried at the next interval, not sooner: there is no retry loop. One
-  goroutine does all of it, so there is never a second request in flight.
+  `After`, `Asked`, `Report`, with `Current`, the build's version), like `desk.Deps`, and returns
+  when the context ends. It waits `StartDelay` (10 s), checks, then waits `CheckEvery` (24 h) and
+  checks again. A failed check is retried at the next interval, not sooner: there is no retry
+  loop. One goroutine does all of it, so there is never a second request in flight.
 - **Limits, named as constants.** Request timeout `checkTimeout` (5 s), with shorter limits on
   connecting, the TLS handshake and the wait for headers; no body is read; the response is used
   only for its status and `Location` header. Only a redirect status is read, with exactly one
@@ -86,16 +87,16 @@ tested on Linux too (the same split as `internal/desk`).
 
 ## What it touches
 
-- **Network.** One unauthenticated HEAD request to `github.com` at launch and daily. It sends
-  nothing of the user's, no version and no identifier; GitHub sees the address it came from and a
-  plain client name (`conn-app`). The README's "What Conn touches" section and SECURITY.md say so,
-  and that `CONN_UPDATE_CHECK=off` turns it off.
+- **Network.** One unauthenticated HEAD request to `github.com` about 10 seconds after the app
+  has started, and daily. It sends no version of Conn and nothing of the user's; GitHub sees the
+  address it came from and a plain client name (`conn-app`). The README's "What Conn touches"
+  section and SECURITY.md say so, and that `CONN_UPDATE_CHECK=off` turns it off.
 - **Files.** None written.
 - **Server and page.** Unchanged: no route, no `src/` change, so every guard in `internal/server`
   is untouched. This is the reason the notice is a native menu item and not a banner in the page.
-- **Private repository.** While `claytoncasey01/conn` is private the redirect needs a login, so the
-  check gets a login page, finds no tag and says it could not check. It works as soon as the
-  repository is public, which is the plan.
+- **Private repository.** While `claytoncasey01/conn` is private an unauthenticated request gets
+  a 404, so the check finds no tag and says it could not check. It works as soon as the repository
+  is public, which is the plan.
 
 ## Decisions I made (the owner can overrule)
 
@@ -109,9 +110,9 @@ tested on Linux too (the same split as `internal/desk`).
   `install.sh`.
 - A daily interval and a 10 s launch delay, so the check never competes with the splash and the
   server starting.
-- The app menu is built by hand, because Wails cannot add an item inside its stock app menu. It holds
-  the same roles in the same order (About, Services, Hide, Hide Others, Show All, Quit), so the keys
-  and Services should behave as before; only a run on a Mac shows it.
+- The app menu is built by hand, because Wails cannot add an item inside its stock app menu. It
+  holds the same roles in the same order (About, Services, Hide, Hide Others, Show All, Quit), so
+  the keys and Services should behave as before; only a run on a Mac shows it.
 - The item is hidden when the check is off, not disabled, and sits directly under About with no
   separator, because a separator cannot be hidden and would be left doubled.
 - The check starts after the login shell's environment is loaded, so it uses the person's proxy
@@ -136,6 +137,8 @@ Where the proposal guessed, the build found otherwise, and this text above was c
 - A withdrawn lower release is never told again (the highest tag told is kept).
 - The tag pattern is the version shape with at most 9 digits a number, and at most 64 bytes.
 - The dialog helper is in `update_darwin.go`, not `window_darwin.go`.
+- A `CONN_UPDATE_BASE` that is not an `http` or `https` address with a host is a bad base, and a
+  latest tag over 64 bytes is a failed check, not a panic in the text.
 
 ## Not in this
 
@@ -154,9 +157,10 @@ Inputs the spec implies and the tests must pin:
 2. **Version comparison.** `v1.10.0` is newer than `v1.9.0`; `v1.2.3` is not newer than itself; an
    `-rc` latest of the same numbers is not newer than the release; `dev` never checks.
 3. **No loop and no pile-up.** A slow or failing network gives one request per interval; choosing
-   the menu item while a check runs does not start a second at once (at most one more follows); cancelling the context stops
-   `Run` mid-wait and mid-request.
-4. **Quit.** Quitting the app while a check is in flight ends within the existing stop timeout.
+   the menu item while a check runs does not start a second at once (at most one more follows);
+   cancelling the context stops `Run` mid-wait and mid-request.
+4. **Quit.** Quitting the app while a check is in flight does not wait for the check: the quit
+   ends the context, which stops the check on its own goroutine (`runDesk`).
 5. **Off switch.** `CONN_UPDATE_CHECK=off` makes no request at all (a test server that fails on any
    request), and hides the menu item.
 
