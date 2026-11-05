@@ -32,7 +32,13 @@ var (
 	errNoAnswer             = errors.New("no answer")
 	errNotOK                = errors.New("not a 200")
 	errStartedOnAHeldFolder = errors.New("start was called on a held folder")
+	errLockUnreadable       = errors.New("the lock file is unreadable")
 )
+
+// errHeldMeanwhile is what Start gives when another Conn took the folder after Run looked.
+func errHeldMeanwhile() error {
+	return fmt.Errorf("taking the folder: %w", instance.ErrHeld)
+}
 
 func TestDecide(t *testing.T) {
 	t.Parallel()
@@ -110,26 +116,41 @@ func repeated(count int, offset time.Duration) []time.Duration {
 type reply struct {
 	holder  instance.Holder
 	running bool
+	err     error
 }
 
-func free() reply { return reply{holder: instance.Holder{}, running: false} }
+func free() reply { return reply{holder: instance.Holder{}, running: false, err: nil} }
 
 func held(url string) reply {
-	return reply{holder: instance.Holder{PID: 1, URL: url}, running: true}
+	return reply{holder: instance.Holder{PID: 1, URL: url}, running: true, err: nil}
+}
+
+func holderFails(err error) reply {
+	return reply{holder: instance.Holder{}, running: false, err: err}
 }
 
 // scenario is one Run's world: the answers its fakes give, and what they were asked.
 type scenario struct {
-	t        *testing.T
-	replies  []reply
-	probeErr error
-	startErr error
-	// cancelAfterOpens ends the context once Open has been called this many times.
-	cancelAfterOpens int
-	env              map[string]string
-	cancel           context.CancelFunc
+	replies []reply
+	// probes and startErrs are answered in order, and the last one answers every call after.
+	// A nil error is an answer too: the probe was answered, or Start really starts a server.
+	probes    []error
+	startErrs []error
+	// cancelAfterOpens and cancelAfterProbes end the context once Open, or Probe, has been called
+	// this many times. endServerAfterOpens ends the server Start gave last, from outside Run,
+	// once Open has been called this many times. cancelOnWait ends the context when Run first
+	// waits for a moment to pass, and then lets that moment never come.
+	cancelAfterOpens    int
+	cancelAfterProbes   int
+	endServerAfterOpens int
+	cancelOnWait        bool
+	env                 map[string]string
+	cancel              context.CancelFunc
 
 	asked     int
+	probed    int
+	starts    int
+	endServer context.CancelFunc
 	opened    []string
 	started   []*app.Server
 	startDone <-chan struct{}
@@ -140,16 +161,29 @@ func (s *scenario) holder() (instance.Holder, bool, error) {
 	index := min(s.asked, len(s.replies)-1)
 	s.asked++
 
-	return s.replies[index].holder, s.replies[index].running, nil
+	return s.replies[index].holder, s.replies[index].running, s.replies[index].err
 }
 
-func (s *scenario) probe(_ context.Context, _ string) error { return s.probeErr }
+func (s *scenario) probe(_ context.Context, _ string) error {
+	index := min(s.probed, len(s.probes)-1)
+	s.probed++
+
+	if s.probed == s.cancelAfterProbes {
+		s.cancel()
+	}
+
+	return s.probes[index]
+}
 
 func (s *scenario) open(url string) {
 	s.opened = append(s.opened, url)
 
 	if len(s.opened) == s.cancelAfterOpens {
 		s.cancel()
+	}
+
+	if len(s.opened) == s.endServerAfterOpens {
+		s.endServer()
 	}
 }
 
@@ -160,11 +194,20 @@ func (s *scenario) fail(message string) { s.failed = append(s.failed, message) }
 func (s *scenario) start(ctx context.Context) (*app.Server, error) {
 	s.startDone = ctx.Done()
 
-	if s.startErr != nil {
-		return nil, s.startErr
+	index := min(s.starts, len(s.startErrs)-1)
+	s.starts++
+
+	if index >= 0 {
+		if s.startErrs[index] != nil {
+			return nil, s.startErrs[index]
+		}
 	}
 
-	server, err := app.Start(ctx, lookupFrom(s.env), io.Discard)
+	// The server gets a context of its own, so a scenario can end it while Run's context lives.
+	serverCtx, endServer := context.WithCancel(ctx)
+	s.endServer = endServer
+
+	server, err := app.Start(serverCtx, lookupFrom(s.env), io.Discard)
 	if err != nil {
 		return nil, fmt.Errorf("starting a real server: %w", err)
 	}
@@ -190,25 +233,39 @@ func (s *scenario) deps(now func() time.Time) desk.Deps {
 		Open:   s.open,
 		Fail:   s.fail,
 		Now:    now,
-		After:  instantly,
+		After:  s.after,
 	}
+}
+
+// after is instantly, or a moment that never comes once the scenario has ended the context.
+func (s *scenario) after(wait time.Duration) <-chan time.Time {
+	if s.cancelOnWait {
+		s.cancel()
+
+		return nil
+	}
+
+	return instantly(wait)
 }
 
 func TestRun(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		replies          []reply
-		probeErr         error
-		startErr         error
-		cancelAfterOpens int
-		wantErr          error
-		wantOpened       []string
-		wantStarts       int
-		wantFails        int
-		wantFailHas      []string
-		wantStopped      bool
+		name                string
+		replies             []reply
+		probes              []error
+		startErrs           []error
+		cancelAfterOpens    int
+		cancelAfterProbes   int
+		endServerAfterOpens int
+		cancelOnWait        bool
+		wantErr             error
+		wantOpened          []string
+		wantStarts          int
+		wantFails           int
+		wantFailHas         []string
+		wantStopped         bool
 	}{
 		{
 			name:    "a free lock is owned, and the end of the context stops the server it started",
@@ -227,24 +284,71 @@ func TestRun(t *testing.T) {
 		},
 		{
 			name:    "an attached server that stops answering and frees the lock is replaced",
-			replies: []reply{held(deadURL), free()}, probeErr: errNoAnswer,
+			replies: []reply{held(deadURL), free()}, probes: []error{errNoAnswer},
 			cancelAfterOpens: 2, wantErr: nil,
 			wantOpened: []string{deadURL, startedURL}, wantStarts: 1, wantFails: 0,
 			wantStopped: true,
 		},
 		{
 			name:    "an attached server that never answers again gives up after too many restarts",
-			replies: []reply{held(deadURL)}, probeErr: errNoAnswer,
+			replies: []reply{held(deadURL)}, probes: []error{errNoAnswer},
 			cancelAfterOpens: 0, wantErr: desk.ErrGaveUp,
 			wantOpened: repeatedURLs(deadURL, desk.RestartsMax+1), wantStarts: 0, wantFails: 1,
 			wantFailHas: []string{deadURL},
 		},
 		{
 			name:    "a port another program holds is a message naming the port and the variable",
-			replies: []reply{free()}, startErr: app.PortTakenError{Port: 7777},
+			replies: []reply{free()}, startErrs: []error{app.PortTakenError{Port: 7777}},
 			cancelAfterOpens: 0, wantErr: app.PortTakenError{Port: 7777},
 			wantOpened: nil, wantStarts: 0, wantFails: 1,
 			wantFailHas: []string{"7777", "CONN_PORT"},
+		},
+		{
+			name:    "an owned server that ends by itself is replaced by a new one",
+			replies: []reply{free()}, endServerAfterOpens: 1, cancelAfterOpens: 2, wantErr: nil,
+			wantOpened: []string{startedURL, startedURL}, wantStarts: 2, wantFails: 0,
+			wantStopped: true,
+		},
+		{
+			name:    "a folder taken between the look and the start is looked at again",
+			replies: []reply{free()}, startErrs: []error{errHeldMeanwhile(), nil},
+			cancelAfterOpens: 1, wantErr: nil,
+			wantOpened: []string{startedURL}, wantStarts: 1, wantFails: 0, wantStopped: true,
+		},
+		{
+			name:    "a folder taken between the look and the start is attached to when seen",
+			replies: []reply{free(), held(deadURL)}, startErrs: []error{errHeldMeanwhile()},
+			cancelAfterOpens: 1, wantErr: nil,
+			wantOpened: []string{deadURL}, wantStarts: 0, wantFails: 0,
+		},
+		{
+			name:    "answers now and then keep an attached server, however many go missing",
+			replies: []reply{held(deadURL)}, cancelAfterProbes: 9, wantErr: nil,
+			probes: []error{
+				errNoAnswer, errNoAnswer, nil, errNoAnswer, errNoAnswer, nil,
+				errNoAnswer, errNoAnswer, nil,
+			},
+			wantOpened: []string{deadURL}, wantStarts: 0, wantFails: 0,
+		},
+		{
+			name:    "a holder that never says where it listens is given up on after the restarts",
+			replies: []reply{held("")}, wantErr: desk.ErrGaveUp,
+			wantOpened: nil, wantStarts: 0, wantFails: 1,
+		},
+		{
+			name:    "a lock that cannot be looked at is a message and the end of Run",
+			replies: []reply{holderFails(errLockUnreadable)}, wantErr: errLockUnreadable,
+			wantOpened: nil, wantStarts: 0, wantFails: 1, wantFailHas: []string{"unreadable"},
+		},
+		{
+			name:    "a lock that cannot be looked at in a wait is a message and the end of Run",
+			replies: []reply{held(""), holderFails(errLockUnreadable)}, wantErr: errLockUnreadable,
+			wantOpened: nil, wantStarts: 0, wantFails: 1, wantFailHas: []string{"unreadable"},
+		},
+		{
+			name:    "the end of the context while waiting for an address ends Run",
+			replies: []reply{held("")}, cancelOnWait: true, wantErr: nil,
+			wantOpened: nil, wantStarts: 0, wantFails: 0,
 		},
 	}
 	for _, tt := range tests {
@@ -255,9 +359,11 @@ func TestRun(t *testing.T) {
 			defer cancel()
 
 			world := &scenario{
-				t: t, replies: tt.replies, probeErr: tt.probeErr, startErr: tt.startErr,
-				cancelAfterOpens: tt.cancelAfterOpens, env: environment(t), cancel: cancel,
-				asked: 0, opened: nil, started: nil, startDone: nil, failed: nil,
+				replies: tt.replies, probes: tt.probes, startErrs: tt.startErrs,
+				cancelAfterOpens: tt.cancelAfterOpens, cancelAfterProbes: tt.cancelAfterProbes,
+				endServerAfterOpens: tt.endServerAfterOpens, cancelOnWait: tt.cancelOnWait,
+				env: environment(t), cancel: cancel, asked: 0, probed: 0, starts: 0,
+				endServer: nil, opened: nil, started: nil, startDone: nil, failed: nil,
 			}
 
 			err := desk.Run(ctx, world.deps(time.Now))
@@ -312,9 +418,12 @@ func checkWorld(
 		t.Fatalf("windows opened on %q, want %q", world.opened, wantOpened)
 	}
 
+	startedSoFar := 0
+
 	for index, want := range wantOpened {
 		if want == startedURL {
-			want = world.started[len(world.started)-1].URL
+			want = world.started[startedSoFar].URL
+			startedSoFar++
 		}
 
 		if world.opened[index] != want {
