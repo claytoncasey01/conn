@@ -98,6 +98,8 @@ func parse(tag string) (version, error) {
 
 // Newer reports whether latest is a newer release than current. When either is not a version
 // (a dev build, an empty tag, garbage) the answer is no, so a doubt never becomes an offer.
+// Pre-releases are compared only by presence, never by order: a release follows its own
+// pre-release, and one pre-release never follows another.
 func Newer(current, latest string) bool {
 	currentVersion, err := parse(current)
 	if err != nil {

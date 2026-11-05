@@ -32,6 +32,13 @@ func TestNewer(t *testing.T) {
 		{"four numbers", "v1.0.0", "v1.0.1.2", false},
 		{"too many digits", "v1.0.0", "v1.0.9999999999", false},
 		{"trailing space", "v1.0.0", "v1.0.1 ", false},
+		{"trailing newline", "v1.0.0", "v1.2.4\n", false},
+		{"uppercase v", "v1.0.0", "V1.2.3", false},
+		{"empty pre-release", "v1.0.0", "v1.2.3-", false},
+		{"different build metadata", "v1.2.3+a", "v1.2.3+b", false},
+		{"leading zeros are equal", "v1.2.3", "v01.2.3", false},
+		{"leading zeros are not older", "v01.2.3", "v1.2.3", false},
+		{"leading zeros compare as numbers", "v1.2.3", "v01.2.4", true},
 	}
 
 	for _, tt := range tests {
@@ -52,13 +59,13 @@ func TestEvaluate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		current   string
-		latest    string
-		fetchErr  error
-		wantKind  update.Kind
-		wantLast  string
-		wantError error
+		name       string
+		current    string
+		latest     string
+		fetchErr   error
+		wantKind   update.Kind
+		wantLatest string
+		wantError  error
 	}{
 		{"dev never checks", "dev", "v9.0.0", nil, update.Unchecked, "", nil},
 		{"fetch error", "v1.0.0", "", errFetch, update.Failed, "", errFetch},
@@ -76,8 +83,8 @@ func TestEvaluate(t *testing.T) {
 				t.Errorf("Kind = %v, want %v", got.Kind, tt.wantKind)
 			}
 
-			if got.Latest != tt.wantLast {
-				t.Errorf("Latest = %q, want %q", got.Latest, tt.wantLast)
+			if got.Latest != tt.wantLatest {
+				t.Errorf("Latest = %q, want %q", got.Latest, tt.wantLatest)
 			}
 
 			if tt.wantError != nil {
