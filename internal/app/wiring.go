@@ -1,4 +1,6 @@
-package main
+// Package app is Conn's server put together: the data folder's lock, the settings, every tab
+// and the HTTP server over them, for `conn serve` and any other program that runs a Conn.
+package app
 
 import (
 	"context"
@@ -16,7 +18,6 @@ import (
 	"github.com/claytoncasey01/conn/internal/gallery"
 	"github.com/claytoncasey01/conn/internal/gh"
 	"github.com/claytoncasey01/conn/internal/ghbudget"
-	"github.com/claytoncasey01/conn/internal/instance"
 	"github.com/claytoncasey01/conn/internal/modules"
 	"github.com/claytoncasey01/conn/internal/myprs"
 	"github.com/claytoncasey01/conn/internal/openwork"
@@ -27,14 +28,6 @@ import (
 	"github.com/claytoncasey01/conn/internal/settings"
 	"github.com/claytoncasey01/conn/internal/settingsapi"
 	"github.com/claytoncasey01/conn/internal/themes"
-)
-
-const (
-	// holderWait bounds the wait for a Conn that holds the data folder to say where it listens:
-	// it takes the lock a moment before it opens its port.
-	holderWait = 5 * time.Second
-	// holderPoll is how often the lock file is read while waiting.
-	holderPoll = 50 * time.Millisecond
 )
 
 // seedDry seeds the dry settings into a temp folder when a dry switch is on and there is no
@@ -227,50 +220,6 @@ func liveFolders(ctx context.Context, live *sessions.Loop) func() []string {
 		}
 
 		return folders
-	}
-}
-
-// alreadyRunning says where the Conn holding the data folder answers.
-func alreadyRunning(ctx context.Context, dataDir string, stdout, stderr io.Writer) int {
-	holder, err := waitForHolder(ctx, dataDir)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
-
-		return exitError
-	}
-
-	_, _ = fmt.Fprintf(stdout, "conn is already running on %s\n", holder.URL)
-
-	return exitOK
-}
-
-// waitForHolder is the Conn holding the data folder, once it has said where it listens.
-func waitForHolder(ctx context.Context, dataDir string) (instance.Holder, error) {
-	deadline := time.Now().Add(holderWait)
-
-	for {
-		holder, running, err := instance.Running(dataDir)
-		if err != nil {
-			return instance.Holder{}, fmt.Errorf("reading the lock file: %w", err)
-		}
-
-		if !running {
-			return instance.Holder{}, errStoppedMeanwhile
-		}
-
-		if holder.URL != "" {
-			return holder, nil
-		}
-
-		if time.Now().After(deadline) {
-			return instance.Holder{}, fmt.Errorf("%w within %s", errNoAddress, holderWait)
-		}
-
-		select {
-		case <-ctx.Done():
-			return instance.Holder{}, fmt.Errorf("waiting for the running conn: %w", ctx.Err())
-		case <-time.After(holderPoll):
-		}
 	}
 }
 

@@ -1,5 +1,6 @@
-# Every pull request, and every push to main, runs the tests on Linux and macOS and the lint and
-# type checks on Linux. It builds nothing that is published: releases are made by release.yml.
+# Every pull request, and every push to main, runs the tests and the lint and type checks on Linux
+# and macOS, and builds the macOS app bundle to check that it assembles, signs and starts. The
+# bundle is not published: releases are made by release.yml.
 name: ci
 
 on:
@@ -51,15 +52,20 @@ jobs:
       - name: Test
         run: make test
 
+  # macOS is in the matrix because the app's files build only there, so Linux lint cannot see them.
   check:
-    name: lint and type check
-    runs-on: ubuntu-latest
+    name: lint and type check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:
       contents: read
     env:
       # Pinned: a new linter release must not turn a green pull request red.
       GOLANGCI_LINT_VERSION: v2.15.0
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,3 +90,43 @@ jobs:
       # make lint (every linter on, 0 issues) and then svelte-check.
       - name: Lint and type check
         run: make check
+
+  app:
+    name: app bundle (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+
+      - name: Install the page's dependencies
+        run: bun install --frozen-lockfile
+
+      # The app embeds the page bundle.
+      - name: Build the page
+        run: bun run build
+
+      # The file names below are those scripts/build-app.sh writes.
+      - name: Build the app bundle
+        run: scripts/build-app.sh app-files
+
+      # The zip is unpacked as a user would unpack it, so a seal broken by the zip itself shows.
+      # scripts/check-app.sh checks the signature, both architectures and that the binary starts;
+      # release.yml runs the same script.
+      - name: Check the app
+        run: |
+          set -eu
+          mkdir app-check
+          unzip -q app-files/Conn_darwin_universal.zip -d app-check
+          scripts/check-app.sh app-check/Conn.app

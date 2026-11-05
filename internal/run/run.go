@@ -54,6 +54,12 @@ type Result struct {
 	Killed bool
 	// Signal is the signal that ended it ("SIGTERM"), or "".
 	Signal string
+	// Overflowed names the stream ("stdout" or "stderr") that passed its cap first, or "": the
+	// output cap, told apart from the time limit, which also sets Killed.
+	Overflowed string
+	// OutputLeftOpen is true when the program exited cleanly but something it started kept its
+	// output open past waitDelay (exec.ErrWaitDelay). What it printed before is in Stdout.
+	OutputLeftOpen bool
 }
 
 // Error is a failed run, with the message the server shows.
@@ -130,7 +136,7 @@ func Cmd(ctx context.Context, name string, args []string, opts Opts) Result {
 func describe(name string, args []string, end ending) Result {
 	result := Result{
 		Stdout: end.stdout, Stderr: end.stderr, Code: 0, Err: nil, Spawn: "",
-		Killed: false, Signal: "",
+		Killed: false, Signal: "", Overflowed: "", OutputLeftOpen: false,
 	}
 
 	// An overflow fails the run even when the program exited by itself before its signal landed.
@@ -138,6 +144,7 @@ func describe(name string, args []string, end ending) Result {
 		result.Code = codeNone
 		result.Killed = true
 		result.Signal = signalTerm
+		result.Overflowed = end.overflowed
 		result.Err = &Error{
 			Message: end.overflowed + " maxBuffer length exceeded", Code: codeNone,
 			Spawn: "", Killed: true,
@@ -168,6 +175,7 @@ func describe(name string, args []string, end ending) Result {
 	}
 
 	if !end.limitHit {
+		result.OutputLeftOpen = errors.Is(end.err, exec.ErrWaitDelay)
 		result.Spawn = end.err.Error()
 		result.Err = &Error{
 			Message: end.err.Error(), Code: codeNone, Spawn: result.Spawn,

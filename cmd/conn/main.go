@@ -9,22 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"log"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
-	"time"
 
 	"github.com/claytoncasey01/conn"
+	"github.com/claytoncasey01/conn/internal/app"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/instance"
-	"github.com/claytoncasey01/conn/internal/server"
 )
 
 // Exit codes. 2 is a usage error, as in the flag package.
@@ -32,25 +24,6 @@ const (
 	exitOK    = 0
 	exitError = 1
 	exitUsage = 2
-)
-
-const (
-	portDefault = 7777
-	portMax     = 65535
-)
-
-// The HTTP server's limits. writeTimeout is 0 on purpose: a page's live-update stream stays open
-// for as long as the page does, and a write deadline would cut it.
-const (
-	readHeaderTimeout = 10 * time.Second
-	readTimeout       = 30 * time.Second
-	writeTimeout      = 0
-	idleTimeout       = 60 * time.Second
-	shutdownTimeout   = 2 * time.Second
-
-	// headerBytesMax is net/http's default (http.DefaultMaxHeaderBytes), set here so the limit is
-	// a decision in this file rather than a default nobody looked at.
-	headerBytesMax = 1 << 20
 )
 
 const usage = `usage: conn <command>
@@ -61,22 +34,6 @@ commands:
   theme    check theme folders, or build the theme gallery's index
   version  print the version of this build
 `
-
-var errNotPort = errors.New("CONN_PORT is not a port")
-
-// portTakenError is a port another program holds: not a Conn on this data folder, or the lock
-// would have said so.
-type portTakenError struct {
-	port int
-	err  error
-}
-
-func (e portTakenError) Error() string {
-	return "port " + strconv.Itoa(e.port) +
-		" is in use by another program: set CONN_PORT to a free port"
-}
-
-func (e portTakenError) Unwrap() error { return e.err }
 
 // main is the only place that touches the process: its arguments, environment, output streams
 // and exit code. Everything below takes them as arguments, so it can be tested.
@@ -121,18 +78,9 @@ func realMain(args []string, lookup config.LookupFunc, stdout, stderr io.Writer)
 // serve runs the dashboard server until ctx ends, then lets open requests finish. Another Conn
 // already running on the data folder is not an error: serve says where it is and exits.
 func serve(ctx context.Context, lookup config.LookupFunc, stdout, stderr io.Writer) int {
-	portNumber, err := port(lookup)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
-
-		return exitError
-	}
-
-	cfg := config.FromEnv(lookup)
-
-	held, err := instance.Acquire(cfg.DataDir)
+	running, err := app.Start(ctx, lookup, stderr)
 	if errors.Is(err, instance.ErrHeld) {
-		return alreadyRunning(ctx, cfg.DataDir, stdout, stderr)
+		return alreadyRunning(ctx, config.FromEnv(lookup).DataDir, stdout, stderr)
 	}
 
 	if err != nil {
@@ -141,138 +89,36 @@ func serve(ctx context.Context, lookup config.LookupFunc, stdout, stderr io.Writ
 		return exitError
 	}
 
-	defer func() { _ = held.Release() }()
+	_, _ = fmt.Fprintf(stdout, "conn listening on %s\n", running.URL)
 
-	logger := log.New(stderr, "", 0)
-	store := loadSettings(cfg.DataDir, logger, stderr)
+	// Done follows ctx within the server's shutdown timeout, and comes after the folder is let
+	// go, so the process never exits while the server still holds it.
+	<-running.Done()
 
-	cfg, removeSeed := seedDry(cfg, store, stderr)
-	defer removeSeed()
-
-	listener, err := listen(ctx, portNumber)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
-
-		return exitError
-	}
-
-	address := "http://" + listener.Addr().String()
-
-	err = held.Publish(instance.Holder{PID: os.Getpid(), URL: address})
-	if err != nil {
-		_ = listener.Close()
-		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
-
-		return exitError
-	}
-
-	_, _ = fmt.Fprintf(stdout, "conn listening on %s\n", address)
-
-	handler := newHandler(ctx, cfg, store, logger, ui(lookup))
-
-	return run(ctx, newHTTPServer(handler), listener, stderr)
+	return serveEnded(running.Err(), stderr)
 }
 
-// run serves on listener until ctx ends or the server stops by itself.
-func run(
-	ctx context.Context, httpServer *http.Server, listener net.Listener, stderr io.Writer,
-) int {
-	served := make(chan error, 1)
+// alreadyRunning says where the Conn holding the data folder answers.
+func alreadyRunning(ctx context.Context, dataDir string, stdout, stderr io.Writer) int {
+	holder, err := app.WaitForHolder(ctx, dataDir)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
 
-	go func() { served <- httpServer.Serve(listener) }()
-
-	select {
-	case err := <-served:
-		return serveEnded(err, stderr)
-	case <-ctx.Done():
+		return exitError
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
-	defer cancel()
-
-	_ = httpServer.Shutdown(shutdownCtx)
+	_, _ = fmt.Fprintf(stdout, "conn is already running on %s\n", holder.URL)
 
 	return exitOK
 }
 
-// listen opens the server's port on 127.0.0.1. A port another program holds says so.
-func listen(ctx context.Context, portNumber int) (net.Listener, error) {
-	var listenConfig net.ListenConfig
-
-	address := net.JoinHostPort(server.Host, strconv.Itoa(portNumber))
-
-	listener, err := listenConfig.Listen(ctx, "tcp", address)
-	if errors.Is(err, syscall.EADDRINUSE) {
-		return nil, portTakenError{port: portNumber, err: err}
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("listening on %s: %w", address, err)
-	}
-
-	return listener, nil
-}
-
-// serveEnded is the exit code for a server that stopped by itself.
+// serveEnded is the exit code for a server that has stopped: nil is a clean shutdown.
 func serveEnded(err error, stderr io.Writer) int {
-	if errors.Is(err, http.ErrServerClosed) {
+	if err == nil {
 		return exitOK
 	}
 
 	_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
 
 	return exitError
-}
-
-func newHTTPServer(handler http.Handler) *http.Server {
-	return &http.Server{
-		Handler:           handler,
-		ReadHeaderTimeout: readHeaderTimeout,
-		ReadTimeout:       readTimeout,
-		WriteTimeout:      writeTimeout,
-		IdleTimeout:       idleTimeout,
-		MaxHeaderBytes:    headerBytesMax,
-	}
-}
-
-// port is CONN_PORT, or 7777 when it is unset or blank.
-func port(lookup config.LookupFunc) (int, error) {
-	value, _ := lookup("CONN_PORT")
-	value = strings.TrimSpace(value)
-
-	if value == "" {
-		return portDefault, nil
-	}
-
-	number, err := strconv.Atoi(value)
-	if err != nil {
-		return 0, fmt.Errorf("%w: %q", errNotPort, value)
-	}
-
-	if number < 0 {
-		return 0, fmt.Errorf("%w: %q", errNotPort, value)
-	}
-
-	if number > portMax {
-		return 0, fmt.Errorf("%w: %q", errNotPort, value)
-	}
-
-	return number, nil
-}
-
-// ui is the page bundle: the folder CONN_DIST names, else the one built into this binary.
-func ui(lookup config.LookupFunc) fs.FS {
-	folder, _ := lookup("CONN_DIST")
-	folder = strings.TrimSpace(folder)
-
-	if folder == "" {
-		return conn.UI()
-	}
-
-	absolute, err := filepath.Abs(folder)
-	if err == nil {
-		folder = absolute
-	}
-
-	return os.DirFS(folder)
 }

@@ -1,7 +1,8 @@
 # Publishing a release on GitHub builds conn for macOS and Linux (amd64 and arm64) from the
-# release's tag and attaches the archives, their checksums and install.sh to it. Nothing in this
-# workflow runs on a push or a pull request (ci.yml tests those), and nothing is built from a
-# branch.
+# release's tag and attaches the archives, their checksums and install.sh to it. A second job
+# builds the macOS app, a universal Conn.app in a zip, and attaches it with its own checksums
+# (checksums-app.txt). Nothing in this workflow runs on a push or a pull request (ci.yml tests
+# those), and nothing is built from a branch.
 name: release
 
 on:
@@ -66,3 +67,68 @@ jobs:
 
       - name: Attach them to the release
         run: gh release upload "$TAG" release-files/*.tar.gz release-files/checksums.txt install.sh --clobber
+
+  # The app needs cgo and the macOS toolchain, so it is built on a Mac runner after the archives
+  # are attached. It uploads only its own two files, so a re-run of either job leaves the other's
+  # files as they are.
+  app:
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      # Read through the environment, never spliced into a script: a tag is text someone typed.
+      TAG: ${{ github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+
+      - name: Install the page's dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Stamp the version
+        run: printf '%s\n' "$TAG" > VERSION
+
+      # The app embeds the page bundle.
+      - name: Build the page
+        run: bun run build
+
+      - name: Build the app
+        run: scripts/build-app.sh release-files
+
+      # The same script as ci.yml's app bundle job runs, so a release never carries a zip CI would
+      # have failed. The zip is unpacked as a user would unpack it, and the file names are those
+      # scripts/build-app.sh writes.
+      - name: Check the app
+        run: |
+          set -eu
+          mkdir app-check
+          unzip -q release-files/Conn_darwin_universal.zip -d app-check
+          scripts/check-app.sh app-check/Conn.app
+
+      - name: Attach it to the release
+        run: gh release upload "$TAG" release-files/Conn_darwin_universal.zip release-files/checksums-app.txt --clobber
+
+      # A release whose app job failed still has the CLI, and install.sh then says "this release
+      # has no app". The summary says so on the run's page, so the failure is not silent.
+      - name: Say that the release has no app
+        if: failure()
+        run: |
+          {
+            echo "## The app was not attached to $TAG"
+            echo
+            echo "The release has the command-line tool only: install.sh installs it and says"
+            echo "\"this release has no app\". Fix the cause and re-run this job to add the app."
+          } >> "$GITHUB_STEP_SUMMARY"

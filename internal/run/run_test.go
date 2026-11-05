@@ -51,6 +51,7 @@ func TestHowARunEnds(t *testing.T) {
 			opts: run.Opts{OutputBytesMax: 100},
 			want: run.Result{
 				Stdout: strings.Repeat("y\n", 50), Code: -1, Killed: true, Signal: "SIGTERM",
+				Overflowed: "stdout",
 			},
 			wantErr: "stdout maxBuffer length exceeded",
 		},
@@ -61,6 +62,7 @@ func TestHowARunEnds(t *testing.T) {
 			opts: run.Opts{OutputBytesMax: 100},
 			want: run.Result{
 				Stdout: strings.Repeat("z", 100), Code: -1, Killed: true, Signal: "SIGTERM",
+				Overflowed: "stdout",
 			},
 			wantErr: "stdout maxBuffer length exceeded",
 		},
@@ -69,8 +71,20 @@ func TestHowARunEnds(t *testing.T) {
 			opts: run.Opts{OutputBytesMax: 10},
 			want: run.Result{
 				Stderr: strings.Repeat("y\n", 5), Code: -1, Killed: true, Signal: "SIGTERM",
+				Overflowed: "stderr",
 			},
 			wantErr: "stderr maxBuffer length exceeded",
+		},
+		{
+			// A background job keeps the output open after the shell exits 0: what was printed
+			// is kept, and the run says the output was left open.
+			name: "output left open by a background job", program: "sh",
+			args: []string{"-c", "sleep 5 & printf done"},
+			want: run.Result{
+				Stdout: "done", Code: -1, Spawn: "exec: WaitDelay expired before I/O complete",
+				OutputLeftOpen: true,
+			},
+			wantErr: "exec: WaitDelay expired before I/O complete",
 		},
 		{
 			name: "input", program: "cat",

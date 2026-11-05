@@ -22,20 +22,36 @@ Choosing a repository is the only setup. My PRs and Reviews then work through `g
 curl -fsSL https://github.com/claytoncasey01/conn/releases/latest/download/install.sh | sh
 ```
 
-The script downloads the latest release for your Mac or Linux machine (amd64 or arm64), checks it against the checksums published with the release, and puts `conn` in `~/.local/bin`. It asks for no password and changes nothing else: no settings, and no skills (those are installed from the Settings page). Read it first if you like: it is [`install.sh`](install.sh) in this repository, and the copy on each release is the one that release was built with.
+The script downloads the latest release for your Mac or Linux machine (amd64 or arm64), checks it against the checksums published with the release, and puts `conn` in `~/.local/bin`. On a Mac it also installs [the app](#the-app), `Conn.app`, into `~/Applications`, checked the same way. It asks for no password and changes nothing else: no settings, and no skills (those are installed from the Settings page). Read it first if you like: it is [`install.sh`](install.sh) in this repository, and the copy on each release is the one that release was built with.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `CONN_INSTALL_VERSION` | the latest release | A release tag to install, such as `v1.2.3` |
 | `CONN_INSTALL_DIR` | `~/.local/bin` | Where the binary goes |
+| `CONN_INSTALL_APP_DIR` | `~/Applications` | Where `Conn.app` goes, on a Mac |
 
-Run it again to update. If `~/.local/bin` is not on your `PATH`, the script says so. Then:
+To install the command-line tool only, pass `--cli-only`: `curl -fsSL https://github.com/claytoncasey01/conn/releases/latest/download/install.sh | sh -s -- --cli-only`. The script does not replace `Conn.app` while it is running: it stops and says so before it changes anything, and you quit Conn and run it again. A release that has no app installs the command-line tool and says so. Linux gets the command-line tool only.
+
+Run it again to update. If `~/.local/bin` is not on your `PATH`, the script says so. On a Mac, open Conn from `~/Applications`. In a browser, or on Linux, run:
 
 ```sh
 conn serve
 ```
 
 It listens on http://127.0.0.1:7777: open that address in your browser. `conn version` prints the release you have. How releases are made is in [releasing](docs/releasing.md).
+
+### The app
+
+`Conn.app` is the same server in a window of its own, with an icon in the Dock. It shows a splash while it starts, then the page. It needs macOS 13 or later, on Apple silicon or Intel.
+
+- Closing the window hides it and leaves Conn running. Click the Dock icon to bring the window back. Cmd-Q, or Quit in the app menu, quits.
+- It listens on the same port as `conn serve` (7777, or `CONN_PORT`) and keeps its data in the same folder, so the app and the command line show the same Conn. If another program holds the port, or the data folder cannot be read, the app says so in a dialog.
+- If a Conn is already running on the data folder, such as a `conn serve` in a terminal, the app opens its window on that server. Quitting the app then leaves that server running. Only a server the app started is stopped when it quits: to stop it, quit the app (Cmd-Q). The server runs inside the app, so `conn stop` on such a server ends the app too.
+- A link to a pull request, a Slack thread or any other site opens in your default browser, and the window stays on Conn. That holds for a link you click, a form, a script and a redirect alike. Links that are not web addresses are not opened. A page inside a frame is not watched.
+- If the server under the window goes away or stops answering, the app starts a server of its own, or opens on the new holder of the data folder. If it has started over 6 times in a row without an answer from Conn, it stops and shows a dialog.
+- An app opened from the Dock gets almost no environment, so at start it runs your login shell once, as a terminal does, and takes the environment from it. That is how `claude`, `gh`, `git` and your tokens are found. The environment is kept in the app's memory and is not logged or written to a file. If the shell cannot be read, the app says why in a dialog (a short reason only, never what the shell printed) and carries on with its own environment.
+- About 10 seconds after it has finished starting (once it has read your login shell's environment), and then once a day, the app asks GitHub whether a newer release exists. **Check for Updates…**, right under About in the Conn menu, asks at once and answers in a dialog. When there is a newer release whose app is ready to download, the item reads **Update Available: v1.2.4…** and a dialog says so, once for each version in each run of the app, with three buttons: **Copy Command** puts the install command on the clipboard, **Release Notes** opens the release in your browser, and **Later** closes it. The app installs nothing: to update, quit Conn and run the install command again. `CONN_UPDATE_CHECK=off` turns the check off and hides the item; the app reads it from your login shell's environment too. A development build, whose version is not a release, never checks.
+- The app is signed ad hoc and not notarized, until there is an Apple Developer account for it. `install.sh` installs it without a warning, because `curl` does not mark the file as downloaded from the internet. A zip downloaded in a browser is marked, and macOS refuses it until you run `xattr -dr com.apple.quarantine Conn.app`.
 
 What you need besides the binary:
 
@@ -68,9 +84,10 @@ On first start every page except Themes sends you to Settings. Choose the reposi
 
 ## What Conn touches
 
-- **Network.** The server makes one kind of web request of its own: the theme gallery reads `raw.githubusercontent.com` with plain GETs that carry no credentials. `CONN_THEME_INDEX=off` turns it off. GitHub goes through your `gh`. Slack, Jira and Confluence go through short headless `claude -p` runs that use your claude.ai connectors. Those runs cost tokens, and each is capped in cost and time. There is no telemetry.
+- **Network.** The server makes one kind of web request of its own: the theme gallery reads `raw.githubusercontent.com` with plain GETs that carry no credentials. `CONN_THEME_INDEX=off` turns it off. The macOS app makes one more: about 10 seconds after it has finished starting, and then daily, a `HEAD` request to `github.com` for the address of the latest release, to learn whether a newer one exists, and only when one does, a second `HEAD` request to learn whether that release's app is attached yet, so it never offers a release the install command cannot deliver. They send no version of Conn and nothing of yours, read only the status and the redirect and no body, and GitHub sees the address they came from and the client name `conn-app`. `CONN_UPDATE_CHECK=off` turns it off. GitHub goes through your `gh`. Slack, Jira and Confluence go through short headless `claude -p` runs that use your claude.ai connectors. Those runs cost tokens, and each is capped in cost and time. There is no telemetry.
 - **Fonts.** Themes name Google Fonts families, and the page loads the active theme's from `fonts.googleapis.com`, so your browser contacts Google. The glyph font for Matrix's rain is bundled.
 - **Files.** Conn keeps everything it saves in one folder, `~/.config/conn` (`$XDG_CONFIG_HOME/conn` when that is set to an absolute path; `CONN_DATA` changes it): the History archive, `settings.json`, `reviews.json`, `myprs.json` and `conn.lock`, which names the server running on the folder. It also holds copies of the agents and skills Conn provides (`agents/`, `skills/`); the agents are linked into `~/.claude/agents` when the server starts, and a skill is linked into `~/.claude/skills` only when you press INSTALL on the Settings page. See [Agents and skills](docs/settings.md#agents-and-skills). Conn creates the folder private to you (mode 0700). A `~/.conn` folder from an earlier version is not read or moved: Conn starts fresh in the new folder, and the old one can be deleted or copied over by hand. `history.db` holds the text of your prompts and results, so treat it like `~/.claude`.
+- **Your shell.** The app runs your login shell once, when it starts, to read the environment that `claude`, `gh` and `git` need. It keeps that environment in memory and never logs it or writes it down. `conn serve` does not do this.
 - **Git.** Review and self-review sessions work in their own git worktrees, never in your working copy. Each page's doc lists everything Conn writes and calls for that feature.
 - **Writes.** Every request that changes something needs the `x-conn: 1` header, and a request is refused unless its `Host` is a loopback name and its `Origin`, when it has one, is a page served here.
 
@@ -88,6 +105,7 @@ Most settings are on the Settings page. A few come from the environment:
 | `CONN_CLAUDE`, `CONN_CMUX` | `claude`, `cmux` | Binaries to run |
 | `CONN_SUMMARY_MODEL` | Haiku | Model for History summaries |
 | `CONN_THEME_INDEX` | `claytoncasey01/conn-themes` | Gallery repository, or `off` |
+| `CONN_UPDATE_CHECK` | on | `off` stops the app's check for a newer release |
 | `CONN_REVIEW_ME` | from `gh` | Your GitHub login |
 | `CONN_REVIEW_CLOSE_MIN` | `10` | Minutes idle before a finished review session is closed (1 to 60) |
 
@@ -102,7 +120,11 @@ make lint     # golangci-lint, every linter on (.golangci.yml)
 make fmt      # gofumpt and goimports
 make check    # make lint, then svelte-check
 make build    # bin/conn
+scripts/build-app.sh <out>        # Conn.app in a zip, with its checksums, in <out>
+scripts/check-app.sh <Conn.app>   # the signature, both architectures, and that the binary starts
 ```
+
+Building the app needs a Mac, the Xcode command line tools and cgo. Run `bun run build` first, because the app embeds the page. Everything else is pure Go, and `conn` builds and tests on Linux.
 
 [AGENTS.md](AGENTS.md) has the rules for writing Go here, for people and coding agents alike.
 
@@ -113,6 +135,7 @@ Layout:
 | Path | Contents |
 |---|---|
 | `cmd/conn/` | The `conn` command |
+| `cmd/conn-app/` | The macOS app (`Conn.app`), built only on a Mac |
 | `internal/` | The server and everything it reads and runs |
 | `src/pages/`, `src/lib/` | The Svelte 5 pages and shared code |
 | `src/effects/` | Theme effects such as the Matrix rain and the CRT tube |
