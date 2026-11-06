@@ -2083,6 +2083,11 @@ func TestARepliesAfterACutPasteSayThePasteIsOpen(t *testing.T) {
 		t.Errorf("%d %s", got.Code, body(got))
 	}
 
+	// The page shows a 409 with no ask as the server's own reason.
+	if got.Code != http.StatusConflict {
+		t.Errorf("status %d, want %d", got.Code, http.StatusConflict)
+	}
+
 	if held.typed() != typed {
 		t.Errorf("typed %q after the refusal", held.typed())
 	}

@@ -409,7 +409,8 @@ func (h *Host) write(sessionID ID, data []byte, check *screenCheck) (uint64, err
 	// A focus report never closes a paste a write cut short; the person's own input does.
 	closes := !onlyFocusReports(data)
 
-	return h.typeInto(writing, data, typing{check: check, input: input, closes: closes})
+	return h.typeInto(writing, data,
+		typing{check: check, input: input, closes: closes, answer: false})
 }
 
 // typing is how typeInto types: with a check to pass first, or none; as input (counted against
@@ -419,6 +420,8 @@ type typing struct {
 	check  *screenCheck
 	input  bool
 	closes bool
+	// answer marks an answer to the program's own query, the only writes counted as held back.
+	answer bool
 }
 
 // typeInto writes data to the session's program in its turn, and returns the input count after
@@ -461,8 +464,11 @@ func (h *Host) typeInto(writing *session, data []byte, how typing) (uint64, erro
 		return inputs, writing.closePaste(closing)
 	}
 
+	// Taken before the write, which may wait up to writeTimeout: a reset the program makes while
+	// it waits is after the paste opened.
+	resets := writing.pasteResets()
 	written, err := writing.process.Write(data)
-	writing.notePaste(data, written)
+	writing.notePaste(data, written, resets)
 
 	if err != nil {
 		return 0, writeFailure(err)
@@ -473,18 +479,29 @@ func (h *Host) typeInto(writing *session, data []byte, how typing) (uint64, erro
 
 // holdBack is what a query's answer or a focus report does inside an open paste: nothing. Written
 // in, it would be pasted text; a stale answer is worth nothing once the paste is closed. An answer
-// is counted. It returns the input count, unchanged. The caller holds the write turn.
+// is counted (a focus report is not). There is a race: a query the program sent before a paste
+// was written, whose answer takes its turn after that write was cut, is dropped too, as from a
+// terminal that does not answer it. It returns the input count, unchanged. The caller holds the
+// write turn.
 func (held *session) holdBack(how typing) uint64 {
-	if !how.input {
+	if how.answer {
 		held.answersHeldBack.Add(1)
 	}
 
 	return held.inputs.Load()
 }
 
-// notePaste keeps whether the written bytes of data left a paste open, and when one opens how
-// many times the screen had read bracketed paste turned off. The caller holds the write turn.
-func (held *session) notePaste(data []byte, written int) {
+// pasteResets is how many times the screen has read bracketed paste turned off, or a reset.
+func (held *session) pasteResets() uint64 {
+	held.screenMu.Lock()
+	defer held.screenMu.Unlock()
+
+	return held.screen.PasteResets()
+}
+
+// notePaste keeps whether the written bytes of data left a paste open, and when one opens the
+// reset count taken before its write. The caller holds the write turn.
+func (held *session) notePaste(data []byte, written int, resetsBefore uint64) {
 	opened := held.pasteClosing == nil
 
 	held.pasteClosing = pasteClosingAfter(held.pasteClosing, data, written)
@@ -493,9 +510,7 @@ func (held *session) notePaste(data []byte, written int) {
 	}
 
 	if opened {
-		held.screenMu.Lock()
-		held.pasteResetsAtOpen = held.screen.PasteResets()
-		held.screenMu.Unlock()
+		held.pasteResetsAtOpen = resetsBefore
 	}
 }
 
@@ -503,8 +518,9 @@ func (held *session) notePaste(data []byte, written int) {
 // turned bracketed paste off (or reset) since the paste opened is taken to be inside none, even if
 // it has turned it on again since: an exit from Claude Code to a shell does both, and the shell
 // would read an end marker as keys. The cost is the other way round: a paste still unread when the
-// program turned 2004 off stays open in it, which submits nothing. The caller holds the write
-// turn.
+// program turned 2004 off stays open in it, which submits nothing. Likewise when the close itself
+// was cut (after ESC [ 2, say) and a reset is then counted: the rest of the close is dropped, and
+// the program is left with those bytes ahead of the next key. The caller holds the write turn.
 func (held *session) openPaste() []byte {
 	if held.pasteClosing == nil {
 		return nil

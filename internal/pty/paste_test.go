@@ -202,12 +202,17 @@ func TestAnswersAndFocusReportsAreHeldBackInsideAPaste(t *testing.T) {
 
 	host, sessionID, process := pasteSession(t, 9)
 
+	// A program that asked for focus reports: they are then not input, as answers are not.
+	process.feed(t, []byte("\x1b[?1004h"))
+	waitFocusReportsAsked(t, host, sessionID)
+
+	deadline := time.Now().Add(testtime.Scaled(waitLimit))
+
 	_ = host.Write(sessionID, []byte("\x1b[200~abcdef\x1b[201~"))
 
 	// The program asks for its device attributes; the host does not answer into the paste.
 	process.feed(t, []byte("\x1b[c"))
 
-	deadline := time.Now().Add(testtime.Scaled(waitLimit))
 	for host.AnswersHeldBack(sessionID) == 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("the answer was never held back")
@@ -219,6 +224,11 @@ func TestAnswersAndFocusReportsAreHeldBackInsideAPaste(t *testing.T) {
 	err := host.Write(sessionID, []byte("\x1b[I"))
 	if err != nil {
 		t.Fatalf("a focus report while a paste is open = %v", err)
+	}
+
+	if got := host.AnswersHeldBack(sessionID); got != 1 {
+		t.Fatalf("answers held back = %d after a focus report, want 1: a focus report is not one",
+			got)
 	}
 
 	if got := string(process.writtenSoFar()); got != "\x1b[200~abc" {
@@ -346,4 +356,53 @@ func TestAResetBeforeThePasteDoesNotKeepItOpen(t *testing.T) {
 	if got := string(process.writtenSoFar()); got != "\x1b[200~abc\x1b[201~" {
 		t.Fatalf("the program read %q", got)
 	}
+}
+
+// A program that turns bracketed paste off and on again while the write that opens the paste
+// waits for it (Claude Code exiting to a shell, inside the 5 s write window) is sent no end
+// marker: the reset count is taken before the write, not after it.
+func TestAResetWhileThePasteIsBeingWrittenIsSeen(t *testing.T) {
+	t.Parallel()
+
+	host, sessionID, process := pasteSession(t, 9)
+
+	process.mu.Lock()
+	process.duringCut = func() {
+		process.feed(t, []byte("\x1b[?2004l\x1b[?2004h"))
+		waitPasteResets(t, host, sessionID)
+		waitBracketed(t, host, sessionID, true)
+	}
+	process.mu.Unlock()
+
+	_ = host.Write(sessionID, []byte("\x1b[200~abcdef\x1b[201~"))
+
+	err := host.Write(sessionID, []byte("x"))
+	if err != nil {
+		t.Fatalf("the next key = %v, want it typed", err)
+	}
+
+	if got := string(process.writtenSoFar()); got != "\x1b[200~abcx" {
+		t.Fatalf("the program read %q, want no end marker", got)
+	}
+}
+
+// waitFocusReportsAsked waits until the host's screen model reads focus reports asked for.
+func waitFocusReportsAsked(t *testing.T, host *pty.Host, sessionID pty.ID) {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(waitLimit))
+	for time.Now().Before(deadline) {
+		_, mark, err := host.ScreenLines(sessionID, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if mark.FocusReports {
+			return
+		}
+
+		time.Sleep(waitPoll)
+	}
+
+	t.Fatal("the screen never read focus reports asked for")
 }

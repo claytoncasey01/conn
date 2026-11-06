@@ -66,8 +66,10 @@ type fakeProcess struct {
 	// writeErr, when set, is what every Write fails with.
 	writeErr error
 	// cut, when above zero, is how many bytes the next Write takes before it fails as a
-	// terminal's write deadline does; guarded by mu.
-	cut int
+	// terminal's write deadline does; duringCut, when set, runs inside that Write before it
+	// returns. Both guarded by mu.
+	cut       int
+	duringCut func()
 	// afterKill is what the group looks like once it has ended: gone, or members no signal can
 	// reach (EPERM), for good or for unreachableAnswers more looks.
 	afterKill          killOutcome
@@ -142,6 +144,14 @@ func (f *fakeProcess) Write(data []byte) (int, error) {
 		taken := min(f.cut, len(data))
 		f.cut = 0
 		f.written = append(f.written, data[:taken]...)
+		during := f.duringCut
+
+		// What the program does while the write waits for it, before the write returns.
+		if during != nil {
+			f.mu.Unlock()
+			during()
+			f.mu.Lock()
+		}
 
 		return taken, fmt.Errorf("writing to the terminal: %w", os.ErrDeadlineExceeded)
 	}
