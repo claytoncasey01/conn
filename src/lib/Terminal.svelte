@@ -10,6 +10,8 @@
   import { termSocket } from './api.ts'
   import { plainText } from './ask.ts'
   import { statusText } from './terminal.ts'
+  import { interruptOffered } from './interrupt.ts'
+  import InterruptButton from './InterruptButton.svelte'
   import { LEAVE_KEY, mount, type Look, type Panel, type PanelView } from './terminalMount.ts'
   import { terminalFont, terminalTheme } from './terminalTheme.ts'
   import { theme } from './theme/theme.svelte.ts'
@@ -105,6 +107,9 @@
       {/if}
       {#if view.notice?.reconnect}
         <button type="button" class="btn cap" onclick={reconnect}>Reconnect</button>
+      {/if}
+      {#if interruptOffered(view)}
+        <InterruptButton id={sessionId} />
       {/if}
       <button type="button" class="btn cap" bind:this={detachButton} onclick={onclose} aria-label="Detach from the terminal of {plainText(name)}">Detach</button>
     </div>

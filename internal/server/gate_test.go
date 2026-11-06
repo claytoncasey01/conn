@@ -50,6 +50,7 @@ func apiRoutes() []apiRoute {
 		{http.MethodGet, "/api/term/0123456789abcdef0123456789abcdef"},
 		{http.MethodGet, "/api/term/not-an-id"},
 		{http.MethodPut, "/api/term/background"},
+		{http.MethodPost, "/api/term/0123456789abcdef0123456789abcdef/interrupt"},
 		{http.MethodGet, "/api"},
 		{http.MethodGet, "/api/no-such-route"},
 		// Routes match the path as sent; one spelled with an escape is still under /api.

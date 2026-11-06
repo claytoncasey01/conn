@@ -76,7 +76,11 @@ explicitly.
 
 1. **No client-chosen execution.** The only things a client can do to a session are attach to an id
    the server issued, send input, resize and detach. Creating a session is a Go call from the
-   modules, never an HTTP route.
+   modules, never an HTTP route. One input needs no attached terminal: `POST
+   /api/term/<id>/interrupt` (no body, behind the secret, Origin and `X-Conn`, under the session's
+   input rate cap) types the single byte a keyboard's Ctrl-C does (ETX) through the host's one
+   writer, so a program flooding output faster than the page can draw it, whose viewer was
+   dropped, can still be interrupted. It is input, never a signal.
 2. **The network surface.** The server listens on `127.0.0.1` only (as now). **Every `/api` route**,
    not only the terminal ones (the snapshot, the event stream, the agent pages, every POST and PUT),
    requires a Host of this machine, an `Origin` that is absent only for non-browser clients and

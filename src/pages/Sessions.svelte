@@ -6,6 +6,7 @@
   import { bootIn, bootOut } from '../lib/fx.ts'
   import Brand from '../lib/Brand.svelte'
   import StopSession from '../lib/StopSession.svelte'
+  import InterruptButton from '../lib/InterruptButton.svelte'
   import { hideTerminal, loadTerminal, terminalPanel, toggleTerminal } from '../lib/terminalPanel.svelte.ts'
   import Nav from '../lib/Nav.svelte'
   import FilterBar from '../lib/FilterBar.svelte'
@@ -226,6 +227,7 @@
             {/if}
             {#if s.hosted}
               <button type="button" class="tab cap" onclick={() => toggleTerminal(s.id)} aria-pressed={terminalPanel.open === s.id} aria-label="Terminal of {s.name}" style="display: flex; align-items: center; min-height: 28px; padding: 0 9px; border-radius: calc(var(--radius) * 0.75); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 40%, transparent); background: {terminalPanel.open === s.id ? 'color-mix(in oklch, var(--edge) 14%, transparent)' : 'transparent'}; color: color-mix(in oklab, var(--edge) 55%, var(--bright)); font: inherit; font-size: 11px; letter-spacing: calc(var(--tracking) * 0.5714); cursor: pointer">Terminal</button>
+              <InterruptButton id={s.id} compact />
             {/if}
             <StopSession id={s.id} name={s.name} busy={hot} compact /></div>
           </div>
