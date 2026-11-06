@@ -233,6 +233,34 @@ func TestAReviewOpenedAsACommandIsRecorded(t *testing.T) {
 	aEqual(t, "the next round", aBody(aStart(t, tab, worldRepo, "7", aSonnet)), aOKName2)
 }
 
+// A review launched by hand leaves the earlier launch as it was: nothing started yet, so the
+// earlier session keeps its tracking (its close after the review) until a session really starts.
+func TestAReviewLaunchedByHandRetiresNoEarlierLaunch(t *testing.T) {
+	t.Parallel()
+
+	tab, fakes := aReady(t, setupOpts{})
+	fakes.with(func(fakes *world) { fakes.launchResult = aLaunchOK(fakes) })
+	aEqual(t, "first", aStart(t, tab, worldRepo, "7", aSonnet).Code, 200)
+
+	fakes.with(func(fakes *world) {
+		fakes.now = worldT0 + 6*60_000
+		fakes.launchResult = func(opts reviews.LaunchOpts) reviews.LaunchResult {
+			return reviews.LaunchResult{
+				OK: false, Worktree: worktreeOf(fakes.dir, opts.Repo, opts.Number),
+				Error: "sessions open as a command", ManualCommand: "cd /w && claude",
+			}
+		}
+	})
+	aEqual(t, "by hand", aStart(t, tab, worldRepo, "7", aSonnet).Code, 200)
+
+	saved := aLaunches(t, fakes)
+	aEqual(t, "launches", len(saved), 2)
+
+	if saved[0].ClosedAt != nil {
+		t.Error("the earlier launch was retired by a launch nothing started")
+	}
+}
+
 // aPanicked is what a call panicked with ("" when it did not).
 func aPanicked(call func()) string {
 	found := ""

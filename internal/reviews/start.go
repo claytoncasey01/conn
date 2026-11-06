@@ -322,13 +322,13 @@ func (r *Reviews) launch(
 		// The session did not start, or opens as a command: the worktree and the prompt are
 		// there, and the session the command opens is this launch's, tracked like any other.
 		if launchedByHand(result) {
-			r.recordLaunch(target, model, name, result)
+			r.recordLaunch(target, model, name, result, false)
 		}
 
 		return failedReply(result), nil
 	}
 
-	r.recordLaunch(target, model, name, result)
+	r.recordLaunch(target, model, name, result, true)
 
 	return okReply("name", name), nil
 }
@@ -343,11 +343,20 @@ func launchedByHand(result LaunchResult) bool {
 	return result.Worktree != ""
 }
 
-// recordLaunch records a launch: the new session owns the worktree from here.
-func (r *Reviews) recordLaunch(target launchable, model, name string, result LaunchResult) {
+// recordLaunch records a launch; started is that its session really started.
+func (r *Reviews) recordLaunch(
+	target launchable, model, name string, result LaunchResult, started bool,
+) {
 	launchedAt := r.now()
 
+	// A session that really started owns the worktree from here, and the earlier launches are
+	// retired. One launched by hand has started nothing yet: the earlier session keeps its
+	// tracking, and its close after the review, until one does.
 	for _, launch := range target.entry.Launches {
+		if !started {
+			break
+		}
+
 		if launch.ClosedAt == nil {
 			r.markClosed(launch, launchedAt)
 		}
