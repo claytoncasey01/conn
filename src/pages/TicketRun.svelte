@@ -7,8 +7,10 @@
   import Brand from '../lib/Brand.svelte'
   import Nav from '../lib/Nav.svelte'
   import ConfirmAction from '../lib/ConfirmAction.svelte'
-  import { canOpenAll, legAfterMerge, legCanClean, legChecksFailing, legKeptForOthers, legNeedsPr, legPrWarning, legResumable, legSessionLive, legsToOpen, legWorker, prProgress, runMerged, workSummary } from '../lib/runLegs.ts'
+  import { canOpenAll, legAfterMerge, legCanClean, legChecksFailing, legHosted, legKeptForOthers, legNeedsPr, legPrWarning, legResumable, legSessionLive, legsToOpen, legWorker, prProgress, runMerged, workSummary } from '../lib/runLegs.ts'
   import type { PrStatus, Run, RunAgent, RunLog, RunRepo, RunState, SourceName } from '../lib/types.ts'
+  import Terminal from '../lib/Terminal.svelte'
+  import { hideTerminal, terminalPanel, toggleTerminal } from '../lib/terminalPanel.svelte.ts'
 
   let { key }: { key: string } = $props()
 
@@ -28,6 +30,8 @@
   const sessionId = $derived(lead?.session?.sessionId ?? null)
   /** A session is running for this run, found the way the server finds it (by name or folder, any repository's): a leg's session stops following a run once its PR is open. */
   const sessionLive = $derived(!!run && (live.snap?.sessions ?? []).some(x => x.name === run.key || run.repos.some(leg => x.cwd === leg.worktree)))
+  /** The lead slot's session when Conn hosts it (one repository, or the shared layout's one session): it has a terminal panel here */
+  const hosted = $derived(run && lead && (single || run.layout === 'shared') ? legHosted(run, lead, live.snap?.sessions ?? []) : null)
   /** While the first session is still opening it is not in the registry yet; offering RESUME then would start a second one. */
   const resumable = $derived(!!run && !!lead && (run.state === 'pr_open' || (run.state === 'building' && !!lead.claudeSessionId)) && !lead.cleaned && !sessionLive)
 
@@ -286,7 +290,15 @@
         {#if sessionId && (single || run.layout === 'shared')}
           <a href={href.overview(sessionId)} style="display: flex; align-items: center; gap: 8px; min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: var(--radius); border: 1px var(--border-style) color-mix(in oklch, var(--role-lead) 40%, transparent); background: color-mix(in oklch, var(--role-lead) 8%, transparent); color: color-mix(in oklab, var(--role-lead) 65%, var(--bright)); text-decoration: none; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571)"><span class="led" style="width: 8px; height: 8px; background: var(--role-lead); box-shadow: 0 0 10px color-mix(in oklch, var(--role-lead) calc(100% * var(--glow)), transparent)"></span>SESSION {run.key} <span class="g-go" aria-hidden="true"></span></a>
         {/if}
+        {#if hosted}
+          <button type="button" class="cap" onclick={() => toggleTerminal(hosted.id)} aria-pressed={terminalPanel.open === hosted.id} aria-label="Terminal of {run.key}" style="display: flex; align-items: center; min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: var(--radius); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 40%, transparent); background: {terminalPanel.open === hosted.id ? 'color-mix(in oklch, var(--edge) 14%, transparent)' : 'transparent'}; color: color-mix(in oklab, var(--edge) 55%, var(--bright)); font: inherit; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571); cursor: pointer">Terminal</button>
+        {/if}
       </div>
+      {#if hosted && terminalPanel.open === hosted.id}
+        {#key hosted.id}
+          <Terminal sessionId={hosted.id} name={hosted.name} onclose={hideTerminal} />
+        {/key}
+      {/if}
       <div style="display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center; font-size: 12px; color: var(--mu)">
         {#if single}
           <span style="word-break: break-all"><span style="color: var(--ac)">⎇ </span>{lead.branch} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">←</span> origin/{lead.base} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">· PR into</span> {lead.prBase}</span>
@@ -355,6 +367,7 @@
           {@const cl = ps ? CHECK_LOOK[ps.checks.state] : null}
           {@const worker = legWorker(run, leg)}
           {@const workerLive = legSessionLive(run, worker, sessions)}
+          {@const legHostedHere = run.layout === 'split' ? legHosted(run, leg, live.snap?.sessions ?? []) : null}
           <div class="surf" in:bootIn={{ index: i, skip: skip() }} out:bootOut style="display: flex; flex-direction: column; gap: 10px; padding: 14px 18px; --rim: {legRim(leg)}; --r: calc(var(--radius) * 1.5); --wash: color-mix(in oklch, var(--panel) 70%, transparent)">
             <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px">
               <span data-content style="font-size: 14px; color: var(--bright); overflow-wrap: anywhere">{leg.repo}</span>
@@ -374,7 +387,15 @@
               {#if run.layout === 'split' && leg.session?.sessionId}
                 <a href={href.overview(leg.session.sessionId)} style="color: color-mix(in oklab, var(--role-lead) 65%, var(--bright)); text-decoration: none; font-size: 12px"><span class="cap">Session <span class="g-go" aria-hidden="true"></span></span></a>
               {/if}
+              {#if legHostedHere}
+                <button type="button" class="cap" onclick={() => toggleTerminal(legHostedHere.id)} aria-pressed={terminalPanel.open === legHostedHere.id} aria-label="Terminal of {run.key} in {leg.repo}" style="display: flex; align-items: center; min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: var(--radius); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 40%, transparent); background: {terminalPanel.open === legHostedHere.id ? 'color-mix(in oklch, var(--edge) 14%, transparent)' : 'transparent'}; color: color-mix(in oklab, var(--edge) 55%, var(--bright)); font: inherit; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571); cursor: pointer">Terminal</button>
+              {/if}
             </div>
+            {#if legHostedHere && terminalPanel.open === legHostedHere.id}
+              {#key legHostedHere.id}
+                <Terminal sessionId={legHostedHere.id} name={`${run.key} in ${leg.repo}`} onclose={hideTerminal} />
+              {/key}
+            {/if}
             <div style="display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--mu)">
               <span style="word-break: break-all"><span style="color: var(--ac)">⎇ </span>{leg.branch} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">←</span> origin/{leg.base} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">· PR into</span> {leg.prBase}</span>
               <span>{leg.ahead} commit{leg.ahead === 1 ? '' : 's'} · {leg.dirty} changed file{leg.dirty === 1 ? '' : 's'}</span>

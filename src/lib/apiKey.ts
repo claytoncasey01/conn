@@ -40,15 +40,24 @@ export function takeFromFragment(place: Place = location, hist: Hist = history, 
   return true
 }
 
-/** The Authorization header for an /api request, read from the store at every call (a new launch hands over a new one); {} without one */
-export function header(store: Store | null = storage()): Record<string, string> {
+/**
+ * The secret itself, read from the store at every call (a new launch hands over a new one); null without one. Only the
+ * terminal's WebSocket takes it bare, as a subprotocol: a browser's WebSocket can set no header.
+ */
+export function secret(store: Store | null = storage()): string | null {
   let text: string | null = null
   try {
     text = store?.getItem(KEY) ?? null
   } catch {
-    return {}
+    return null
   }
-  return text !== null && SECRET.test(text) ? { authorization: `Bearer ${text}` } : {}
+  return text !== null && SECRET.test(text) ? text : null
+}
+
+/** The Authorization header for an /api request; {} without a secret */
+export function header(store: Store | null = storage()): Record<string, string> {
+  const text = secret(store)
+  return text === null ? {} : { authorization: `Bearer ${text}` }
 }
 
 let listening = false

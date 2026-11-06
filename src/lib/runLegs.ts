@@ -76,6 +76,13 @@ export const legSessionLive = (run: Run, leg: RunRepo, sessions: readonly { name
   return sessions.some(x => x.name === run.key || run.repos.some(l => x.cwd === l.worktree))
 }
 
+/** A slot's session when Conn hosts it, found as legSessionLive finds it (with several legs by the slot's folder alone): it has a terminal panel on the run page. */
+export const legHosted = <S extends { hosted?: boolean; name: string; cwd: string }>(run: Run, leg: RunRepo, sessions: readonly S[]): S | null => {
+  const found = sessions.filter(x => x.hosted === true)
+  if (run.repos.length > 1) return found.find(x => x.cwd === leg.worktree) ?? null
+  return found.find(x => x.name === run.key || x.cwd === leg.worktree) ?? null
+}
+
 /** Whether RESUME SESSION applies to a leg: it has a session slot whose session is gone, while its PR is open or the run builds with a captured id. While the first session is still opening it is not in the registry yet, and offering RESUME then would start a second one. */
 export const legResumable = (run: Run, leg: RunRepo, live: boolean): boolean => {
   if (!legHasSessionSlot(run, leg)) return false
