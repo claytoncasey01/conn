@@ -82,3 +82,12 @@ test('an editor opened inside the replay keeps the main screen for when it exits
   // A switch in front would have drawn the main screen's lines on the alternate one, lost when the editor exits
   assert.deepEqual(await mainAfter('\x1b[?1049h' + window + '\x1b[?1049l'), [])
 })
+
+test('an editor that switched again while on the alternate screen still has its first switch put in front', async () => {
+  // The host's preamble when the first ?1049h has left the window (internal/pty: "switched again while on the alternate
+  // screen"); the window holds the editor's first screen, then its second switch
+  const window = 'VIM-SCREEN-1\x1b[?1049hVIM-SCREEN-2'
+  assert.deepEqual(await mainAfter('\x1b[?1049h' + window + '\x1b[?1049l'), [])
+  // Without it, the editor's first screen would be left on the main screen once the editor exits
+  assert.deepEqual(await mainAfter(window + '\x1b[?1049l'), ['VIM-SCREEN-1'])
+})

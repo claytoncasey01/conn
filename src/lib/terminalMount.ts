@@ -61,6 +61,8 @@ export type Panel = {
   setLook(look: Look): void
   /** Does what waits for a confirmation, if the click is a person's. */
   confirm(event: { isTrusted: boolean }): void
+  /** Lets go of a hold on keys after lag, if the click is a person's. */
+  dismiss(event: { isTrusted: boolean }): void
   cancel(): void
 }
 
@@ -94,7 +96,7 @@ export function mount(deps: MountDeps): Panel {
   let fit: Fit | null = null
   let link: Link | null = null
   let look = deps.look
-  let base: View = { phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false }
+  let base: View = { phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, held: false }
   let ask: Ask | null = null
   let held = ''
   let hover = ''
@@ -110,6 +112,15 @@ export function mount(deps: MountDeps): Panel {
 
   const render = () => {
     if (!stopped) deps.show({ ...base, note: note || base.note, ask, hover })
+  }
+
+  /** The connection's view. A new note of its own replaces the panel's, which never hides it. */
+  const shown = (next: View) => {
+    if (next.note !== base.note) {
+      if (next.note !== '') note = ''
+    }
+    base = next
+    render()
   }
 
   const links: LinkCallbacks = {
@@ -150,6 +161,11 @@ export function mount(deps: MountDeps): Panel {
       if (isMouseRelease(data)) focusingClick = false
       return
     }
+    // The panel's own note (a stale paste, one too large) has been read once the person types on
+    if (note !== '') {
+      note = ''
+      render()
+    }
     link?.input(data, focused)
   }
 
@@ -181,7 +197,10 @@ export function mount(deps: MountDeps): Panel {
     term = made
     fit = fitter
     const screen = { reset: () => made.reset(), write: (data: Uint8Array, done: () => void) => made.write(data, done) }
-    link = attach(deps.openSocket, screen, next => ((base = next), render()), deps.frame, () => dropHeld(PASTE_STALE))
+    // Any output drops a paste waiting for its confirmation: it was asked about a screen that may have changed. A program
+    // that writes steadily (a spinner) therefore denies such pastes. That is by design: it can only deny, never change
+    // what a later confirmation types, which is the person's own cleaned text
+    link = attach(deps.openSocket, screen, shown, { frame: deps.frame, heard: () => dropHeld(PASTE_STALE) })
     measure()
   }
 
@@ -309,6 +328,10 @@ export function mount(deps: MountDeps): Panel {
         else note = PASTE_NOT_LIVE
       }
       render()
+    },
+    dismiss(event) {
+      if (!event.isTrusted) return
+      link?.dismiss()
     },
     cancel() {
       cancelHeld()

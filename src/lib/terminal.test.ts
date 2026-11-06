@@ -7,7 +7,7 @@ import { FakeFrames, FakeSocket } from './terminalFakes.test.ts'
 import {
   attach, cleanPaste, closeNotice, fitSize, forwardable, inputFrame, isMotionReport, linkTarget, parseFrame, QUIET_CSI, QUIET_DCS,
   QUIET_OSC, silence, terminalOptions, CELLS_MAX, FRAME_BYTES_MAX, INPUT_BYTES_MAX, PASTE_BYTES_MAX, SIZE_MAX,
-  WRITE_PENDING_BYTES_LOW, WRITE_PENDING_BYTES_MAX,
+  WRITE_PENDING_BYTES_HIGH, WRITE_PENDING_BYTES_LOW, WRITE_PENDING_BYTES_MAX, HOLD_QUIET_MS,
   type View,
 } from './terminal.ts'
 
@@ -284,6 +284,8 @@ const frames: [string, string, ReturnType<typeof parseFrame>][] = [
   ['replay-end', '{"t":"replay-end"}', { t: 'replay-end' }],
   ['exit', '{"t":"exit","code":3}', { t: 'exit', code: 3 }],
   ['exit 0', '{"t":"exit","code":0}', { t: 'exit', code: 0 }],
+  ['paste-closed', '{"t":"paste-closed"}', { t: 'paste-closed' }],
+  ['paste-closed with more', '{"t":"paste-closed","x":1}', null],
   ['an unknown frame', '{"t":"title","d":"x"}', null],
   ['exit without a code', '{"t":"exit"}', null],
   ['exit with a text code', '{"t":"exit","code":"3"}', null],
@@ -412,9 +414,10 @@ function rig() {
   const screen = new FakeScreen()
   const views: View[] = []
   const frames = new FakeFrames()
-  const link = attach(() => socket, screen, view => views.push(view), frames.frame)
+  const clock = { now: 0 }
+  const link = attach(() => socket, screen, view => views.push(view), { frame: frames.frame, now: () => clock.now })
   const last = () => views[views.length - 1]
-  return { socket, screen, views, link, last, frames }
+  return { socket, screen, views, link, last, frames, clock }
 }
 
 /** Open, replayed, and the replay drawn: live. */
@@ -466,17 +469,100 @@ test('nothing is typed before the replay has ended and been drawn, and keys are 
   assert.deepEqual(socket.sent, ['{"t":"input","d":"c"}'])
 })
 
-test('keys are held while the page is behind the program, and typed again once it has caught up', () => {
-  const { socket, screen, link, last } = live()
-  const chunk = new Uint8Array(1 << 20).buffer
-  for (let i = 0; i < 2; i++) socket.message(chunk.slice(0))
+const MiB = 1 << 20
+const bytesOf = (size: number) => new Uint8Array(size).buffer
+
+test('the page is behind only over the high mark', () => {
+  const { socket, last } = live()
+  socket.message(bytesOf(WRITE_PENDING_BYTES_HIGH))
+  assert.equal(last().lagging, false, 'at the high mark, not over it')
+  socket.message(bytesOf(1))
   assert.equal(last().lagging, true)
+})
+
+test('between the marks the page stays behind: no flicker around one threshold', () => {
+  const { socket, screen, last } = live()
+  socket.message(bytesOf(WRITE_PENDING_BYTES_LOW))
+  socket.message(bytesOf(WRITE_PENDING_BYTES_HIGH - WRITE_PENDING_BYTES_LOW + 1))
+  assert.equal(last().lagging, true)
+  screen.waiting.pop()?.()
+  assert.equal(last().lagging, true, 'at the low mark, still behind')
+  screen.waiting.pop()?.()
+  assert.equal(last().lagging, false)
+})
+
+test('once a key is held for lag, every later key is held, even once caught up, until a key after a quiet gap', () => {
+  const { socket, screen, link, last, clock } = live()
+  socket.message(bytesOf(2 * MiB))
   link.input('a', true)
-  assert.deepEqual(socket.sent, [])
   assert.match(last().note, /catching up/)
+  assert.equal(last().held, true)
   screen.drain()
+  assert.equal(last().lagging, false)
+  clock.now += 100
+  link.input('b', true)
+  assert.deepEqual(socket.sent, [], 'still held once caught up')
+  clock.now += HOLD_QUIET_MS
+  link.input('c', true)
+  assert.deepEqual(socket.sent, [], 'the key after the gap only lets go of the hold')
+  assert.equal(last().held, false)
+  link.input('d', true)
+  assert.deepEqual(socket.sent, ['{"t":"input","d":"d"}'])
+})
+
+test('a quiet gap while still behind does not let go of the hold', () => {
+  const { socket, link, last, clock } = live()
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  clock.now += HOLD_QUIET_MS * 2
+  link.input('b', true)
+  assert.equal(last().held, true)
+  assert.deepEqual(socket.sent, [])
+})
+
+test('Dismiss lets go of the hold, and clears its note', () => {
+  const { socket, screen, link, last } = live()
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  screen.drain()
+  link.dismiss()
+  assert.equal(last().held, false)
+  assert.equal(last().note, '')
   link.input('b', true)
   assert.deepEqual(socket.sent, ['{"t":"input","d":"b"}'])
+})
+
+test('a typed key never clears the note that says keys were held', () => {
+  const { socket, screen, link, last, clock } = live()
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  screen.drain()
+  clock.now += HOLD_QUIET_MS
+  link.input('b', true)
+  link.input('c', true)
+  assert.match(last().note, /catching up|nothing was typed/i)
+})
+
+test('typed while frames arrive and are drawn around the mark: every key goes through, or none after the first held', () => {
+  const { socket, screen, link, clock } = live()
+  const typed = 'git push --force-with-lease\r'
+  // Frames that put the page just over and just under the high mark, alternately
+  socket.message(bytesOf(WRITE_PENDING_BYTES_HIGH - 64 * 1024))
+  for (const key of typed) {
+    socket.message(bytesOf(128 * 1024))
+    link.input(key, true)
+    clock.now += 50
+    screen.waiting.shift()?.()
+  }
+  const sent = socket.sent.map(text => (JSON.parse(text) as { d: string }).d).join('')
+  assert.ok(sent === typed || typed.startsWith(sent), `sent ${JSON.stringify(sent)}: a prefix of what was typed, never a mix`)
+  assert.ok(!sent.endsWith('\r') || sent === typed, 'Enter only with everything before it')
+})
+
+test('the paste-closed frame says plainly that a paste was cut short', () => {
+  const { socket, last } = live()
+  socket.text('{"t":"paste-closed"}')
+  assert.equal(last().note, 'A paste was cut short and has been closed. Check the screen before typing.')
 })
 
 test('the connection says when output is still waiting to be drawn', () => {
@@ -492,7 +578,7 @@ test('every frame of output is announced, so a paste waiting for a confirmation 
   const socket = new FakeSocket()
   const screen = new FakeScreen()
   let heard = 0
-  attach(() => socket, screen, () => {}, new FakeFrames().frame, () => void heard++)
+  attach(() => socket, screen, () => {}, { frame: new FakeFrames().frame, heard: () => void heard++ })
   socket.open()
   socket.bytes('a')
   socket.bytes('b')
@@ -547,7 +633,7 @@ test('a close for falling behind offers a reconnect and never reconnects by itse
   let opened = 0
   const socket = new FakeSocket()
   const views: View[] = []
-  attach(() => (opened++, socket), new FakeScreen(), v => views.push(v), new FakeFrames().frame)
+  attach(() => (opened++, socket), new FakeScreen(), v => views.push(v), { frame: new FakeFrames().frame })
   socket.open()
   socket.end(1013, 'fell behind the program\'s output')
   assert.equal(views[views.length - 1].phase, 'closed')
@@ -580,7 +666,7 @@ test('a server that does not echo the terminal protocol is closed at once', () =
 
 test('no socket (no secret, or an id that is not a session\'s) shows a notice and opens nothing', () => {
   const views: View[] = []
-  attach(() => null, new FakeScreen(), v => views.push(v), new FakeFrames().frame)
+  attach(() => null, new FakeScreen(), v => views.push(v), { frame: new FakeFrames().frame })
   assert.equal(views[views.length - 1].phase, 'closed')
   assert.match(views[views.length - 1].notice?.text ?? '', /Could not attach/)
 })
@@ -742,7 +828,8 @@ test('output drawn as fast as it arrives never closes the terminal, and the lag 
   assert.equal(last().lagging, true)
   screen.drain()
   assert.equal(last().lagging, false)
-  assert.ok(WRITE_PENDING_BYTES_LOW < WRITE_PENDING_BYTES_MAX)
+  assert.ok(WRITE_PENDING_BYTES_LOW < WRITE_PENDING_BYTES_HIGH)
+  assert.ok(WRITE_PENDING_BYTES_HIGH < WRITE_PENDING_BYTES_MAX)
 })
 
 test('a screen that throws on a write closes the terminal as fallen behind, not the page', () => {

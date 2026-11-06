@@ -468,3 +468,40 @@ test('a paste over the cap is refused even when the program does not bracket pas
   assert.equal(socket().typed(), '')
   assert.match(last().note, /too large/)
 })
+
+// ---- fix round 3 ----
+
+test('the panel\'s own note never hides a new note of the connection', async () => {
+  const { host, socket, last, live } = rig()
+  await live()
+  host.dispatch('paste', clipboard('a\nb'))
+  socket().bytes('the screen moved')
+  assert.match(last().note, /screen changed/)
+  socket().text('{"t":"paste-closed"}')
+  assert.equal(last().note, 'A paste was cut short and has been closed. Check the screen before typing.')
+})
+
+test('the panel\'s own note is cleared by the next key typed', async () => {
+  const { host, socket, term, last, live } = rig()
+  await live('\x1b[?2004h')
+  host.dispatch('paste', clipboard('x'.repeat(PASTE_BYTES_MAX + 1)))
+  assert.match(last().note, /too large/)
+  userTypes(term().term, 'a')
+  assert.equal(last().note, '')
+  assert.equal(socket().typed(), 'a')
+})
+
+test('Dismiss lets go of the hold only on a person\'s click', async () => {
+  const { panel, socket, term, last, live } = rig()
+  await live()
+  socket().message(new Uint8Array(2 << 20).buffer)
+  userTypes(term().term, 'a')
+  assert.equal(last().held, true)
+  await new Promise<void>(done => term().term.write('', done))
+  panel.dismiss({ isTrusted: false })
+  assert.equal(last().held, true)
+  panel.dismiss({ isTrusted: true })
+  assert.equal(last().held, false)
+  userTypes(term().term, 'b')
+  assert.equal(socket().typed(), 'b')
+})

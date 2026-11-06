@@ -246,7 +246,7 @@ export function fitSize(proposed: Size | undefined): Size | null {
 
 // ---- what the server sends ----
 
-export type ServerFrame = { t: 'replay-end' } | { t: 'exit'; code: number }
+export type ServerFrame = { t: 'replay-end' } | { t: 'paste-closed' } | { t: 'exit'; code: number }
 
 /** A text frame from the server, or null for anything that is not exactly one of the two it sends. */
 export function parseFrame(text: string): ServerFrame | null {
@@ -261,6 +261,7 @@ export function parseFrame(text: string): ServerFrame | null {
   const frame = value as Record<string, unknown>
   const keys = Object.keys(frame).sort().join(',')
   if (frame.t === 'replay-end' && keys === 't') return { t: 'replay-end' }
+  if (frame.t === 'paste-closed' && keys === 't') return { t: 'paste-closed' }
   if (frame.t === 'exit' && keys === 'code,t' && Number.isInteger(frame.code)) return { t: 'exit', code: frame.code as number }
   return null
 }
@@ -319,18 +320,33 @@ export type Screen = { reset(): void; write(data: Uint8Array, done: () => void):
 /**
  * Bytes handed to the screen and not yet parsed. Over WRITE_PENDING_BYTES_MAX the page has fallen behind the program: the
  * terminal is closed, as the server closes a viewer that falls behind it, rather than letting xterm.js's own queue grow to
- * the 50 MB at which it throws. Over WRITE_PENDING_BYTES_LOW the panel says it is catching up. The high mark is four
- * whole replays, so a replay alone never reaches it.
+ * the 50 MB at which it throws (it is four whole replays, so a replay alone never reaches it). Over
+ * WRITE_PENDING_BYTES_HIGH the page is behind (`lagging`), and stays behind until it is under WRITE_PENDING_BYTES_LOW: with
+ * one mark for both, output drawn about as fast as it arrives would flip it on and off between keys.
  */
 export const WRITE_PENDING_BYTES_MAX = 16 << 20
-export const WRITE_PENDING_BYTES_LOW = 1 << 20
+export const WRITE_PENDING_BYTES_HIGH = 1 << 20
+export const WRITE_PENDING_BYTES_LOW = 256 << 10
+/**
+ * Once a key is held for lag, keys stay held until the page has caught up and the person presses a key after this long
+ * without one (that key only lets go), or presses Dismiss: a word is typed whole or not at all, never with a gap.
+ */
+export const HOLD_QUIET_MS = 1500
 
 export type Phase = 'connecting' | 'replaying' | 'live' | 'ended' | 'closed'
 /**
  * What the connection shows: where it is, the exit code once the program ended, why it closed, a passing note, and
  * whether output is arriving faster than it is drawn.
  */
-export type View = { phase: Phase; exitCode: number | null; notice: Notice | null; note: string; lagging: boolean }
+export type View = {
+  phase: Phase
+  exitCode: number | null
+  notice: Notice | null
+  note: string
+  lagging: boolean
+  /** Keys are being held since one was held for lag: nothing is typed until the hold is let go. */
+  held: boolean
+}
 
 export type Link = {
   /**
@@ -340,6 +356,8 @@ export type Link = {
   input(data: string, focused: boolean): void
   /** Whether output handed to the screen is still waiting to be drawn: the screen's modes may not be the program's yet. */
   drawing(): boolean
+  /** Lets go of a hold on keys, and clears its note: the person's Dismiss. */
+  dismiss(): void
   /** Asks the host for a size, once open and only when it changed. */
   resize(size: Size): void
   /** Closes the terminal; nothing more is shown or drawn. */
@@ -349,10 +367,14 @@ export type Link = {
 /** Runs a function at the next animation frame. */
 export type Frame = (run: () => void) => void
 
+/** What the connection takes besides its socket and screen: frames for pointer motion, a call for each frame of output, and a monotonic clock in ms. */
+export type AttachOptions = { frame: Frame; heard?: () => void; now?: () => number }
+
 const NORMAL_CLOSE = 1000
 /** What the panel says of input refused for its size, or held while the page catches up. */
 export const TOO_LARGE = `That is too large to type at once: at most ${PASTE_BYTES_MAX >> 10} KiB, sent whole. Nothing was typed.`
-const HELD = 'The terminal is catching up with the program, so nothing was typed. Try again in a moment.'
+const HELD = 'The terminal is catching up with the program, so nothing was typed since. Once it has, press a key to type again, or Dismiss.'
+const PASTE_CLOSED = 'A paste was cut short and has been closed. Check the screen before typing.'
 const FELL_BEHIND: Notice = { text: 'This page fell behind the program\'s output, so the terminal was closed.', reconnect: true }
 
 /**
@@ -360,8 +382,12 @@ const FELL_BEHIND: Notice = { text: 'This page fell behind the program\'s output
  * reports each change of view and each frame of output (`heard`). It goes live only once the replay's last byte is drawn,
  * so nothing is typed against a screen, or modes, the program has already left. It never reconnects by itself.
  */
-export function attach(open: () => Socket | null, screen: Screen, show: (view: View) => void, frame: Frame, heard: () => void = () => {}): Link {
-  let view: View = { phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false }
+export function attach(open: () => Socket | null, screen: Screen, show: (view: View) => void, options: AttachOptions): Link {
+  const { frame } = options
+  const heard = options.heard ?? (() => {})
+  const now = options.now ?? (() => performance.now())
+  let view: View = { phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, held: false }
+  let heldAt = 0
   let wanted: Size | null = null
   let sent: Size | null = null
   let detached = false
@@ -376,7 +402,7 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   const socket = open()
   if (!socket) {
     update({ phase: 'closed', notice: closeNotice(1006, '', null) })
-    return { input: () => {}, drawing: () => false, resize: () => {}, detach: () => {} }
+    return { input: () => {}, drawing: () => false, dismiss: () => {}, resize: () => {}, detach: () => {} }
   }
   socket.binaryType = 'arraybuffer'
   const opened = () => view.phase !== 'connecting' && view.phase !== 'closed'
@@ -393,7 +419,7 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   }
   const drawn = (size: number) => () => {
     pending -= size
-    if (view.lagging && pending <= WRITE_PENDING_BYTES_LOW) update({ lagging: false })
+    if (view.lagging && pending < WRITE_PENDING_BYTES_LOW) update({ lagging: false })
   }
   const draw = (data: ArrayBuffer) => {
     const size = data.byteLength
@@ -404,7 +430,7 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
     } catch {
       return fellBehind()
     }
-    if (!view.lagging && pending > WRITE_PENDING_BYTES_LOW) update({ lagging: true })
+    if (!view.lagging && pending > WRITE_PENDING_BYTES_HIGH) update({ lagging: true })
   }
   // An empty write is drawn after everything written before it: the replay's last byte
   const replayDrawn = () => {
@@ -436,6 +462,8 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
     const message = parseFrame(event.data)
     if (message?.t === 'replay-end') {
       if (view.phase === 'replaying') replayDrawn()
+    } else if (message?.t === 'paste-closed') {
+      update({ note: PASTE_CLOSED })
     } else if (message?.t === 'exit') {
       update({ phase: 'ended', exitCode: message.code, notice: closeNotice(NORMAL_CLOSE, '', message.code) })
     }
@@ -452,8 +480,25 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
       update({ note: TOO_LARGE })
       return
     }
-    if (view.note !== '') update({ note: '' })
+    // Only its own note is cleared by a key typed: the hold's and the closed paste's stay until read
+    if (view.note === TOO_LARGE) update({ note: '' })
     socket.send(text)
+  }
+  // Behind the program, the screen shown is not the program's: a key would answer something not yet drawn. Once one key
+  // is held, all are, until the page has caught up and a key comes after a quiet gap (it only lets go) or Dismiss
+  const holds = (): boolean => {
+    const at = now()
+    if (view.held) {
+      const quiet = at - heldAt >= HOLD_QUIET_MS
+      heldAt = at
+      if (view.lagging || !quiet) return true
+      update({ held: false })
+      return true
+    }
+    if (!view.lagging) return false
+    heldAt = at
+    update({ held: true, note: HELD })
+    return true
   }
   // The newest pointer motion waits for the next frame, so a fast pointer sends one report a frame, not one an event
   const sendMotion = () => {
@@ -467,11 +512,7 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
     input(data, focused) {
       if (view.phase !== 'live') return
       if (!forwardable(data, focused)) return
-      // Behind the program, the screen shown is not the program's: a key would answer something not yet drawn
-      if (view.lagging) {
-        update({ note: HELD })
-        return
-      }
+      if (holds()) return
       if (isMotionReport(data)) {
         if (motion === null) frame(sendMotion)
         motion = data
@@ -482,6 +523,10 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
       typeFrames(data)
     },
     drawing: () => pending > 0,
+    dismiss() {
+      if (!view.held) return
+      update({ held: false, note: view.note === HELD ? '' : view.note })
+    },
     resize(size) {
       const fitted = fitSize(size)
       if (!fitted) return

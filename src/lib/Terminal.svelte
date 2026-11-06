@@ -17,7 +17,7 @@
 
   let host: HTMLDivElement | undefined = $state()
   let detachButton: HTMLButtonElement | undefined = $state()
-  let view = $state<PanelView>({ phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, ask: null, hover: '' })
+  let view = $state<PanelView>({ phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, held: false, ask: null, hover: '' })
   let panel: Panel | null = null
 
   const FONT_SIZE = 13
@@ -97,9 +97,12 @@
 <section aria-label="Terminal of {plainText(name)}" class="surf brk panel" style="--c: var(--edge)">
   <div class="head">
     <div class="hud title">TERMINAL · <span data-content>{plainText(name)}</span></div>
-    <div class="status" class:live={view.phase === 'live'} class:bad={view.phase === 'closed'}>{view.phase === 'ended' && view.exitCode !== null ? `Exited · ${view.exitCode}` : view.lagging ? 'Catching up…' : STATUS[view.phase]}</div>
+    <div class="status" class:live={view.phase === 'live'} class:bad={view.phase === 'closed'}>{view.phase === 'ended' && view.exitCode !== null ? `Exited · ${view.exitCode}` : view.lagging || view.held ? 'Catching up…' : STATUS[view.phase]}</div>
     <div class="hint">{LEAVE_KEY} leaves the terminal</div>
     <div class="actions">
+      {#if view.held}
+        <button type="button" class="btn cap" onclick={event => panel?.dismiss(event)}>Dismiss</button>
+      {/if}
       {#if view.notice?.reconnect}
         <button type="button" class="btn cap" onclick={reconnect}>Reconnect</button>
       {/if}
