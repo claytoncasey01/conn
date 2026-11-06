@@ -19,6 +19,7 @@ import (
 	"github.com/claytoncasey01/conn"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/instance"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/server"
 )
@@ -29,8 +30,16 @@ const (
 )
 
 // ShutdownTimeout is how long a stopping server gives open requests to finish before it closes
-// them. The app waits a little longer than this at quit, so it is exported.
+// them.
 const ShutdownTimeout = 2 * time.Second
+
+// hostedStopTimeout bounds the stop of the hosted sessions at quit: above the host's grace for a
+// polite stop (5 s), after which every session still running is killed at once.
+const hostedStopTimeout = 7 * time.Second
+
+// QuitTimeout is the most a stopping server takes to let its data folder go: its requests'
+// shutdown, then its hosted sessions' stop. Whatever waits for it to stop waits a little longer.
+const QuitTimeout = ShutdownTimeout + hostedStopTimeout
 
 // The HTTP server's limits. writeTimeout is 0 on purpose: a page's live-update stream stays open
 // for as long as the page does, and a write deadline would cut it. readHeaderTimeout is the
@@ -141,15 +150,34 @@ func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Se
 
 	serveCtx, cancel := context.WithCancel(ctx)
 	running := &Server{URL: address, Secret: key, done: make(chan struct{}), err: nil}
-	handler := newHandler(serveCtx, cfg, store, logger, ui(lookup))
+	host := pty.NewHost(pty.Config{
+		Spawner: pty.Spawn, Limits: pty.DefaultLimits(), Answers: pty.Answers{},
+	})
+	handler := newHandler(serveCtx, cfg, store, logger, ui(lookup), host)
 	handler.Secret = key
+	// The terminals close when serveCtx ends, which is before the sessions are stopped.
+	handler.Terminals = server.NewTerminals(serveCtx, host)
 
 	go running.serve(serveCtx, newHTTPServer(handler), listener, func() {
+		// The terminals close first, as going away, so none sees its program stopped or races
+		// a reconnect against the stop; then the sessions stop; then the folder is let go.
 		cancel()
+		stopHosted(context.WithoutCancel(ctx), host, stderr)
 		release()
 	})
 
 	return running, nil
+}
+
+// stopHosted stops every hosted session, within hostedStopTimeout, and says what did not stop.
+func stopHosted(ctx context.Context, host *pty.Host, stderr io.Writer) {
+	ctx, cancel := context.WithTimeout(ctx, hostedStopTimeout)
+	defer cancel()
+
+	err := host.StopAll(ctx)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "conn: hosted sessions did not all stop: %v\n", err)
+	}
 }
 
 // listenAndPublish opens the port and writes where it answers, and the secret it asks for, into

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/snapshot"
 	"github.com/claytoncasey01/conn/internal/transcript"
 )
@@ -67,6 +68,10 @@ type Session struct {
 	teammates []string
 	tagRead   *tagRead
 	claim     *teamClaim
+	// hosted is the id the host issued when this is a session Conn hosts, else "". It is set
+	// from the host's own record of the process, never from what the process prints or holds,
+	// and such a session is never looked up as a cmux one.
+	hosted pty.ID
 }
 
 // tagRead is the team tag read from the head of this session's transcript, at what size, and
@@ -87,7 +92,7 @@ func newSession(reg Reg) *Session {
 	return &Session{
 		reg: reg, lead: transcript.NewLeadState(0), leadTail: nil, leadPath: "", agents: nil,
 		known: map[string]bool{}, firstAt: 0, cmux: nil, looked: false, finder: nil,
-		scannedAt: negativeInfinity(), teammates: nil, tagRead: nil, claim: nil,
+		scannedAt: negativeInfinity(), teammates: nil, tagRead: nil, claim: nil, hosted: "",
 	}
 }
 
@@ -296,6 +301,11 @@ func underCmux(pid float64, procs map[float64]Proc) bool {
 func (s *Session) cmuxTarget(
 	procs map[float64]Proc, env func(pid float64) (string, error),
 ) *Target {
+	// A hosted session runs on Conn's own terminal: its environment is never read.
+	if s.hosted != "" {
+		return nil
+	}
+
 	if s.looked {
 		return s.cmux
 	}

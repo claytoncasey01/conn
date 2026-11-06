@@ -74,6 +74,38 @@ func checkAnswersAndPublishes(t *testing.T, env map[string]string) {
 	}
 
 	checkTheSecretIsAskedFor(t, server, holder)
+	checkTheTerminalsAreServed(t, server)
+}
+
+// checkTheTerminalsAreServed checks that the terminal route is the hosted sessions' WebSocket,
+// behind the secret: a request with the secret that is no handshake is asked to upgrade, and one
+// without the secret is refused before that.
+func checkTheTerminalsAreServed(t *testing.T, server *app.Server) {
+	t.Helper()
+
+	target := server.URL + "/api/term/0123456789abcdef0123456789abcdef"
+
+	if status := statusOf(t, target); status != http.StatusUnauthorized {
+		t.Errorf("GET a terminal without the secret = %d, want 401", status)
+	}
+
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request.Header.Set(secret.Header, server.Secret.Authorization())
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = response.Body.Close()
+
+	if response.StatusCode != http.StatusUpgradeRequired {
+		t.Errorf("GET a terminal with the secret = %d, want 426", response.StatusCode)
+	}
 }
 
 // checkTheSecretIsAskedFor checks that the API answers only with the secret the server published

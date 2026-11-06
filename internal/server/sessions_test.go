@@ -151,6 +151,19 @@ func TestSessionRoutes(t *testing.T) {
 		{http.MethodPost, "/api/sessions/123/agents/lead", http.StatusNotFound, notFound},
 		{http.MethodGet, "/api/sessions/abc/agents/lead", http.StatusOK, shell},
 		{http.MethodGet, "/api/sessions/1/agents/a.b", http.StatusOK, shell},
+		// A hosted session's id is looked up like a pid: one the host never issued is not found.
+		{
+			http.MethodGet, "/api/sessions/0123456789abcdef0123456789abcdef/agents/lead",
+			http.StatusNotFound, notFound,
+		},
+		{
+			http.MethodGet, "/api/sessions/0123456789abcdef0123456789abcde/agents/lead",
+			http.StatusOK, shell,
+		},
+		{
+			http.MethodGet, "/api/sessions/0123456789ABCDEF0123456789ABCDEF/agents/lead",
+			http.StatusOK, shell,
+		},
 		{http.MethodGet, "/api/health", http.StatusOK, `{"ok":true,"clients":0}`},
 	}
 
@@ -229,6 +242,24 @@ func TestActionRoutesAreGuarded(t *testing.T) {
 			`{"error":"no such live session"}`,
 		},
 		{http.MethodPost, "/api/sessions/x/terminal", "{}", true, http.StatusOK, shell},
+		// A hosted session's id is answered as an unknown pid is when the host never issued it.
+		{
+			http.MethodPost, "/api/sessions/0123456789abcdef0123456789abcdef/reply", "{}", true,
+			http.StatusNotFound, `{"error":"no such live session"}`,
+		},
+		{
+			http.MethodPost, "/api/sessions/0123456789abcdef0123456789abcdef/stop", "{}", true,
+			http.StatusNotFound, `{"error":"no such live session"}`,
+		},
+		{
+			http.MethodPost, "/api/sessions/0123456789abcdef0123456789abcdef/answer", "{}", true,
+			http.StatusNotFound, `{"error":"no such live session"}`,
+		},
+		{
+			http.MethodPost, "/api/sessions/0123456789abcdef0123456789abcdef/terminal", "{}", true,
+			http.StatusNotFound, `{"error":"no such live session"}`,
+		},
+		{http.MethodPost, "/api/sessions/abc/terminal", "{}", true, http.StatusOK, shell},
 	}
 
 	for _, tt := range tests {

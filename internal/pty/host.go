@@ -153,20 +153,15 @@ func (h *Host) Start(ctx context.Context, requested Spec) (ID, error) {
 
 // Write types data into the session's terminal. It never logs or quotes data.
 func (h *Host) Write(sessionID ID, data []byte) error {
-	if len(data) > writeBytesMax {
-		return fmt.Errorf("%w: %d bytes, at most %d", ErrInputTooLarge, len(data), writeBytesMax)
-	}
+	return h.write(sessionID, data, nil)
+}
 
-	writing, err := h.runningSession(sessionID)
-	if err != nil {
-		return err
-	}
-
-	if len(data) == 0 {
-		return nil
-	}
-
-	return h.typeInto(writing, data)
+// WriteIfShown types data into the session's terminal only while its screen is still the one
+// read with generation (see ScreenLines): once this write's turn comes, a screen that has
+// changed since is ErrScreenChanged, with nothing typed. It is how a reply typed into what a
+// screen showed is checked against that screen as late as it can be. Otherwise it is Write.
+func (h *Host) WriteIfShown(sessionID ID, generation uint64, data []byte) error {
+	return h.write(sessionID, data, &generation)
 }
 
 // Resize sets the session's terminal to columns by rows.
@@ -213,6 +208,14 @@ func (h *Host) ScreenLines(sessionID ID, count int) ([]string, uint64, error) {
 	return held.screen.Lines(count), held.screen.Generation(), nil
 }
 
+// generation is the session's screen's generation now.
+func (held *session) generation() uint64 {
+	held.screenMu.Lock()
+	defer held.screenMu.Unlock()
+
+	return held.screen.Generation()
+}
+
 // Live is every session the host holds, running or ended, oldest Start first.
 func (h *Host) Live() []Info {
 	h.mu.Lock()
@@ -239,8 +242,27 @@ func (h *Host) Live() []Info {
 	return infos
 }
 
-// typeInto writes data to the session's program in its turn.
-func (h *Host) typeInto(writing *session, data []byte) error {
+// write is Write, and WriteIfShown when shown is set.
+func (h *Host) write(sessionID ID, data []byte, shown *uint64) error {
+	if len(data) > writeBytesMax {
+		return fmt.Errorf("%w: %d bytes, at most %d", ErrInputTooLarge, len(data), writeBytesMax)
+	}
+
+	writing, err := h.runningSession(sessionID)
+	if err != nil {
+		return err
+	}
+
+	if len(data) == 0 {
+		return nil
+	}
+
+	return h.typeInto(writing, data, shown)
+}
+
+// typeInto writes data to the session's program in its turn. With shown set, data is written
+// only if the screen's generation is still *shown once the turn is taken.
+func (h *Host) typeInto(writing *session, data []byte, shown *uint64) error {
 	// Writes take turns, and one waits at most writeWaitMax for its turn; the program's own
 	// Write is bounded too (writeTimeout for a terminal), so a Write ends within both.
 	turnWait := time.NewTimer(writeWaitMax)
@@ -253,6 +275,12 @@ func (h *Host) typeInto(writing *session, data []byte) error {
 	}
 
 	defer func() { <-writing.writeTurn }()
+
+	if shown != nil {
+		if writing.generation() != *shown {
+			return ErrScreenChanged
+		}
+	}
 
 	_, err := writing.process.Write(data)
 	if err != nil {

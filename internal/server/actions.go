@@ -7,15 +7,31 @@ import (
 	"regexp"
 
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/sessions"
 )
 
 var (
-	// stopRoute stops a live session: POST /api/sessions/<pid>/stop.
-	stopRoute = regexp.MustCompile(`^/api/sessions/([0-9]+)/stop$`)
+	// stopRoute stops a live session: POST /api/sessions/<id>/stop, the id a pid or a hosted
+	// session's (see sessionID).
+	stopRoute = regexp.MustCompile(`^/api/sessions/([0-9a-f]+)/stop$`)
 	// actionRoute is the other actions on a live session.
-	actionRoute = regexp.MustCompile(`^/api/sessions/([0-9]+)/(reply|answer|terminal)$`)
+	actionRoute = regexp.MustCompile(`^/api/sessions/([0-9a-f]+)/(reply|answer|terminal)$`)
+	// pidText is a session named by its pid.
+	pidText = regexp.MustCompile(`^[0-9]+$`)
 )
+
+// sessionID says whether a route's id names a session: a pid, or an id of the shape the host
+// issues (pty.ParseID holds that shape). Anything else is no route.
+func sessionID(text string) bool {
+	if pidText.MatchString(text) {
+		return true
+	}
+
+	_, err := pty.ParseID(text)
+
+	return err == nil
+}
 
 // actions answers the routes that act on a live session, and is false for a path that is none of
 // them. Each changes something outside this process, so each takes POST with Conn's header only
@@ -26,6 +42,10 @@ func (s *Server) actions(w http.ResponseWriter, r *http.Request, urlPath string)
 	}
 
 	if match := stopRoute.FindStringSubmatch(urlPath); match != nil {
+		if !sessionID(match[1]) {
+			return false
+		}
+
 		if !ownWrite(r) {
 			sendJSON(w, http.StatusForbidden, errorBody{Error: textForbidden})
 
@@ -39,6 +59,10 @@ func (s *Server) actions(w http.ResponseWriter, r *http.Request, urlPath string)
 
 	match := actionRoute.FindStringSubmatch(urlPath)
 	if match == nil {
+		return false
+	}
+
+	if !sessionID(match[1]) {
 		return false
 	}
 

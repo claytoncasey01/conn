@@ -103,7 +103,7 @@
     st = r.ok ? { ...st, opened: true } : { ...st, error: r.error }
   }
 
-  const replyS = $derived({ id: session.id, name: session.name, status: session.status, waitingFor: session.waitingFor, canReply: session.canReply, ask: ask ?? st.last })
+  const replyS = $derived({ id: session.id, name: session.name, status: session.status, waitingFor: session.waitingFor, canReply: session.canReply, hosted: session.hosted, ask: ask ?? st.last })
 </script>
 
 {#if view.view !== 'none'}

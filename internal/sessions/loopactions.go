@@ -14,6 +14,10 @@ import (
 
 // Stop sends SIGTERM to a session (see store.stop).
 func (l *Loop) Stop(ctx context.Context, pid string, force bool) Reply {
+	if sessionID, hosted := hostedID(pid); hosted {
+		return l.stopHosted(ctx, sessionID, force)
+	}
+
 	reply := failure(http.StatusServiceUnavailable, ErrStopped.Error())
 
 	_ = l.do(ctx, func(state *store) { reply = state.stop(pid, force, state.now()) })
@@ -25,6 +29,10 @@ func (l *Loop) Stop(ctx context.Context, pid string, force bool) Reply {
 // surface, only into an empty prompt, and never text the prompt would read as a shell escape or
 // slash command.
 func (l *Loop) Reply(ctx context.Context, pid string, text any) Reply {
+	if sessionID, hosted := hostedID(pid); hosted {
+		return l.replyHosted(ctx, sessionID, text)
+	}
+
 	ctx = context.WithoutCancel(ctx)
 
 	var (
@@ -77,6 +85,10 @@ func (l *Loop) finishSend(ctx context.Context, pid string) {
 // send and must still parse, with the session's current status stamp and the shared-workspace
 // downgrade, to that same prompt. A refusal returns the ask as it is now, and nothing is retried.
 func (l *Loop) Answer(ctx context.Context, pid string, body AnswerBody) Reply {
+	if sessionID, hosted := hostedID(pid); hosted {
+		return l.answerHosted(ctx, sessionID, body)
+	}
+
 	ctx = context.WithoutCancel(ctx)
 
 	var (
@@ -139,6 +151,10 @@ func (l *Loop) Answer(ctx context.Context, pid string, body AnswerBody) Reply {
 // OpenTerminal makes the session's cmux workspace the one in front, so its terminal can be
 // answered by hand. Nothing is typed.
 func (l *Loop) OpenTerminal(ctx context.Context, pid string) Reply {
+	if sessionID, hosted := hostedID(pid); hosted {
+		return l.openHosted(ctx, sessionID)
+	}
+
 	ctx = context.WithoutCancel(ctx)
 
 	var target *Target
@@ -190,7 +206,7 @@ func (l *Loop) InputState(ctx context.Context, pid string) string {
 
 		plan = sendPlan{
 			pid: session.reg.PID, key: pid, target: *target, message: "", session: session,
-			stamp: 0, shared: false,
+			stamp: 0, shared: false, hosted: "",
 		}
 		found = true
 	})
@@ -304,7 +320,7 @@ func (s *store) closeStart(pid string) (sendPlan, Reply, bool) {
 
 	return sendPlan{
 		pid: session.reg.PID, key: pid, target: *target, message: "", session: session,
-		stamp: 0, shared: false,
+		stamp: 0, shared: false, hosted: "",
 	}, done(), true
 }
 

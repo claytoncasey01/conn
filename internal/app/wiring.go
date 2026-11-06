@@ -22,6 +22,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/myprs"
 	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/origin"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/server"
 	"github.com/claytoncasey01/conn/internal/sessions"
@@ -81,7 +82,7 @@ func loadSettings(dataDir string, logger *log.Logger, stderr io.Writer) *setting
 // until ctx ends.
 func newHandler(
 	ctx context.Context, cfg config.Config, store *settings.Store, logger *log.Logger,
-	bundle fs.FS,
+	bundle fs.FS, host *pty.Host,
 ) *server.Server {
 	reader := origin.NewReader()
 	runner := claude.Runner{Bin: cfg.ClaudeBin}
@@ -95,7 +96,10 @@ func newHandler(
 		workTab    *openwork.Work
 	)
 
-	live := newSessions(ctx, cfg, store, reader, archived, logger.Writer(), tabViews{
+	live := newSessions(ctx, sessionParts{
+		cfg: cfg, store: store, reader: reader, archived: archived, stderr: logger.Writer(),
+		host: host,
+	}, tabViews{
 		reviews: func() any { return reviewsTab.Snapshot() },
 		myPrs:   func() any { return myPrsTab.Snapshot() },
 		runs:    func() []sessions.Run { return workTab.Runs() },

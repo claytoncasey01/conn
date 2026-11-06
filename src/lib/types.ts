@@ -64,9 +64,10 @@ export interface LogLine {
 export type SessionKind = 'build' | 'adhoc' | 'review' | 'selfreview'
 
 export interface SessionSummary {
+  /** The pid of a live session, or for a hosted one the id Conn's host issued: every route that acts on the session takes it */
   id: string
   pid: number
-  /** The Claude session uuid: what a teammate agent's id is, while `id` is the pid of a live session */
+  /** The Claude session uuid: what a teammate agent's id is, while `id` names a live session */
   sessionId: string
   name: string
   kind: SessionKind
@@ -78,8 +79,12 @@ export interface SessionSummary {
   status: SessionStatus
   /** Why it is waiting: 'permission prompt', 'input needed', 'sandbox request', 'dialog open'; null otherwise */
   waitingFor: string | null
-  /** Running in a cmux surface the dashboard can type into */
+  /** Running in a cmux surface the dashboard can type into, or hosted inside Conn and still running */
   canReply: boolean
+  /** Set on a session Conn hosts on a terminal of its own; absent on every other */
+  hosted?: boolean
+  /** A hosted session's exit status once its program has ended; absent while it runs, and on every other session */
+  exitCode?: number
   /** What a waiting session's screen is asking, read from its terminal; null when it is not waiting or the screen shows no ask */
   ask: Ask | null
   startedAt: number

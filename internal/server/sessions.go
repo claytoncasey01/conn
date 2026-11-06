@@ -5,8 +5,9 @@ import (
 	"regexp"
 )
 
-// agentRoute is one agent page of a live session: /api/sessions/<pid>/agents/<id>.
-var agentRoute = regexp.MustCompile(`^/api/sessions/([0-9]+)/agents/([A-Za-z0-9_-]+)$`)
+// agentRoute is one agent page of a live session: /api/sessions/<id>/agents/<agent>, the
+// session's id a pid or a hosted session's (see sessionID).
+var agentRoute = regexp.MustCompile(`^/api/sessions/([0-9a-f]+)/agents/([A-Za-z0-9_-]+)$`)
 
 const (
 	pathSnapshot = "/api/snapshot"
@@ -35,6 +36,10 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request, urlPath string
 
 	match := agentRoute.FindStringSubmatch(urlPath)
 	if match == nil {
+		return false
+	}
+
+	if !sessionID(match[1]) {
 		return false
 	}
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
@@ -34,6 +35,13 @@ type world struct {
 	term    *terminal
 	// runs are the Open work runs the session list reads.
 	runs []sessions.Run
+	// envAsked are the processes whose environment was read.
+	envAsked []float64
+	// host runs the hosted sessions, made by the first hosted one; nil until then.
+	host *pty.Host
+	// spawning is the process id the next hosted program gets.
+	spawning int
+	programs map[int]*program
 }
 
 // fakeRun is an Open work run in its worktrees, the first its lead's.
@@ -57,7 +65,8 @@ func newWorld(t *testing.T) *world {
 		t: t, home: t.TempDir(), data: t.TempDir(), procs: []string{"1 0 /sbin/launchd"},
 		envs: map[float64]string{}, allowed: map[string]bool{"acme/widgets": true},
 		repos: map[string]string{}, ups: map[string]string{}, prs: map[string]string{},
-		mutex: sync.Mutex{}, asked: nil, term: newTerminal(),
+		mutex: sync.Mutex{}, asked: nil, term: newTerminal(), envAsked: nil, host: nil,
+		spawning: 0, programs: map[int]*program{},
 	}
 }
 
@@ -119,6 +128,10 @@ func (w *world) deps() sessions.Deps {
 		Home: w.home, DataDir: w.data, Kinds: rules(w.t),
 		Procs: func() (string, error) { return strings.Join(w.procs, "\n"), nil },
 		Env: func(pid float64) (string, error) {
+			w.mutex.Lock()
+			w.envAsked = append(w.envAsked, pid)
+			w.mutex.Unlock()
+
 			env, found := w.envs[pid]
 			if !found {
 				return "", errNotFound
@@ -154,7 +167,8 @@ func (w *world) deps() sessions.Deps {
 			Setup: never, OpenWork: never,
 			RepoVisible: func(repo string) bool { return w.allowed[repo] }, GithubOn: always,
 		},
-		Now: time.Now,
+		Now:  time.Now,
+		Host: w.host,
 	}
 }
 
@@ -173,6 +187,8 @@ type detail struct {
 	StartedAt *float64 `json:"startedAt"`
 	Repo      *string  `json:"repo"`
 	CanReply  bool     `json:"canReply"`
+	Hosted    bool     `json:"hosted"`
+	ExitCode  *int     `json:"exitCode"`
 	Shells    float64  `json:"shells"`
 	PR        *struct {
 		Number float64 `json:"number"`

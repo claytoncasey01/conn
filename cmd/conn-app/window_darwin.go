@@ -29,8 +29,9 @@ const (
 	environmentTitle = "Conn is using the app's own environment"
 
 	// deskStopTimeout bounds the wait at quit for desk.Run to return: deskStopMargin above the
-	// server's own shutdown, so an owned server shuts down and lets the data folder go first.
-	deskStopTimeout = app.ShutdownTimeout + deskStopMargin
+	// server's own quit, so an owned server shuts down, stops its hosted sessions and lets the
+	// data folder go first.
+	deskStopTimeout = app.QuitTimeout + deskStopMargin
 	deskStopMargin  = time.Second
 )
 

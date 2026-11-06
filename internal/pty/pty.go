@@ -163,6 +163,8 @@ var (
 	// ErrInputBlocked is a Write that waited writeWaitMax behind another: the program is not
 	// reading its input.
 	ErrInputBlocked = errors.New("the program is not taking input")
+	// ErrScreenChanged is a WriteIfShown whose session's screen changed since it was read.
+	ErrScreenChanged = errors.New("the screen changed since it was read")
 	// ErrInvalidSize is a Resize to a size out of range.
 	ErrInvalidSize = errors.New("terminal size out of range")
 	// ErrUnsupported is Spawn on a system without the pseudo-terminals it knows.

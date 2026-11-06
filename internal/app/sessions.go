@@ -8,15 +8,28 @@ import (
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/origin"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/repos"
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
-// newSessions is the session list over this machine: ps, the registry under $HOME, gh.
-func newSessions(ctx context.Context, cfg config.Config, store *settings.Store,
-	reader *origin.Reader, archived *historyParts, stderr io.Writer, views tabViews,
-) *sessions.Loop {
+// sessionParts are what the session list is made from.
+type sessionParts struct {
+	cfg      config.Config
+	store    *settings.Store
+	reader   *origin.Reader
+	archived *historyParts
+	stderr   io.Writer
+	// host runs the sessions Conn hosts.
+	host *pty.Host
+}
+
+// newSessions is the session list over this machine: ps, the registry under $HOME, gh, and the
+// sessions Conn hosts.
+func newSessions(ctx context.Context, parts sessionParts, views tabViews) *sessions.Loop {
+	cfg, reader, archived := parts.cfg, parts.reader, parts.archived
+
 	var archive sessions.Archive
 	if archived.archiver != nil {
 		archive = archived.archiver
@@ -37,8 +50,9 @@ func newSessions(ctx context.Context, cfg config.Config, store *settings.Store,
 		RepoOf:   reader.Of,
 		Upstream: origin.UpstreamOf,
 		Archive:  archive,
-		Hooks:    sessionHooks(store, archived.status(ctx, stderr), views),
+		Hooks:    sessionHooks(parts.store, archived.status(ctx, parts.stderr), views),
 		Now:      time.Now,
+		Host:     parts.host,
 	})
 }
 

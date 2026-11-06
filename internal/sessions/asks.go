@@ -3,6 +3,7 @@ package sessions
 import (
 	"context"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/ask"
@@ -13,7 +14,7 @@ import (
 const (
 	// askLines is how much of a waiting session's screen is read for its ask: enough that the
 	// top of a long command's dialog stays in view.
-	askLines = "80"
+	askLines = 80
 	// askEveryMs is how often a waiting session's screen is read at most.
 	askEveryMs = 2000
 	// readsMax is how many waiting screens are read at once.
@@ -87,6 +88,7 @@ func SharedAsk(found *ask.Ask, stamp float64) *ask.Ask {
 // readsMax together (the longest unread first). A read that hangs holds only its own session.
 func (s *store) readAsks(ctx context.Context, now float64) {
 	s.forgetAsks()
+	s.readHostedAsks(now)
 
 	ready := s.dueReads(now)
 
@@ -436,6 +438,11 @@ func (s *store) sharesWorkspace(pid, workspace string, lookup bool) bool {
 		}
 
 		session := s.sessions[other]
+		// A hosted session runs on Conn's own terminal, in no cmux workspace.
+		if session.hosted != "" {
+			continue
+		}
+
 		target := session.cmux
 
 		if lookup {
@@ -456,10 +463,10 @@ func (s *store) sharesWorkspace(pid, workspace string, lookup bool) bool {
 	return false
 }
 
-func readScreenArgs(target Target, lines string) []string {
+func readScreenArgs(target Target, lines int) []string {
 	return []string{
 		"read-screen", "--workspace", target.Workspace, "--surface", target.Surface,
-		"--lines", lines,
+		"--lines", strconv.Itoa(lines),
 	}
 }
 

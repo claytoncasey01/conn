@@ -11,6 +11,7 @@ import (
 
 	"github.com/claytoncasey01/conn/internal/ask"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/run"
 	"github.com/claytoncasey01/conn/internal/snapshot"
 )
@@ -18,13 +19,14 @@ import (
 const (
 	replyUnitsMax = 4000
 	// replyLines is how much of the screen is read to see the input box.
-	replyLines = "40"
+	replyLines = 40
 
 	textNoSession     = "no such live session"
 	textSending       = "another message to this session is still being sent"
 	textNotForeground = "the session is not in the foreground of its terminal (suspended or " +
 		"exiting), so nothing was sent"
 	textEnded       = "the session has ended, so nothing was sent"
+	textControl     = "control characters are not sent"
 	textEndedMidway = "the session has ended while this was being sent; check its terminal " +
 		"for what reached it"
 )
@@ -99,7 +101,7 @@ func replyText(text any) (string, *Reply) {
 	case js.Len(message) > replyUnitsMax:
 		refused = failure(http.StatusBadRequest, "too long (4000 characters at most)")
 	case controlChars.MatchString(message):
-		refused = failure(http.StatusBadRequest, "control characters are not sent")
+		refused = failure(http.StatusBadRequest, textControl)
 	case strings.HasPrefix(message, "!"), strings.HasPrefix(message, "/"):
 		refused = failure(http.StatusBadRequest, "a leading ! or / would run a shell command "+
 			"or slash command; type those in the terminal")
@@ -185,7 +187,8 @@ func killMessage(err error) string {
 	return "kill() failed: " + name + ": " + strings.ToUpper(text[:1]) + text[1:]
 }
 
-// sendPlan is a send the loop allowed: to which process and surface.
+// sendPlan is a send the loop allowed: to which process and surface, or for a hosted session,
+// to which of the host's sessions.
 type sendPlan struct {
 	pid     float64
 	key     string
@@ -194,6 +197,7 @@ type sendPlan struct {
 	session *Session
 	stamp   float64
 	shared  bool
+	hosted  pty.ID
 }
 
 // replyStart makes a reply's checks on the loop and marks the session as sending.
@@ -239,7 +243,7 @@ func (s *store) replyStart(pid string, text any) (sendPlan, *Reply) {
 
 	return sendPlan{
 		pid: session.reg.PID, key: pid, target: *target, message: message, session: session,
-		stamp: 0, shared: false,
+		stamp: 0, shared: false, hosted: "",
 	}, nil
 }
 
@@ -256,7 +260,7 @@ func (s *store) typeText(ctx context.Context, target Target, message string) run
 
 // ownedScreen reads a screen once the CLI is known to own its terminal. A refusal comes back as
 // a reply; a failed program as its result.
-func (s *store) ownedScreen(ctx context.Context, plan sendPlan, lines string) (
+func (s *store) ownedScreen(ctx context.Context, plan sendPlan, lines int) (
 	string, *Reply, *run.Result,
 ) {
 	stat, ended, result := s.statResult(ctx, plan.pid)

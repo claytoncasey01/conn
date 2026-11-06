@@ -145,7 +145,15 @@ func (l *Loop) AgentDetail(ctx context.Context, pid, agentID string) ([]byte, bo
 		found bool
 	)
 
-	err := l.do(ctx, func(state *store) { out, found = state.agentDetail(pid, agentID) })
+	err := l.do(ctx, func(state *store) {
+		if sessionID, hosted := hostedID(pid); hosted {
+			out, found = state.hostedAgentPage(sessionID, agentID)
+
+			return
+		}
+
+		out, found = state.agentDetail(pid, agentID)
+	})
 
 	return out, found, err
 }

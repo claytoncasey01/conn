@@ -138,7 +138,7 @@ func live(value any) snapshot.Live {
 		CanReply: get(value, "canReply") == true, Ask: nil,
 		Shells: number(get(value, "shells")), PR: nil,
 		StartedAt: number(get(value, "startedAt")), UpdatedAt: number(get(value, "updatedAt")),
-		Team: nil,
+		Team: nil, Hosted: false, ExitCode: nil,
 	}
 
 	pr := get(value, "pr")
