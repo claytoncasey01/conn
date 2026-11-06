@@ -1,5 +1,6 @@
 // Package cmux starts a command in a new cmux workspace. The command string is run by a shell, so
-// everything that goes into one here is either a fixed string or reduced to a safe alphabet first.
+// everything that goes into one here is written by argv.ShellLine, and a name is also reduced to
+// a safe alphabet first.
 package cmux
 
 import (
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/argv"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/run"
 )
@@ -48,19 +50,30 @@ func WorkspaceName(name, sessionID string) string {
 	return safe
 }
 
-// ResumeCommand is the command that reopens an archived session. name is the session's own name,
-// or nil when it has none (the archive then called it by its first prompt): --name is left off
-// so the resume does not rename it.
-func ResumeCommand(sessionID string, name *string) (string, error) {
+// ResumeArgs are the arguments to claude that reopen an archived session. name is the session's
+// own name, or nil when it has none (the archive then called it by its first prompt): --name is
+// left off so the resume does not rename it.
+func ResumeArgs(sessionID string, name *string) ([]string, error) {
 	if !IsSessionID(sessionID) {
-		return "", ErrNotSessionID
+		return nil, ErrNotSessionID
 	}
 
 	if name == nil {
-		return "claude --resume " + sessionID, nil
+		return []string{"--resume", sessionID}, nil
 	}
 
-	return "claude --resume " + sessionID + " --name " + WorkspaceName(*name, sessionID), nil
+	return []string{"--resume", sessionID, "--name", WorkspaceName(*name, sessionID)}, nil
+}
+
+// ResumeCommand is ResumeArgs as the command a person reads: claude and its arguments, one
+// shell line.
+func ResumeCommand(sessionID string, name *string) (string, error) {
+	args, err := ResumeArgs(sessionID, name)
+	if err != nil {
+		return "", err
+	}
+
+	return argv.ShellLine(append([]string{"claude"}, args...)), nil
 }
 
 // Opened is how a start went: ok, or why not with the command to paste instead.
@@ -74,8 +87,9 @@ type Opened struct {
 type Opener func(ctx context.Context, name, cwd, command string) Opened
 
 // Open starts command in a new cmux workspace in cwd, without focusing it, with the cmux program
-// bin. When cmux fails the person gets the command to paste: the folder single-quoted, so it is
-// one word whatever it holds. cwd and name go to cmux as arguments, never through a shell here.
+// bin. When cmux fails the person gets the command to paste: the folder through argv.ShellLine,
+// so it is one word whatever it holds. cwd and name go to cmux as arguments, never through a
+// shell here.
 func Open(bin string) Opener {
 	return func(ctx context.Context, name, cwd, command string) Opened {
 		result := run.Cmd(ctx, bin, []string{
@@ -93,7 +107,7 @@ func Open(bin string) Opener {
 
 		return Opened{
 			OK: false, Error: js.Cut(js.Trim(why), errorUnits),
-			ManualCommand: "cd '" + strings.ReplaceAll(cwd, "'", `'\''`) + "' && " + command,
+			ManualCommand: argv.ShellLine([]string{"cd", cwd}) + " && " + command,
 		}
 	}
 }
