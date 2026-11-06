@@ -370,7 +370,7 @@ func TestResumeWithoutARepositoryReopensEveryGoneSession(t *testing.T) {
 
 	reply := live.work.Resume("PROJ-1", "")
 	same(t, "both live", []any{reply.Code, errorOf(reply)}, []any{
-		409, "acme/widgets: a session for PROJ-1 is already running acme/gadgets: a session " +
+		409, "acme/widgets: a session for PROJ-1 is already running; acme/gadgets: a session " +
 			"for PROJ-1 is already running",
 	})
 }
@@ -468,7 +468,7 @@ func TestTheResumeRouteTakesTheRepository(t *testing.T) {
 		[]any{400, "repo must be a repository name", nil})
 }
 
-func TestTheDryRunOpensASessionPerSlot(t *testing.T) {
+func TestTheDryRunTakesATicketInTwoRepositoriesFromStartToItsSessions(t *testing.T) {
 	t.Parallel()
 
 	rows := []struct {
@@ -477,74 +477,11 @@ func TestTheDryRunOpensASessionPerSlot(t *testing.T) {
 		sessions []bool
 		said     []string
 	}{
-		{"shared", []bool{true, false}, []string{"Session PROJ-1 opened (dry run)"}},
+		{"shared", []bool{true, false}, []string{"Session PROJ-2 opened (dry run)"}},
 		{"split", []bool{true, true}, []string{
-			"Session PROJ-1 in acme/widgets opened (dry run)",
-			"Session PROJ-1 in acme/gadgets opened (dry run)",
+			"Session PROJ-2 in acme/widgets opened (dry run)",
+			"Session PROJ-2 in acme/gadgets opened (dry run)",
 		}},
-	}
-
-	for _, row := range rows {
-		t.Run(row.layout, func(t *testing.T) {
-			t.Parallel()
-
-			base := realTemp(t)
-			made := newWorld(t, worldOpts{
-				base: base, dry: true, runs: []any{dryLegsRun(t, base, row.layout)},
-				settings: twoClones(fakeClone(t, base, "widgets"), fakeClone(t, base, "gadgets")),
-			})
-			answered(t, made)
-
-			record := made.record("PROJ-1")
-			for index, want := range row.sessions {
-				leg := record.Repos[index]
-				same(t, "session", leg.Session != nil, want)
-				same(t, "counts", []float64{leg.Ahead, leg.Dirty}, []float64{3, 2})
-			}
-
-			for _, line := range row.said {
-				same(t, line, made.hasLog(line), true)
-			}
-
-			same(t, "resume", made.work.Resume("PROJ-1", "").Code, 200)
-			same(t, "nothing ran", helperOrGit(made), []string{})
-		})
-	}
-}
-
-// dryLegsRun is PROJ-1 asking, in widgets and gadgets, for the dry run.
-func dryLegsRun(t *testing.T, base, layout string) *js.Object {
-	t.Helper()
-
-	record := runRecord(t, "PROJ-1", askingFields)
-	for _, key := range []string{
-		"base", "prBase", "branch", "worktree", "worktreeReady",
-		"session", "pr", "manualCommand",
-	} {
-		record.Delete(key)
-	}
-
-	record.Set("repos", []any{
-		legJSON(t, "widgets", filepath.Join(base, "clones", "widgets"),
-			filepath.Join(base, "widgets-proj-1"), ""),
-		legJSON(t, "gadgets", filepath.Join(base, "clones", "gadgets"),
-			filepath.Join(base, "gadgets-proj-1"), ""),
-	})
-	record.Set("layout", layout)
-
-	return record
-}
-
-func TestTheDryRunTakesATicketInTwoRepositoriesFromStartToItsSessions(t *testing.T) {
-	t.Parallel()
-
-	rows := []struct {
-		layout string
-		// sessions are whether each leg has a session.
-		sessions []bool
-	}{
-		{"shared", []bool{true, false}},
-		{"split", []bool{true, true}},
 	}
 
 	for _, row := range rows {
@@ -573,6 +510,12 @@ func TestTheDryRunTakesATicketInTwoRepositoriesFromStartToItsSessions(t *testing
 				same(t, "ready", leg.WorktreeReady, true)
 				same(t, "session", leg.Session != nil, want)
 				same(t, "counts", []float64{leg.Ahead, leg.Dirty}, []float64{3, 2})
+			}
+
+			for _, line := range row.said {
+				same(t, line, slices.ContainsFunc(record.Log, func(each openwork.LogLine) bool {
+					return each.Text == line
+				}), true)
 			}
 
 			same(t, "resume", made.work.Resume("PROJ-2", "").Code, 200)
@@ -614,6 +557,7 @@ func TestASplitRunOpensTheSessionsItMayAndOneLeftOutStartsFreshOnResume(t *testi
 		[]bool{true, false})
 	same(t, "said", made.hasLog("Session PROJ-1 in acme/gadgets not opened: acme/gadgets is "+
 		"not an allowed repository: add it in Settings."), true)
+	same(t, "no brief yet", readBrief(t, worktrees[1]), nil)
 
 	reply := made.work.Resume("PROJ-1", "acme/gadgets")
 	same(t, "still off", []any{reply.Code, errorOf(reply)}, []any{409, "acme/gadgets: " +
@@ -666,4 +610,56 @@ func TestASharedRunWithARepositoryOffTheListOpensNothing(t *testing.T) {
 		"allowed repository: add it in Settings."})
 	made.work.Settle()
 	same(t, "cmux", made.cmuxLines(), []string{})
+}
+
+// blockConn puts a file where a worktree's .conn/ folder goes, so no brief can be written there.
+func blockConn(t *testing.T, worktree string) {
+	t.Helper()
+
+	writeJSON(t, filepath.Join(worktree, ".conn"), "x")
+}
+
+func TestABriefThatCannotBeWrittenLeavesOnlyThatSplitSessionUnopened(t *testing.T) {
+	t.Parallel()
+
+	made, folders := legsWorld(t, "split", askingFields)
+	worktrees := folders.worktrees
+	blockConn(t, worktrees[1])
+	answered(t, made)
+
+	record := made.record("PROJ-1")
+	same(t, "state", record.State, "building")
+	same(t, "cmux", made.cmuxLines(), []string{launchLine(worktrees[0])})
+	same(t, "launched", record.Repos[1].SessionLaunched, false)
+
+	said := slices.ContainsFunc(record.Log, func(each openwork.LogLine) bool {
+		return strings.HasPrefix(each.Text, "Session PROJ-1 in acme/gadgets not opened: ENOTDIR")
+	})
+	same(t, "said", said, true)
+}
+
+func TestAFreshLaunchWhoseBriefCannotBeWrittenIsRefusedAndMayBeRetried(t *testing.T) {
+	t.Parallel()
+
+	known := `{"sessionLaunched":true,"claudeSessionId":"` + sessionUUIDText + `"}`
+	made, folders := legsWorld(t, "split", "", known, "")
+	worktrees := folders.worktrees
+	blockConn(t, worktrees[1])
+
+	reply := made.work.Resume("PROJ-1", "acme/gadgets")
+	same(t, "code", reply.Code, 409)
+
+	if !strings.HasPrefix(errorOf(reply), "acme/gadgets: ENOTDIR") {
+		t.Error(errorOf(reply))
+	}
+
+	same(t, "cmux", made.cmuxLines(), []string{})
+
+	err := os.Remove(filepath.Join(worktrees[1], ".conn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	same(t, "retried", made.work.Resume("PROJ-1", "acme/gadgets").Code, 200)
+	same(t, "fresh", made.cmuxLines(), []string{launchLine(worktrees[1])})
 }

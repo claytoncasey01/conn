@@ -289,17 +289,17 @@ func (w *Work) launchBuild(step *task, record *Record) error {
 		return nil
 	}
 
-	slots := w.sessionSlots(record)
-
-	for _, slot := range slots {
-		err := writeBrief(record, slot, briefFor(record, slot))
-		if err != nil {
-			return err
-		}
+	slots, err := w.prepareSlots(record)
+	if err != nil {
+		return err
 	}
 
-	// Every worktree excludes .conn/: the shared session writes its PR body in each one.
+	// .conn/ is excluded in every worktree a session works in: the shared session writes its PR
+	// body in each one. A split slot left unlaunched is excluded when it is launched.
 	worktrees := worktreesOf(record)
+	if record.Layout == layoutSplit {
+		worktrees = legWorktrees(slots)
+	}
 
 	step.outside(func() {
 		for _, worktree := range worktrees {
@@ -334,6 +334,65 @@ func (w *Work) launchBuild(step *task, record *Record) error {
 	}
 
 	return nil
+}
+
+// prepareSlots writes the brief of each slot that may launch now, and are those slots. The
+// shared session's brief is all or nothing. A split slot whose repository may not build, or
+// whose brief cannot be written, is said in the log and left unlaunched, with no file written:
+// RESUME SESSION launches it later. Only when no split slot is left is it an error.
+func (w *Work) prepareSlots(record *Record) ([]*Leg, error) {
+	if record.Layout != layoutSplit {
+		lead := record.lead()
+
+		err := writeBrief(record, lead, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		return []*Leg{lead}, nil
+	}
+
+	ready := make([]*Leg, 0, len(record.Repos))
+
+	var failed error
+
+	for _, slot := range record.Repos {
+		if problem := w.buildProblem(slot); problem != "" {
+			w.log(record, logError, w.sessionNamed(record, slot)+" not opened: "+problem)
+
+			continue
+		}
+
+		err := writeBrief(record, slot, slot)
+		if err != nil {
+			failed = err
+			w.log(record, logError, w.sessionNamed(record, slot)+" not opened: "+err.Error())
+
+			continue
+		}
+
+		ready = append(ready, slot)
+	}
+
+	if len(ready) > 0 {
+		return ready, nil
+	}
+
+	if problem := w.launchProblem(record); problem != "" {
+		return nil, textError(problem)
+	}
+
+	return nil, failed
+}
+
+// legWorktrees are the legs' worktrees, in order.
+func legWorktrees(legs []*Leg) []string {
+	worktrees := make([]string, 0, len(legs))
+	for _, leg := range legs {
+		worktrees = append(worktrees, leg.Worktree)
+	}
+
+	return worktrees
 }
 
 // launchCommand is the command that starts a slot's session for the first time.

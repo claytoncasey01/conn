@@ -32,14 +32,7 @@ func (w *Work) isSlot(record *Record, leg *Leg) bool {
 }
 
 // worktreesOf are every leg's worktree, in order.
-func worktreesOf(record *Record) []string {
-	worktrees := make([]string, 0, len(record.Repos))
-	for _, leg := range record.Repos {
-		worktrees = append(worktrees, leg.Worktree)
-	}
-
-	return worktrees
-}
+func worktreesOf(record *Record) []string { return legWorktrees(record.Repos) }
 
 // reachFlags are what a slot's claude command adds so its session reaches the other worktrees:
 // the shared session is given each other leg's with --add-dir. The paths are single-quoted, one
@@ -70,6 +63,8 @@ func (w *Work) findSession(record *Record, slot *Leg) *Found {
 		name = ""
 	}
 
+	// The folder must be the worktree itself, not one inside it: a session's cwd is the folder it
+	// was launched in, and Conn launches it there (the Sessions page matches with within).
 	return w.deps.FindSession(name, slot.Worktree)
 }
 
@@ -222,7 +217,7 @@ func (w *Work) Resume(key, repo string) Reply {
 		return "", false
 	})
 	if len(slots) == 0 {
-		return conflict(strings.Join(said.all, " "))
+		return conflict(strings.Join(said.all, "; "))
 	}
 
 	if refusal, refused := w.resumeRefusal(record); refused {
@@ -317,28 +312,37 @@ func (w *Work) reopen(record *Record, slots []*Leg) Reply {
 		return w.slotLiveRefusal(record, slot)
 	})
 	if len(slots) == 0 {
-		return conflict(strings.Join(said.all, " "))
+		return conflict(strings.Join(said.all, "; "))
 	}
 
 	// Held across the cmux calls so a cleanup or a second resume cannot interleave with them.
 	w.busyPR[key] = true
 
-	for _, slot := range slots {
-		w.resumedAt[slotKey(record, slot)] = w.now()
+	opened := 0
+	failures := []string{}
 
-		if launched(record, slot) {
-			command, verb := resumeCommand(record, slot)
-			w.openWorkspace(w.held(), record, slot, command, verb)
+	for _, slot := range slots {
+		err := w.reopenSlot(record, slot)
+		if err != nil {
+			failures = append(failures, w.slotSaid(record, slot, err.Error()))
 
 			continue
 		}
 
-		w.launchFresh(record, slot)
+		opened++
 	}
 
 	delete(w.busyPR, key)
 
-	for _, message := range said.loud {
+	loud := slices.Concat(said.loud, failures)
+
+	if opened == 0 {
+		w.touch(record)
+
+		return conflict(strings.Join(loud, "; "))
+	}
+
+	for _, message := range loud {
 		w.log(record, logError, message)
 	}
 
@@ -347,22 +351,39 @@ func (w *Work) reopen(record *Record, slots []*Leg) Reply {
 	return ok()
 }
 
+// reopenSlot opens a slot's session again, or for the first time when it was left unlaunched.
+// The gap before another is opened starts once cmux is asked: a launch that failed before that
+// may be retried at once.
+func (w *Work) reopenSlot(record *Record, slot *Leg) error {
+	if launched(record, slot) {
+		w.resumedAt[slotKey(record, slot)] = w.now()
+		command, verb := resumeCommand(record, slot)
+		w.openWorkspace(w.held(), record, slot, command, verb)
+
+		return nil
+	}
+
+	return w.launchFresh(record, slot)
+}
+
 // launchFresh starts a slot left unlaunched when the run's other sessions opened: its brief and
-// excluded .conn/ as the launch makes them, then the launch's command.
-func (w *Work) launchFresh(record *Record, slot *Leg) {
+// excluded .conn/ as the launch makes them, then the launch's command. A brief that cannot be
+// written is the error, and nothing is started.
+func (w *Work) launchFresh(record *Record, slot *Leg) error {
 	err := writeBrief(record, slot, briefFor(record, slot))
 	if err != nil {
-		w.log(record, logError, w.slotSaid(record, slot, err.Error()))
-
-		return
+		return err
 	}
 
 	worktree := slot.Worktree
 
 	w.held().outside(func() { reviews.ExcludeConn(w.ctx, w.excludeDeps(), worktree) })
 
+	w.resumedAt[slotKey(record, slot)] = w.now()
 	markLaunched(record, slot)
 	w.openWorkspace(w.held(), record, slot, launchCommand(record, slot), "opened")
+
+	return nil
 }
 
 // slotLiveRefusal is why a slot's session may not be reopened now, "" when it may, and whether
