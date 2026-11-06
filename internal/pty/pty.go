@@ -63,7 +63,8 @@
 // terminal's size, at most cellsMax cells a screen.
 //
 // Terminal queries: the host, not a viewer, answers the two queries in its fixed table (device
-// attributes, and the background colour from Config.Answers), once each, as the output is read;
+// attributes, and the background colour from Config.Answers, later SetAnswers), once each, as
+// the output is read;
 // answers.go says why. Each reply is fixed bytes and hex digits, never text from the output. The
 // reader queues replies, at most answersQueuedMax, dropping the rest, and the session's
 // answerer types them in turn with the viewers' input, so the reader never waits for a program to

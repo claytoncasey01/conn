@@ -242,11 +242,18 @@ func terminalID(urlPath string) (pty.ID, bool) {
 	return sessionID, true
 }
 
-// terminal answers a path under the terminal route, and is false for any other path. A route
-// that names no session, or a server with no terminals, is not found.
+// terminal answers a path under the terminal route, and is false for any other path: the
+// page's terminal background, or a session's terminal. A route that names no session, or a
+// server with no terminals, is not found.
 func (s *Server) terminal(w http.ResponseWriter, r *http.Request, urlPath string) bool {
 	if !strings.HasPrefix(urlPath, terminalPrefix) {
 		return false
+	}
+
+	if urlPath == terminalBackgroundPath {
+		s.terminalBackground(w, r)
+
+		return true
 	}
 
 	sessionID, found := terminalID(urlPath)

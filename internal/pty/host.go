@@ -16,7 +16,8 @@ import (
 type Host struct {
 	spawner Spawner
 	limits  Limits
-	answers Answers
+	// answers is what the host's replies vary by now: Config.Answers, then each SetAnswers.
+	answers atomic.Pointer[Answers]
 	// turnWaited is Config.TurnWaited.
 	turnWaited func(sessionID ID)
 
@@ -107,10 +108,10 @@ func NewHost(config Config) *Host {
 
 	checkLimits(config.Limits)
 
-	return &Host{
+	made := &Host{
 		spawner: config.Spawner,
 		limits:  config.Limits,
-		answers: config.Answers,
+		answers: atomic.Pointer[Answers]{},
 		mu:      sync.Mutex{},
 
 		turnWaited: config.TurnWaited,
@@ -124,6 +125,18 @@ func NewHost(config Config) *Host {
 		startsDone:       make(chan struct{}),
 		startsDoneClosed: false,
 	}
+
+	made.SetAnswers(config.Answers)
+
+	return made
+}
+
+// SetAnswers makes answers what the host's replies vary by from now on: the background colour
+// of the theme the page now wears. A query a program sends after this gets it; one already
+// answered stays answered (Claude Code asks once, as it starts, so a theme change reaches the
+// sessions started after it).
+func (h *Host) SetAnswers(answers Answers) {
+	h.answers.Store(&answers)
 }
 
 // checkLimits panics on a limit at or below zero or above its default.

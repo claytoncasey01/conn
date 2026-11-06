@@ -16,6 +16,8 @@
   import SettingsPage from './pages/SettingsPage.svelte'
   import ThemesPage from './pages/ThemesPage.svelte'
   import TicketRun from './pages/TicketRun.svelte'
+  import { backgroundSender } from './lib/terminalBackground.ts'
+  import { theme } from './lib/theme/theme.svelte.ts'
 
   startLive()
 
@@ -25,6 +27,13 @@
   const route = $derived(setup ? { page: 'settings' as const } : router.route)
   $effect(() => {
     if (setup) location.replace(href.settings())
+  })
+
+  // A hosted program asks its terminal's background as it starts (OSC 11): the server answers with the one this page's theme
+  // draws the terminal on, told here once the theme list is read and whenever the look changes
+  const sendBackground = backgroundSender()
+  $effect(() => {
+    if (theme.ready) void sendBackground(theme.resolved.tokens)
   })
 
   // A PR that stopped waiting on me can raise the tab badge again the next time it is asked for another review

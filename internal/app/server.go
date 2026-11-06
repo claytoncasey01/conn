@@ -119,7 +119,7 @@ func Ended(url string, err error) *Server {
 func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Server, error) {
 	return StartWith(ctx, lookup, stderr, pty.NewHost(pty.Config{
 		Spawner: drysession.Spawner(pty.Spawn), Limits: pty.DefaultLimits(),
-		Answers: pty.Answers{}, TurnWaited: nil,
+		Answers: pty.Answers{Background: defaultBackground()}, TurnWaited: nil,
 	}))
 }
 
@@ -166,6 +166,10 @@ func StartWith(
 	running := &Server{URL: address, Secret: key, done: make(chan struct{}), err: nil}
 	handler := newHandler(serveCtx, cfg, store, logger, ui(lookup), host)
 	handler.Secret = key
+	// The page says the background its theme draws the terminal on; the host answers with it.
+	handler.TerminalBackground = func(colour pty.RGB) {
+		host.SetAnswers(pty.Answers{Background: colour})
+	}
 	// The terminals are closed by the quit below rather than when ctx ends, so the quit alone
 	// orders their closing and the sessions' stop.
 	terminals := server.NewTerminals(context.WithoutCancel(ctx), host)

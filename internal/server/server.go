@@ -18,6 +18,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/myprs"
 	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/provided"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/sessions"
@@ -79,6 +80,9 @@ type Server struct {
 	Secret secret.Secret
 	// Terminals answers the terminal route, /api/term/<id>; nil answers it not found.
 	Terminals *Terminals
+	// TerminalBackground is told the background the page's terminal is drawn on
+	// (/api/term/background), for the host's answer to OSC 11; nil answers the route not found.
+	TerminalBackground func(colour pty.RGB)
 }
 
 type errorBody struct {

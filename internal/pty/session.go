@@ -73,7 +73,7 @@ func (h *Host) observe(reading *session, chunk []byte) {
 
 	for _, query := range queries {
 		select {
-		case reading.answers <- Reply(h.answers, query):
+		case reading.answers <- Reply(*h.answers.Load(), query):
 		default:
 		}
 	}
