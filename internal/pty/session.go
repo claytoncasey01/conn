@@ -10,6 +10,8 @@ import (
 // or the terminal is closed. It never waits for a viewer.
 func (h *Host) readOutput(reading *session, readDone chan<- struct{}) {
 	defer close(readDone)
+	// The reader is the only one that queues answers, so it closes their queue.
+	defer close(reading.answers)
 
 	buffer := make([]byte, readBufferBytes)
 
@@ -17,6 +19,7 @@ func (h *Host) readOutput(reading *session, readDone chan<- struct{}) {
 		count, err := reading.process.Read(buffer)
 		if count > 0 {
 			h.publish(reading, buffer[:count])
+			h.observe(reading, buffer[:count])
 		}
 
 		if err != nil {
@@ -51,6 +54,51 @@ func (h *Host) publish(target *session, chunk []byte) {
 	target.viewers = kept
 }
 
+// observe feeds chunk to the session's screen and queues the reply to each query it noted. A
+// reply the queue has no room for is dropped: the reader never waits for the program to take
+// its input, since a program blocked writing output would then never read it.
+func (h *Host) observe(reading *session, chunk []byte) {
+	reading.screenMu.Lock()
+	reading.screen.Feed(chunk)
+	queries := reading.screen.Queries()
+	reading.screenMu.Unlock()
+
+	for _, query := range queries {
+		select {
+		case reading.answers <- Reply(h.answers, query):
+		default:
+		}
+	}
+}
+
+// resizeScreen makes the session's screen size and returns the size it was. size has passed
+// checkSize, so a screen that refuses it is a mistake in the code.
+func (held *session) resizeScreen(size Size) Size {
+	held.screenMu.Lock()
+	defer held.screenMu.Unlock()
+
+	previous := held.screen.Size()
+
+	err := held.screen.Resize(size)
+	if err != nil {
+		panic("pty: a screen refused a checked size: " + err.Error())
+	}
+
+	return previous
+}
+
+// answerQueries is a session's answerer: it types each queued reply into the program, in turn
+// with the viewers' input, until the reader closes the queue.
+func (h *Host) answerQueries(answering *session) {
+	defer close(answering.answered)
+
+	for reply := range answering.answers {
+		// A reply the program does not take, or takes after it has ended, is lost, as it would
+		// be on any terminal; nothing else is to be done about it.
+		_ = h.typeInto(answering, reply)
+	}
+}
+
 // awaitEnd is a session's waiter. Once the program has exited it stops whatever is left of its
 // process group (a polite stop, then a kill after the grace, then a wait for the group to
 // empty), unless a Stop already found it empty, so a session is never retired while anything it
@@ -78,6 +126,7 @@ func (h *Host) awaitEnd(waiting *session, readDone <-chan struct{}) {
 	_ = waiting.process.Close()
 
 	<-readDone
+	<-waiting.answered
 
 	h.finish(waiting, code, stopErr)
 }

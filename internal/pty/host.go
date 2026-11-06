@@ -12,6 +12,7 @@ import (
 type Host struct {
 	spawner Spawner
 	limits  Limits
+	answers Answers
 
 	mu       sync.Mutex
 	sessions map[ID]*session
@@ -43,6 +44,15 @@ type session struct {
 	ended chan struct{}
 	// writeTurn holds one value while a Write is in the program, so Writes take turns.
 	writeTurn chan struct{}
+	// answers queues the replies to the program's terminal queries, from its reader to its
+	// answerer, which closes answered once the reader has closed answers and all are typed.
+	answers  chan []byte
+	answered chan struct{}
+
+	// screenMu guards screen, the model of the program's terminal, apart from Host.mu: feeding
+	// it a large chunk never holds up the rest of the host.
+	screenMu sync.Mutex
+	screen   *Screen
 
 	exitCode   *int
 	scrollback ring
@@ -69,6 +79,7 @@ func NewHost(config Config) *Host {
 	return &Host{
 		spawner:  config.Spawner,
 		limits:   config.Limits,
+		answers:  config.Answers,
 		mu:       sync.Mutex{},
 		sessions: make(map[ID]*session, sessionsMax+endedMax),
 		order:    nil,
@@ -149,43 +160,16 @@ func (h *Host) Write(sessionID ID, data []byte) error {
 		return nil
 	}
 
-	// Writes take turns, and one waits at most writeWaitMax for its turn; the program's own
-	// Write is bounded too (writeTimeout for a terminal), so a Write ends within both.
-	turnWait := time.NewTimer(writeWaitMax)
-	defer turnWait.Stop()
-
-	select {
-	case writing.writeTurn <- struct{}{}:
-	case <-turnWait.C:
-		return ErrInputBlocked
-	}
-
-	defer func() { <-writing.writeTurn }()
-
-	_, err = writing.process.Write(data)
-	if err != nil {
-		return fmt.Errorf("typing into a session: %w", err)
-	}
-
-	return nil
+	return h.typeInto(writing, data)
 }
 
 // Resize sets the session's terminal to columns by rows.
 func (h *Host) Resize(sessionID ID, columns, rows uint16) error {
-	if columns == 0 {
-		return fmt.Errorf("%w: no columns", ErrInvalidSize)
-	}
+	size := Size{Columns: columns, Rows: rows}
 
-	if rows == 0 {
-		return fmt.Errorf("%w: no rows", ErrInvalidSize)
-	}
-
-	if columns > columnsMax {
-		return fmt.Errorf("%w: %d columns, at most %d", ErrInvalidSize, columns, columnsMax)
-	}
-
-	if rows > rowsMax {
-		return fmt.Errorf("%w: %d rows, at most %d", ErrInvalidSize, rows, rowsMax)
+	err := checkSize(size)
+	if err != nil {
+		return err
 	}
 
 	resizing, err := h.runningSession(sessionID)
@@ -193,12 +177,32 @@ func (h *Host) Resize(sessionID ID, columns, rows uint16) error {
 		return err
 	}
 
-	err = resizing.process.Resize(Size{Columns: columns, Rows: rows})
+	// As a terminal does, the screen takes the new size before the program hears of it, so
+	// what the program draws for the new size is read at that size.
+	previous := resizing.resizeScreen(size)
+
+	err = resizing.process.Resize(size)
 	if err != nil {
+		resizing.resizeScreen(previous)
+
 		return fmt.Errorf("resizing a session: %w", err)
 	}
 
 	return nil
+}
+
+// ScreenLines is the bottom count lines of the session's screen, as Screen.Lines gives them. An
+// ended session's last screen can still be read.
+func (h *Host) ScreenLines(sessionID ID, count int) ([]string, error) {
+	held, err := h.find(sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	held.screenMu.Lock()
+	defer held.screenMu.Unlock()
+
+	return held.screen.Lines(count), nil
 }
 
 // Live is every session the host holds, running or ended, oldest Start first.
@@ -225,6 +229,29 @@ func (h *Host) Live() []Info {
 	}
 
 	return infos
+}
+
+// typeInto writes data to the session's program in its turn.
+func (h *Host) typeInto(writing *session, data []byte) error {
+	// Writes take turns, and one waits at most writeWaitMax for its turn; the program's own
+	// Write is bounded too (writeTimeout for a terminal), so a Write ends within both.
+	turnWait := time.NewTimer(writeWaitMax)
+	defer turnWait.Stop()
+
+	select {
+	case writing.writeTurn <- struct{}{}:
+	case <-turnWait.C:
+		return ErrInputBlocked
+	}
+
+	defer func() { <-writing.writeTurn }()
+
+	_, err := writing.process.Write(data)
+	if err != nil {
+		return fmt.Errorf("typing into a session: %w", err)
+	}
+
+	return nil
 }
 
 // reserve takes a running slot for a Start.
@@ -284,9 +311,16 @@ func (h *Host) admit(sessionID ID, spec Spec, process Process) error {
 		panic(fmt.Sprintf("pty: a spawner returned process id %d", pid))
 	}
 
+	screen, err := NewScreen(Size{Columns: columnsDefault, Rows: rowsDefault})
+	if err != nil {
+		panic("pty: the default terminal size is out of range: " + err.Error())
+	}
+
 	started := &session{
 		sessionID: sessionID, name: spec.Name, dir: spec.Dir, pid: pid, startedAt: time.Now(),
 		process: process, ended: make(chan struct{}), writeTurn: make(chan struct{}, 1),
+		answers: make(chan []byte, answersQueuedMax), answered: make(chan struct{}),
+		screenMu: sync.Mutex{}, screen: screen,
 		exitCode: nil, scrollback: newRing(h.limits.ScrollbackBytesMax), viewers: nil,
 		groupStopped: false, stopError: "", retired: false,
 	}
@@ -315,6 +349,7 @@ func (h *Host) admit(sessionID ID, spec Spec, process Process) error {
 	readDone := make(chan struct{})
 
 	go h.readOutput(started, readDone)
+	go h.answerQueries(started)
 	go h.awaitEnd(started, readDone)
 
 	return nil

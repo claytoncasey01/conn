@@ -178,3 +178,7 @@ func unitIndex(text string, match func(rune) bool) int {
 
 	return -1
 }
+
+// ScreenText is a screen's lines as the one text Parse, Unread and PromptState read, as
+// `cmux read-screen` gives it: the lines joined by newlines.
+func ScreenText(lines []string) string { return strings.Join(lines, "\n") }

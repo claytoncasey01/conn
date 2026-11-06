@@ -13,4 +13,6 @@ const (
 	EndedMax            = endedMax
 	ColumnsMax          = columnsMax
 	RowsMax             = rowsMax
+	QueriesPendingMax   = queriesPendingMax
+	AnswersQueuedMax    = answersQueuedMax
 )

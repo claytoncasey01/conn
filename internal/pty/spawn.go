@@ -18,9 +18,6 @@ import (
 const (
 	// writeTimeout bounds one Write to a program that has stopped reading its input.
 	writeTimeout = 5 * time.Second
-	// columnsDefault and rowsDefault are a new terminal's size, until the first Resize.
-	columnsDefault = 80
-	rowsDefault    = 24
 	// exitCodeUnknown is the exit code of a program whose end could not be read.
 	exitCodeUnknown = -1
 	// exitCodeSignalBase is added to the signal that ended a program, as a shell reports it.

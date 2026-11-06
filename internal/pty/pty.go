@@ -38,20 +38,35 @@
 // no error this package returns holds input or output bytes. The program's side of each terminal
 // is mode 0600, so no other user can write to it.
 //
+// The screen: each session keeps a Screen, a model of its terminal fed with the same output the
+// viewers get, so what a session shows (ScreenLines) and what it asks can be read with no terminal
+// app and no viewer. It keeps the live screen only, never the scrollback, and is bounded by the
+// terminal's size, at most cellsMax cells a screen.
+//
+// Terminal queries: the host, not a viewer, answers the few queries in its fixed table (device
+// attributes, the cursor position and the background colour, the last from Config.Answers), once
+// each, as the output is read; answers.go says why. Each reply is fixed bytes and numbers, never
+// text from the output. The reader queues replies, at most answersQueuedMax, dropping the rest,
+// and the session's answerer types them in turn with the viewers' input, so the reader never
+// waits for a program to read its input.
+//
 // One platform limit: when a program on a terminal exits, macOS hangs the terminal up and throws
 // away whatever it printed that had not been read yet. The reader reads all the time, so this
 // only costs the last moments of a program's output on a busy machine.
 //
 // Locking: one mutex, Host.mu, guards the host's tables and every session's changing state (its
-// exit code, scrollback and viewers). It is held only for work in memory and for channel sends that
-// cannot block; every call that can block (the spawner, and the Process's Read, Write, Resize,
-// signals, Wait and Close) is made without it. Each session owns two goroutines: its reader, which
-// copies the program's output into the scrollback and the viewers' queues, and its waiter, which
-// waits for the program to exit, stops what is left of its group, lets the reader drain for at
-// most outputDrainTimeout, closes the terminal (which ends the reader) and records the end. Both
-// end when the session ends. Each viewer owns one more, its pump, which hands its queue to Output
-// and ends when the viewer is closed or dropped, or once the session has ended and the queue is
-// handed over.
+// exit code, scrollback and viewers), except its screen, which its own screenMu guards, so
+// feeding a screen a large chunk never holds up the host. Each is held only for work in memory
+// and for channel sends that cannot block; every call that can block (the spawner, and the
+// Process's Read, Write, Resize, signals, Wait and Close) is made without them. Each session owns
+// three goroutines: its reader, which copies the program's output into the scrollback, the
+// viewers' queues and its screen; its answerer, which types the replies to the program's queries
+// and ends once the reader has ended and every queued reply is typed; and its waiter, which waits
+// for the program to exit, stops what is left of its group, lets the reader drain for at most
+// outputDrainTimeout, closes the terminal (which ends the reader), waits for the answerer and
+// records the end. All three end when the session ends. Each viewer owns one more, its pump,
+// which hands its queue to Output and ends when the viewer is closed or dropped, or once the
+// session has ended and the queue is handed over.
 package pty
 
 import (
@@ -99,9 +114,14 @@ const (
 	argumentsMax          = 256
 	environmentEntriesMax = 4096
 	nameBytesMax          = 256
-	// columnsMax and rowsMax bound a terminal's size.
+	// columnsMax and rowsMax bound a terminal's size, and cellsMax its area: the most cells one
+	// screen of a session's model holds (a session has two, the main and the alternate).
 	columnsMax = 1000
 	rowsMax    = 1000
+	cellsMax   = 1 << 18
+	// columnsDefault and rowsDefault are a new terminal's size, until the first Resize.
+	columnsDefault = 80
+	rowsDefault    = 24
 )
 
 var (
@@ -187,6 +207,7 @@ func DefaultLimits() Limits {
 type Config struct {
 	Spawner Spawner
 	Limits  Limits
+	Answers Answers
 }
 
 // Spawner starts a Spec's program on a terminal of its own. Spawn is the real one.
