@@ -3,7 +3,6 @@ package sessions
 import (
 	"context"
 	"fmt"
-	"strings"
 	"syscall"
 	"time"
 
@@ -15,9 +14,8 @@ const (
 	// procsTimeout bounds the one ps call for the whole machine.
 	procsTimeout = 10 * time.Second
 	procsBytes   = 16 << 20
-	// envTimeout bounds `ps eww` of one process.
-	envTimeout = 3 * time.Second
-	envBytes   = 4 << 20
+	// environmentBytesMax bounds a process's environment as read: past it, it is not read.
+	environmentBytesMax = 4 << 20
 	// prViewBytes is execFile's default cap on gh's output.
 	prViewBytes = 1 << 20
 )
@@ -30,41 +28,11 @@ func Procs() (string, error) {
 	return result.Stdout, result.Err
 }
 
-// Env is a process's environment as `ps eww` prints it after the command line, without the
-// command line: what a command line holds (a prompt, a ticket's text) is never read as its
-// environment.
-func Env(pid float64) (string, error) {
-	opts := run.Opts{Dir: "", Timeout: envTimeout, OutputBytesMax: envBytes, Stdin: "", Env: nil}
-
-	command := run.Cmd(context.Background(), "ps",
-		[]string{"-ww", "-o", "command=", "-p", js.Number(pid)}, opts)
-	if command.Err != nil {
-		return "", command.Err
-	}
-
-	withEnvironment := run.Cmd(context.Background(), "ps",
-		[]string{"eww", "-o", "command=", "-p", js.Number(pid)}, opts)
-	if withEnvironment.Err != nil {
-		return "", withEnvironment.Err
-	}
-
-	return environmentPart(withEnvironment.Stdout, command.Stdout), nil
-}
-
-// environmentPart is what `ps eww -o command=` printed after the command line `ps -o command=`
-// printed, or "" when the two do not start alike (the process changed between them).
-func environmentPart(withEnvironment, command string) string {
-	command = strings.TrimRight(command, "\n")
-	if command == "" {
-		return ""
-	}
-
-	environment, found := strings.CutPrefix(withEnvironment, command)
-	if !found {
-		return ""
-	}
-
-	return environment
+// Env is a process's environment, entry by entry (NAME=value), read from the system's own
+// record of it (environOf), never parsed out of a command line: what a command line holds (a
+// prompt, a ticket's text) is never read as its environment.
+func Env(pid float64) ([]string, error) {
+	return environOf(int(pid))
 }
 
 // PRView runs gh in a folder and gives what it printed.

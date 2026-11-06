@@ -117,7 +117,7 @@ func (s *store) answerTarget(pid string, session *Session, message string) (send
 	return sendPlan{
 		pid: session.reg.PID, key: pid, target: *target, message: message, session: session,
 		stamp: statusStamp(session.reg), shared: s.sharesWorkspace(pid, target.Workspace, true),
-		hosted: "",
+		hosted: "", inputs: 0,
 	}, nil
 }
 
@@ -170,6 +170,10 @@ func (s *store) answerCheck(plan sendPlan, screen string, body AnswerBody, now f
 func (s *store) readAgain(plan sendPlan, screen string, stamp, now float64) *ask.Ask {
 	session := plan.session
 	read := s.screenAsk(plan.key, session, screen, stamp)
+
+	if plan.hosted != "" {
+		read = withInputs(read, plan.inputs)
+	}
 
 	if s.sessions[plan.key] == session {
 		if session.reg.Status == regWaiting {

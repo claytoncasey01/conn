@@ -132,17 +132,18 @@ func (w *world) deps() sessions.Deps {
 	return sessions.Deps{
 		Home: w.home, DataDir: w.data, Kinds: rules(w.t),
 		Procs: func() (string, error) { return strings.Join(w.procs, "\n"), nil },
-		Env: func(pid float64) (string, error) {
+		Env: func(pid float64) ([]string, error) {
 			w.mutex.Lock()
 			w.envAsked = append(w.envAsked, pid)
 			w.mutex.Unlock()
 
 			env, found := w.envs[pid]
 			if !found {
-				return "", errNotFound
+				return nil, errNotFound
 			}
 
-			return env, nil
+			// A test writes an environment as its entries, space-separated.
+			return strings.Fields(env), nil
 		},
 		PRView: func(_ context.Context, cwd string, args []string) ([]byte, error) {
 			w.mutex.Lock()

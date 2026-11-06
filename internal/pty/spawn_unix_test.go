@@ -610,8 +610,9 @@ func helperArgs(t *testing.T, mode string) []string {
 }
 
 // A write that checks the screen is refused while a program the session's program started has
-// the terminal (bash with job control gives its foreground job the terminal), and goes on to the
-// screen check while the session's own program has it.
+// the terminal (as a shell with job control gives its foreground job the terminal), or while the
+// terminal reads whole lines, and goes on to the screen check while the session's own program
+// has it, raw.
 func TestRealCheckedWriteNeedsTheProgramInTheForeground(t *testing.T) {
 	t.Parallel()
 
@@ -620,7 +621,12 @@ func TestRealCheckedWriteNeedsTheProgramInTheForeground(t *testing.T) {
 		argv    []string
 		wantErr error
 	}{
-		{"the program itself", shell("echo ready; read line"), pty.ErrScreenChanged},
+		// Claude Code reads its keys raw, as this does.
+		{
+			"the program itself", shell("stty raw -echo; echo ready; sleep 10"),
+			pty.ErrScreenChanged,
+		},
+		{"the program reading a line", shell("echo ready; read line"), pty.ErrLineMode},
 		{"a job it started", nil, pty.ErrNotForeground},
 	}
 
@@ -649,7 +655,7 @@ func TestRealCheckedWriteNeedsTheProgramInTheForeground(t *testing.T) {
 					t.Fatal(readErr)
 				}
 
-				err = host.WriteIfStill(sessionID, mark, readScreenLines, never, []byte("\n"))
+				_, err = host.WriteIfStill(sessionID, mark, readScreenLines, never, []byte("\n"))
 				if errors.Is(err, tt.wantErr) {
 					return
 				}

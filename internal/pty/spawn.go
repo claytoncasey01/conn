@@ -179,30 +179,39 @@ func (p *terminalProcess) Close() error {
 	return nil
 }
 
-// Foreground says whether the terminal's foreground process group is the program's own.
-func (p *terminalProcess) Foreground() (bool, error) {
+// Keyboard says who the terminal's input goes to: whether its foreground process group is the
+// program's own, and whether it reads whole lines (ICANON), as a password or line prompt does.
+func (p *terminalProcess) Keyboard() (Keyboard, error) {
 	raw, err := p.hostSide.SyscallConn()
 	if err != nil {
-		return false, fmt.Errorf("reaching the terminal: %w", err)
+		return Keyboard{}, fmt.Errorf("reaching the terminal: %w", err)
 	}
 
 	var (
 		group    int
+		modes    *unix.Termios
 		ioctlErr error
 	)
 
 	err = raw.Control(func(descriptor uintptr) {
 		group, ioctlErr = unix.IoctlGetInt(int(descriptor), unix.TIOCGPGRP)
+		if ioctlErr != nil {
+			return
+		}
+
+		modes, ioctlErr = unix.IoctlGetTermios(int(descriptor), readModes)
 	})
 	if err != nil {
-		return false, fmt.Errorf("reaching the terminal: %w", err)
+		return Keyboard{}, fmt.Errorf("reaching the terminal: %w", err)
 	}
 
 	if ioctlErr != nil {
-		return false, fmt.Errorf("reading the foreground group: %w", ioctlErr)
+		return Keyboard{}, fmt.Errorf("reading the terminal's owner: %w", ioctlErr)
 	}
 
-	return group == p.groupID(), nil
+	return Keyboard{
+		Foreground: group == p.groupID(), LineMode: modes.Lflag&unix.ICANON != 0,
+	}, nil
 }
 
 // signalGroup sends signal to every process in the program's group. A group that is already

@@ -6,6 +6,7 @@ package costtest_test
 
 import (
 	"errors"
+	"math"
 	"runtime"
 	"strings"
 	"testing"
@@ -33,6 +34,10 @@ const chunkFeedBudget = 20 * time.Millisecond
 // feedRuns is how many times a chunk is fed; for time, the fastest counts, so a busy machine
 // does not fail the test.
 const feedRuns = 5
+
+// countRounds is how many times the allocations of feedRuns feeds are counted; the fewest
+// counts.
+const countRounds = 3
 
 // costUnit is a sequence repeated to fill a chunk: each is a way to make the model work hard.
 type costUnit struct {
@@ -119,22 +124,30 @@ func TestFeedingAChunkCostsLittleAtFullSize(t *testing.T) {
 	}
 }
 
-// allocationsFeeding counts the allocations feedRuns feeds of chunk make. testing.AllocsPerRun
-// refuses to run in a parallel test; the process's own count is as good, since this is the only
-// test in its binary.
+// allocationsFeeding is the fewest allocations feedRuns feeds of chunk made in any of
+// countRounds counts. testing.AllocsPerRun refuses to run in a parallel test, so the process's
+// own count is read; something else in the process (the runtime, the race detector) can
+// allocate during one count, but a feed that allocates does in every count, so the fewest is
+// the feeds' own.
 func allocationsFeeding(screen *pty.Screen, chunk []byte) uint64 {
-	var before, after runtime.MemStats
+	fewest := uint64(math.MaxUint64)
 
-	runtime.ReadMemStats(&before)
+	for range countRounds {
+		var before, after runtime.MemStats
 
-	for range feedRuns {
-		screen.Feed(chunk)
-		_ = screen.Queries()
+		runtime.ReadMemStats(&before)
+
+		for range feedRuns {
+			screen.Feed(chunk)
+			_ = screen.Queries()
+		}
+
+		runtime.ReadMemStats(&after)
+
+		fewest = min(fewest, after.Mallocs-before.Mallocs)
 	}
 
-	runtime.ReadMemStats(&after)
-
-	return after.Mallocs - before.Mallocs
+	return fewest
 }
 
 // fastestFeed is the fastest of feedRuns feeds of chunk, each to a freshly filled screen.

@@ -60,12 +60,19 @@ type session struct {
 	screenMu sync.Mutex
 	screen   *Screen
 
-	// inputs counts the writes of input (every write but the answers to the program's queries)
-	// that have taken their turn, and inputAt is when the last one did, in Unix nanoseconds (0:
-	// none). A screen read carries both, so a write checked against it can tell whether other
-	// input came in between, or too shortly before for the screen to show it.
-	inputs  atomic.Uint64
-	inputAt atomic.Int64
+	// inputs counts the writes of input (every write but the answers to the program's queries
+	// and a viewer's focus reports) that have taken their turn; inputsDone those whose bytes the
+	// terminal has taken, and inputAt is when the last of those did, as time since startedAt (a
+	// monotonic reading). A screen read carries the count and whether input is settled, so a
+	// write checked against it can tell whether other input came in between, is still being
+	// written, or came too shortly before for the screen to show it.
+	inputs     atomic.Uint64
+	inputsDone atomic.Uint64
+	inputAt    atomic.Int64
+
+	// redrawn is closed, and replaced, each time what the screen shows changes; guarded by
+	// screenMu. WaitScreen waits on it.
+	redrawn chan struct{}
 
 	exitCode   *int
 	scrollback ring
@@ -165,15 +172,16 @@ func (h *Host) Start(ctx context.Context, requested Spec) (ID, error) {
 
 // Write types data into the session's terminal. It never logs or quotes data.
 func (h *Host) Write(sessionID ID, data []byte) error {
-	return h.write(sessionID, data, nil)
+	_, err := h.write(sessionID, data, nil)
+
+	return err
 }
 
-// ScreenMark is what a screen read says besides its lines: the screen's generation, the input
-// count when it was read, whether no input had come in for foreignWriteSettle before it (so the
-// screen may be taken to show what any input did), and whether the program asks for pastes
-// bracketed.
+// ScreenMark is what a screen read says besides its lines: the input count when it was read,
+// whether input was settled (none being written, and none for foreignWriteSettle before it, so
+// the screen may be taken to show what any input did), and whether the program asks for pastes
+// bracketed. WriteIfStill also returns one, for the screen as its own write leaves it.
 type ScreenMark struct {
-	Generation     uint64
 	Inputs         uint64
 	Quiet          bool
 	BracketedPaste bool
@@ -191,15 +199,22 @@ type ScreenMark struct {
 //     matter, such as a blinking mark, all the time.
 //
 // The checks run inside the write's turn, so no other input reaches the program between them and
-// the write. Otherwise it is Write.
+// the write. Otherwise it is Write. On success it returns the mark of its own write: its input
+// count, and Quiet, since it is the caller's own input. A WriteIfStill with that mark types only
+// if nothing else was typed after this write, however recently this one was.
 func (h *Host) WriteIfStill(
 	sessionID ID, mark ScreenMark, count int, still func(lines []string) bool, data []byte,
-) error {
+) (ScreenMark, error) {
 	if still == nil {
 		panic("pty: WriteIfStill needs a check")
 	}
 
-	return h.write(sessionID, data, &screenCheck{mark: mark, count: count, still: still})
+	inputs, err := h.write(sessionID, data, &screenCheck{mark: mark, count: count, still: still})
+	if err != nil {
+		return ScreenMark{}, err
+	}
+
+	return ScreenMark{Inputs: inputs, Quiet: true, BracketedPaste: mark.BracketedPaste}, nil
 }
 
 // Resize sets the session's terminal to columns by rows.
@@ -241,25 +256,29 @@ func (h *Host) ScreenLines(sessionID ID, count int) ([]string, ScreenMark, error
 
 	// The input is read before the screen: input after this is counted against the mark.
 	inputs := held.inputs.Load()
-	quiet := held.quietSince(time.Now())
+	quiet := held.settled()
 
 	held.screenMu.Lock()
 	defer held.screenMu.Unlock()
 
 	return held.screen.Lines(count), ScreenMark{
-		Generation: held.screen.Generation(), Inputs: inputs, Quiet: quiet,
-		BracketedPaste: held.screen.BracketedPaste(),
+		Inputs: inputs, Quiet: quiet, BracketedPaste: held.screen.BracketedPaste(),
 	}, nil
 }
 
-// quietSince is whether no input took its turn within foreignWriteSettle before now.
-func (held *session) quietSince(now time.Time) bool {
-	last := held.inputAt.Load()
-	if last == 0 {
+// settled is whether no input is being written and none was taken within foreignWriteSettle
+// before now, on the monotonic clock.
+func (held *session) settled() bool {
+	done := held.inputsDone.Load()
+	if held.inputs.Load() != done {
+		return false
+	}
+
+	if done == 0 {
 		return true
 	}
 
-	return now.Sub(time.Unix(0, last)) >= foreignWriteSettle
+	return time.Since(held.startedAt)-time.Duration(held.inputAt.Load()) >= foreignWriteSettle
 }
 
 // lines is the bottom count lines of the session's screen now.
@@ -313,13 +332,17 @@ func (check *screenCheck) passes(writing *session) error {
 		return ErrOtherInput
 	}
 
-	foreground, err := writing.process.Foreground()
+	keyboard, err := writing.process.Keyboard()
 	if err != nil {
-		return fmt.Errorf("reading the terminal's foreground: %w", err)
+		return keyboardFailure(err)
 	}
 
-	if !foreground {
+	if !keyboard.Foreground {
 		return ErrNotForeground
+	}
+
+	if keyboard.LineMode {
+		return ErrLineMode
 	}
 
 	if !check.still(writing.lines(check.count)) {
@@ -329,22 +352,26 @@ func (check *screenCheck) passes(writing *session) error {
 	return nil
 }
 
-// write is Write, and WriteIfStill when check is set.
-func (h *Host) write(sessionID ID, data []byte, check *screenCheck) error {
+// write is Write, and WriteIfStill when check is set. It returns the input count after it.
+func (h *Host) write(sessionID ID, data []byte, check *screenCheck) (uint64, error) {
 	if len(data) > writeBytesMax {
-		return fmt.Errorf("%w: %d bytes, at most %d", ErrInputTooLarge, len(data), writeBytesMax)
+		return 0, fmt.Errorf("%w: %d bytes, at most %d", ErrInputTooLarge, len(data),
+			writeBytesMax)
 	}
 
 	writing, err := h.runningSession(sessionID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	if len(data) == 0 {
-		return nil
+		return writing.inputs.Load(), nil
 	}
 
-	return h.typeInto(writing, data, typing{check: check, input: true})
+	// A viewer's focus reports are the page's own, not keys: they never make a screen read stale.
+	input := !onlyFocusReports(data)
+
+	return h.typeInto(writing, data, typing{check: check, input: input})
 }
 
 // typing is how typeInto types: with a check to pass first, or none, and as input (counted
@@ -354,12 +381,14 @@ type typing struct {
 	input bool
 }
 
-// typeInto writes data to the session's program in its turn. With a check, data is written only
-// if the check passes once the turn is taken.
-func (h *Host) typeInto(writing *session, data []byte, how typing) error {
+// typeInto writes data to the session's program in its turn, and returns the input count after
+// it. With a check, data is written only if the check passes once the turn is taken. Input is
+// counted when its turn is taken and stamped once the terminal has taken it, written or not, so a
+// screen read while it is being written is not settled.
+func (h *Host) typeInto(writing *session, data []byte, how typing) (uint64, error) {
 	err := h.takeTurn(writing)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	defer func() { <-writing.writeTurn }()
@@ -367,21 +396,26 @@ func (h *Host) typeInto(writing *session, data []byte, how typing) error {
 	if how.check != nil {
 		err := how.check.passes(writing)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
+	inputs := writing.inputs.Load()
 	if how.input {
-		writing.inputs.Add(1)
-		writing.inputAt.Store(time.Now().UnixNano())
+		inputs = writing.inputs.Add(1)
+
+		defer func() {
+			writing.inputAt.Store(int64(time.Since(writing.startedAt)))
+			writing.inputsDone.Add(1)
+		}()
 	}
 
 	_, err = writing.process.Write(data)
 	if err != nil {
-		return writeFailure(err)
+		return 0, writeFailure(err)
 	}
 
-	return nil
+	return inputs, nil
 }
 
 // takeTurn waits for the session's write turn, at most writeWaitMax: writes take turns, and the
@@ -406,6 +440,17 @@ func (h *Host) takeTurn(writing *session) error {
 	case <-turnWait.C:
 		return ErrInputBlocked
 	}
+}
+
+// keyboardFailure is what a failed look at who the terminal's input goes to means: a closed
+// terminal, or one whose program side is gone (EIO, ENOTTY), is the session ending, ErrEnded.
+func keyboardFailure(err error) error {
+	switch {
+	case errors.Is(err, os.ErrClosed), errors.Is(err, syscall.EIO), errors.Is(err, syscall.ENOTTY):
+		return fmt.Errorf("%w: %w", ErrEnded, err)
+	}
+
+	return fmt.Errorf("reading who the terminal's input goes to: %w", err)
 }
 
 // writeFailure is what a failed Write to a program means. EIO is the terminal saying nothing
@@ -491,7 +536,7 @@ func (h *Host) admit(sessionID ID, spec Spec, process Process) error {
 		sessionID: sessionID, name: spec.Name, dir: spec.Dir, pid: pid, startedAt: time.Now(),
 		process: process, ended: make(chan struct{}), writeTurn: make(chan struct{}, 1),
 		answers: make(chan []byte, answersQueuedMax), answered: make(chan struct{}),
-		screenMu: sync.Mutex{}, screen: screen,
+		screenMu: sync.Mutex{}, screen: screen, redrawn: make(chan struct{}),
 		exitCode: nil, scrollback: newRing(h.limits.ScrollbackBytesMax), viewers: nil,
 		groupStopped: false, stopError: "", retired: false,
 	}

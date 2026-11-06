@@ -57,8 +57,8 @@ type Deps struct {
 	Kinds   KindRules
 	// Procs is `ps -A -o pid=,ppid=,comm=`.
 	Procs func() (string, error)
-	// Env is a process's environment, without its command line (see Env).
-	Env func(pid float64) (string, error)
+	// Env is a process's environment, entry by entry (see Env).
+	Env func(pid float64) ([]string, error)
 	// PRView runs `gh pr view` in a folder and gives its stdout.
 	PRView func(ctx context.Context, cwd string, args []string) ([]byte, error)
 	// RepoOf is the GitHub repo of a folder that exists, "" for none.

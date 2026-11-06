@@ -15,7 +15,10 @@ func KeptRows(ctx context.Context, loop *Loop) []string {
 	return kept
 }
 
-// EnvironmentPart is environmentPart.
-func EnvironmentPart(withEnvironment, command string) string {
-	return environmentPart(withEnvironment, command)
+// ProcArgsEnvironment is procArgsEnvironment.
+func ProcArgsEnvironment(raw []byte) ([]string, bool) { return procArgsEnvironment(raw) }
+
+// CmuxIDOf is cmuxIDOf.
+func CmuxIDOf(environment []string, name string) (string, bool) {
+	return cmuxIDOf(environment, name)
 }

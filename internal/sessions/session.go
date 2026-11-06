@@ -27,11 +27,8 @@ const (
 	background   = "background"
 )
 
-// cmuxID is one cmux id variable in a process's environment, as `ps eww` prints it.
-var (
-	workspaceVar = regexp.MustCompile(`\bCMUX_WORKSPACE_ID=([0-9A-Fa-f-]{36})\b`)
-	surfaceVar   = regexp.MustCompile(`\bCMUX_SURFACE_ID=([0-9A-Fa-f-]{36})\b`)
-)
+// cmuxID is the shape of a cmux id, the whole of an entry's value.
+var cmuxID = regexp.MustCompile(`^[0-9A-Fa-f-]{36}$`)
 
 // Target is the exact cmux surface a CLI runs in.
 type Target struct {
@@ -310,7 +307,7 @@ func (s *store) cmuxOf(session *Session) *Target {
 // no terminal of its own, so the cmux app must also be one of its ancestors. Looked up once;
 // env reads `ps eww -p <pid>`.
 func (s *Session) cmuxTarget(
-	procs map[float64]Proc, env func(pid float64) (string, error), hosted map[float64]pty.ID,
+	procs map[float64]Proc, env func(pid float64) ([]string, error), hosted map[float64]pty.ID,
 ) *Target {
 	// A hosted session runs on Conn's own terminal: its environment is never read.
 	if s.hosted != "" {
@@ -331,25 +328,44 @@ func (s *Session) cmuxTarget(
 		return nil
 	}
 
-	out, err := env(s.reg.PID)
+	environment, err := env(s.reg.PID)
 	if err != nil {
 		return nil
 	}
 
-	workspace := workspaceVar.FindStringSubmatch(out)
-	surface := surfaceVar.FindStringSubmatch(out)
-
-	if workspace == nil {
+	workspace, found := cmuxIDOf(environment, workspaceName)
+	if !found {
 		return nil
 	}
 
-	if surface == nil {
+	surface, found := cmuxIDOf(environment, surfaceName)
+	if !found {
 		return nil
 	}
 
-	s.cmux = &Target{Workspace: workspace[1], Surface: surface[1]}
+	s.cmux = &Target{Workspace: workspace, Surface: surface}
 
 	return s.cmux
+}
+
+// The environment entries that name a cmux pane.
+const (
+	workspaceName = "CMUX_WORKSPACE_ID"
+	surfaceName   = "CMUX_SURFACE_ID"
+)
+
+// cmuxIDOf is the cmux id an environment's entry name holds, whole, and false for none.
+func cmuxIDOf(environment []string, name string) (string, bool) {
+	value, found := environmentValue(environment, name)
+	if !found {
+		return "", false
+	}
+
+	if !cmuxID.MatchString(value) {
+		return "", false
+	}
+
+	return value, true
 }
 
 // findTeammates looks in the lead's project folder for the transcripts of the teams it spawned

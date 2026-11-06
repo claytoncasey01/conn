@@ -206,7 +206,7 @@ func (l *Loop) InputState(ctx context.Context, pid string) string {
 
 		plan = sendPlan{
 			pid: session.reg.PID, key: pid, target: *target, message: "", session: session,
-			stamp: 0, shared: false, hosted: "",
+			stamp: 0, shared: false, hosted: "", inputs: 0,
 		}
 		found = true
 	})
@@ -320,7 +320,7 @@ func (s *store) closeStart(pid string) (sendPlan, Reply, bool) {
 
 	return sendPlan{
 		pid: session.reg.PID, key: pid, target: *target, message: "", session: session,
-		stamp: 0, shared: false, hosted: "",
+		stamp: 0, shared: false, hosted: "", inputs: 0,
 	}, done(), true
 }
 

@@ -69,6 +69,10 @@ const (
 // it too.
 const HandshakeTimeout = 5 * time.Second
 
+// TerminalsCloseTimeout bounds Terminals.Close: quitting waits this long at most for the
+// terminals open to close, so it is exported for the quit's own bound.
+const TerminalsCloseTimeout = 2 * time.Second
+
 // The route's refusals, in its own words.
 const (
 	textUpgradeRequired = "this route takes a WebSocket handshake only"
@@ -104,17 +108,29 @@ type Terminals struct {
 	// replayMu guards replayBytes, the bytes of the replays being written.
 	replayMu    sync.Mutex
 	replayBytes int
-	// stopping is closed when the terminals' context ends: every terminal open is closed. A
-	// connection the HTTP server has handed over outlives the server's own shutdown otherwise.
+	// stopping is closed when the terminals' context ends, or Close is called: every terminal
+	// open is closed. A connection the HTTP server has handed over outlives the server's own
+	// shutdown otherwise. stop ends that context.
 	stopping <-chan struct{}
+	stop     context.CancelFunc
+	// activeMu guards active, the terminals being served (each counted only while the terminals
+	// are not stopping), and closing, set by Close; drained is closed once closing is set and
+	// active is none.
+	activeMu      sync.Mutex
+	active        int
+	closing       bool
+	drained       chan struct{}
+	drainedClosed bool
 }
 
-// NewTerminals answers the terminal route for host's sessions until ctx ends, when it closes
-// every terminal open.
+// NewTerminals answers the terminal route for host's sessions until ctx ends or Close is
+// called, when it closes every terminal open.
 func NewTerminals(ctx context.Context, host TerminalHost) *Terminals {
 	if host == nil {
 		panic("server: NewTerminals needs a host")
 	}
+
+	lifetime, stop := context.WithCancel(ctx)
 
 	return &Terminals{
 		host: host,
@@ -129,8 +145,82 @@ func NewTerminals(ctx context.Context, host TerminalHost) *Terminals {
 		open:        make(chan struct{}, connectionsMax),
 		replayMu:    sync.Mutex{},
 		replayBytes: 0,
-		stopping:    ctx.Done(),
+		stopping:    lifetime.Done(),
+		stop:        stop,
+		activeMu:    sync.Mutex{},
+		active:      0,
+		closing:     false,
+		drained:     make(chan struct{}),
+
+		drainedClosed: false,
 	}
+}
+
+// Close closes every terminal open, each as going away, and waits, at most
+// TerminalsCloseTimeout (a viewer that does not answer the close is not waited for longer),
+// until each has been closed; from then on none is served. Quitting calls it before the
+// sessions are stopped, so no viewer sees its program stopped instead.
+func (t *Terminals) Close() {
+	// Stopping first: a terminal not yet counted is refused from now on (enter), and a counted
+	// one is closed and waited for.
+	t.stop()
+
+	t.activeMu.Lock()
+	t.closing = true
+	t.drainIfIdle()
+	t.activeMu.Unlock()
+
+	wait := time.NewTimer(TerminalsCloseTimeout)
+	defer wait.Stop()
+
+	select {
+	case <-t.drained:
+	case <-wait.C:
+	}
+}
+
+// enter counts a terminal as served, and is false once the terminals are stopping.
+func (t *Terminals) enter() bool {
+	t.activeMu.Lock()
+	defer t.activeMu.Unlock()
+
+	select {
+	case <-t.stopping:
+		return false
+	default:
+	}
+
+	t.active++
+
+	return true
+}
+
+// leave counts a terminal as no longer served.
+func (t *Terminals) leave() {
+	t.activeMu.Lock()
+	defer t.activeMu.Unlock()
+
+	t.active--
+	t.drainIfIdle()
+}
+
+// drainIfIdle closes drained once Close has been called and no terminal is served. The caller
+// holds activeMu.
+func (t *Terminals) drainIfIdle() {
+	if !t.closing {
+		return
+	}
+
+	if t.active > 0 {
+		return
+	}
+
+	if t.drainedClosed {
+		return
+	}
+
+	t.drainedClosed = true
+	close(t.drained)
 }
 
 // terminalID is the session id a terminal route's path names, and whether it is one: exactly
@@ -187,13 +277,13 @@ func (t *Terminals) serve(w http.ResponseWriter, r *http.Request, sessionID pty.
 	}
 
 	// Stopping is looked at on its own: a select with a free place beside it could pick either.
-	select {
-	case <-t.stopping:
+	if !t.enter() {
 		sendJSON(w, http.StatusServiceUnavailable, errorBody{Error: textStopping})
 
 		return
-	default:
 	}
+
+	defer t.leave()
 
 	select {
 	case t.open <- struct{}{}:

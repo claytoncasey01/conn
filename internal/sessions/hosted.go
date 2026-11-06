@@ -233,13 +233,13 @@ func (s *store) readHostedAsks(now float64) {
 			continue
 		}
 
-		lines, _, err := s.deps.Host.ScreenLines(session.hosted, askLines)
+		lines, mark, err := s.deps.Host.ScreenLines(session.hosted, askLines)
 		if err != nil {
 			continue
 		}
 
 		stamp := statusStamp(session.reg)
-		s.record(key, session, stamp, s.screenAsk(key, session, ask.ScreenText(lines), stamp),
-			now)
+		found := s.screenAsk(key, session, ask.ScreenText(lines), stamp)
+		s.record(key, session, stamp, withInputs(found, mark.Inputs), now)
 	}
 }

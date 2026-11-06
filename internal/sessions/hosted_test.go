@@ -20,6 +20,13 @@ import (
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
+// settledAfter is longer than the host's settle window for input (250 ms).
+const settledAfter = 400 * time.Millisecond
+
+// notSent is the answer to a reply whose message was typed and whose Enter was not pressed.
+const notSent = `{"error":"the message is in the session's input box but was not sent, ` +
+	`because its terminal changed meanwhile; send it from its terminal"}`
+
 // endShownWithin bounds the wait for an ended session's row, unscaled: it must stay below the 5 s
 // a snapshot is reused while its version stands.
 const endShownWithin = 4 * time.Second
@@ -51,12 +58,14 @@ type program struct {
 	// held one.
 	gate    atomic.Pointer[chan struct{}]
 	writing chan struct{}
-	// echo is the screen drawn once a message is typed, as Claude Code draws it in its box,
-	// echoDelay after it is typed.
+	// echo is the screen drawn once a message is typed, echoDelay after it is typed; when it is
+	// "", the box with the message's first line in it, as Claude Code draws it.
 	echo      string
 	echoDelay time.Duration
-	// background, when set, says a program this one started has the terminal.
+	// background, when set, says a program this one started has the terminal; lineMode that a
+	// program reads a line on it.
 	background atomic.Bool
+	lineMode   atomic.Bool
 
 	mutex   sync.Mutex
 	written []byte
@@ -87,13 +96,26 @@ func (p *program) Write(data []byte) (int, error) {
 	p.mutex.Unlock()
 
 	if typedMessage(data) {
+		screen := p.echo
+		if screen == "" {
+			screen = boxWith(string(data))
+		}
+
 		go func() {
 			time.Sleep(p.echoDelay)
-			p.draw(p.echo)
+			p.draw(screen)
 		}()
 	}
 
 	return len(data), nil
+}
+
+// boxWith is Claude Code's input box holding the first line of the message typed as data.
+func boxWith(data string) string {
+	message := strings.TrimSuffix(strings.TrimPrefix(data, "\x1b[200~"), "\x1b[201~")
+	first, _, _ := strings.Cut(message, "\n")
+
+	return "✻ done\n\n" + rule + "\n❯ " + first + "\n" + rule
 }
 
 // typedMessage is whether data is a message typed in, not a key, Enter or a query's answer.
@@ -110,7 +132,9 @@ func typedMessage(data []byte) bool {
 	return !strings.HasPrefix(text, "\x1b")
 }
 
-func (p *program) Foreground() (bool, error) { return !p.background.Load(), nil }
+func (p *program) Keyboard() (pty.Keyboard, error) {
+	return pty.Keyboard{Foreground: !p.background.Load(), LineMode: p.lineMode.Load()}, nil
+}
 
 func (p *program) Resize(pty.Size) error { return nil }
 
@@ -213,8 +237,8 @@ func (w *world) spawn(pty.Spec) (pty.Process, error) {
 	started := &program{
 		pid: w.spawning, output: make(chan []byte), closed: make(chan struct{}),
 		closeOnce: sync.Once{}, exited: make(chan struct{}), exitOnce: sync.Once{},
-		gate: atomic.Pointer[chan struct{}]{}, writing: make(chan struct{}, 1), echo: draft,
-		echoDelay: 0, background: atomic.Bool{},
+		gate: atomic.Pointer[chan struct{}]{}, writing: make(chan struct{}, 1), echo: "",
+		echoDelay: 0, background: atomic.Bool{}, lineMode: atomic.Bool{},
 		mutex: sync.Mutex{}, written: nil, signals: nil,
 	}
 	w.programs[w.spawning] = started
@@ -1213,26 +1237,49 @@ func TestAHostedSessionIsLiveUnderItsIssuedID(t *testing.T) {
 	}
 }
 
-// Input another viewer typed, which the program has taken but not drawn yet, refuses a click or
-// a reply made on the screen as it still looks: an Allow pressed after a viewer's 3, a reply
-// after a viewer's ! (Claude Code's shell mode), and a click on a prompt a viewer has just
-// answered while an identical one is drawn again.
+// How a viewer's key comes before a page's action, in TestOtherInputRefusesASendOnTheScreenBefore.
+const (
+	// keyJustBefore is typed and taken just before the action.
+	keyJustBefore = iota
+	// keySettledThenRedrawn is typed, then the same screen drawn again, past the settle window.
+	keySettledThenRedrawn
+	// keyHeldByTheTerminal is still being written (a full input queue) past the settle window
+	// when the action reads, and taken while the action waits for its turn.
+	keyHeldByTheTerminal
+)
+
+// Input another viewer typed refuses a click or a reply made on the screen as it looked before
+// it: an Allow pressed after a viewer's 3, a reply after a viewer's ! (Claude Code's shell
+// mode), a click on a prompt a viewer answered while an identical one is drawn again, and either
+// after a viewer's key the terminal took only after the settle window.
 func TestOtherInputRefusesASendOnTheScreenBeforeIt(t *testing.T) {
 	t.Parallel()
 
 	stamp := float64(time.Now().UnixMilli() - 5000)
+	otherInput := `{"error":"something else was typed into the session's terminal just now, ` +
+		`so nothing was sent","ask":null}`
 	tests := []struct {
 		name, status, waitingFor, screen, key string
-		answer, redrawn                       bool
+		answer                                bool
+		how                                   int
+		want                                  string
 	}{
 		{
 			"an answer after a viewer's key", "waiting", "permission prompt",
-			permissionScreen("ls"), "3", true, false,
+			permissionScreen("ls"), "3", true, keyJustBefore, "",
 		},
-		{"a reply after a viewer's !", "idle", "", idleBox, "!", false, false},
+		{"a reply after a viewer's !", "idle", "", idleBox, "!", false, keyJustBefore, otherInput},
 		{
 			"an answer after a viewer answered and the same prompt came again", "waiting",
-			"permission prompt", permissionScreen("ls"), "1", true, true,
+			"permission prompt", permissionScreen("ls"), "1", true, keySettledThenRedrawn, "",
+		},
+		{
+			"a reply after a key the terminal took late", "idle", "", idleBox, "x", false,
+			keyHeldByTheTerminal, otherInput,
+		},
+		{
+			"an answer after a key the terminal took late", "waiting", "permission prompt",
+			permissionScreen("ls"), "3", true, keyHeldByTheTerminal, "",
 		},
 	}
 
@@ -1247,29 +1294,26 @@ func TestOtherInputRefusesASendOnTheScreenBeforeIt(t *testing.T) {
 
 			rowOf(t, loop, hostedID, func(row detail) bool { return row.Status == tt.status })
 
-			askID := ""
+			act := func(ctx context.Context) sessions.Reply {
+				return loop.Reply(ctx, hostedID, "rm -rf build")
+			}
+
 			if tt.answer {
-				askID, _ = askByID(t, loop, hostedID)["id"].(string)
+				askID, _ := askByID(t, loop, hostedID)["id"].(string)
+				act = func(ctx context.Context) sessions.Reply {
+					return loop.Answer(ctx, hostedID, pressOne(askID))
+				}
 			}
 
-			err := fake.host.Write(pty.ID(hostedID), []byte(tt.key))
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if tt.redrawn {
-				held.show(t, tt.screen)
-			}
-
-			got := loop.Reply(t.Context(), hostedID, "rm -rf build")
-			if tt.answer {
-				got = loop.Answer(t.Context(), hostedID, pressOne(askID))
-			}
-
-			want := `{"error":"something else was typed into the session's terminal just now, ` +
-				`so nothing was sent","ask":null}`
-			if body(got) != want {
+			got := afterViewerKey(t, fake, hostedID, held, tt.key, tt.how, tt.screen, act)
+			if got.Code != http.StatusConflict {
 				t.Errorf("%d %s", got.Code, body(got))
+			}
+
+			if tt.want != "" {
+				if body(got) != tt.want {
+					t.Errorf("%s, want %s", body(got), tt.want)
+				}
 			}
 
 			if typed := held.typed(); typed != tt.key {
@@ -1277,6 +1321,74 @@ func TestOtherInputRefusesASendOnTheScreenBeforeIt(t *testing.T) {
 			}
 		})
 	}
+}
+
+// afterViewerKey types a viewer's key into the session as how says, and runs act after it.
+func afterViewerKey(t *testing.T, fake *world, hostedID string, held *program, key string,
+	how int, screen string, act func(context.Context) sessions.Reply,
+) sessions.Reply {
+	t.Helper()
+
+	if how == keyHeldByTheTerminal {
+		return afterHeldKey(t, fake, hostedID, held, key, act)
+	}
+
+	err := fake.host.Write(pty.ID(hostedID), []byte(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if how == keySettledThenRedrawn {
+		held.show(t, screen)
+		time.Sleep(settledAfter)
+	}
+
+	return act(t.Context())
+}
+
+// afterHeldKey has the terminal hold a viewer's key past the settle window, starts act, and
+// lets the key through once act waits for its turn.
+func afterHeldKey(t *testing.T, fake *world, hostedID string, held *program, key string,
+	act func(context.Context) sessions.Reply,
+) sessions.Reply {
+	t.Helper()
+
+	release := held.holdWrites()
+	viewer := make(chan error, 1)
+
+	go func() { viewer <- fake.host.Write(pty.ID(hostedID), []byte(key)) }()
+
+	held.waitWriting(t)
+	time.Sleep(settledAfter)
+
+	acted := make(chan sessions.Reply, 1)
+
+	go func() { acted <- act(context.WithoutCancel(t.Context())) }()
+
+	// An action is refused before its turn when what it read already counts the key (an
+	// answer's prompt id holds the count); else it waits for its turn behind the key.
+	var got *sessions.Reply
+
+	select {
+	case <-fake.parked:
+	case reply := <-acted:
+		got = &reply
+	case <-time.After(testtime.Scaled(5 * time.Second)):
+		t.Fatal("the action neither ended nor waited for its turn")
+	}
+
+	release()
+
+	err := <-viewer
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got != nil {
+		return *got
+	}
+
+	return <-acted
 }
 
 // A reply is typed as the terminal takes it: as keys where the program has not asked for
@@ -1293,16 +1405,16 @@ func TestAReplyIsTypedAsTheTerminalTakesIt(t *testing.T) {
 		want, wantTyped  string
 	}{
 		{
-			"one line, no bracketed paste", "hello", draft, true, false, `{"ok":true}`,
+			"one line, no bracketed paste", "hello", "", true, false, `{"ok":true}`,
 			"hello\r",
 		},
 		{
-			"several lines, no bracketed paste", "hello\nthere", draft, true, false,
+			"several lines, no bracketed paste", "hello\nthere", "", true, false,
 			`{"error":"the session's terminal does not take pastes, so a message of several ` +
 				`lines was not sent"}`, "",
 		},
 		{
-			"another program has the terminal", "hello", draft, false, true,
+			"another program has the terminal", "hello", "", false, true,
 			`{"error":"the session is not in the foreground of its terminal (suspended or ` +
 				`exiting), so nothing was sent","ask":null}`, "",
 		},
@@ -1310,13 +1422,19 @@ func TestAReplyIsTypedAsTheTerminalTakesIt(t *testing.T) {
 			// A picker's last row between rules reads like a box with text in it: Enter on it
 			// would pick it.
 			"a question picker that looks like a box", "hello", questionPicker(), false, false,
-			`{"error":"the message is in the session's input box but was not sent, because ` +
-				`its screen changed; send it from its terminal"}`, "\x1b[200~hello\x1b[201~",
+			notSent, "\x1b[200~hello\x1b[201~",
 		},
 		{
 			"a dialog instead of the message", "hello", permissionScreen("ls"), false, false,
-			`{"error":"the message is in the session's input box but was not sent, because ` +
-				`its screen changed; send it from its terminal"}`, "\x1b[200~hello\x1b[201~",
+			notSent, "\x1b[200~hello\x1b[201~",
+		},
+		{
+			"the box holding other text", "hello", boxWith("goodbye"), false, false, notSent,
+			"\x1b[200~hello\x1b[201~",
+		},
+		{
+			"a long paste shown as such", "hello\nthere", boxWith("[Pasted text #1 +2 lines]"),
+			false, false, `{"ok":true}`, "\x1b[200~hello\nthere\x1b[201~\r",
 		},
 	}
 
@@ -1431,6 +1549,8 @@ func TestAnEnterIsCheckedAgainWhenItsTurnComes(t *testing.T) {
 
 	fake := newWorld(t)
 	hostedID, held := fake.hostedSession(140, "w", "idle", "", idleBox, 1)
+	// The message is drawn only once the program's input is held below.
+	held.echoDelay = settledAfter
 	loop := start(t, fake)
 
 	rowOf(t, loop, hostedID, anyRow)
@@ -1463,12 +1583,74 @@ func TestAnEnterIsCheckedAgainWhenItsTurnComes(t *testing.T) {
 	release()
 
 	got := <-replied
-	if got.Code != http.StatusConflict {
+	if body(got) != notSent {
 		t.Errorf("%d %s", got.Code, body(got))
 	}
 
 	if typed := held.typed(); strings.HasSuffix(typed, "\r") {
 		t.Errorf("Enter was pressed: %q", typed)
+	}
+}
+
+// Text a viewer types after the message, while the reply waits to press Enter, is never sent
+// with it: Enter is pressed only if nothing was typed after the message.
+func TestTextTypedAfterTheMessageIsNotSent(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	hostedID, held := fake.hostedSession(142, "y", "idle", "", idleBox, 1)
+	// The box shows the message whatever else is typed, so only what was typed refuses it.
+	held.echo = boxWith("hello")
+	held.echoDelay = settledAfter
+	loop := start(t, fake)
+
+	rowOf(t, loop, hostedID, anyRow)
+
+	replied := make(chan sessions.Reply, 1)
+
+	go func() { replied <- loop.Reply(context.WithoutCancel(t.Context()), hostedID, "hello") }()
+
+	waitTyped(t, held, "\x1b[200~hello\x1b[201~")
+
+	err := fake.host.Write(pty.ID(hostedID), []byte(" and also delete the tests"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := <-replied
+	if body(got) != notSent {
+		t.Errorf("%d %s", got.Code, body(got))
+	}
+
+	if typed := held.typed(); strings.HasSuffix(typed, "\r") {
+		t.Errorf("the viewer's text was sent with the message: %q", typed)
+	}
+}
+
+// A reply is refused while a program the session started reads a line on its terminal (a
+// password prompt in Claude Code's own process group): the message would be its answer.
+func TestAReplyIsRefusedWhileAProgramReadsALine(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	hostedID, held := fake.hostedSession(143, "z", "idle", "", idleBox, 1)
+
+	held.lineMode.Store(true)
+
+	loop := start(t, fake)
+
+	rowOf(t, loop, hostedID, anyRow)
+
+	got := loop.Reply(t.Context(), hostedID, "hello")
+
+	want := `{"error":"a program the session started is reading a line on its terminal (a ` +
+		`password, say), so nothing was sent","ask":null}`
+	if body(got) != want {
+		t.Errorf("%d %s", got.Code, body(got))
+	}
+
+	if typed := held.typed(); typed != "" {
+		t.Errorf("typed %q", typed)
 	}
 }
 
@@ -1507,5 +1689,41 @@ func TestAMessageDrawnLateIsStillSent(t *testing.T) {
 
 	if typed := held.typed(); typed != "\x1b[200~hello\x1b[201~\r" {
 		t.Errorf("typed %q", typed)
+	}
+}
+
+// An answer to a prompt read after earlier input is pressed: the prompt's id holds the input
+// count it was read at, and the click is checked against the same count.
+func TestAnAnswerAfterEarlierInputIsPressed(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	stamp := float64(time.Now().UnixMilli() - 5000)
+	hostedID, held := fake.hostedSession(144, "a", "waiting", "permission prompt",
+		permissionScreen("ls"), stamp)
+
+	err := fake.host.Write(pty.ID(hostedID), []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	loop := start(t, fake)
+
+	shown := waitAsk(t, loop, hostedID, func(found map[string]any) bool {
+		askID, _ := found["id"].(string)
+
+		return strings.HasSuffix(askID, ".1")
+	})
+	askID, _ := shown["id"].(string)
+
+	time.Sleep(settledAfter)
+
+	got := loop.Answer(t.Context(), hostedID, pressOne(askID))
+	if body(got) != `{"ok":true}` {
+		t.Errorf("%d %s", got.Code, body(got))
+	}
+
+	if typed := held.typed(); typed != "x1" {
+		t.Errorf("typed %q, want the viewer's x, then 1", typed)
 	}
 }

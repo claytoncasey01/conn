@@ -31,6 +31,8 @@ type terminalRig struct {
 	counted  *countedHost
 	address  string
 	stop     context.CancelFunc
+	// terminals is the route's terminals.
+	terminals *server.Terminals
 }
 
 // rigSetup is how a rig differs from the usual one.
@@ -76,10 +78,9 @@ func newTerminalRig(t *testing.T, setup rigSetup) *terminalRig {
 		behind = setup.host
 	}
 
-	handler := &server.Server{
-		UI: bundle(), Secret: key,
-		Terminals: server.NewTerminalsTimed(lifetime, behind, setup.times),
-	}
+	terminals := server.NewTerminalsTimed(lifetime, behind, setup.times)
+	handler := &server.Server{UI: bundle(), Secret: key, Terminals: terminals}
+
 	if setup.logger != nil {
 		handler.Logger = newLogger(setup.logger)
 	}
@@ -97,7 +98,7 @@ func newTerminalRig(t *testing.T, setup rigSetup) *terminalRig {
 
 	return &terminalRig{
 		key: key, programs: programs, host: host, counted: counted,
-		address: strings.TrimPrefix(test.URL, "http://"), stop: stop,
+		address: strings.TrimPrefix(test.URL, "http://"), stop: stop, terminals: terminals,
 	}
 }
 

@@ -27,7 +27,7 @@ func emptyLoop(t *testing.T) *sessions.Loop {
 	return sessions.NewLoop(sessions.Deps{
 		Home: t.TempDir(), DataDir: t.TempDir(), Kinds: sessions.KindRules{},
 		Procs: func() (string, error) { return "", nil },
-		Env:   func(float64) (string, error) { return "", errNone },
+		Env:   func(float64) ([]string, error) { return nil, errNone },
 		PRView: func(context.Context, string, []string) ([]byte, error) {
 			return nil, errNone
 		},

@@ -115,7 +115,7 @@ func (l *Loop) replyHosted(ctx context.Context, sessionID pty.ID, text any) Repl
 
 	defer l.finishSend(ctx, string(sessionID))
 
-	return l.typeReply(sessionID, message)
+	return l.typeReply(ctx, sessionID, message)
 }
 
 // hostedReplyStart makes a hosted reply's checks on the loop and marks the session as sending.
@@ -223,6 +223,8 @@ func (l *Loop) pressHosted(ctx context.Context, plan sendPlan, body AnswerBody) 
 		return hostedFailure(err)
 	}
 
+	plan.inputs = mark.Inputs
+
 	var decided answerSend
 
 	_ = l.do(ctx, func(state *store) {
@@ -233,7 +235,7 @@ func (l *Loop) pressHosted(ctx context.Context, plan sendPlan, body AnswerBody) 
 		return *decided.refused
 	}
 
-	reply := l.typeAnswer(plan, decided, mark)
+	reply := l.typeAnswer(ctx, plan, decided, mark)
 	if reply.Code != http.StatusOK {
 		return reply
 	}
@@ -282,7 +284,7 @@ func (s *store) hostedAnswerStart(sessionID pty.ID, body AnswerBody) (sendPlan, 
 	return sendPlan{
 		pid: row.session.reg.PID, key: row.key, target: Target{Workspace: "", Surface: ""},
 		message: message, session: row.session, stamp: statusStamp(row.session.reg),
-		shared: false, hosted: sessionID,
+		shared: false, hosted: sessionID, inputs: 0,
 	}, nil
 }
 

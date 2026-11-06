@@ -51,9 +51,11 @@ func (p *stoppedProgram) Read(buffer []byte) (int, error) {
 func (p *stoppedProgram) Write(data []byte) (int, error) { return len(data), nil }
 func (p *stoppedProgram) Resize(pty.Size) error          { return nil }
 func (p *stoppedProgram) PID() int                       { return 4242 }
-func (p *stoppedProgram) Foreground() (bool, error)      { return true, nil }
-func (p *stoppedProgram) Terminate() error               { return p.stop() }
-func (p *stoppedProgram) Kill() error                    { return p.stop() }
+func (p *stoppedProgram) Keyboard() (pty.Keyboard, error) {
+	return pty.Keyboard{Foreground: true, LineMode: false}, nil
+}
+func (p *stoppedProgram) Terminate() error { return p.stop() }
+func (p *stoppedProgram) Kill() error      { return p.stop() }
 
 func (p *stoppedProgram) Group() pty.GroupState {
 	select {

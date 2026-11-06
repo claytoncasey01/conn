@@ -228,51 +228,6 @@ func TestResizeRefusesMoreCellsThanTheScreenHolds(t *testing.T) {
 	}
 }
 
-func TestScreenLinesCarryTheScreensGeneration(t *testing.T) {
-	t.Parallel()
-
-	host, spawner := newFakeHost(t, pty.DefaultLimits())
-
-	sessionID, err := host.Start(t.Context(), testSpec(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, before, err := host.ScreenLines(sessionID, readScreenLines)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	process := spawner.last(t)
-	process.feed(t, []byte("changed"))
-	waitLines(t, host, sessionID, []string{"changed"})
-
-	_, after, err := host.ScreenLines(sessionID, readScreenLines)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if after.Generation <= before.Generation {
-		t.Errorf("the generation went from %d to %d over a change", before.Generation,
-			after.Generation)
-	}
-
-	// Moving the cursor and drawing the same text again change nothing.
-	process.feed(t, []byte("\x1b[1;1Hchanged\x1b[9;9H"))
-	process.feed(t, []byte("\x1b[c"))
-	waitWritten(t, process, deviceAttributesReply)
-
-	_, again, err := host.ScreenLines(sessionID, readScreenLines)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if again.Generation != after.Generation {
-		t.Errorf("the generation went from %d to %d with nothing changed", after.Generation,
-			again.Generation)
-	}
-}
-
 // A resize the program's terminal refuses leaves the screen at the size it had.
 func TestAFailedResizeLeavesTheScreensSize(t *testing.T) {
 	t.Parallel()

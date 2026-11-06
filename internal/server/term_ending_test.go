@@ -545,3 +545,90 @@ func TestASlowReplayIsBounded(t *testing.T) {
 		return rig.dial(t, sessionShape, nil).err == nil
 	})
 }
+
+// Close closes every terminal open as going away and returns once each has closed, and the
+// terminals refuse every handshake from then on, before the host is asked.
+func TestCloseReturnsOnceEveryTerminalHasClosed(t *testing.T) {
+	t.Parallel()
+
+	rig := newTerminalRig(t, rigSetup{})
+	sessionID, _ := rig.start(t)
+	conns := []*websocket.Conn{rig.open(t, sessionID), rig.open(t, sessionID)}
+	closed := watchClosed(t, conns)
+
+	rig.terminals.Close()
+
+	// Each terminal has given back its viewer's place by then: the session's every place is
+	// free.
+	for range pty.DefaultLimits().ViewersMax {
+		viewer, err := rig.host.Subscribe(sessionID)
+		if err != nil {
+			t.Fatalf("Close returned before a terminal had closed: %v", err)
+		}
+
+		t.Cleanup(viewer.Close)
+	}
+
+	for range conns {
+		select {
+		case status := <-closed:
+			if status != websocket.StatusGoingAway {
+				t.Errorf("a terminal was closed with %v, want going away", status)
+			}
+		case <-time.After(testtime.Scaled(5 * time.Second)):
+			t.Fatal("a viewer was never told of the close")
+		}
+	}
+
+	before := rig.counted.calls.Load()
+
+	refused := rig.dial(t, string(sessionID), nil)
+	if refused.status != 503 {
+		t.Errorf("status %d after Close, want 503", refused.status)
+	}
+
+	if rig.counted.calls.Load() != before {
+		t.Error("the route asked the host after Close")
+	}
+}
+
+// watchClosed reads each terminal past its replay's end until it closes, and sends the close's
+// status.
+func watchClosed(t *testing.T, conns []*websocket.Conn) <-chan websocket.StatusCode {
+	t.Helper()
+
+	closed := make(chan websocket.StatusCode, len(conns))
+
+	for _, conn := range conns {
+		if _, data := read(t, conn); string(data) != replayEnd {
+			t.Fatalf("the replay of a session that printed nothing ended with %q", data)
+		}
+
+		go func() {
+			for {
+				_, _, err := conn.Read(context.WithoutCancel(t.Context()))
+				if err != nil {
+					closed <- websocket.CloseStatus(err)
+
+					return
+				}
+			}
+		}()
+	}
+
+	return closed
+}
+
+// Close with no terminal open returns at once.
+func TestCloseWithNoTerminalReturnsAtOnce(t *testing.T) {
+	t.Parallel()
+
+	rig := newTerminalRig(t, rigSetup{})
+	started := time.Now()
+
+	rig.terminals.Close()
+
+	if waited := time.Since(started); waited > server.TerminalsCloseTimeout/2 {
+		t.Errorf("Close waited %v with no terminal open", waited)
+	}
+}

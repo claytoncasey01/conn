@@ -198,6 +198,9 @@ type sendPlan struct {
 	stamp   float64
 	shared  bool
 	hosted  pty.ID
+	// inputs is the hosted session's input count at the screen read the send was decided from:
+	// a hosted ask's id holds the count it was read at (see withInputs).
+	inputs uint64
 }
 
 // replyStart makes a reply's checks on the loop and marks the session as sending.
@@ -243,7 +246,7 @@ func (s *store) replyStart(pid string, text any) (sendPlan, *Reply) {
 
 	return sendPlan{
 		pid: session.reg.PID, key: pid, target: *target, message: message, session: session,
-		stamp: 0, shared: false, hosted: "",
+		stamp: 0, shared: false, hosted: "", inputs: 0,
 	}, nil
 }
 

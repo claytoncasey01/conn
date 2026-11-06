@@ -68,8 +68,11 @@ type fakeProcess struct {
 	afterKill          killOutcome
 	unreachableAnswers atomic.Int32
 	reused             atomic.Bool
-	// background, when set, says another group has the terminal.
-	background atomic.Bool
+	// background, when set, says another group has the terminal; lineMode that the terminal
+	// reads whole lines; keyboardErr, when set, is what looking at the terminal fails with.
+	background  atomic.Bool
+	lineMode    atomic.Bool
+	keyboardErr error
 
 	output    chan []byte
 	closed    chan struct{}
@@ -203,7 +206,13 @@ func (f *fakeProcess) Close() error {
 	return nil
 }
 
-func (f *fakeProcess) Foreground() (bool, error) { return !f.background.Load(), nil }
+func (f *fakeProcess) Keyboard() (pty.Keyboard, error) {
+	if f.keyboardErr != nil {
+		return pty.Keyboard{}, f.keyboardErr
+	}
+
+	return pty.Keyboard{Foreground: !f.background.Load(), LineMode: f.lineMode.Load()}, nil
+}
 
 // reuse makes the group's number look taken again, as a new program that a reused pid made a
 // group leader would.

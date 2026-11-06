@@ -12,6 +12,10 @@ import (
 // hostPath is the multiplexer that makes a new pseudo-terminal each time it is opened.
 const hostPath = "/dev/ptmx"
 
+// readModes is the request that reads a terminal's modes (termios); on a pty's host side it
+// reads the program side's.
+const readModes = unix.TCGETS
+
 // childFolder is where devpts puts each terminal's program side, named by its number.
 const childFolder = "/dev/pts/"
 

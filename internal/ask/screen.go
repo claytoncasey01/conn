@@ -33,6 +33,27 @@ const (
 // neither. Claude draws its input as a ❯ line directly under a horizontal rule. Many shells also
 // use ❯, but their prompt never sits under such a rule, so a bare ❯ is not enough.
 func PromptState(screen string) string {
+	text, found := PromptText(screen)
+	if !found {
+		return PromptNone
+	}
+
+	if text == "" {
+		return PromptEmpty
+	}
+
+	// A fresh session shows a greyed placeholder, `Try "how do I log an error?"`, which reads
+	// as text on a plain screen. Other ghost text cannot be told from a draft and is refused.
+	if placeholder(text) {
+		return PromptEmpty
+	}
+
+	return PromptDraft
+}
+
+// PromptText is the text on the first line of Claude's input box at the bottom of a screen,
+// trimmed, and false when the screen shows no input box (see PromptState).
+func PromptText(screen string) (string, bool) {
 	lines := strings.Split(screen, "\n")
 	input := -1
 
@@ -45,25 +66,14 @@ func PromptState(screen string) string {
 	}
 
 	if input < 1 {
-		return PromptNone
+		return "", false
 	}
 
 	if !screenRule(lines[input-1]) {
-		return PromptNone
+		return "", false
 	}
 
-	text := js.Trim(afterInput(lines[input]))
-	if text == "" {
-		return PromptEmpty
-	}
-
-	// A fresh session shows a greyed placeholder, `Try "how do I log an error?"`, which reads
-	// as text on a plain screen. Other ghost text cannot be told from a draft and is refused.
-	if placeholder(text) {
-		return PromptEmpty
-	}
-
-	return PromptDraft
+	return js.Trim(afterInput(lines[input])), true
 }
 
 // OwnsTerminal is whether `ps -o stat=` says a process is in the foreground of its terminal (+)

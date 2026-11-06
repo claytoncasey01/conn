@@ -60,7 +60,14 @@ func (h *Host) publish(target *session, chunk []byte) {
 // its input, since a program blocked writing output would then never read it.
 func (h *Host) observe(reading *session, chunk []byte) {
 	reading.screenMu.Lock()
+	before := reading.screen.Generation()
 	reading.screen.Feed(chunk)
+
+	if reading.screen.Generation() != before {
+		close(reading.redrawn)
+		reading.redrawn = make(chan struct{})
+	}
+
 	queries := reading.screen.Queries()
 	reading.screenMu.Unlock()
 
@@ -96,7 +103,7 @@ func (h *Host) answerQueries(answering *session) {
 	for reply := range answering.answers {
 		// A reply the program does not take, or takes after it has ended, is lost, as it would
 		// be on any terminal; nothing else is to be done about it.
-		_ = h.typeInto(answering, reply, typing{check: nil, input: false})
+		_, _ = h.typeInto(answering, reply, typing{check: nil, input: false})
 	}
 }
 

@@ -38,8 +38,9 @@ const ShutdownTimeout = 2 * time.Second
 const quitStopTimeout = 7 * time.Second
 
 // QuitTimeout is the most a stopping server takes to let its data folder go: its requests'
-// shutdown, then its hosted sessions' stop. Whatever waits for it to stop waits a little longer.
-const QuitTimeout = ShutdownTimeout + quitStopTimeout
+// shutdown, its terminals' close, then its hosted sessions' stop. Whatever waits for it to stop
+// waits a little longer.
+const QuitTimeout = ShutdownTimeout + server.TerminalsCloseTimeout + quitStopTimeout
 
 // The HTTP server's limits. writeTimeout is 0 on purpose: a page's live-update stream stays open
 // for as long as the page does, and a write deadline would cut it. readHeaderTimeout is the
@@ -162,15 +163,15 @@ func StartWith(
 	running := &Server{URL: address, Secret: key, done: make(chan struct{}), err: nil}
 	handler := newHandler(serveCtx, cfg, store, logger, ui(lookup), host)
 	handler.Secret = key
-	// The terminals have a context of their own, ended by the quit below rather than with ctx,
-	// so the quit alone orders their closing and the sessions' stop.
-	terminalsCtx, stopTerminals := context.WithCancel(context.WithoutCancel(ctx))
-	handler.Terminals = server.NewTerminals(terminalsCtx, host)
+	// The terminals are closed by the quit below rather than when ctx ends, so the quit alone
+	// orders their closing and the sessions' stop.
+	terminals := server.NewTerminals(context.WithoutCancel(ctx), host)
+	handler.Terminals = terminals
 
 	go running.serve(serveCtx, newHTTPServer(handler), listener, func() {
 		// The terminals close first, as going away, so none sees its program stopped or races
 		// a reconnect against the stop; then the sessions stop; then the folder is let go.
-		stopTerminals()
+		terminals.Close()
 		cancel()
 		stopHosted(context.WithoutCancel(ctx), host, stderr)
 		release()

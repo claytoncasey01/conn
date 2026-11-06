@@ -175,6 +175,9 @@ var (
 	// terminal.
 	ErrNotForeground = errors.New("the session's program is not in the foreground of its " +
 		"terminal")
+	// ErrLineMode is a WriteIfStill while the session's terminal reads whole lines: a program
+	// reading a password or a line has it.
+	ErrLineMode = errors.New("the session's terminal is reading a line for a program")
 	// ErrInvalidSize is a Resize to a size out of range.
 	ErrInvalidSize = errors.New("terminal size out of range")
 	// ErrUnsupported is Spawn on a system without the pseudo-terminals it knows.
@@ -267,13 +270,22 @@ type Process interface {
 	// Group says whether anything is left in the program's group, and whether a signal reaches
 	// it.
 	Group() GroupState
-	// Foreground says whether the program's own process group is its terminal's foreground
-	// group: false while a program it started has the terminal (an editor, a pager).
-	Foreground() (bool, error)
+	// Keyboard says who the terminal's input goes to now.
+	Keyboard() (Keyboard, error)
 	// Wait waits for the program to exit and returns its exit code.
 	Wait() int
 	// Close closes the terminal.
 	Close() error
+}
+
+// Keyboard is who a terminal's input goes to: Foreground when the program's own process group
+// is the terminal's foreground group (false while a program it started in a group of its own
+// has the terminal, an editor or a pager), and LineMode when the terminal reads whole lines
+// (ICANON): a program reading a password or a line (sudo, ssh) has it, even in the program's
+// own group. Claude Code reads its keys raw.
+type Keyboard struct {
+	Foreground bool
+	LineMode   bool
 }
 
 // GroupState is what is left of a program's process group.
