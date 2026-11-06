@@ -176,6 +176,30 @@ func TestADryOpenThatFailedLeavesTheSlotFree(t *testing.T) {
 	same(t, "the failed open, then the resume's", made.count("dry-session"), 2)
 }
 
+// TestADryOpenWithNoHostedIDLeavesTheSlotFree: an open that says it started but names no hosted
+// session leaves nothing that reads as still opening, so the next Resume opens one.
+func TestADryOpenWithNoHostedIDLeavesTheSlotFree(t *testing.T) {
+	t.Parallel()
+
+	base := realTemp(t)
+	made := newWorld(t, worldOpts{
+		base: base, settings: workSettings(makeClone(t, base), ""), dry: true,
+	})
+
+	made.mu.Lock()
+	made.dryOpenNoID = true
+	made.mu.Unlock()
+
+	made.work.Tickets()
+	until(t, "the dry list", func() bool { return len(made.work.Tickets().Tickets) == 6 })
+	same(t, "start", made.work.Start("PROJ-2", body(t, `{"model":"haiku"}`)).Code, 200)
+	until(t, "the questions", func() bool { return made.state("PROJ-2") == "asking" })
+	same(t, "answers", made.work.Answer("PROJ-2", body(t, `{"q1":"c1","q2":"x"}`)).Code, 200)
+	made.work.Settle()
+	same(t, "resume", made.work.Resume("PROJ-2", "").Code, 200)
+	same(t, "the build's open, then the resume's", made.count("dry-session"), 2)
+}
+
 // secondPressWait is how long a second press may take to answer without opening anything.
 const secondPressWait = 5 * time.Second
 

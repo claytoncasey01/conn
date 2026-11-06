@@ -59,6 +59,8 @@ type world struct {
 	dryOpenGate chan struct{}
 	// dryOpenFails makes every dry session's open fail.
 	dryOpenFails bool
+	// dryOpenNoID makes a dry session's open succeed with no hosted id.
+	dryOpenNoID bool
 }
 
 type worldOpts struct {
@@ -421,6 +423,11 @@ func (w *world) fakeOpen(_ context.Context, spec pty.Spec) launch.Opened {
 		w.mu.Lock()
 		gate := w.dryOpenGate
 		failing := w.dryOpenFails
+		hostedID := pty.ID("0123456789abcdef0123456789abcdef")
+
+		if w.dryOpenNoID {
+			hostedID = ""
+		}
 		w.mu.Unlock()
 
 		if gate != nil {
@@ -435,7 +442,7 @@ func (w *world) fakeOpen(_ context.Context, spec pty.Spec) launch.Opened {
 		}
 
 		return launch.Opened{
-			OK: true, Where: settings.WhereInside, HostedID: "0123456789abcdef0123456789abcdef",
+			OK: true, Where: settings.WhereInside, HostedID: hostedID,
 			Place: "inside Conn", Tried: "", Error: "", ManualCommand: "",
 		}
 	}

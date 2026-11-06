@@ -481,6 +481,14 @@ func (w *Work) openDry(step *task, record *Record, slot *Leg) {
 		return
 	}
 
+	// An open that names no hosted session (sessions set to open elsewhere meanwhile) leaves
+	// nothing behind: an empty id would read as still opening.
+	if opened.HostedID == "" {
+		delete(w.dryHosted, key)
+
+		return
+	}
+
 	w.dryHosted[key] = string(opened.HostedID)
 }
 
