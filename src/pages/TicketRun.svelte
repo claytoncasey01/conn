@@ -400,11 +400,11 @@
               {#if legChecksFailing(run, leg)}
                 <ConfirmAction label="FIX FAILING CHECKS" confirmText="Tells the session working in {worker.worktree} which checks of {leg.repo} failed and to read them with gh, fix the cause and push." confirmLabel="SEND" tone="cyan" run={() => fixChecks(key, leg.repo)} />
                 {#if !workerLive}
-                  <span style="font-size: 12px; color: var(--mu)">No running session found in {worker.worktree}: resume it first.</span>
+                  <span style="font-size: 12px; color: var(--mu); overflow-wrap: anywhere">No running session found in {worker.worktree}: resume it first.</span>
                 {/if}
               {/if}
               {#if legResumable(run, leg, legSessionLive(run, leg, sessions))}
-                <span style="font-size: 12px; color: var(--mu)">No session is running in {leg.worktree}.</span>
+                <span style="font-size: 12px; color: var(--mu); overflow-wrap: anywhere">No session is running in {leg.worktree}.</span>
                 <ConfirmAction label="RESUME SESSION" confirmText="Opens a new cmux workspace in {leg.worktree} and continues {leg.claudeSessionId ? 'the same conversation' : 'the last conversation in that folder'}." confirmLabel="RESUME" tone="cyan" run={() => resumeRun(key, leg.repo)} />
               {/if}
               {#if legCanClean(run, leg)}
