@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import { Terminal } from '@xterm/xterm'
 import { FakeFrames, FakeSocket } from './terminalFakes.test.ts'
 import {
-  attach, cleanPaste, closeNotice, fitSize, forwardable, inputFrame, isMotionReport, linkTarget, parseFrame, QUIET_CSI, QUIET_DCS,
+  attach, cleanPaste, closeNotice, statusText, fitSize, forwardable, inputFrame, isMotionReport, linkTarget, parseFrame, QUIET_CSI, QUIET_DCS,
   QUIET_OSC, silence, terminalOptions, CELLS_MAX, FRAME_BYTES_MAX, INPUT_BYTES_MAX, PASTE_BYTES_MAX, SIZE_MAX,
   WRITE_PENDING_BYTES_HIGH, WRITE_PENDING_BYTES_LOW, WRITE_PENDING_BYTES_MAX, HOLD_QUIET_MS,
   type View,
@@ -532,15 +532,15 @@ test('Dismiss lets go of the hold, and clears its note', () => {
   assert.deepEqual(socket.sent, ['{"t":"input","d":"b"}'])
 })
 
-test('a typed key never clears the note that says keys were held', () => {
+test('a key held while the hold lasts never clears the note that says keys are held', () => {
   const { socket, screen, link, last, clock } = live()
   socket.message(bytesOf(2 * MiB))
   link.input('a', true)
   screen.drain()
-  clock.now += HOLD_QUIET_MS
+  clock.now += 100
   link.input('b', true)
   link.input('c', true)
-  assert.match(last().note, /catching up|nothing was typed/i)
+  assert.match(last().note, /nothing was typed since/)
 })
 
 test('typed while frames arrive and are drawn around the mark: every key goes through, or none after the first held', () => {
@@ -846,4 +846,111 @@ test('output from a connection the page has left is never drawn', () => {
   link.detach()
   socket.bytes('after')
   assert.equal(screen.text(), 'before')
+})
+
+// ---- fix round 4 ----
+
+const sentText = (socket: { sent: string[] }) => socket.sent.filter(text => text.startsWith('{"t":"input"')).map(text => (JSON.parse(text) as { d: string }).d).join('')
+
+test('Ctrl-C goes through while the page is behind, and the hold stays', () => {
+  const { socket, link, last } = live()
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  assert.equal(last().held, true)
+  link.input('\x03', true)
+  assert.equal(sentText(socket), '\x03')
+  assert.equal(last().held, true)
+  link.input('\x1c', true)
+  assert.equal(sentText(socket), '\x03\x1c')
+})
+
+test('Ctrl-C pressed again and again after catching up goes through each time, and does not hold off the end of the hold', () => {
+  const { socket, screen, link, last, clock } = live()
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  screen.drain()
+  for (let i = 0; i < 20; i++) {
+    clock.now += 500
+    link.input('\x03', true)
+  }
+  assert.equal(sentText(socket), '\x03'.repeat(20))
+  // The interrupts did not refresh the gap: the next key lets go at once
+  link.input('b', true)
+  assert.equal(last().held, false)
+})
+
+test('pointer motion while held is dropped and does not refresh the quiet gap', () => {
+  const { socket, screen, link, last, clock } = live()
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  screen.drain()
+  for (let i = 0; i < 10; i++) {
+    clock.now += 500
+    link.input(`\x1b[<35;${i + 1};1M`, true)
+  }
+  link.input('b', true)
+  assert.equal(last().held, false, 'the motion did not keep the hold from ending')
+  assert.equal(sentText(socket), '')
+})
+
+test('the quiet gap is measured from when the page caught up, when that is later than the last held key', () => {
+  const { socket, screen, link, last, clock } = live()
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  clock.now += HOLD_QUIET_MS * 3
+  // Still behind for a long time after the key, then caught up
+  screen.drain()
+  link.input('b', true)
+  assert.equal(last().held, true, 'caught up just now: not yet quiet')
+  clock.now += HOLD_QUIET_MS
+  link.input('c', true)
+  assert.equal(last().held, false)
+})
+
+test('the quiet gap is measured from the last held key, not the first', () => {
+  const { socket, screen, link, last, clock } = live()
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  screen.drain()
+  clock.now += HOLD_QUIET_MS - 100
+  link.input('b', true)
+  clock.now += 200
+  link.input('c', true)
+  assert.equal(last().held, true, 'only 200 ms after the last held key')
+})
+
+test('the status says Held once caught up, and Catching up while behind', () => {
+  const { socket, screen, link, last } = live()
+  assert.equal(statusText(last()), 'Live')
+  socket.message(bytesOf(2 * MiB))
+  assert.equal(statusText(last()), 'Catching up…')
+  link.input('a', true)
+  screen.drain()
+  assert.equal(statusText(last()), 'Held: press a key or click Dismiss')
+})
+
+test('after falling behind and reconnecting, Ctrl-C goes through while the replay is still being drawn', () => {
+  const { socket, link } = rig()
+  socket.open()
+  socket.bytes('a long replay')
+  link.input('\x03', true)
+  link.input('a', true)
+  assert.equal(sentText(socket), '\x03')
+})
+
+test('the note that a key ended the hold, and the paste-closed note, clear with the next key typed', () => {
+  const { socket, screen, link, last, clock } = live()
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  screen.drain()
+  clock.now += HOLD_QUIET_MS
+  link.input('b', true)
+  assert.match(last().note, /not typed/)
+  link.input('c', true)
+  assert.equal(last().note, '')
+  socket.text('{"t":"paste-closed"}')
+  assert.match(last().note, /cut short/)
+  link.input('d', true)
+  assert.equal(last().note, '')
+  assert.equal(sentText(socket), 'cd')
 })

@@ -505,3 +505,25 @@ test('Dismiss lets go of the hold only on a person\'s click', async () => {
   userTypes(term().term, 'b')
   assert.equal(socket().typed(), 'b')
 })
+
+test('a paste is not typed while keys are held, and a confirmed one is refused while held', async () => {
+  const { host, panel, socket, term, last, live } = rig()
+  await live('\x1b[?2004h')
+  socket().message(new Uint8Array(2 << 20).buffer)
+  userTypes(term().term, 'a')
+  await new Promise<void>(done => term().term.write('', done))
+  assert.equal(last().held, true)
+  host.dispatch('paste', clipboard('one line'))
+  assert.equal(socket().typed(), '')
+  assert.match(last().note, /not live/)
+})
+
+test('a reconnect starts with no note from before it', async () => {
+  const { host, panel, socket, last, live } = rig()
+  await live()
+  host.dispatch('paste', clipboard('a\nb'))
+  socket().bytes('moved')
+  assert.match(last().note, /screen changed/)
+  panel.reconnect()
+  assert.equal(last().note, '')
+})

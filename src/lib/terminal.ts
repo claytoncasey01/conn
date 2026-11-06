@@ -375,6 +375,27 @@ const NORMAL_CLOSE = 1000
 export const TOO_LARGE = `That is too large to type at once: at most ${PASTE_BYTES_MAX >> 10} KiB, sent whole. Nothing was typed.`
 const HELD = 'The terminal is catching up with the program, so nothing was typed since. Once it has, press a key to type again, or Dismiss.'
 const PASTE_CLOSED = 'A paste was cut short and has been closed. Check the screen before typing.'
+const RELEASED = 'Typing again. The key that ended the hold was not typed.'
+/** The notes about input that the next key typed makes old: it shows the person is typing on. */
+const CLEARED_BY_A_KEY = new Set([TOO_LARGE, PASTE_CLOSED, RELEASED])
+/**
+ * The interrupt keys, Ctrl-C and Ctrl-\: always sent while the terminal is open, held or not, and never part of a hold.
+ * One can only stop a program, never submit or answer anything, and it is the person's way out of a program that floods
+ * its terminal.
+ */
+const INTERRUPTS = new Set(['\x03', '\x1c'])
+
+/** The panel's status for a view. */
+export function statusText(view: View): string {
+  if (view.phase === 'ended') {
+    if (view.exitCode !== null) return `Exited · ${view.exitCode}`
+  }
+  if (view.lagging) return 'Catching up…'
+  if (view.held) return 'Held: press a key or click Dismiss'
+  return STATUS[view.phase]
+}
+
+const STATUS: Record<Phase, string> = { connecting: 'Connecting…', replaying: 'Catching up…', live: 'Live', ended: 'Ended', closed: 'Closed' }
 const FELL_BEHIND: Notice = { text: 'This page fell behind the program\'s output, so the terminal was closed.', reconnect: true }
 
 /**
@@ -387,7 +408,9 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   const heard = options.heard ?? (() => {})
   const now = options.now ?? (() => performance.now())
   let view: View = { phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, held: false }
+  // When the last key was held, and when the page last caught up: the quiet gap runs from the later
   let heldAt = 0
+  let caughtUpAt = 0
   let wanted: Size | null = null
   let sent: Size | null = null
   let detached = false
@@ -419,7 +442,10 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   }
   const drawn = (size: number) => () => {
     pending -= size
-    if (view.lagging && pending < WRITE_PENDING_BYTES_LOW) update({ lagging: false })
+    if (view.lagging && pending < WRITE_PENDING_BYTES_LOW) {
+      caughtUpAt = now()
+      update({ lagging: false })
+    }
   }
   const draw = (data: ArrayBuffer) => {
     const size = data.byteLength
@@ -480,25 +506,35 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
       update({ note: TOO_LARGE })
       return
     }
-    // Only its own note is cleared by a key typed: the hold's and the closed paste's stay until read
-    if (view.note === TOO_LARGE) update({ note: '' })
+    // A key typed makes old the notes about earlier input; the hold's own note stays until the hold ends
+    if (CLEARED_BY_A_KEY.has(view.note)) update({ note: '' })
     socket.send(text)
   }
   // Behind the program, the screen shown is not the program's: a key would answer something not yet drawn. Once one key
   // is held, all are, until the page has caught up and a key comes after a quiet gap (it only lets go) or Dismiss
-  const holds = (): boolean => {
+  const holds = (data: string): boolean => {
     const at = now()
+    // Pointer reports are dropped while held or behind, and neither start a hold nor keep it from ending
+    if (isMouseReport(data)) return view.held || view.lagging
     if (view.held) {
-      const quiet = at - heldAt >= HOLD_QUIET_MS
+      const quiet = at - Math.max(heldAt, caughtUpAt) >= HOLD_QUIET_MS
       heldAt = at
       if (view.lagging || !quiet) return true
-      update({ held: false })
+      update({ held: false, note: RELEASED })
       return true
     }
     if (!view.lagging) return false
     heldAt = at
     update({ held: true, note: HELD })
     return true
+  }
+  // An interrupt goes as soon as the socket is open, during a replay too: after falling behind and reconnecting, it is how
+  // the person stops the program that flooded the page
+  const interrupt = (data: string) => {
+    if (view.phase !== 'live') {
+      if (view.phase !== 'replaying') return
+    }
+    socket.send(inputFrameText(data))
   }
   // The newest pointer motion waits for the next frame, so a fast pointer sends one report a frame, not one an event
   const sendMotion = () => {
@@ -510,9 +546,10 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   }
   return {
     input(data, focused) {
+      if (INTERRUPTS.has(data)) return interrupt(data)
       if (view.phase !== 'live') return
       if (!forwardable(data, focused)) return
-      if (holds()) return
+      if (holds(data)) return
       if (isMotionReport(data)) {
         if (motion === null) frame(sendMotion)
         motion = data
@@ -526,6 +563,7 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
     dismiss() {
       if (!view.held) return
       update({ held: false, note: view.note === HELD ? '' : view.note })
+      heldAt = 0
     },
     resize(size) {
       const fitted = fitSize(size)

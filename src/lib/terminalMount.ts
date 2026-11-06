@@ -216,6 +216,7 @@ export function mount(deps: MountDeps): Panel {
 
   const close = () => {
     cancelHeld()
+    note = ''
     link?.detach()
     term?.dispose()
     link = null
@@ -230,6 +231,11 @@ export function mount(deps: MountDeps): Panel {
     if (!term) return
     if (!link) return
     if (base.phase !== 'live') return
+    // While keys are held, so is a paste: it would be the key that ends the hold, and be thrown away
+    if (base.held) {
+      note = PASTE_NOT_LIVE
+      return render()
+    }
     const clean = cleanPaste(text)
     if (clean === '') return
     // One frame, markers and escapes counted, or nothing: a paste split over frames could lose its end marker
@@ -324,7 +330,7 @@ export function mount(deps: MountDeps): Panel {
       if (waiting?.kind === 'link') deps.openLink(waiting.url)
       if (waiting?.kind === 'paste') {
         // Typed only into the live terminal it was asked about
-        if (base.phase === 'live' && !base.lagging) term?.paste(text)
+        if (base.phase === 'live' && !base.lagging && !base.held) term?.paste(text)
         else note = PASTE_NOT_LIVE
       }
       render()

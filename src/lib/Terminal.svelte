@@ -9,6 +9,7 @@
   import '@xterm/xterm/css/xterm.css'
   import { termSocket } from './api.ts'
   import { plainText } from './ask.ts'
+  import { statusText } from './terminal.ts'
   import { LEAVE_KEY, mount, type Look, type Panel, type PanelView } from './terminalMount.ts'
   import { terminalFont, terminalTheme } from './terminalTheme.ts'
   import { theme } from './theme/theme.svelte.ts'
@@ -23,7 +24,6 @@
   const FONT_SIZE = 13
   /** The longest the panel waits for the theme's font before it opens with the fallback. */
   const FONT_WAIT_MS = 1500
-  const STATUS: Record<PanelView['phase'], string> = { connecting: 'Connecting…', replaying: 'Catching up…', live: 'Live', ended: 'Ended', closed: 'Closed' }
 
   const lookNow = (): Look => ({ theme: terminalTheme(theme.resolved.tokens), font: terminalFont(theme.resolved.tokens), size: FONT_SIZE })
 
@@ -97,7 +97,7 @@
 <section aria-label="Terminal of {plainText(name)}" class="surf brk panel" style="--c: var(--edge)">
   <div class="head">
     <div class="hud title">TERMINAL · <span data-content>{plainText(name)}</span></div>
-    <div class="status" class:live={view.phase === 'live'} class:bad={view.phase === 'closed'}>{view.phase === 'ended' && view.exitCode !== null ? `Exited · ${view.exitCode}` : view.lagging || view.held ? 'Catching up…' : STATUS[view.phase]}</div>
+    <div class="status" class:live={view.phase === 'live'} class:bad={view.phase === 'closed'}>{statusText(view)}</div>
     <div class="hint">{LEAVE_KEY} leaves the terminal</div>
     <div class="actions">
       {#if view.held}
