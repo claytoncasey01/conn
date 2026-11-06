@@ -45,6 +45,12 @@ test('each repository is a checkbox with its base, disabled and explained when a
   assert.match(work, /<input type="checkbox" checked=\{on\} disabled=\{!r\.ready\} onchange=\{\(\) => pickRepo\(r\.repo\)\}/)
   assert.match(work, /from origin\/\{r\.base \?\? 'the default branch'\}/)
   assert.match(work, /\{r\.reason \?\? 'There is no clone to build in\.'\}/)
+  // with no repository at all, or one that is not ready, the panel links to Settings
+  assert.match(work, /\{#if build\.repos\.length === 0 \|\| build\.repos\.some\(r => !r\.ready\)\}\s*<a href=\{href\.settings\(\)\}/)
+})
+
+test('with one repository the footer says what it always said', () => {
+  assert.match(work, /\{:else\}Moves \{sel\.key\} to an In Progress status, creates the branch and opens a session named \{sel\.key\}\.\{\/if\}/)
 })
 
 test('START is off and says "Choose a repository" while none that is ready is chosen', () => {

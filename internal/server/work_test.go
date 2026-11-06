@@ -21,7 +21,7 @@ import (
 // Open work through the server, and the 413 for its routes, through the
 // handler: a dry Open work, so no Jira, git or claude is ever reached. It is not there while
 // the Atlassian module is off, lists no project or the server is in setup; a change in Settings
-// takes effect with no restart; a run needs a clone of the build repository.
+// takes effect with no restart; a run needs a clone of each repository it builds in.
 
 const offText = `{"error":"Atlassian is off. Enable it in Settings."}`
 
@@ -233,7 +233,7 @@ func field(object *js.Object, key string) any {
 	return value
 }
 
-func TestWithOpenWorkOnTheDrySprintIsSyntheticAndTheBuildRepoHasItsClone(t *testing.T) {
+func TestWithOpenWorkOnTheDrySprintIsSyntheticAndTheDefaultRepoHasItsClone(t *testing.T) {
 	t.Parallel()
 
 	rig := newWorkRig(t, workSettings(workOn, ""))

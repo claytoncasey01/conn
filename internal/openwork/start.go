@@ -196,7 +196,7 @@ func (w *Work) startTicket(key, model string, had *Record, force bool, chose cho
 
 	record := w.newRecord(key, model, ticket, targets, chose.layout)
 	w.runs.Set(key, record)
-	w.log(record, logStatus, startedLine(record)+leftAsItWas(had, targets))
+	w.log(record, logStatus, startedLine(record)+w.leftAsItWas(had, targets))
 	w.pipeline(record)
 
 	return ok()
@@ -220,7 +220,7 @@ func startedLine(record *Record) string {
 
 // leftAsItWas names the worktrees of the run a START replaces that the new run does not build
 // in: they stay on disk as they are, for the person to keep or remove.
-func leftAsItWas(had *Record, targets []Target) string {
+func (w *Work) leftAsItWas(had *Record, targets []Target) string {
 	if had == nil {
 		return ""
 	}
@@ -232,7 +232,7 @@ func leftAsItWas(had *Record, targets []Target) string {
 			continue
 		}
 
-		if _, shared := sharedTarget(had, leg, targets); shared {
+		if _, shared := w.sharedTarget(had, leg, targets); shared {
 			continue
 		}
 
@@ -247,17 +247,19 @@ func leftAsItWas(had *Record, targets []Target) string {
 }
 
 // sharedTarget is the target of a new run that builds where an old run's leg did: the same
-// repository in any case, or the same worktree. The one leg of a run from before Settings, which
-// recorded no repository, built in the default repository: the new run's first.
-func sharedTarget(had *Record, leg *Leg, targets []Target) (Target, bool) {
-	if leg.Repo == "" {
+// repository in any case, or the same worktree. The one leg of a run from before Settings whose
+// repository nothing says (no record of it, no worktree to ask) built in the default
+// repository: the new run's first.
+func (w *Work) sharedTarget(had *Record, leg *Leg, targets []Target) (Target, bool) {
+	repo := w.repoOf(leg)
+	if repo == "" {
 		if len(had.Repos) == 1 {
 			return targets[0], true
 		}
 	}
 
 	for _, target := range targets {
-		if js.Lower(target.Repo) == js.Lower(leg.Repo) {
+		if js.Lower(target.Repo) == js.Lower(repo) {
 			return target, true
 		}
 
@@ -289,7 +291,7 @@ func (w *Work) baseMoved(key string, had *Record, targets []Target) []string {
 			continue
 		}
 
-		target, shared := sharedTarget(had, leg, targets)
+		target, shared := w.sharedTarget(had, leg, targets)
 		if !shared {
 			continue
 		}
@@ -390,7 +392,7 @@ func siblingOf(clone, lowerKey string) string {
 	return joinPath(dirOf(clone), baseOf(clone)+"-"+lowerKey)
 }
 
-// pipeline makes the worktree, moves the ticket into progress and researches it.
+// pipeline makes the worktrees, moves the ticket into progress and researches it.
 func (w *Work) pipeline(record *Record) {
 	w.running[record.Key] = true
 

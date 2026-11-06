@@ -5,7 +5,7 @@
 // module whose own switch is off makes no real call and writes nothing: GitHub only with
 // CONN_MYPRS_DRY or CONN_REVIEWS_DRY (every module runs dry in any seeded run), "Requests me"
 // only with CONN_REVIEWS_DRY, Slack never, Atlassian only with CONN_WORK_DRY, which also points
-// the build repository (acme/widgets) and a second one (acme/gadgets) at stand-in clones made in
+// the default repository (acme/widgets) and a second one (acme/gadgets) at stand-in clones made in
 // that folder: a folder whose git config names that repo as origin and whose origin/HEAD names
 // main, so the real clone and default-branch lookups run and no git process is needed. Nothing
 // here is real.
@@ -123,7 +123,7 @@ func update(holder Holder, name, body string) string {
 }
 
 // cloneRepos are the repositories seedWork makes stand-in clones of, with the folder each is in.
-// The first is the build repository.
+// The first is the default repository.
 func cloneRepos() [][2]string {
 	return [][2]string{
 		{"acme/widgets", "dry-clone"},

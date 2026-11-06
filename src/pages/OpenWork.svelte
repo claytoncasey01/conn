@@ -451,7 +451,7 @@
                 {#if build.repos.length === 0}
                   <div role="status" style="font-size: 12px; line-height: 1.5; color: var(--warn)">No repository to build in yet: allow one and set its clone in Settings.</div>
                 {/if}
-                {#if build.repos.some(r => !r.ready)}
+                {#if build.repos.length === 0 || build.repos.some(r => !r.ready)}
                   <a href={href.settings()} style="font-size: 12px; color: color-mix(in oklab, var(--ac) 60%, var(--bright))">Open Settings</a>
                 {/if}
               </fieldset>
@@ -510,7 +510,7 @@
               {#if startError}
                 <div role="alert" style="font-size: 12px; line-height: 1.5; color: color-mix(in oklab, var(--bad) 55%, var(--bright)); word-break: break-word">{startError}</div>
               {/if}
-              <div style="font-size: 11px; line-height: 1.5; color: color-mix(in oklab, var(--mu) 85%, var(--panel)); text-align: center">Moves {sel.key} to an In Progress status, creates the branch in {chosenReady.length > 1 ? `each of the ${chosenReady.length} repositories` : 'the repository'} and opens {chosenReady.length > 1 ? (layout === 'split' ? 'a session in each' : 'one session across them') : 'a session'} named {sel.key}.</div>
+              <div style="font-size: 11px; line-height: 1.5; color: color-mix(in oklab, var(--mu) 85%, var(--panel)); text-align: center">{#if chosenReady.length > 1}Moves {sel.key} to an In Progress status, creates the branch in each of the {chosenReady.length} repositories and opens {layout === 'split' ? 'a session in each' : 'one session across them'} named {sel.key}.{:else}Moves {sel.key} to an In Progress status, creates the branch and opens a session named {sel.key}.{/if}</div>
             </div>
           {:else if selRun?.state === 'pr_open'}
             {@const ps = prSlot(selRun)}
