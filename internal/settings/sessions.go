@@ -1,11 +1,7 @@
 package settings
 
 import (
-	"fmt"
-	"path/filepath"
-	"regexp"
 	"slices"
-	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
 )
@@ -14,60 +10,41 @@ import (
 const (
 	// WhereInside runs the session on a terminal Conn hosts, shown on its pages.
 	WhereInside = "inside"
-	// WhereTerminal asks a terminal app to run it: cmux, or the person's own terminal command.
+	// WhereTerminal asks cmux to run it in a new workspace.
 	WhereTerminal = "terminal"
 	// WhereCommand starts nothing and shows the command for the person to paste.
 	WhereCommand = "command"
-)
-
-// The placeholders a terminal command may hold, each replaced with the session's value.
-const (
-	// PlaceholderName is the session's name.
-	PlaceholderName = "{name}"
-	// PlaceholderDir is the folder the session runs in.
-	PlaceholderDir = "{dir}"
-	// PlaceholderCommand is the session's command, as one shell line.
-	PlaceholderCommand = "{command}"
 )
 
 const (
 	// SectionSessions is where sessions open.
 	SectionSessions = "sessions"
 
-	// terminalArgumentsMax and terminalArgumentUnitsMax bound a terminal command: how many
-	// arguments, and how long each, in UTF-16 code units as the page counts them.
-	terminalArgumentsMax     = 32
-	terminalArgumentUnitsMax = 1024
-
 	whereRule = "set it to inside, terminal or command"
+
+	// retiredTerminalCommand is a key an earlier build read: a program of the person's own to
+	// open sessions with. No setting may name a program, so it is never read, and a file that
+	// holds it says so.
+	retiredTerminalCommand = "terminalCommand"
 )
 
-var (
-	// controlShape is a control character, which no argument of a terminal command holds.
-	controlShape = regexp.MustCompile(`[\x00-\x1f\x7f]`)
-	// placeholderShape is what an argument of a terminal command holds that reads as a
-	// placeholder.
-	placeholderShape = regexp.MustCompile(`\{[^{}]*\}`)
-)
-
-// Sessions is where the sessions Conn starts open, the terminal command for WhereTerminal (empty:
-// cmux), and whether the sessions open at a quit are resumed at the next launch.
+// Sessions is where the sessions Conn starts open, and whether the sessions open at a quit are
+// resumed at the next launch. No field names a program: a terminal app is cmux (CONN_CMUX).
 type Sessions struct {
-	Where           string   `json:"where"`
-	TerminalCommand []string `json:"terminalCommand"`
-	ResumeOnLaunch  bool     `json:"resumeOnLaunch"`
+	Where          string `json:"where"`
+	ResumeOnLaunch bool   `json:"resumeOnLaunch"`
 }
 
-// sessionsDefaults are a fresh install's: inside Conn, no terminal command, resume on launch.
+// sessionsDefaults are a fresh install's: inside Conn, resume on launch.
 func sessionsDefaults() Sessions {
-	return Sessions{Where: WhereInside, TerminalCommand: []string{}, ResumeOnLaunch: true}
+	return Sessions{Where: WhereInside, ResumeOnLaunch: true}
 }
 
 // wheres are the choices of Sessions.Where.
 func wheres() []string { return []string{WhereInside, WhereTerminal, WhereCommand} }
 
 // readSessions reads the section leniently: each field that cannot be read is its default, with
-// a note in found.
+// a note in found. A terminal command an earlier build kept is left unread, with a note.
 func readSessions(raw any, present bool, found *problems) Sessions {
 	object := section(raw, present, SectionSessions, found)
 	value := sessionsDefaults()
@@ -82,14 +59,10 @@ func readSessions(raw any, present bool, found *problems) Sessions {
 		value.Where = chosen
 	}
 
-	command, commandPresent := object.Get("terminalCommand")
-	if commandPresent {
-		read, commandProblems := terminalCommand(command)
-		if len(commandProblems) > 0 {
-			found.addf("%s: using none", strings.Join(commandProblems, "; "))
-		}
-
-		value.TerminalCommand = read
+	_, retired := object.Get(retiredTerminalCommand)
+	if retired {
+		found.addf("sessions.terminalCommand is no longer read: sessions set to open in your " +
+			"terminal open in cmux, and saving this section drops it")
 	}
 
 	value.ResumeOnLaunch = boolField(object, "resumeOnLaunch", true, SectionSessions, found)
@@ -98,7 +71,8 @@ func readSessions(raw any, present bool, found *problems) Sessions {
 }
 
 // validateSessions reads the section as a PUT sends it, noting every problem in found. A field
-// left out is its default here; the store keeps the saved one in its place.
+// left out is its default here; the store keeps the saved one in its place. A key that is no
+// setting, the retired terminal command among them, is not read, so it is never saved.
 func validateSessions(object *js.Object, found *problems) Sessions {
 	value := sessionsDefaults()
 
@@ -110,13 +84,6 @@ func validateSessions(object *js.Object, found *problems) Sessions {
 		}
 
 		value.Where = chosen
-	}
-
-	command, commandPresent := object.Get("terminalCommand")
-	if commandPresent {
-		read, commandProblems := terminalCommand(command)
-		found.list = append(found.list, commandProblems...)
-		value.TerminalCommand = read
 	}
 
 	resume, resumePresent := object.Get("resumeOnLaunch")
@@ -145,117 +112,4 @@ func whereOf(raw any) (string, bool) {
 	}
 
 	return text, true
-}
-
-// terminalCommand reads a terminal command: the arguments, or none and every problem with them.
-// An empty list is no command of the person's own.
-func terminalCommand(raw any) ([]string, []string) {
-	list, isList := raw.([]any)
-	if !isList {
-		return []string{}, []string{fmt.Sprintf("sessions.terminalCommand %s is not a list: "+
-			"write it as a list of arguments", show(raw))}
-	}
-
-	if len(list) == 0 {
-		return []string{}, nil
-	}
-
-	if len(list) > terminalArgumentsMax {
-		return []string{}, []string{fmt.Sprintf("sessions.terminalCommand holds %d arguments: "+
-			"at most %d", len(list), terminalArgumentsMax)}
-	}
-
-	arguments := make([]string, 0, len(list))
-
-	var found []string
-
-	for _, entry := range list {
-		argument, problem := terminalArgument(entry)
-		if problem != "" {
-			found = append(found, problem)
-		}
-
-		arguments = append(arguments, argument)
-	}
-
-	found = append(found, terminalShape(arguments)...)
-	if len(found) > 0 {
-		return []string{}, found
-	}
-
-	return arguments, nil
-}
-
-// terminalArgument is one argument of a terminal command, and what is wrong with it ("" for
-// nothing). Text is answered even when it is refused, so the command's shape is judged on it.
-func terminalArgument(entry any) (string, string) {
-	argument, isText := entry.(string)
-	if !isText {
-		return "", fmt.Sprintf("sessions.terminalCommand %s is not text: write each argument "+
-			"as text", show(entry))
-	}
-
-	if argument == "" {
-		return "", "sessions.terminalCommand has an empty argument: remove it"
-	}
-
-	if js.Len(argument) > terminalArgumentUnitsMax {
-		return argument, fmt.Sprintf("sessions.terminalCommand has an argument of %d characters: "+
-			"at most %d", js.Len(argument), terminalArgumentUnitsMax)
-	}
-
-	if controlShape.MatchString(argument) {
-		return argument, fmt.Sprintf("sessions.terminalCommand %s holds a control character: "+
-			"remove it", show(argument))
-	}
-
-	for _, placeholder := range placeholderShape.FindAllString(argument, -1) {
-		if !slices.Contains(placeholders(), placeholder) {
-			return argument, fmt.Sprintf("sessions.terminalCommand %s has an unknown placeholder: "+
-				"use {name}, {dir} or {command}", show(argument))
-		}
-	}
-
-	return argument, ""
-}
-
-// terminalShape is what is wrong with a terminal command as a whole: its program must be an
-// absolute path, run as it is, and one of its arguments must take the command.
-func terminalShape(arguments []string) []string {
-	var found []string
-
-	program := arguments[0]
-	if !absoluteProgram(program) {
-		found = append(found, fmt.Sprintf("sessions.terminalCommand starts with %s: start it "+
-			"with the terminal program's absolute path", show(program)))
-	}
-
-	takesCommand := false
-
-	for _, argument := range arguments[1:] {
-		if strings.Contains(argument, PlaceholderCommand) {
-			takesCommand = true
-		}
-	}
-
-	if !takesCommand {
-		found = append(found, "sessions.terminalCommand has no {command}: add it as the "+
-			"argument the terminal runs")
-	}
-
-	return found
-}
-
-// absoluteProgram is whether program is an absolute path with no placeholder in it.
-func absoluteProgram(program string) bool {
-	if placeholderShape.MatchString(program) {
-		return false
-	}
-
-	return filepath.IsAbs(program)
-}
-
-// placeholders are the placeholders a terminal command may hold.
-func placeholders() []string {
-	return []string{PlaceholderName, PlaceholderDir, PlaceholderCommand}
 }

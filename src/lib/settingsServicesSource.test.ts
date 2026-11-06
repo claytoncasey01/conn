@@ -123,10 +123,10 @@ test('the Atlassian card: the build repository is an optional default with None 
   assert.match(script, /const setSessionLayout = \(value: string\) => \{[\s\S]*?edited\('atlassian'\)\s*\}/)
 })
 
-test('the sessions card offers each choice with its one line of help, and the terminal command is only text', () => {
+test('the sessions card offers each choice with its one line of help, and no field that names a program', () => {
   assert.match(page, /\{#each WHERE_CHOICES as choice \(choice\.value\)\}/)
   assert.match(page, /<b>\{choice\.label\}<\/b>/)
   assert.match(page, /<span class="hint">\{choice\.help\}<\/span>/)
-  assert.match(page, /bind:value=\{terminalText\}/)
+  assert.doesNotMatch(page, /terminalCommand|terminalText|sessions-terminal/)
   assert.doesNotMatch(page, /\{@html/)
 })

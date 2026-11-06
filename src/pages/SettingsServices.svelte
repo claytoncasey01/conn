@@ -35,7 +35,7 @@
     type SessionLayout,
     type SlackSettings,
   } from '../lib/settingsModel.ts'
-  import { WHERE_CHOICES, commandLines, commandText, sameSessions, sessionsSection, wroteSessions, type SessionsSettings } from '../lib/settingsSessions.ts'
+  import { WHERE_CHOICES, sameSessions, sessionsSection, wroteSessions, type SessionsSettings } from '../lib/settingsSessions.ts'
   import SettingsNameList from './SettingsNameList.svelte'
 
   let { view, setup, apply, reload }: { view: SettingsView; setup: boolean; apply: (v: SettingsView) => void; reload: () => Promise<void> } = $props()
@@ -55,11 +55,9 @@
   let atl = $state<AtlassianSettings>(untrack(() => copyAtl(view.settings.atlassian)))
   let requested = $state(untrack(() => view.settings.reviews.requested))
   let allOpen = $state(untrack(() => view.settings.reviews.allOpen))
-  // the terminal command is edited as text, one argument a line; the draft section is read from it
   let where = $state(untrack(() => view.settings.sessions.where))
-  let terminalText = $state(untrack(() => commandText(view.settings.sessions.terminalCommand)))
   let resume = $state(untrack(() => view.settings.sessions.resumeOnLaunch))
-  const sessionsDraft = $derived<SessionsSettings>({ where, terminalCommand: commandLines(terminalText), resumeOnLaunch: resume })
+  const sessionsDraft = $derived<SessionsSettings>({ where, resumeOnLaunch: resume })
 
   // A draft nobody has touched follows what the server now holds (a save from another tab); an edited one stays.
   let baseGh = untrack(() => view.settings.github)
@@ -100,7 +98,6 @@
     if (held === baseSessions) return
     if (untrack(() => sameSessions(sessionsDraft, baseSessions))) {
       where = held.where
-      terminalText = commandText(held.terminalCommand)
       resume = held.resumeOnLaunch
     }
     baseSessions = held
@@ -462,13 +459,6 @@
       {/each}
     </fieldset>
 
-    {#if where === 'terminal'}
-      <div class="selrow">
-        <label class="lab" for="sessions-terminal">Your terminal command, one argument a line (leave it empty for cmux)</label>
-        <textarea id="sessions-terminal" class="fld area" rows="4" spellcheck="false" autocomplete="off" placeholder={'/Applications/kitty.app/Contents/MacOS/kitty\n--directory\n{dir}\nsh\n-c\n{command}'} bind:value={terminalText} oninput={() => edited('sessions')}></textarea>
-        <p class="hint">Start with the terminal's absolute path. <code>{'{command}'}</code> is the session's command as one shell line, <code>{'{dir}'}</code> its folder and <code>{'{name}'}</code> its name. It runs as written, with no shell.</p>
-      </div>
-    {/if}
 
     <div class="row">
       {@render sw(resume, 'Resume sessions when conn starts', () => { resume = !resume; edited('sessions') }, 'sessions-resume')}
@@ -831,12 +821,6 @@
     color: var(--bright);
     font-size: 13px;
     font-weight: 600;
-  }
-  .fld.area {
-    min-height: 88px;
-    padding: 8px 10px;
-    line-height: 1.5;
-    resize: vertical;
   }
   .sum {
     padding: 9px 12px;

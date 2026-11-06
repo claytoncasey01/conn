@@ -179,7 +179,7 @@ func buildRepoRefusal(atlassian Atlassian, allow []string) string {
 }
 
 // keptSessions is a sessions section as a PUT sent it, with each field it left out as saved: a
-// page that changes where sessions open keeps the terminal command it does not show.
+// page that changes where sessions open keeps the resume switch it did not send.
 func keptSessions(sent, saved Sessions, body any) Sessions {
 	object, isObject := body.(*js.Object)
 	if !isObject {
@@ -190,10 +190,6 @@ func keptSessions(sent, saved Sessions, body any) Sessions {
 
 	if _, present := object.Get("where"); !present {
 		kept.Where = saved.Where
-	}
-
-	if _, present := object.Get("terminalCommand"); !present {
-		kept.TerminalCommand = slices.Clone(saved.TerminalCommand)
 	}
 
 	if _, present := object.Get("resumeOnLaunch"); !present {

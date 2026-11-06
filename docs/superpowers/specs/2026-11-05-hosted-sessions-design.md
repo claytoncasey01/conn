@@ -152,9 +152,9 @@ folder outside the allowed worktrees, a session id that is not a UUID) starts no
 ## Behaviour
 
 - **Where sessions open** (Settings, Atlassian-independent "Sessions" card): *Inside Conn*
-  (default), *My terminal* (the cmux code as it is, plus an optional custom open command with
-  `{name}`, `{dir}` and `{command}` placeholders, no shell), or *Show me the command* (what
-  happens today when cmux fails). Each module reads it when it starts a session.
+  (default), *My terminal* (the cmux code as it is; no setting names a program, per the
+  anti-goals, so there is no custom open command), or *Show me the command* (what happens today
+  when cmux fails; the line is written for sh, bash, zsh and fish, not csh or tcsh). Each module reads it when it starts a session.
 - **The page.** A hosted session has a Terminal panel on the Sessions page and on the Open work run
   page: the live screen, keyboard input, resize, a Detach/collapse control, and the existing ask
   panel above it. Opening the panel late shows the scrollback, then live output. Several viewers

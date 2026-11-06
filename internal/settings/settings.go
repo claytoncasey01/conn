@@ -230,8 +230,6 @@ func (s Settings) Clone() Settings {
 		copied.Atlassian.Jira.BaseBranches = map[string]string{}
 	}
 
-	copied.Sessions.TerminalCommand = slices.Clone(s.Sessions.TerminalCommand)
-
 	return copied
 }
 

@@ -111,7 +111,7 @@
 ### Task 7: Modules start hosted sessions
 
 **Files:**
-- Modify: `internal/openwork/build.go` (`openWorkspace`, `Resume`), `internal/reviews`, `internal/myprs`, `internal/historyapi`, `internal/settings` (a `sessions` section: `where` = `inside` | `terminal` | `command`, `terminalCommand`, `resumeOnLaunch`), `internal/app`, the Settings page, `internal/dryseed`, tests
+- Modify: `internal/openwork/build.go` (`openWorkspace`, `Resume`), `internal/reviews`, `internal/myprs`, `internal/historyapi`, `internal/settings` (a `sessions` section: `where` = `inside` | `terminal` | `command`, `resumeOnLaunch`; no `terminalCommand`, since no setting may name a program), `internal/app`, the Settings page, `internal/dryseed`, tests
 
 **Interfaces:**
 - Produces: owners return `pty.Spec` (argv, never a shell string); one function `ShellLine(argv []string) string` is the only place quoting happens (for the cmux and paste paths); `claude` comes from `CONN_CLAUDE`; `sessions.where` default `inside`.

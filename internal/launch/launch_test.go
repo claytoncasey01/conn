@@ -8,7 +8,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/claytoncasey01/conn/internal/argv"
 	"github.com/claytoncasey01/conn/internal/cmux"
 	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/pty"
@@ -22,10 +21,9 @@ const (
 )
 
 var (
-	errCmuxDown   = errors.New("cmux is not running")
-	errSpawn      = errors.New("too many sessions are running")
-	errNotOnPath  = errors.New("executable file not found in $PATH")
-	errNoTerminal = errors.New("the terminal is not installed")
+	errCmuxDown  = errors.New("cmux is not running")
+	errSpawn     = errors.New("too many sessions are running")
+	errNotOnPath = errors.New("executable file not found in $PATH")
 )
 
 // rig is an Opener's world: what each of its calls was given, and what they answer.
@@ -34,21 +32,17 @@ type rig struct {
 	sessions  settings.Sessions
 	started   []pty.Spec
 	cmuxCalls [][]string
-	terminals [][]string
 	startErr  error
 	cmuxOK    bool
-	termErr   error
 	found     string
 	foundErr  error
 }
 
 func newRig(where string) *rig {
 	return &rig{
-		mu: sync.Mutex{},
-		sessions: settings.Sessions{
-			Where: where, TerminalCommand: []string{}, ResumeOnLaunch: true,
-		},
-		cmuxOK: true, found: claudePath,
+		mu:       sync.Mutex{},
+		sessions: settings.Sessions{Where: where, ResumeOnLaunch: true},
+		cmuxOK:   true, found: claudePath,
 	}
 }
 
@@ -76,14 +70,6 @@ func (r *rig) opener() launch.Opener {
 			}
 
 			return cmux.Opened{OK: true, Error: "", ManualCommand: ""}
-		},
-		Terminal: func(_ context.Context, arguments []string) error {
-			r.mu.Lock()
-			defer r.mu.Unlock()
-
-			r.terminals = append(r.terminals, arguments)
-
-			return r.termErr
 		},
 		LookPath: func(string) (string, error) { return r.found, r.foundErr },
 		Environ:  func() []string { return []string{"HOME=/home/me", "CONN_PORT=7777"} },
@@ -131,7 +117,7 @@ func TestInsideStartsTheProgramItselfOnConnsTerminal(t *testing.T) {
 		t.Errorf("environment %q", world.started[0].Env)
 	}
 
-	if len(world.cmuxCalls)+len(world.terminals) != 0 {
+	if len(world.cmuxCalls) != 0 {
 		t.Error("a terminal app was asked")
 	}
 }
@@ -258,44 +244,6 @@ func TestInATerminalCmuxGetsTheOneShellLine(t *testing.T) {
 	}
 }
 
-// TestInATerminalTheOwnCommandKeepsEachArgumentWhole: the person's terminal command gets each
-// placeholder replaced inside its own argument, whatever the values hold, with no shell.
-func TestInATerminalTheOwnCommandKeepsEachArgumentWhole(t *testing.T) {
-	t.Parallel()
-
-	world := newRig(settings.WhereTerminal)
-	world.sessions.TerminalCommand = []string{
-		"/Applications/kitty", "--title={name}", "--directory", "{dir}", "sh", "-c",
-		"{command}",
-	}
-	spec := reviewSpec()
-	spec.Name = "a {dir} $(id)"
-
-	opened := world.opener()(t.Context(), spec)
-	if !opened.OK {
-		t.Fatalf("not opened: %+v", opened)
-	}
-
-	want := []string{
-		"/Applications/kitty", "--title=a {dir} $(id)", "--directory", folder, "sh", "-c",
-		argv.ShellLine(spec.Argv),
-	}
-	if !slices.Equal(world.terminals[0], want) {
-		t.Errorf("terminal got %q", world.terminals[0])
-	}
-
-	if len(world.cmuxCalls) != 0 {
-		t.Error("cmux was asked")
-	}
-
-	world.termErr = errNoTerminal
-
-	failed := world.opener()(t.Context(), spec)
-	if failed.ManualCommand != launch.PasteLine(spec) {
-		t.Errorf("manual command %q", failed.ManualCommand)
-	}
-}
-
 // TestAsACommandNothingStarts: the person is shown the line to paste: into the folder, then the
 // program, through ShellLine.
 func TestAsACommandNothingStarts(t *testing.T) {
@@ -313,7 +261,7 @@ func TestAsACommandNothingStarts(t *testing.T) {
 		t.Errorf("manual command %q", opened.ManualCommand)
 	}
 
-	if len(world.started)+len(world.cmuxCalls)+len(world.terminals) != 0 {
+	if len(world.started)+len(world.cmuxCalls) != 0 {
 		t.Error("something was started")
 	}
 }
@@ -363,7 +311,7 @@ func TestASpecNoSessionMayStartFromStartsNothing(t *testing.T) {
 					t.Errorf("a line to paste: %q", opened.ManualCommand)
 				}
 
-				if len(world.started)+len(world.cmuxCalls)+len(world.terminals) != 0 {
+				if len(world.started)+len(world.cmuxCalls) != 0 {
 					t.Error("something was started")
 				}
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"log"
-	"strings"
 	"testing"
 	"time"
 
@@ -62,8 +61,8 @@ func setWhere(t *testing.T, store *settings.Store, body string) {
 }
 
 // TestTheOpenerReadsWhereSessionsOpenAtEachStart: inside Conn a session runs on the host; saved
-// to show the command, the next start shows it and starts nothing; saved to my terminal with no
-// command of my own, cmux is asked, and its failure leaves the line to paste.
+// to show the command, the next start shows it and starts nothing; saved to my terminal, cmux is
+// asked, and its failure leaves the line to paste.
 func TestTheOpenerReadsWhereSessionsOpenAtEachStart(t *testing.T) {
 	t.Parallel()
 
@@ -104,31 +103,5 @@ func TestTheOpenerReadsWhereSessionsOpenAtEachStart(t *testing.T) {
 
 	if len(host.Live()) != 1 {
 		t.Errorf("hosted %d after the other two", len(host.Live()))
-	}
-}
-
-// TestTheTerminalCommandStartsWithNoShellAndIsNotWaitedFor: a program that is there starts, one
-// that is not says why.
-func TestTheTerminalCommandStartsWithNoShellAndIsNotWaitedFor(t *testing.T) {
-	t.Parallel()
-
-	started := time.Now()
-
-	err := openTerminal(t.Context(), []string{"/bin/sleep", "2"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if time.Since(started) > testtime.Scaled(stopLimit) {
-		t.Error("the terminal command was waited for")
-	}
-
-	err = openTerminal(t.Context(), []string{"/nonexistent/terminal", "{command}"})
-	if err == nil {
-		t.Fatal("a missing terminal started")
-	}
-
-	if !strings.Contains(err.Error(), "starting your terminal command") {
-		t.Errorf("error %q", err)
 	}
 }

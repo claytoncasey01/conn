@@ -1,6 +1,8 @@
 package settings_test
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -9,23 +11,22 @@ import (
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
-// TestTheSessionsDefaultsOpenInsideAndResume: a fresh install starts sessions inside Conn, has no
-// terminal command of its own and resumes on launch.
+// TestTheSessionsDefaultsOpenInsideAndResume: a fresh install starts sessions inside Conn and
+// resumes on launch.
 func TestTheSessionsDefaultsOpenInsideAndResume(t *testing.T) {
 	t.Parallel()
 
 	got := js.Stringify(settings.Defaults().Sessions)
-	if got != `{"where":"inside","terminalCommand":[],"resumeOnLaunch":true}` {
+	if got != `{"where":"inside","resumeOnLaunch":true}` {
 		t.Fatalf("got %s", got)
 	}
 }
 
 // TestASessionsSectionIsCheckedWhole: a PUT of the sessions section names every problem at once,
-// each saying what to set instead, and a good one comes back as it was sent.
+// each saying what to set instead, and a good one comes back as it was sent. No key names a
+// program: a terminal command sent is not read.
 func TestASessionsSectionIsCheckedWhole(t *testing.T) {
 	t.Parallel()
-
-	const kitty = `"/Applications/kitty.app/Contents/MacOS/kitty"`
 
 	tests := []struct {
 		name string
@@ -34,16 +35,15 @@ func TestASessionsSectionIsCheckedWhole(t *testing.T) {
 		want      string
 		wantError string
 	}{
+		{"each choice", `{"where":"terminal"}`, `{"where":"terminal","resumeOnLaunch":true}`, ""},
 		{
-			"each choice", `{"where":"terminal"}`,
-			`{"where":"terminal","terminalCommand":[],"resumeOnLaunch":true}`, "",
+			"the switch", `{"where":"command","resumeOnLaunch":false}`,
+			`{"where":"command","resumeOnLaunch":false}`, "",
 		},
 		{
-			"a terminal command",
-			`{"where":"terminal","terminalCommand":[` + kitty + `,"--directory","{dir}",` +
-				`"--title={name}","sh","-c","{command}"],"resumeOnLaunch":false}`,
-			`{"where":"terminal","terminalCommand":[` + kitty + `,"--directory","{dir}",` +
-				`"--title={name}","sh","-c","{command}"],"resumeOnLaunch":false}`, "",
+			"a terminal command is not read",
+			`{"where":"terminal","terminalCommand":["/bin/sh","-c","touch /tmp/x","{command}"]}`,
+			`{"where":"terminal","resumeOnLaunch":true}`, "",
 		},
 		{
 			"an unknown choice", `{"where":"tmux"}`, "",
@@ -58,51 +58,9 @@ func TestASessionsSectionIsCheckedWhole(t *testing.T) {
 			`sessions.resumeOnLaunch "yes" is not true or false: set it to true or false`,
 		},
 		{
-			"no command placeholder", `{"terminalCommand":[` + kitty + `,"--directory","{dir}"]}`,
-			"", "sessions.terminalCommand has no {command}: add it as the argument the " +
-				"terminal runs",
-		},
-		{
-			"a program that is not a path", `{"terminalCommand":["kitty","{command}"]}`, "",
-			`sessions.terminalCommand starts with "kitty": start it with the terminal ` +
-				"program's absolute path",
-		},
-		{
-			"a program that is a placeholder", `{"terminalCommand":["{command}"]}`, "",
-			`sessions.terminalCommand starts with "{command}": start it with the terminal ` +
-				"program's absolute path; sessions.terminalCommand has no {command}: add it as " +
-				"the argument the terminal runs",
-		},
-		{
-			"an unknown placeholder", `{"terminalCommand":[` + kitty + `,"{cmd}","{command}"]}`,
-			"", `sessions.terminalCommand "{cmd}" has an unknown placeholder: use {name}, ` +
-				"{dir} or {command}",
-		},
-		{
-			"a control character", `{"terminalCommand":[` + kitty + `,"a\nb","{command}"]}`, "",
-			`sessions.terminalCommand "a\nb" holds a control character: remove it`,
-		},
-		{
-			"an empty argument", `{"terminalCommand":[` + kitty + `,"","{command}"]}`, "",
-			`sessions.terminalCommand has an empty argument: remove it`,
-		},
-		{
-			"an argument that is not text", `{"terminalCommand":[` + kitty + `,7,"{command}"]}`,
-			"", `sessions.terminalCommand 7 is not text: write each argument as text`,
-		},
-		{
-			"not a list", `{"terminalCommand":"kitty {command}"}`, "",
-			`sessions.terminalCommand "kitty {command}" is not a list: write it as a list ` +
-				"of arguments",
-		},
-		{
-			"every problem at once",
-			`{"where":"x","terminalCommand":["k"],"resumeOnLaunch":0}`, "",
+			"every problem at once", `{"where":"x","resumeOnLaunch":0}`, "",
 			`sessions.where "x" is not a choice: set it to inside, terminal or command; ` +
-				`sessions.terminalCommand starts with "k": start it with the terminal ` +
-				"program's absolute path; sessions.terminalCommand has no {command}: add it as " +
-				`the argument the terminal runs; sessions.resumeOnLaunch 0 is not true or false: ` +
-				"set it to true or false",
+				"sessions.resumeOnLaunch 0 is not true or false: set it to true or false",
 		},
 	}
 
@@ -126,56 +84,21 @@ func TestASessionsSectionIsCheckedWhole(t *testing.T) {
 	}
 }
 
-// TestATerminalCommandIsBounded: a list too long, or an argument too long, is refused.
-func TestATerminalCommandIsBounded(t *testing.T) {
-	t.Parallel()
-
-	many := `["/bin/t"` + strings.Repeat(`,"a"`, 40) + `,"{command}"]`
-	long := `["/bin/t","` + strings.Repeat("a", 2000) + `","{command}"]`
-
-	tests := []struct {
-		name, body, want string
-	}{
-		{
-			"too many", `{"terminalCommand":` + many + `}`,
-			"sessions.terminalCommand holds 42 arguments: at most 32",
-		},
-		{
-			"too long", `{"terminalCommand":` + long + `}`,
-			"sessions.terminalCommand has an argument of 2000 characters: at most 1024",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			checked := settings.ValidateSection("sessions", parse(t, tt.body))
-			if checked.Error != tt.want {
-				t.Fatalf("error %q, want %q", checked.Error, tt.want)
-			}
-		})
-	}
-}
-
 // TestAHandEditedSessionsSectionDropsWhatIsBad: the file is read leniently, each bad field
 // falling back to its default with a note.
 func TestAHandEditedSessionsSectionDropsWhatIsBad(t *testing.T) {
 	t.Parallel()
 
 	loaded := settings.ParseDetailed(parse(t,
-		`{"sessions":{"where":"tmux","terminalCommand":["kitty"],"resumeOnLaunch":"no"}}`), true)
+		`{"sessions":{"where":"tmux","resumeOnLaunch":"no"}}`), true)
 
 	got := js.Stringify(loaded.Settings.Sessions)
-	if got != `{"where":"inside","terminalCommand":[],"resumeOnLaunch":true}` {
+	if got != `{"where":"inside","resumeOnLaunch":true}` {
 		t.Fatalf("got %s", got)
 	}
 
 	want := []string{
 		`sessions.where "tmux" is not a choice: using inside`,
-		`sessions.terminalCommand starts with "kitty": start it with the terminal program's ` +
-			"absolute path; sessions.terminalCommand has no {command}: add it as the argument " +
-			"the terminal runs: using none",
 		`sessions.resumeOnLaunch is not true or false ("no"): using true`,
 	}
 	if !slices.Equal(loaded.Dropped, want) {
@@ -183,19 +106,51 @@ func TestAHandEditedSessionsSectionDropsWhatIsBad(t *testing.T) {
 	}
 }
 
+// TestAnOldTerminalCommandIsNeverRead: a settings.json an earlier build wrote with a terminal
+// command is read without it, says so, and the next save writes the file without it.
+func TestAnOldTerminalCommandIsNeverRead(t *testing.T) {
+	t.Parallel()
+
+	dir := withFile(t, `{"repos":{"allow":["acme/*"]},"sessions":{"where":"terminal",`+
+		`"terminalCommand":["/bin/sh","-c","touch /tmp/pwned","{command}"]}}`)
+
+	loaded := settings.LoadDetailed(dir)
+
+	got := js.Stringify(loaded.Settings.Sessions)
+	if got != `{"where":"terminal","resumeOnLaunch":true}` {
+		t.Fatalf("got %s", got)
+	}
+
+	if !slices.Equal(loaded.Dropped, []string{"sessions.terminalCommand is no longer read: " +
+		"sessions set to open in your terminal open in cmux, and saving this section drops it"}) {
+		t.Fatalf("dropped %q", loaded.Dropped)
+	}
+
+	store := settings.NewStore(quiet())
+	store.Reload(dir)
+	mustUpdate(t, store, "sessions", `{"where":"terminal"}`)
+
+	saved, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(string(saved), "terminalCommand") {
+		t.Fatalf("the save kept it:\n%s", saved)
+	}
+}
+
 // TestAPutOfSessionsKeepsWhatItLeavesOut: a page that sends only where it wants sessions to open
-// keeps the terminal command and the resume switch that were saved.
+// keeps the resume switch that was saved.
 func TestAPutOfSessionsKeepsWhatItLeavesOut(t *testing.T) {
 	t.Parallel()
 
 	store, _ := newStore(t)
 
-	mustUpdate(t, store, "sessions", `{"where":"terminal","terminalCommand":["/bin/t",`+
-		`"{command}"],"resumeOnLaunch":false}`)
+	mustUpdate(t, store, "sessions", `{"where":"terminal","resumeOnLaunch":false}`)
 	mustUpdate(t, store, "sessions", `{"where":"command"}`)
 
-	want := `{"where":"command","terminalCommand":["/bin/t","{command}"],` +
-		`"resumeOnLaunch":false}`
+	want := `{"where":"command","resumeOnLaunch":false}`
 
 	got := js.Stringify(store.Get().Sessions)
 	if got != want {
