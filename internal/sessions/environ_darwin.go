@@ -8,15 +8,11 @@ import (
 )
 
 // environOf is a process's environment from the kernel's record of its arguments and
-// environment (sysctl kern.procargs2).
+// environment (sysctl kern.procargs2). The kernel bounds the record, at kern.argmax.
 func environOf(pid int) ([]string, error) {
 	raw, err := unix.SysctlRaw("kern.procargs2", pid)
 	if err != nil {
 		return nil, fmt.Errorf("reading the environment of process %d: %w", pid, err)
-	}
-
-	if len(raw) > environmentBytesMax {
-		return nil, fmt.Errorf("%w: process %d", errEnvironmentTooLarge, pid)
 	}
 
 	environment, valid := procArgsEnvironment(raw)

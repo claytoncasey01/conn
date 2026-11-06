@@ -76,13 +76,44 @@ func lineMode(_ *testing.T, _ *pty.Host, _ pty.ID, process *fakeProcess) {
 	process.lineMode.Store(true)
 }
 
-func focusReports(t *testing.T, host *pty.Host, sessionID pty.ID, _ *fakeProcess) {
+// viewerWrites is a step where a viewer writes data, the program having first asked for focus
+// reports when askedForFocus.
+func viewerWrites(data string, askedForFocus bool) stillStep {
+	return func(t *testing.T, host *pty.Host, sessionID pty.ID, process *fakeProcess) {
+		t.Helper()
+
+		if askedForFocus {
+			process.feed(t, []byte("\x1b[?1004h"))
+			waitFocusReports(t, host, sessionID)
+		}
+
+		err := host.Write(sessionID, []byte(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// waitFocusReports waits until the session's screen has taken the program's asking for focus
+// reports.
+func waitFocusReports(t *testing.T, host *pty.Host, sessionID pty.ID) {
 	t.Helper()
 
-	err := host.Write(sessionID, []byte("\x1b[O\x1b[I"))
-	if err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(waitLimit)
+	for time.Now().Before(deadline) {
+		_, mark, err := host.ScreenLines(sessionID, readScreenLines)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if mark.FocusReports {
+			return
+		}
+
+		time.Sleep(waitPoll)
 	}
+
+	t.Fatal("the screen never took the program's asking for focus reports")
 }
 
 // WriteIfStill types only while what the caller read still stands once the write's turn comes:
@@ -106,8 +137,22 @@ func TestWriteIfStillTypesOnlyWhileTheReadStands(t *testing.T) {
 		{"a viewer's key just before the read", lateViewerKey, nil, pty.ErrOtherInput, "3"},
 		{"a viewer's key settled before the read", settledViewerKey, nil, nil, "31"},
 		{"a query answered after the read", nil, queryAnswered, nil, deviceAttributesReply + "1"},
-		{"focus reports just before the read", focusReports, nil, nil, "\x1b[O\x1b[I1"},
-		{"focus reports after the read", nil, focusReports, nil, "\x1b[O\x1b[I1"},
+		{
+			"focus reports, asked for, just before the read",
+			viewerWrites("\x1b[O\x1b[I", true), nil, nil, "\x1b[O\x1b[I1",
+		},
+		{
+			"focus reports, asked for, after the read", nil, viewerWrites("\x1b[O\x1b[I", true),
+			nil, "\x1b[O\x1b[I1",
+		},
+		{
+			"focus reports the program did not ask for", nil, viewerWrites("\x1b[O", false),
+			pty.ErrOtherInput, "\x1b[O",
+		},
+		{
+			"a focus report, then a key", nil, viewerWrites("\x1b[O3", true), pty.ErrOtherInput,
+			"\x1b[O3",
+		},
 		{"another program has the terminal", nil, backgrounded, pty.ErrNotForeground, ""},
 		{"a program reads a line on the terminal", nil, lineMode, pty.ErrLineMode, ""},
 		{"the session ended", nil, ended, pty.ErrEnded, ""},
@@ -272,7 +317,7 @@ func TestWriteIfStillRefusesAsWriteDoes(t *testing.T) {
 
 	host, sessionID, _ := promptSession(t)
 	always := func([]string) bool { return true }
-	mark := pty.ScreenMark{Inputs: 0, Quiet: true, BracketedPaste: false}
+	mark := pty.ScreenMark{Inputs: 0, Quiet: true, BracketedPaste: false, FocusReports: false}
 
 	_, err := host.WriteIfStill(pty.ID("0123456789abcdef0123456789abcdef"), mark, readScreenLines,
 		always, []byte("1"))
@@ -423,8 +468,11 @@ func TestWaitScreenWakesWhenTheProgramDraws(t *testing.T) {
 	host, sessionID, process := promptSession(t)
 	waited := make(chan error, 1)
 
+	bounded, stop := context.WithTimeout(t.Context(), waitLimit)
+	defer stop()
+
 	go func() {
-		_, err := host.WaitScreen(t.Context(), sessionID, readScreenLines, drawn)
+		_, err := host.WaitScreen(bounded, sessionID, readScreenLines, drawn)
 		waited <- err
 	}()
 
@@ -443,7 +491,7 @@ func TestWaitScreenWakesWhenTheProgramDraws(t *testing.T) {
 
 	never := func([]string) bool { return false }
 
-	short, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	short, cancel := context.WithTimeout(t.Context(), settleWait)
 	defer cancel()
 
 	_, err := host.WaitScreen(short, sessionID, readScreenLines, never)
@@ -452,7 +500,7 @@ func TestWaitScreenWakesWhenTheProgramDraws(t *testing.T) {
 	}
 
 	go func() {
-		_, err := host.WaitScreen(t.Context(), sessionID, readScreenLines, never)
+		_, err := host.WaitScreen(bounded, sessionID, readScreenLines, never)
 		waited <- err
 	}()
 
@@ -461,5 +509,71 @@ func TestWaitScreenWakesWhenTheProgramDraws(t *testing.T) {
 	err = <-waited
 	if !errors.Is(err, pty.ErrEnded) {
 		t.Errorf("a wait on an ending session = %v, want %v", err, pty.ErrEnded)
+	}
+}
+
+// A wait with no deadline is a mistake in the code.
+func TestWaitScreenNeedsADeadline(t *testing.T) {
+	t.Parallel()
+
+	host, sessionID, _ := promptSession(t)
+
+	defer func() {
+		if recover() == nil {
+			t.Error("a wait with no deadline was let through")
+		}
+	}()
+
+	_, _ = host.WaitScreen(context.WithoutCancel(t.Context()), sessionID, readScreenLines,
+		func([]string) bool { return true })
+}
+
+// Input the terminal took late counts as settled only foreignWriteSettle after it was taken,
+// not after its turn began: a read right after a key that was held 400 ms is not settled, and a
+// write checked against it is refused.
+func TestAKeyTakenLateIsNotSettledAtOnce(t *testing.T) {
+	t.Parallel()
+
+	gate := make(chan struct{})
+	spawner := &fakes{writeGate: gate}
+	host := pty.NewHost(pty.Config{
+		Spawner: spawner.spawn, Limits: pty.DefaultLimits(), Answers: pty.Answers{},
+		TurnWaited: nil,
+	})
+
+	t.Cleanup(func() { _ = host.StopAll(context.WithoutCancel(t.Context())) })
+
+	sessionID, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	process := spawner.last(t)
+	viewer := make(chan error, 1)
+
+	go func() { viewer <- host.Write(sessionID, []byte("3")) }()
+
+	waitWriting(t, process)
+	time.Sleep(settleWait)
+	close(gate)
+
+	err = <-viewer
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, mark, err := host.ScreenLines(sessionID, readScreenLines)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if mark.Quiet {
+		t.Error("a read right after a key taken late is settled")
+	}
+
+	_, err = host.WriteIfStill(sessionID, mark, readScreenLines,
+		func([]string) bool { return true }, []byte("1"))
+	if !errors.Is(err, pty.ErrOtherInput) {
+		t.Errorf("WriteIfStill = %v, want %v", err, pty.ErrOtherInput)
 	}
 }

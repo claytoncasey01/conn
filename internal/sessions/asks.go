@@ -308,6 +308,18 @@ func (s *store) tombstone(pid string, session *Session, stamp float64) string {
 	return tomb.id
 }
 
+// justAnswered is whether askID names the prompt just answered in this session, on the same
+// status stamp: the same prompt, whatever input count its id holds (see withInputs), since the
+// answer's own key moves the count.
+func (s *store) justAnswered(pid string, session *Session, stamp float64, askID string) bool {
+	answered := s.tombstone(pid, session, stamp)
+	if answered == "" {
+		return false
+	}
+
+	return baseID(answered) == baseID(askID)
+}
+
 // record keeps what a session's screen asked, as read; the version moves when the ask appeared,
 // went or changed.
 func (s *store) record(pid string, session *Session, stamp float64, parsed *ask.Ask, now float64) {

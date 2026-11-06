@@ -20,6 +20,9 @@ import (
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
+// replyLinesRead is how many screen lines a test reads.
+const replyLinesRead = 40
+
 // settledAfter is longer than the host's settle window for input (250 ms).
 const settledAfter = 400 * time.Millisecond
 
@@ -1246,6 +1249,9 @@ const (
 	// keyHeldByTheTerminal is still being written (a full input queue) past the settle window
 	// when the action reads, and taken while the action waits for its turn.
 	keyHeldByTheTerminal
+	// keyTakenLateJustBefore is held by the terminal past the settle window, then taken, just
+	// before the action reads: the window counts from when it was taken.
+	keyTakenLateJustBefore
 )
 
 // Input another viewer typed refuses a click or a reply made on the screen as it looked before
@@ -1280,6 +1286,10 @@ func TestOtherInputRefusesASendOnTheScreenBeforeIt(t *testing.T) {
 		{
 			"an answer after a key the terminal took late", "waiting", "permission prompt",
 			permissionScreen("ls"), "3", true, keyHeldByTheTerminal, "",
+		},
+		{
+			"a reply just after a key the terminal took late", "idle", "", idleBox, "x", false,
+			keyTakenLateJustBefore, otherInput,
 		},
 	}
 
@@ -1331,6 +1341,24 @@ func afterViewerKey(t *testing.T, fake *world, hostedID string, held *program, k
 
 	if how == keyHeldByTheTerminal {
 		return afterHeldKey(t, fake, hostedID, held, key, act)
+	}
+
+	if how == keyTakenLateJustBefore {
+		release := held.holdWrites()
+		viewer := make(chan error, 1)
+
+		go func() { viewer <- fake.host.Write(pty.ID(hostedID), []byte(key)) }()
+
+		held.waitWriting(t)
+		time.Sleep(settledAfter)
+		release()
+
+		err := <-viewer
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return act(t.Context())
 	}
 
 	err := fake.host.Write(pty.ID(hostedID), []byte(key))
@@ -1449,6 +1477,7 @@ func TestAReplyIsTypedAsTheTerminalTakesIt(t *testing.T) {
 
 			if tt.pasteOff {
 				held.show(t, "\x1b[?2004l"+idleBox)
+				waitPastesUnbracketed(t, fake.host, hostedID)
 			}
 
 			loop := start(t, fake)
@@ -1725,5 +1754,89 @@ func TestAnAnswerAfterEarlierInputIsPressed(t *testing.T) {
 
 	if typed := held.typed(); typed != "x1" {
 		t.Errorf("typed %q, want the viewer's x, then 1", typed)
+	}
+}
+
+// waitPastesUnbracketed waits until the session's screen has taken the program's turning
+// bracketed paste off.
+func waitPastesUnbracketed(t *testing.T, host *pty.Host, hostedID string) {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(5 * time.Second))
+	for time.Now().Before(deadline) {
+		_, mark, err := host.ScreenLines(pty.ID(hostedID), replyLinesRead)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !mark.BracketedPaste {
+			return
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Fatal("the screen never took bracketed paste off")
+}
+
+// A prompt the page has just answered stays the answered prompt while it is still on screen,
+// whatever the answer's own key did to the input count: the page is shown it under the id it
+// answered, and a second press, under that id or under the count after it, is refused, so one
+// press reaches the program, never a second that would land on the next dialog.
+func TestASecondPressOfAJustAnsweredPromptIsRefused(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	stamp := float64(time.Now().UnixMilli() - 5000)
+	hostedID, held := fake.hostedSession(145, "b", "waiting", "permission prompt",
+		permissionScreen("ls"), stamp)
+	loop := start(t, fake)
+
+	answered, _ := askByID(t, loop, hostedID)["id"].(string)
+
+	first := loop.Answer(t.Context(), hostedID, pressOne(answered))
+	if body(first) != `{"ok":true}` {
+		t.Fatalf("the answer: %d %s", first.Code, body(first))
+	}
+
+	// The program has not redrawn: the prompt is still on screen, read again past the settle
+	// window.
+	time.Sleep(settledAfter)
+
+	shown, _ := askByID(t, loop, hostedID)["id"].(string)
+	if shown != answered {
+		t.Errorf("the prompt just answered is shown as %q, not as %q", shown, answered)
+	}
+
+	justAnswered := `"error":"this prompt was just answered and the terminal has not moved on ` +
+		`yet, so nothing was sent"`
+
+	for _, askID := range []string{shown, strings.TrimSuffix(answered, ".0") + ".1"} {
+		again := loop.Answer(t.Context(), hostedID, pressOne(askID))
+		if again.Code != http.StatusConflict {
+			t.Errorf("a second press on %s: %d %s", askID, again.Code, body(again))
+		}
+
+		if askID == shown {
+			if !strings.Contains(body(again), justAnswered) {
+				t.Errorf("a second press on %s: %s", askID, body(again))
+			}
+		}
+	}
+
+	if typed := held.typed(); typed != "1" {
+		t.Errorf("typed %q, want one 1", typed)
+	}
+
+	// A viewer's key while the prompt still stands does not show it again as a new prompt.
+	err := fake.host.Write(pty.ID(hostedID), []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(settledAfter)
+
+	if again, _ := askByID(t, loop, hostedID)["id"].(string); again != answered {
+		t.Errorf("after a viewer's key the prompt just answered is shown as %q", again)
 	}
 }

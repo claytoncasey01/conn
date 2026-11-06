@@ -452,3 +452,32 @@ func TestScreenFollowsBracketedPaste(t *testing.T) {
 		})
 	}
 }
+
+// The screen follows the program's asking for focus reports (1004): on, off, and off again
+// after a reset.
+func TestScreenFollowsFocusReports(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, output string
+		want         bool
+	}{
+		{"a new screen", "", false},
+		{"turned on", "\x1b[?1004h", true},
+		{"turned off", "\x1b[?1004h\x1b[?1004l", false},
+		{"reset", "\x1b[?1004h\x1bc", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			screen := newScreen(t, 80, 24)
+			screen.Feed([]byte(tt.output))
+
+			if got := screen.FocusReports(); got != tt.want {
+				t.Errorf("FocusReports = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -47,10 +47,11 @@ type Screen struct {
 	// top and bottom are the scroll region's rows, inclusive.
 	top    int
 	bottom int
-	// autowrap and origin are DEC modes 7 and 6, bracketedPaste mode 2004.
+	// autowrap and origin are DEC modes 7 and 6, bracketedPaste mode 2004, focusReports 1004.
 	autowrap       bool
 	origin         bool
 	bracketedPaste bool
+	focusReports   bool
 	// lastPrinted is the character a repeat (REP) repeats.
 	lastPrinted rune
 	parser      parser
@@ -115,8 +116,8 @@ func NewScreen(size Size) (*Screen, error) {
 		size: size, columns: columns, rows: rows,
 		main: newGrid(columns, rows), alternate: newGrid(columns, rows), onAlternate: false,
 		cursor: cursorState{}, top: 0, bottom: rows - 1, autowrap: true, origin: false,
-		bracketedPaste: false,
-		lastPrinted:    cellEmpty, parser: parser{}, queries: make([]Query, 0, queriesPendingMax),
+		bracketedPaste: false, focusReports: false,
+		lastPrinted: cellEmpty, parser: parser{}, queries: make([]Query, 0, queriesPendingMax),
 		generation: 0, changed: false,
 		wide: wideRanges(), graphics: lineDrawing(), answered: answeredQueries(),
 	}
@@ -229,6 +230,9 @@ func (s *Screen) Size() Size { return s.size }
 // lines.
 func (s *Screen) Generation() uint64 { return s.generation }
 
+// FocusReports is whether the program has asked to be told of the terminal's focus (mode 1004).
+func (s *Screen) FocusReports() bool { return s.focusReports }
+
 // BracketedPaste is whether the program has asked for pastes bracketed (mode 2004), so a paste
 // it is sent can hold line breaks that are not Enter.
 func (s *Screen) BracketedPaste() bool { return s.bracketedPaste }
@@ -321,6 +325,7 @@ func (s *Screen) reset() {
 	s.autowrap = true
 	s.origin = false
 	s.bracketedPaste = false
+	s.focusReports = false
 	s.lastPrinted = cellEmpty
 }
 

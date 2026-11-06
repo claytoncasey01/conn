@@ -172,7 +172,7 @@ func (s *store) readAgain(plan sendPlan, screen string, stamp, now float64) *ask
 	read := s.screenAsk(plan.key, session, screen, stamp)
 
 	if plan.hosted != "" {
-		read = withInputs(read, plan.inputs)
+		read = s.keepAnswered(plan.key, session, stamp, withInputs(read, plan.inputs))
 	}
 
 	if s.sessions[plan.key] == session {
@@ -205,7 +205,7 @@ func (s *store) samePrompt(plan sendPlan, shownAsk *ask.Ask, stamp float64, askI
 		return textMovedOn
 	case shownAsk == nil, shownAsk.ID != askID:
 		return textNotShown
-	case s.tombstone(plan.key, session, stamp) == shownAsk.ID:
+	case s.justAnswered(plan.key, session, stamp, shownAsk.ID):
 		return "this prompt was just answered and the terminal has not moved on yet, " +
 			"so nothing was sent"
 	}

@@ -153,7 +153,9 @@ func (l *Loop) pressEnter(
 	switch {
 	case err == nil:
 		return done()
-	case errors.Is(err, pty.ErrEnded), errors.Is(err, pty.ErrNoSession):
+	case errors.Is(err, pty.ErrEnded):
+		return conflictAsk(textEnded, nil)
+	case errors.Is(err, pty.ErrNoSession):
 		return conflictAsk(textEnded, nil)
 	}
 
@@ -214,16 +216,48 @@ func promptStillShown(stamp float64, inputs uint64, askID string) func(lines []s
 
 // withInputs is a hosted session's ask with the session's input count at the read in its id: a
 // prompt read again after input reached the session (a viewer answered it, and an identical one
-// came up) is another ask, and a click on the one shown before is refused.
+// came up) is another ask, and a click on the one shown before is refused. While the prompt the
+// page just answered stands, keepAnswered gives it back under the id it was answered as.
 func withInputs(found *ask.Ask, inputs uint64) *ask.Ask {
 	if found == nil {
 		return nil
 	}
 
 	counted := *found
-	counted.ID = found.ID + "." + strconv.FormatUint(inputs, 10)
+	counted.ID = found.ID + countSeparator + strconv.FormatUint(inputs, 10)
 
 	return &counted
+}
+
+// countSeparator ends an ask's own id and starts the input count withInputs adds.
+const countSeparator = "."
+
+// baseID is an ask's id without the input count withInputs adds.
+func baseID(askID string) string {
+	base, _, _ := strings.Cut(askID, countSeparator)
+
+	return base
+}
+
+// keepAnswered is found under the id it was answered as, while it is the prompt just answered
+// in this session on the same status stamp: the answer's own key, or any input after it, moves
+// the count but not the prompt, so the page stays on the answered id, which it holds locked, and
+// a second click on it is refused as just answered. Any other ask is found as it is.
+func (s *store) keepAnswered(pid string, session *Session, stamp float64,
+	found *ask.Ask,
+) *ask.Ask {
+	if found == nil {
+		return nil
+	}
+
+	if !s.justAnswered(pid, session, stamp, found.ID) {
+		return found
+	}
+
+	kept := *found
+	kept.ID = s.tombstone(pid, session, stamp)
+
+	return &kept
 }
 
 // hostedFailure is the answer to a read or a write the host refused. Nothing in it is the
@@ -238,7 +272,9 @@ func hostedFailure(err error) Reply {
 		return conflictAsk(textNotForeground, nil)
 	case errors.Is(err, pty.ErrLineMode):
 		return conflictAsk(textLineMode, nil)
-	case errors.Is(err, pty.ErrEnded), errors.Is(err, pty.ErrNoSession):
+	case errors.Is(err, pty.ErrEnded):
+		return conflictAsk(textEnded, nil)
+	case errors.Is(err, pty.ErrNoSession):
 		return conflictAsk(textEnded, nil)
 	case errors.Is(err, pty.ErrInputBlocked):
 		return failure(http.StatusBadGateway, textNotTaking)

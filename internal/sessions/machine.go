@@ -14,8 +14,6 @@ const (
 	// procsTimeout bounds the one ps call for the whole machine.
 	procsTimeout = 10 * time.Second
 	procsBytes   = 16 << 20
-	// environmentBytesMax bounds a process's environment as read: past it, it is not read.
-	environmentBytesMax = 4 << 20
 	// prViewBytes is execFile's default cap on gh's output.
 	prViewBytes = 1 << 20
 )

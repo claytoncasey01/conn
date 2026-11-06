@@ -11,6 +11,9 @@ const (
 	// modeBracketedPaste is the program asking for pastes bracketed, so a line break in one is
 	// not Enter.
 	modeBracketedPaste = 2004
+	// modeFocusReports is the program asking to be told when the terminal gains and loses the
+	// focus.
+	modeFocusReports = 1004
 )
 
 // The graphic renditions (SGR) the screen reads: concealment, and the colours whose parameters
@@ -269,6 +272,8 @@ func (s *Screen) privateMode(mode int, set bool) {
 		s.alternateWithCursor(set)
 	case modeBracketedPaste:
 		s.bracketedPaste = set
+	case modeFocusReports:
+		s.focusReports = set
 	}
 }
 

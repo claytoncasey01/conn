@@ -239,7 +239,7 @@ func (s *store) readHostedAsks(now float64) {
 		}
 
 		stamp := statusStamp(session.reg)
-		found := s.screenAsk(key, session, ask.ScreenText(lines), stamp)
-		s.record(key, session, stamp, withInputs(found, mark.Inputs), now)
+		found := withInputs(s.screenAsk(key, session, ask.ScreenText(lines), stamp), mark.Inputs)
+		s.record(key, session, stamp, s.keepAnswered(key, session, stamp, found), now)
 	}
 }

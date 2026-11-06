@@ -2,11 +2,18 @@ package sessions
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 )
+
+// environmentBytesMax bounds a process's environment as read: past it, it is not read.
+const environmentBytesMax = 4 << 20
+
+// errEnvironmentTooLarge is an environment past environmentBytesMax.
+var errEnvironmentTooLarge = errors.New("the environment is too large to read")
 
 // environOf is a process's environment from /proc/<pid>/environ.
 func environOf(pid int) ([]string, error) {

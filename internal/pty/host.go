@@ -185,6 +185,9 @@ type ScreenMark struct {
 	Inputs         uint64
 	Quiet          bool
 	BracketedPaste bool
+	// FocusReports is whether the program has asked for focus reports (mode 1004): a viewer's
+	// focus reports are not input only then.
+	FocusReports bool
 }
 
 // WriteIfStill types data into the session's terminal only while what the caller read with
@@ -214,7 +217,10 @@ func (h *Host) WriteIfStill(
 		return ScreenMark{}, err
 	}
 
-	return ScreenMark{Inputs: inputs, Quiet: true, BracketedPaste: mark.BracketedPaste}, nil
+	return ScreenMark{
+		Inputs: inputs, Quiet: true, BracketedPaste: mark.BracketedPaste,
+		FocusReports: mark.FocusReports,
+	}, nil
 }
 
 // Resize sets the session's terminal to columns by rows.
@@ -263,6 +269,7 @@ func (h *Host) ScreenLines(sessionID ID, count int) ([]string, ScreenMark, error
 
 	return held.screen.Lines(count), ScreenMark{
 		Inputs: inputs, Quiet: quiet, BracketedPaste: held.screen.BracketedPaste(),
+		FocusReports: held.screen.FocusReports(),
 	}, nil
 }
 
@@ -279,6 +286,18 @@ func (held *session) settled() bool {
 	}
 
 	return time.Since(held.startedAt)-time.Duration(held.inputAt.Load()) >= foreignWriteSettle
+}
+
+// focusReported is whether data is only focus reports, which the program has asked for.
+func (held *session) focusReported(data []byte) bool {
+	if !onlyFocusReports(data) {
+		return false
+	}
+
+	held.screenMu.Lock()
+	defer held.screenMu.Unlock()
+
+	return held.screen.FocusReports()
 }
 
 // lines is the bottom count lines of the session's screen now.
@@ -368,8 +387,10 @@ func (h *Host) write(sessionID ID, data []byte, check *screenCheck) (uint64, err
 		return writing.inputs.Load(), nil
 	}
 
-	// A viewer's focus reports are the page's own, not keys: they never make a screen read stale.
-	input := !onlyFocusReports(data)
+	// A viewer's focus reports, while the program has asked for them, are the page's own, not
+	// keys: they never make a screen read stale. A program that has not asked reads them as keys
+	// (Escape, then [ and a letter), so then they count.
+	input := !writing.focusReported(data)
 
 	return h.typeInto(writing, data, typing{check: check, input: input})
 }
@@ -446,7 +467,11 @@ func (h *Host) takeTurn(writing *session) error {
 // terminal, or one whose program side is gone (EIO, ENOTTY), is the session ending, ErrEnded.
 func keyboardFailure(err error) error {
 	switch {
-	case errors.Is(err, os.ErrClosed), errors.Is(err, syscall.EIO), errors.Is(err, syscall.ENOTTY):
+	case errors.Is(err, os.ErrClosed):
+		return fmt.Errorf("%w: %w", ErrEnded, err)
+	case errors.Is(err, syscall.EIO):
+		return fmt.Errorf("%w: %w", ErrEnded, err)
+	case errors.Is(err, syscall.ENOTTY):
 		return fmt.Errorf("%w: %w", ErrEnded, err)
 	}
 
