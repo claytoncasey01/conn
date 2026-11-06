@@ -16,3 +16,12 @@ const (
 	QueriesPendingMax   = queriesPendingMax
 	AnswersQueuedMax    = answersQueuedMax
 )
+
+// DeniedNames and DeniedPrefixes are the deny tables, so a test can try every entry.
+func DeniedNames() []string { return deniedNames() }
+
+// DeniedPrefixes is deniedPrefixes.
+func DeniedPrefixes() []string { return deniedPrefixes() }
+
+// ReplacedCount is how many variables the host sets itself.
+func ReplacedCount() int { return len(replacedVariables()) }

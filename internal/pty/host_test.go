@@ -147,8 +147,8 @@ func TestStartChecksTheSpec(t *testing.T) {
 		{"no name", func(spec *pty.Spec) { spec.Name = "" }, 1},
 		{"too long a name", func(spec *pty.Spec) { spec.Name = string(make([]byte, 257)) }, 1},
 		{"too many variables", func(spec *pty.Spec) { spec.Env = variables(4097) }, 1},
-		{"too many variables once TERM is added", func(spec *pty.Spec) {
-			spec.Env = variables(4096)
+		{"too many variables once TERM and COLORTERM are added", func(spec *pty.Spec) {
+			spec.Env = variables(4097 - pty.ReplacedCount())
 		}, 1},
 		{"every problem at once", func(spec *pty.Spec) {
 			spec.Argv = nil
@@ -197,13 +197,13 @@ func variables(count int) []string {
 	return entries
 }
 
-// The limit bounds the environment the program gets, TERM included.
+// The limit bounds the environment the program gets, TERM and COLORTERM included.
 func TestStartAcceptsAnEnvironmentAtTheLimit(t *testing.T) {
 	t.Parallel()
 
 	host, spawner := newFakeHost(t, pty.DefaultLimits())
 	spec := testSpec(t)
-	spec.Env = variables(4095)
+	spec.Env = variables(4096 - pty.ReplacedCount())
 
 	_, err := host.Start(t.Context(), spec)
 	if err != nil {

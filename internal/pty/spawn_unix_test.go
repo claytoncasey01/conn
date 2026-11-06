@@ -273,30 +273,45 @@ func TestRealResizeIsSeenByTheProgram(t *testing.T) {
 
 // The environment tests never print an environment they read: a failure would copy the
 // parent's, secrets and all, into the test log.
-func TestRealEnvironmentHoldsNothingOfConnOrCmux(t *testing.T) {
+func TestRealEnvironmentHoldsNothingOfConnCmuxOrTheParent(t *testing.T) {
 	t.Parallel()
 
 	host := newRealHost(t)
 	env := []string{
 		"KEEP=kept", "CONN_DATA=/data", "CONN_SECRET=hunter2", "conn_port=1",
 		"CMUX_SOCKET_PATH=/tmp/cmux", "Cmux_Surface=2", "TERM=xterm-ghostty",
+		"COLORTERM=24bit", "TERM_PROGRAM=ghostty", "GHOSTTY_RESOURCES_DIR=/g", "TMUX=/t,1,0",
+		"CLAUDECODE=1", "CLAUDE_CODE_MESSAGING_TOKEN=secret", "CLAUDE_CODE_SESSION_ID=u",
+		"ANTHROPIC_API_KEY=kept-key",
 	}
 	sessionID := startReal(t, host, untilRead("/usr/bin/env"), env)
 
 	output := outputThrough(t, host, sessionID)
+	denied := map[string]bool{}
+
+	for _, name := range pty.DeniedNames() {
+		denied[name] = true
+	}
 
 	for line := range strings.SplitSeq(output, "\r\n") {
 		name, _, _ := strings.Cut(line, "=")
-		if strings.HasPrefix(strings.ToUpper(name), "CONN_") {
+		upper := strings.ToUpper(name)
+
+		if denied[upper] {
 			t.Errorf("the child's environment holds a variable named %q", name)
 		}
 
-		if strings.HasPrefix(strings.ToUpper(name), "CMUX_") {
-			t.Errorf("the child's environment holds a variable named %q", name)
+		for _, prefix := range pty.DeniedPrefixes() {
+			if strings.HasPrefix(upper, prefix) {
+				t.Errorf("the child's environment holds a variable named %q", name)
+			}
 		}
 	}
 
-	for _, want := range []string{"KEEP=kept", "TERM=xterm-256color"} {
+	wants := []string{
+		"KEEP=kept", "ANTHROPIC_API_KEY=kept-key", "TERM=xterm-256color", "COLORTERM=truecolor",
+	}
+	for _, want := range wants {
 		if !strings.Contains(output, want+"\r\n") {
 			t.Errorf("the child's environment lacks %q", want)
 		}
@@ -388,9 +403,10 @@ func TestRealSpawnStartsAnEnvironmentAtTheLimit(t *testing.T) {
 	t.Parallel()
 
 	host := newRealHost(t)
-	env := make([]string, 0, 4095)
+	count := 4096 - pty.ReplacedCount()
+	env := make([]string, 0, count)
 
-	for index := range 4095 {
+	for index := range count {
 		env = append(env, "V"+strconv.Itoa(index)+"=1")
 	}
 

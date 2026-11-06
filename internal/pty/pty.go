@@ -30,6 +30,20 @@
 // signature, so quitting can say what did not stop) refuses new Starts and waits for those in
 // flight.
 //
+// The environment: a program gets the one its Spec names, less what ChildEnv drops, which is a
+// deny table in env.go of exact names and prefixes, matched on names in any case and never on
+// values. It drops Conn's own variables (CONN_*: its data folder, port and any secret), cmux's
+// (CMUX_*, so a hosted session never looks like a cmux pane), the parent terminal's identity
+// (TERM_PROGRAM, GHOSTTY_*, KITTY_*, COLUMNS, ...: the program runs on Conn's terminal, which
+// xterm.js draws, and would otherwise turn on what the parent's terminal supports), a parent
+// multiplexer's or editor's (TMUX, STY, NVIM, ...: their control sockets), and a parent Claude Code
+// session's (CLAUDECODE, its session ids, messaging socket and token, bridge and host variables:
+// set when Conn itself runs inside Claude Code, they would make a hosted claude that session's
+// child and hand it that session's tokens). The person's own settings, ANTHROPIC_*,
+// CLAUDE_CONFIG_DIR, CLAUDE_CODE_OAUTH_TOKEN and the provider switches among them, are kept. TERM
+// and COLORTERM are then set to the hosted terminal's own. To change what is dropped, edit the
+// tables in env.go: deniedNames, deniedPrefixes, and keptNames for an exception to a prefix.
+//
 // Descriptors: every descriptor this package opens is close-on-exec, and so is every file and
 // socket Go's os and net packages open, so a program inherits only its terminal. A descriptor
 // made by cgo or by a raw syscall without O_CLOEXEC is not covered; Conn makes none.
