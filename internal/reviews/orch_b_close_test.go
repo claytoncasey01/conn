@@ -122,6 +122,24 @@ func TestBIdleWithReviewAndEmptyBoxIsClosedOnceAndWorktreeLeft(t *testing.T) {
 	bSame(t, "git after", bGits(run.fakes), []string{})
 }
 
+// TestBAHostedReviewIsReadAndClosedByItsIssuedID: a review session Conn hosts is read and closed
+// under the id its host issued, never its process id, so the close reaches the host and not cmux.
+func TestBAHostedReviewIsReadAndClosedByItsIssuedID(t *testing.T) {
+	t.Parallel()
+
+	const hostedID = "0123456789abcdef0123456789abcdef"
+
+	run := bLaunched(t, bLaunchOpts{number: 0, sessions: func(dir string) []sessions.LiveSession {
+		return bOnly(dir, func(session *sessions.LiveSession) { session.HostedID = hostedID })
+	}})
+	run.review(1)
+	run.at(bAfterMin + 1)
+
+	bSame(t, "reads", bInputs(run.fakes), []string{hostedID})
+	bSame(t, "closes", bCloses(run.fakes), []string{hostedID})
+	bClosedAtMin(t, run.launch(), bAfterMin+1)
+}
+
 func TestBFirstPinNeedsTheLaunchName(t *testing.T) {
 	t.Parallel()
 

@@ -187,8 +187,13 @@ func (l *Loop) OpenTerminal(ctx context.Context, pid string) Reply {
 }
 
 // InputState is what a session's input box shows right now (ask.PromptEmpty, PromptDraft or
-// PromptNone), or "unknown" whenever it cannot be told for certain.
+// PromptNone), or "unknown" whenever it cannot be told for certain. A hosted session's is read
+// from the host's screen.
 func (l *Loop) InputState(ctx context.Context, pid string) string {
+	if sessionID, hosted := hostedID(pid); hosted {
+		return l.hostedInputState(sessionID)
+	}
+
 	var plan sendPlan
 
 	found := false
@@ -245,10 +250,15 @@ func (s *store) readPrompt(ctx context.Context, plan sendPlan) (string, bool) {
 	return ask.PromptState(read.Stdout), true
 }
 
-// CloseWorkspace closes a session's whole cmux workspace. cmux refuses a workspace with a
+// CloseWorkspace closes a session's whole cmux workspace, or stops a hosted session through the
+// host (closeHosted). cmux refuses a workspace with a
 // running process, so this uses --force, which ends every process in it: another live session in
 // the same workspace is a refusal. The screen is read again right before the close.
 func (l *Loop) CloseWorkspace(ctx context.Context, pid string) Reply {
+	if sessionID, hosted := hostedID(pid); hosted {
+		return l.closeHosted(ctx, sessionID)
+	}
+
 	ctx = context.WithoutCancel(ctx)
 
 	var plan sendPlan
