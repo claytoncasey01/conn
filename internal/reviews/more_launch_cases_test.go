@@ -187,7 +187,7 @@ func TestDLaunchCmuxFailureGivesTheManualCommand(t *testing.T) {
 
 	got := rig.launch(t, nil)
 	want := reviews.LaunchResult{
-		OK: false, Worktree: "", Error: "cmux not found", ManualCommand: manual,
+		OK: false, Worktree: dWorktree, Error: "cmux not found", ManualCommand: manual,
 	}
 
 	if got != want {

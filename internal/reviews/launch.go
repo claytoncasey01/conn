@@ -504,8 +504,15 @@ func Open(ctx context.Context, deps LaunchDeps, opts LaunchOpts) LaunchResult {
 
 	opened := deps.Open(ctx, ReviewSpec(deps.Claude, args, worktree, opts.Name))
 	if !opened.OK {
+		// With a command to paste, the worktree is the launch's: the session it starts is
+		// tracked like any other.
+		kept := ""
+		if opened.ManualCommand != "" {
+			kept = worktree
+		}
+
 		return LaunchResult{
-			OK: false, Worktree: "", Error: opened.Error, ManualCommand: opened.ManualCommand,
+			OK: false, Worktree: kept, Error: opened.Error, ManualCommand: opened.ManualCommand,
 		}
 	}
 

@@ -190,6 +190,49 @@ func TestCmuxFailureAnswersTheCommandToPaste(t *testing.T) {
 	aEqual(t, "launches", aLaunchCount(fakes), 2)
 }
 
+// A review set to open as a command (or one whose session's start failed after the worktree was
+// made) is recorded as launched, by hand: the worktree is the launch's, the next press is the next
+// round, and the answer is the command to paste.
+func TestAReviewOpenedAsACommandIsRecorded(t *testing.T) {
+	t.Parallel()
+
+	tab, fakes := aReady(t, setupOpts{})
+	manual := "cd /w && claude --name pr-7"
+
+	fakes.with(func(fakes *world) {
+		fakes.launchResult = func(opts reviews.LaunchOpts) reviews.LaunchResult {
+			return reviews.LaunchResult{
+				OK: false, Worktree: worktreeOf(fakes.dir, opts.Repo, opts.Number),
+				Error: "sessions open as a command", ManualCommand: manual,
+			}
+		}
+	})
+
+	reply := aStart(t, tab, worldRepo, "7", aSonnet)
+	aEqual(t, "code", reply.Code, 200)
+	aEqual(t, "body", aBody(reply),
+		`{"ok":false,"error":"sessions open as a command","manualCommand":"`+manual+`"}`)
+	saved := aLaunches(t, fakes)
+	aEqual(t, "saved", len(saved), 1)
+
+	if len(saved) == 1 {
+		aEqual(t, "worktree", saved[0].Worktree, worktreeOf(fakes.dir, worldRepo, 7))
+		aEqual(t, "name", saved[0].Name, aName7)
+	}
+
+	aEqual(t, "row launches", view(t, tab).Rows[0].Launches, 1)
+
+	// Like any launch, it holds the PR while its session may still appear.
+	fakes.with(func(fakes *world) { fakes.now = worldT0 + 31_000 })
+	aEqual(t, "while it may appear", aStart(t, tab, worldRepo, "7", aSonnet).Code, 409)
+
+	fakes.with(func(fakes *world) {
+		fakes.now = worldT0 + 6*60_000
+		fakes.launchResult = aLaunchOK(fakes)
+	})
+	aEqual(t, "the next round", aBody(aStart(t, tab, worldRepo, "7", aSonnet)), aOKName2)
+}
+
 // aPanicked is what a call panicked with ("" when it did not).
 func aPanicked(call func()) string {
 	found := ""

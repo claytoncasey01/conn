@@ -319,12 +319,34 @@ func (r *Reviews) launch(
 	})
 
 	if !result.OK {
+		// The session did not start, or opens as a command: the worktree and the prompt are
+		// there, and the session the command opens is this launch's, tracked like any other.
+		if launchedByHand(result) {
+			r.recordLaunch(target, model, name, result)
+		}
+
 		return failedReply(result), nil
 	}
 
+	r.recordLaunch(target, model, name, result)
+
+	return okReply("name", name), nil
+}
+
+// launchedByHand is a launch whose worktree is ready and whose session the person starts from the
+// command to paste.
+func launchedByHand(result LaunchResult) bool {
+	if result.ManualCommand == "" {
+		return false
+	}
+
+	return result.Worktree != ""
+}
+
+// recordLaunch records a launch: the new session owns the worktree from here.
+func (r *Reviews) recordLaunch(target launchable, model, name string, result LaunchResult) {
 	launchedAt := r.now()
 
-	// The new session owns the worktree from here.
 	for _, launch := range target.entry.Launches {
 		if launch.ClosedAt == nil {
 			r.markClosed(launch, launchedAt)
@@ -339,8 +361,6 @@ func (r *Reviews) launch(
 
 	r.save()
 	r.bump()
-
-	return okReply("name", name), nil
 }
 
 // failedReply is a launch's failure as the page shows it: the error, and the command to paste
