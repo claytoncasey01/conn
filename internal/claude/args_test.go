@@ -89,6 +89,18 @@ func TestArgs(t *testing.T) {
 			want: joined(base("1"), []string{"--tools", "Grep", "--allowedTools", "Grep"}),
 		},
 		{
+			name: "more folders come before the tool lists",
+			opts: claude.Opts{AllowedTools: []string{"Grep"}, AddDirs: []string{"/a b", "/c"}},
+			want: joined(base("1"), []string{
+				"--add-dir", "/a b", "/c", "--tools", "Grep", "--allowedTools", "Grep",
+			}),
+		},
+		{
+			name: "no more folders pass nothing",
+			opts: claude.Opts{AllowedTools: []string{"Grep"}, AddDirs: []string{}},
+			want: joined(base("1"), []string{"--tools", "Grep", "--allowedTools", "Grep"}),
+		},
+		{
 			name: "a budget is written as JavaScript writes the number",
 			opts: claude.Opts{AllowedTools: []string{"Grep"}, BudgetUSD: 0.25},
 			want: joined(base("0.25"), []string{"--tools", "Grep", "--allowedTools", "Grep"}),
