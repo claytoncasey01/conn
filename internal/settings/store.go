@@ -178,6 +178,31 @@ func buildRepoRefusal(atlassian Atlassian, allow []string) string {
 	return "atlassian.jira.buildRepo " + show(*buildRepo) + ": it is not an allowed repository"
 }
 
+// keptSessions is a sessions section as a PUT sent it, with each field it left out as saved: a
+// page that changes where sessions open keeps the terminal command it does not show.
+func keptSessions(sent, saved Sessions, body any) Sessions {
+	object, isObject := body.(*js.Object)
+	if !isObject {
+		return sent
+	}
+
+	kept := sent
+
+	if _, present := object.Get("where"); !present {
+		kept.Where = saved.Where
+	}
+
+	if _, present := object.Get("terminalCommand"); !present {
+		kept.TerminalCommand = slices.Clone(saved.TerminalCommand)
+	}
+
+	if _, present := object.Get("resumeOnLaunch"); !present {
+		kept.ResumeOnLaunch = saved.ResumeOnLaunch
+	}
+
+	return kept
+}
+
 // hasJiraKey reports whether a PUT body's jira object carries key (a page that does not know the
 // key leaves it out).
 func hasJiraKey(body any, key string) bool {
@@ -290,29 +315,42 @@ func (s *Store) next(name string, body any) (Settings, string) {
 
 	next := s.current.Clone()
 
-	switch value := checked.Value.(type) {
-	case Repos:
-		next.Repos = value
-	case GitHub:
-		next.GitHub = value
-	case Slack:
-		next.Slack = value
-	case Atlassian:
-		refusal := buildRepoRefusal(value, s.current.Repos.Allow)
-		if refusal != "" {
-			return Settings{}, refusal
-		}
-
-		value.Jira = keepAbsent(body, value.Jira, s.current.Atlassian.Jira)
-
-		next.Atlassian = value
-	case Reviews:
-		next.Reviews = value
+	refusal := s.replace(&next, checked.Value, body)
+	if refusal != "" {
+		return Settings{}, refusal
 	}
 
 	consistent(&next)
 
 	return next, ""
+}
+
+// replace puts a checked section's value into next, or says why it is refused. A section sent
+// without a field a page may not know keeps that field as saved. The caller holds mu.
+func (s *Store) replace(next *Settings, value, body any) string {
+	switch typed := value.(type) {
+	case Repos:
+		next.Repos = typed
+	case GitHub:
+		next.GitHub = typed
+	case Slack:
+		next.Slack = typed
+	case Atlassian:
+		refusal := buildRepoRefusal(typed, s.current.Repos.Allow)
+		if refusal != "" {
+			return refusal
+		}
+
+		typed.Jira = keepAbsent(body, typed.Jira, s.current.Atlassian.Jira)
+
+		next.Atlassian = typed
+	case Reviews:
+		next.Reviews = typed
+	case Sessions:
+		next.Sessions = keptSessions(typed, s.current.Sessions, body)
+	}
+
+	return ""
 }
 
 // persist saves next. When the file was set aside for the defaults, its bytes are kept first,

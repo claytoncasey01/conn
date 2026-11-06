@@ -22,12 +22,12 @@ test('CHECK is called from its press handler only, never on load, from an effect
   assert.match(script, /setInterval\(\(\) => \(now = Date\.now\(\)\), 30_000\)/)
 })
 
-test('a save is explicit: putSection runs from the four save functions, one section each, which only buttons call', () => {
-  assert.equal(script.match(/putSection\(/g)?.length, 4)
-  for (const [fn, section] of [['saveGithub', 'github'], ['saveSlack', 'slack'], ['saveAtlassian', 'atlassian'], ['saveReviews', 'reviews']]) {
+test('a save is explicit: putSection runs from the five save functions, one section each, which only buttons call', () => {
+  assert.equal(script.match(/putSection\(/g)?.length, 5)
+  for (const [fn, section] of [['saveGithub', 'github'], ['saveSlack', 'slack'], ['saveAtlassian', 'atlassian'], ['saveReviews', 'reviews'], ['saveSessions', 'sessions']]) {
     assert.match(script, new RegExp(`async function ${fn}\\(\\) \\{[\\s\\S]*?putSection\\('${section}', body\\)`))
   }
-  for (const fn of ['saveGithub', 'saveSlack', 'saveAtlassian', 'saveReviews']) assert.equal(page.match(new RegExp(`\\b${fn}\\b`, 'g'))?.length, 2, `${fn}: declared, then passed once as an onsave argument`)
+  for (const fn of ['saveGithub', 'saveSlack', 'saveAtlassian', 'saveReviews', 'saveSessions']) assert.equal(page.match(new RegExp(`\\b${fn}\\b`, 'g'))?.length, 2, `${fn}: declared, then passed once as an onsave argument`)
   // the one button every card saves through: it presses nothing that is not changed or is already saving
   assert.equal(page.match(/onclick=\{\(\) => dirty && !saving\[section\] && onsave\(\)\}/g)?.length, 1)
   assert.doesNotMatch(page, /on(?:input|change|blur|keyup)=\{[^}]*(?:save|put)/i)
@@ -35,7 +35,7 @@ test('a save is explicit: putSection runs from the four save functions, one sect
 })
 
 test('a failed save keeps the draft and shows the server’s words; a good one shows what was sent', () => {
-  for (const s of ['github', 'slack', 'atlassian', 'reviews']) assert.match(script, new RegExp(`if \\(!r\\.ok\\) return void \\(saveError\\.${s} = r\\.error\\)`))
+  for (const s of ['github', 'slack', 'atlassian', 'reviews', 'sessions']) assert.match(script, new RegExp(`if \\(!r\\.ok\\) return void \\(saveError\\.${s} = r\\.error\\)`))
   assert.match(script, /wrote\.slack = wroteSlack\(body\)/)
   assert.match(script, /wrote\.atlassian = wroteAtlassian\(body\)/)
 })
@@ -121,4 +121,12 @@ test('the Atlassian card: the build repository is an optional default with None 
   assert.match(page, /id="jira-layout-hint" class="hint"/)
   assert.match(script, /const setReviewMove = \(value: string\) => \{[\s\S]*?edited\('atlassian'\)\s*\}/)
   assert.match(script, /const setSessionLayout = \(value: string\) => \{[\s\S]*?edited\('atlassian'\)\s*\}/)
+})
+
+test('the sessions card offers each choice with its one line of help, and the terminal command is only text', () => {
+  assert.match(page, /\{#each WHERE_CHOICES as choice \(choice\.value\)\}/)
+  assert.match(page, /<b>\{choice\.label\}<\/b>/)
+  assert.match(page, /<span class="hint">\{choice\.help\}<\/span>/)
+  assert.match(page, /bind:value=\{terminalText\}/)
+  assert.doesNotMatch(page, /\{@html/)
 })

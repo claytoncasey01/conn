@@ -4,6 +4,7 @@ import { api } from './api.ts'
 import { parseOk } from './ask.ts'
 import { parseBaseBranch, repoName, REVIEW_MOVES, SESSION_LAYOUTS } from './settingsModel.ts'
 import type { AtlassianSettings, ModuleState, ModuleStatus, ReposSettings, ReviewMove, SessionLayout, SlackSettings } from './settingsModel.ts'
+import { readSessions, type SessionsSettings } from './settingsSessions.ts'
 
 /** `settings.json` as the server holds it. */
 export interface Settings {
@@ -13,10 +14,11 @@ export interface Settings {
   slack: SlackSettings
   atlassian: AtlassianSettings
   reviews: { requested: boolean; allOpen: boolean }
+  sessions: SessionsSettings
 }
 export type ModuleName = 'github' | 'slack' | 'atlassian'
 export const MODULE_NAMES: readonly ModuleName[] = ['github', 'slack', 'atlassian']
-export type SettingsSection = 'repos' | 'github' | 'slack' | 'atlassian' | 'reviews'
+export type SettingsSection = 'repos' | 'github' | 'slack' | 'atlassian' | 'reviews' | 'sessions'
 
 export type SeenFrom = 'session' | 'myprs' | 'history'
 export interface SeenRepo {
@@ -55,7 +57,7 @@ export function withSavedRepos(view: SettingsView, repos: ReposSettings): Settin
 }
 
 /** The view as it is once a services section has been saved as sent. */
-export function withSavedSection<K extends 'github' | 'slack' | 'atlassian' | 'reviews'>(view: SettingsView, section: K, value: Settings[K]): SettingsView {
+export function withSavedSection<K extends 'github' | 'slack' | 'atlassian' | 'reviews' | 'sessions'>(view: SettingsView, section: K, value: Settings[K]): SettingsView {
   return { ...view, settings: { ...view.settings, [section]: value } }
 }
 
@@ -143,6 +145,7 @@ export function parseView(body: unknown): SettingsView | null {
         requested: bool(isObj(body.settings.reviews) ? body.settings.reviews.requested : undefined, true),
         allOpen: bool(isObj(body.settings.reviews) ? body.settings.reviews.allOpen : undefined, false),
       },
+      sessions: readSessions(body.settings.sessions),
     },
     setup: body.setup === true,
     seen: (Array.isArray(body.seen) ? body.seen : []).filter((s): s is SeenRepo => isObj(s) && isStr(s.repo) && FROM.includes(s.from)).map((s) => ({ repo: s.repo, from: s.from })),

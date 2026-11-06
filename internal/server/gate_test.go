@@ -39,6 +39,7 @@ func apiRoutes() []apiRoute {
 		{http.MethodPost, "/api/myprs/refresh"},
 		{http.MethodGet, "/api/settings"},
 		{http.MethodPut, "/api/settings/github"},
+		{http.MethodPut, "/api/settings/sessions"},
 		{http.MethodPost, "/api/settings/browse"},
 		{http.MethodGet, "/api/gallery"},
 		{http.MethodPost, "/api/gallery/install"},

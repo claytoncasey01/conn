@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The Services cards (GitHub, Slack, Atlassian) and the Reviews sources block. A card's switch and settings are a draft until its own
+  // The Services cards (GitHub, Slack, Atlassian), the Reviews sources block and where sessions open. A card's switch and settings are a draft until its own
   // save button is pressed (one PUT of its own section, nothing on a timer, nothing on input). CHECK is the only thing here that asks
   // the server to probe a module, and only a press does. The page owns the view; this block reports back what it saved or checked.
   import { tick, untrack } from 'svelte'
@@ -35,6 +35,7 @@
     type SessionLayout,
     type SlackSettings,
   } from '../lib/settingsModel.ts'
+  import { WHERE_CHOICES, commandLines, commandText, sameSessions, sessionsSection, wroteSessions, type SessionsSettings } from '../lib/settingsSessions.ts'
   import SettingsNameList from './SettingsNameList.svelte'
 
   let { view, setup, apply, reload }: { view: SettingsView; setup: boolean; apply: (v: SettingsView) => void; reload: () => Promise<void> } = $props()
@@ -54,12 +55,18 @@
   let atl = $state<AtlassianSettings>(untrack(() => copyAtl(view.settings.atlassian)))
   let requested = $state(untrack(() => view.settings.reviews.requested))
   let allOpen = $state(untrack(() => view.settings.reviews.allOpen))
+  // the terminal command is edited as text, one argument a line; the draft section is read from it
+  let where = $state(untrack(() => view.settings.sessions.where))
+  let terminalText = $state(untrack(() => commandText(view.settings.sessions.terminalCommand)))
+  let resume = $state(untrack(() => view.settings.sessions.resumeOnLaunch))
+  const sessionsDraft = $derived<SessionsSettings>({ where, terminalCommand: commandLines(terminalText), resumeOnLaunch: resume })
 
   // A draft nobody has touched follows what the server now holds (a save from another tab); an edited one stays.
   let baseGh = untrack(() => view.settings.github)
   let baseSlack = untrack(() => view.settings.slack)
   let baseAtl = untrack(() => view.settings.atlassian)
   let baseRev = untrack(() => view.settings.reviews)
+  let baseSessions = untrack(() => view.settings.sessions)
   $effect(() => {
     const g = view.settings.github
     if (g === baseGh) return
@@ -88,10 +95,22 @@
     baseRev = r
   })
 
+  $effect(() => {
+    const held = view.settings.sessions
+    if (held === baseSessions) return
+    if (untrack(() => sameSessions(sessionsDraft, baseSessions))) {
+      where = held.where
+      terminalText = commandText(held.terminalCommand)
+      resume = held.resumeOnLaunch
+    }
+    baseSessions = held
+  })
+
   const ghDirty = $derived(ghOn !== view.settings.github.enabled)
   const slackDirty = $derived(!sameSlack(slack, view.settings.slack))
   const atlDirty = $derived(!sameAtlassian(atl, view.settings.atlassian))
   const revDirty = $derived(requested !== view.settings.reviews.requested || allOpen !== view.settings.reviews.allOpen)
+  const sessionsDirty = $derived(!sameSessions(sessionsDraft, view.settings.sessions))
 
   // ---- the status line: what the server holds for a saved-on module, else the off line ----
   const savedOn = $derived<Record<ModuleName, boolean>>({ github: view.settings.github.enabled, slack: view.settings.slack.enabled, atlassian: view.settings.atlassian.enabled })
@@ -127,10 +146,10 @@
   }
 
   // ---- saves: one section each, only from its button ----
-  type Section = 'github' | 'slack' | 'atlassian' | 'reviews'
-  let saving = $state<Record<Section, boolean>>({ github: false, slack: false, atlassian: false, reviews: false })
-  let saveError = $state<Record<Section, string | null>>({ github: null, slack: null, atlassian: null, reviews: null })
-  let wrote = $state<Record<Section, string | null>>({ github: null, slack: null, atlassian: null, reviews: null })
+  type Section = 'github' | 'slack' | 'atlassian' | 'reviews' | 'sessions'
+  let saving = $state<Record<Section, boolean>>({ github: false, slack: false, atlassian: false, reviews: false, sessions: false })
+  let saveError = $state<Record<Section, string | null>>({ github: null, slack: null, atlassian: null, reviews: null, sessions: null })
+  let wrote = $state<Record<Section, string | null>>({ github: null, slack: null, atlassian: null, reviews: null, sessions: null })
   const edited = (s: Section) => {
     saveError[s] = null
     wrote[s] = null
@@ -187,6 +206,18 @@
     if (!r.ok) return void (saveError.reviews = r.error)
     apply(withSavedSection(view, 'reviews', body))
     wrote.reviews = wroteReviews(body)
+    await reload()
+  }
+  async function saveSessions() {
+    if (saving.sessions) return
+    saving.sessions = true
+    saveError.sessions = null
+    const body = sessionsSection(sessionsDraft)
+    const r = await putSection('sessions', body)
+    saving.sessions = false
+    if (!r.ok) return void (saveError.sessions = r.error)
+    apply(withSavedSection(view, 'sessions', body))
+    wrote.sessions = wroteSessions(body)
     await reload()
   }
 
@@ -412,6 +443,39 @@
     <p class="sum" aria-live="polite"><span data-content>{lists}</span></p>
     {#if revDirty}<p class="hint">This shows the two switches as they are now. Reviews uses them once you save.</p>{/if}
     {@render saveRow('reviews', revDirty, saveReviews)}
+  </section>
+
+  <section class="surf card" aria-labelledby="sessions-h" style="--rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--edge) 6%, transparent), color-mix(in oklch, var(--panel) 92%, transparent) 55%)">
+    <h2 id="sessions-h" class="hud cap">Where sessions open</h2>
+    <p class="sub">Where a session conn starts runs: a build from Open work, a review, a self-review or a resumed History session.</p>
+
+    <fieldset class="choices">
+      <legend class="sr">Where sessions open</legend>
+      {#each WHERE_CHOICES as choice (choice.value)}
+        <label class="choice" class:on={where === choice.value}>
+          <input type="radio" name="sessions-where" value={choice.value} checked={where === choice.value} onchange={() => { where = choice.value; edited('sessions') }} />
+          <span>
+            <b>{choice.label}</b>
+            <span class="hint">{choice.help}</span>
+          </span>
+        </label>
+      {/each}
+    </fieldset>
+
+    {#if where === 'terminal'}
+      <div class="selrow">
+        <label class="lab" for="sessions-terminal">Your terminal command, one argument a line (leave it empty for cmux)</label>
+        <textarea id="sessions-terminal" class="fld area" rows="4" spellcheck="false" autocomplete="off" placeholder={'/Applications/kitty.app/Contents/MacOS/kitty\n--directory\n{dir}\nsh\n-c\n{command}'} bind:value={terminalText} oninput={() => edited('sessions')}></textarea>
+        <p class="hint">Start with the terminal's absolute path. <code>{'{command}'}</code> is the session's command as one shell line, <code>{'{dir}'}</code> its folder and <code>{'{name}'}</code> its name. It runs as written, with no shell.</p>
+      </div>
+    {/if}
+
+    <div class="row">
+      {@render sw(resume, 'Resume sessions when conn starts', () => { resume = !resume; edited('sessions') }, 'sessions-resume')}
+      <span id="sessions-resume">Resume the sessions that were open when conn quit, when it starts again</span>
+    </div>
+
+    {@render saveRow('sessions', sessionsDirty, saveSessions)}
   </section>
 {/if}
 
@@ -727,6 +791,52 @@
   .tag.on {
     color: color-mix(in oklab, var(--ok) 60%, var(--bright));
     border-color: var(--ok);
+  }
+  .choices {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-height: 44px;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px var(--border-style) var(--line);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .choice.on {
+    border-color: var(--ac);
+    background: color-mix(in oklch, var(--ac) 7%, transparent);
+  }
+  .choice input {
+    flex: none;
+    margin: 3px 0 0;
+    accent-color: var(--ac);
+  }
+  .choice span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .choice b {
+    color: var(--bright);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .fld.area {
+    min-height: 88px;
+    padding: 8px 10px;
+    line-height: 1.5;
+    resize: vertical;
   }
   .sum {
     padding: 9px 12px;

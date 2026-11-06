@@ -1,9 +1,9 @@
-// Package settings is settings.json in $CONN_DATA: the repository allowlist, the modules and the
-// review sources, validated field by field. The file is user-editable, so a bad one never stops
-// the server and never widens access: an entry that cannot be read is dropped (and reported), a
-// section that cannot be read is its default, and an allow that cannot be read is null, which is
-// setup (nothing is read). The Store is the one place every reader asks; it is the only code
-// that knows the store is a file.
+// Package settings is settings.json in $CONN_DATA: the repository allowlist, the modules, the
+// review sources and where sessions open, validated field by field. The file is user-editable,
+// so a bad one never stops the server and never widens access: an entry that cannot be read is
+// dropped (and reported), a section that cannot be read is its default, and an allow that cannot
+// be read is null, which is setup (nothing is read). The Store is the one place every reader
+// asks; it is the only code that knows the store is a file.
 package settings
 
 import (
@@ -167,6 +167,7 @@ type Settings struct {
 	Slack     Slack     `json:"slack"`
 	Atlassian Atlassian `json:"atlassian"`
 	Reviews   Reviews   `json:"reviews"`
+	Sessions  Sessions  `json:"sessions"`
 }
 
 // Defaults are the settings of a fresh install: no allowlist, GitHub on, Slack and Atlassian off,
@@ -189,7 +190,8 @@ func Defaults() Settings {
 				SessionLayout: LayoutShared,
 			},
 		},
-		Reviews: Reviews{Requested: true, AllOpen: false},
+		Reviews:  Reviews{Requested: true, AllOpen: false},
+		Sessions: sessionsDefaults(),
 	}
 }
 
@@ -227,6 +229,8 @@ func (s Settings) Clone() Settings {
 	if copied.Atlassian.Jira.BaseBranches == nil {
 		copied.Atlassian.Jira.BaseBranches = map[string]string{}
 	}
+
+	copied.Sessions.TerminalCommand = slices.Clone(s.Sessions.TerminalCommand)
 
 	return copied
 }
