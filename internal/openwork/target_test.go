@@ -230,7 +230,22 @@ func TestChooseTargetsReturnsTheChosenOnesOrEveryProblemAtOnce(t *testing.T) {
 		},
 		{"seven", []string{
 			"acme/widgets", "acme/gadgets", "acme/a", "acme/b", "acme/c", "acme/d", "acme/e",
-		}, nil, []string{}, []string{"Choose at most 6 repositories, not 7."}},
+		}, nil, []string{
+			"acme/widgets", "acme/gadgets", "acme/a", "acme/b", "acme/c", "acme/d",
+		}, []string{"Choose at most 6 repositories, not 7."}},
+		{"seven, one not allowed", []string{
+			"acme/widgets", "elsewhere/repo", "acme/a", "acme/b", "acme/c", "acme/d", "acme/e",
+		}, nil, []string{"acme/widgets", "acme/a", "acme/b", "acme/c", "acme/d"}, []string{
+			"Choose at most 6 repositories, not 7.",
+			"elsewhere/repo is not an allowed repository: add it in Settings.",
+		}},
+		{
+			"an empty name",
+			[]string{"acme/widgets", ""},
+			nil,
+			[]string{"acme/widgets"},
+			[]string{"An empty repository name was chosen."},
+		},
 		{"every problem at once", []string{
 			"acme/broken", "elsewhere/repo", "acme/gadgets", "ACME/GADGETS", "acme/copy",
 			"acme/widgets",
@@ -335,4 +350,11 @@ func TestBuildTargetsListAtMostBuildReposMax(t *testing.T) {
 	}
 
 	same(t, "listed", len(seenWorld([]string{"acme/*"}, seen).targets()), openwork.BuildReposMax)
+
+	// The cap keeps the allowlist's order, not the order found: other/a, found first, is under
+	// the second pattern, after every acme repository.
+	world := seenWorld([]string{"acme/*", "other/*"}, append([]string{"other/a"}, seen...))
+	listed := world.targets()
+	same(t, "capped", len(listed), openwork.BuildReposMax)
+	same(t, "last", listed[len(listed)-1].Repo, "acme/r"+strconv.Itoa(openwork.BuildReposMax-1))
 }

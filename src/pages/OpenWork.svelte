@@ -137,21 +137,27 @@
   // remembered as it is made.
   let chosen = $state<string[]>([])
   let layout = $state<RunLayout>('shared')
+  // Until something is preselected or the person picks, each new list is tried again: one read
+  // before a clone was ready, or before the default was listed, does not fix the panel on nothing.
   let picked = false
   $effect(() => {
     if (picked || build.repos.length === 0) return
-    picked = true
     const remembered = loadChoice()
-    chosen = preselect(build, remembered.repos)
+    const initial = preselect(build, remembered.repos)
     layout = remembered.layout ?? build.layout
+    if (initial.length === 0) return
+    picked = true
+    chosen = initial
   })
   /** The chosen repositories that a run can start in now: one that stopped being ready is not sent */
   const chosenReady = $derived(chosen.filter(r => build.repos.some(b => b.repo === r && b.ready)))
   const pickRepo = (repo: string) => {
+    picked = true
     chosen = toggleRepo(chosen, repo)
     saveChoice({ repos: chosen, layout })
   }
   const pickLayout = (next: RunLayout) => {
+    picked = true
     layout = next
     saveChoice({ repos: chosen, layout })
   }

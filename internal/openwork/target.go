@@ -106,10 +106,6 @@ func allowedRepos(current settings.Settings, seen []string) []string {
 	once := map[string]bool{}
 
 	for _, name := range named {
-		if len(listed) == buildReposMax {
-			break
-		}
-
 		pattern, allowed := patternOf(name, current.Repos.Allow)
 		if !allowed {
 			continue
@@ -126,6 +122,9 @@ func allowedRepos(current settings.Settings, seen []string) []string {
 	slices.SortStableFunc(listed, func(left, right ranked) int {
 		return left.pattern - right.pattern
 	})
+
+	// Cut after the order is set, so the cap keeps the allowlist's order.
+	listed = listed[:min(len(listed), buildReposMax)]
 
 	names := make([]string, 0, len(listed))
 	for _, entry := range listed {
@@ -188,8 +187,9 @@ func notAllowed(repo string) string {
 
 // ChooseTargets are the targets a START chose, in the order chosen, and every problem with the
 // choice, one sentence each: none chosen (with no fallback, the default repository), more than
-// legsMax, one chosen twice in any case, one that is not among all, two that are the same clone
-// folder, and one that is not ready. Only targets with no problem are returned.
+// legsMax (and the first legsMax are checked as usual), an empty name, one chosen twice in any
+// case, one that is not among all, two that are the same clone folder, and one that is not
+// ready. Only targets with no problem are returned.
 func ChooseTargets(all []Target, chosen []string, fallback *string) ([]Target, []string) {
 	names := chosen
 	if len(names) == 0 {
@@ -200,13 +200,16 @@ func ChooseTargets(all []Target, chosen []string, fallback *string) ([]Target, [
 		names = []string{*fallback}
 	}
 
-	if len(names) > legsMax {
-		return []Target{}, []string{"Choose at most " + strconv.Itoa(legsMax) +
-			" repositories, not " + strconv.Itoa(len(names)) + "."}
-	}
-
 	picked := []Target{}
 	problems := []string{}
+
+	// Too many is said, and the first legsMax are checked as usual, so it hides nothing else.
+	if len(names) > legsMax {
+		problems = append(problems, "Choose at most "+strconv.Itoa(legsMax)+
+			" repositories, not "+strconv.Itoa(len(names))+".")
+		names = names[:legsMax]
+	}
+
 	choice := choosing{names: map[string]bool{}, clones: map[string]string{}}
 
 	for _, name := range names {
@@ -232,6 +235,10 @@ type choosing struct {
 
 // choose is the target name is, or the problem with choosing it after the names before it.
 func (c choosing) choose(all []Target, name string) (Target, string) {
+	if name == "" {
+		return Target{}, "An empty repository name was chosen."
+	}
+
 	if c.names[js.Lower(name)] {
 		return Target{}, name + " is chosen twice."
 	}

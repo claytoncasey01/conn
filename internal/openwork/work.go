@@ -330,32 +330,37 @@ func (w *Work) record(name string, ok bool, detail string) {
 	}
 }
 
-// chooseTargets are the targets a START chose (none: the default repository), in the order
-// chosen, and every problem with the choice. A repository the list does not offer but the
-// allowlist covers (a clone found under the clone folder) can still be chosen by name.
-func (w *Work) chooseTargets(chosen, seen []string) ([]Target, []string) {
+// targetsNow are the places a run may build now, and any repository named in chosen that the
+// list does not offer but the allowlist covers (one found nowhere conn looks can still be chosen
+// by name). It reads the disk (clones, default branches) and the session list, so it is called
+// before the mutex is taken; the settings are read without it.
+func (w *Work) targetsNow(chosen []string) []Target {
 	current := w.settings()
-	all := BuildTargets(current, seen, w.deps.CloneFor, DefaultBranch)
+	all := BuildTargets(current, w.seen(), w.deps.CloneFor, DefaultBranch)
 
-	if len(chosen) <= legsMax {
-		for _, name := range chosen {
-			if slices.ContainsFunc(all, func(each Target) bool {
-				return js.Lower(each.Repo) == js.Lower(name)
-			}) {
-				continue
-			}
+	for _, name := range chosen[:min(len(chosen), legsMax)] {
+		if slices.ContainsFunc(all, func(each Target) bool {
+			return js.Lower(each.Repo) == js.Lower(name)
+		}) {
+			continue
+		}
 
-			if _, allowed := patternOf(name, current.Repos.Allow); allowed {
-				all = append(all, targetFor(name, current, w.deps.CloneFor, DefaultBranch))
-			}
+		if _, allowed := patternOf(name, current.Repos.Allow); allowed {
+			all = append(all, targetFor(name, current, w.deps.CloneFor, DefaultBranch))
 		}
 	}
 
-	return ChooseTargets(all, chosen, current.Atlassian.Jira.BuildRepo)
+	return all
+}
+
+// chooseTargets are the targets a START chose among all (none: the default repository), in the
+// order chosen, and every problem with the choice.
+func (w *Work) chooseTargets(chosen []string, all []Target) ([]Target, []string) {
+	return ChooseTargets(all, chosen, w.settings().Atlassian.Jira.BuildRepo)
 }
 
 // seen are the repositories found on this machine. It reads the disk and the session list, so
-// it is called before the mutex is taken.
+// it is called before the mutex is taken (by targetsNow).
 func (w *Work) seen() []string {
 	if w.deps.SeenRepos == nil {
 		return nil

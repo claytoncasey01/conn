@@ -669,10 +669,10 @@ func TestClonesInFindsTheClonesCloneForWouldFind(t *testing.T) {
 			[]string{"acme/tools"},
 		},
 		{
-			"at most foldersMax folders read",
-			[]string{root, projects},
-			2,
-			[]string{"acme/gadgets"},
+			"the cap reaches the next parent only when it is not spent",
+			[]string{projects, root},
+			1,
+			[]string{"acme/tools"},
 		},
 	}
 
@@ -685,5 +685,33 @@ func TestClonesInFindsTheClonesCloneForWouldFind(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, row.want)
 			}
 		})
+	}
+}
+
+func TestClonesInListsAtMostFoldersMaxFolders(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	folders := []string{"a", "b", "c", "d", "e"}
+	every := make([]string, 0, len(folders))
+
+	for _, name := range folders {
+		write(t, filepath.Join(root, name, ".git", "config"),
+			config("git@github.com:acme/"+name+".git", ""))
+		every = append(every, "acme/"+name)
+	}
+
+	// Which folders a cut listing holds is the file system's order: only how many is fixed.
+	for _, foldersMax := range []int{0, 1, 3, 5, 9} {
+		got := origin.NewReader().ClonesIn([]string{root}, foldersMax)
+		if len(got) != min(foldersMax, len(every)) {
+			t.Fatalf("%d: got %v", foldersMax, got)
+		}
+
+		for _, repo := range got {
+			if !slices.Contains(every, repo) {
+				t.Fatalf("%d: got %v", foldersMax, got)
+			}
+		}
 	}
 }

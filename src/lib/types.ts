@@ -239,7 +239,7 @@ export interface BuildRepo {
 
 /** Where a run may build, as GET /api/work says. */
 export interface WorkBuild {
-  /** Every allowed repository Settings names, in allowlist order */
+  /** Every allowed repository Settings names or conn found on this machine (clones in the clone folder and ~/projects, live sessions, My PRs rows), in allowlist order; at most 200 */
   repos: BuildRepo[]
   /** The default repository from Settings, while it is still one of `repos`: preselected when the browser remembers no choice */
   default: string | null

@@ -51,7 +51,8 @@ func isActive(state string) bool {
 // not one of the projects', a model that is not haiku or sonnet, a ticket that already has a
 // run, or one not in the list; a ticket that is someone else's or not to do asks to confirm.
 func (w *Work) Start(key string, body *js.Object) Reply {
-	seen := w.seen()
+	// The places to build are read from disk before the lock is taken.
+	all := w.targetsNow(namesIn(body))
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -91,18 +92,33 @@ func (w *Work) Start(key string, body *js.Object) Reply {
 		return conflict("the last stage of " + key + " is still ending: try again in a moment")
 	}
 
-	choice.seen = seen
+	choice.all = all
 
 	return w.startTicket(key, model, had, js.Truthy(field(body, "force")), choice)
 }
 
 // choice is what a START chose: the repositories by name, in order (none: the default
-// repository), and the layout of their sessions; with the repositories found on this machine,
-// which the choice is checked against.
+// repository), and the layout of their sessions; with the places a run may build now, which
+// the choice is checked against.
 type choice struct {
 	repos  []string
 	layout string
-	seen   []string
+	all    []Target
+}
+
+// namesIn are the repository names a START's body lists, its other entries left out; choiceOf
+// refuses a body whose repos is not a list of names.
+func namesIn(body *js.Object) []string {
+	list, _ := field(body, "repos").([]any)
+	names := make([]string, 0, len(list))
+
+	for _, item := range list {
+		if name, isText := item.(string); isText {
+			names = append(names, name)
+		}
+	}
+
+	return names
 }
 
 // choiceOf is the choice a START's body makes, or a refusal of a body that is not one: repos
@@ -141,7 +157,7 @@ func (w *Work) choiceOf(body *js.Object) (choice, Reply, bool) {
 		}
 	}
 
-	return choice{repos: chosen, layout: layout, seen: nil}, Reply{}, false
+	return choice{repos: chosen, layout: layout, all: nil}, Reply{}, false
 }
 
 func modelOf(value any) string {
@@ -191,7 +207,7 @@ func (w *Work) startTicket(key, model string, had *Record, force bool, chose cho
 		}
 	}
 
-	targets, problems := w.chooseTargets(chose.repos, chose.seen)
+	targets, problems := w.chooseTargets(chose.repos, chose.all)
 	if len(problems) > 0 {
 		return conflict(strings.Join(problems, " "))
 	}

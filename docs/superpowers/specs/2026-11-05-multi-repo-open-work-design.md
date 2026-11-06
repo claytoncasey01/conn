@@ -127,7 +127,8 @@ Settings (no `repo`) keep working: the repository is read from the worktree's or
    worktree beside the clone and branch, exactly as today. A leg whose `worktreeReady` is true is
    skipped, so Retry resumes where it stopped. A failure in any leg fails the run with the leg's
    repository in the message; legs already made stay.
-2. **Jira in progress.** Once, after the first leg is ready, as today.
+2. **Jira in progress.** Once, after every leg's worktree is ready, so a ticket never reads In
+   Progress for a run with no worktrees. With one leg this is today's order.
 3. **Research.** One research stage for the run. The code mapper's prompt names every leg's
    repository and worktree and it may read all of them. A single-leg run's prompt is unchanged.
 4. **Brief.** One brief text for the run, written to `.conn/brief.md` in the lead's worktree (shared

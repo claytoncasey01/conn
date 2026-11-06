@@ -174,34 +174,52 @@ func (r *Reader) CloneFor(repo string, current settings.Settings, home string) (
 	return Clone{Path: "", How: ""}, false
 }
 
-// ClonesIn are the repositories cloned directly in parents (a clone folder, ~/projects), in the
-// order the folders are listed, as CloneFor would find them there: a repo root whose origin is on
-// GitHub and whose folder is named for the repository, in any case. At most foldersMax folders
-// are read; a parent that cannot be listed holds none.
+// ClonesIn are the repositories cloned directly in parents (a clone folder, ~/projects), parent
+// by parent and by folder name within one, as CloneFor would find them there: a repo root whose
+// origin is on GitHub and whose folder is named for the repository, in any case. At most
+// foldersMax folders are listed in all, so a huge folder is never read whole (which ones a cut
+// listing holds is the file system's order); a parent that cannot be listed holds none.
 func (r *Reader) ClonesIn(parents []string, foldersMax int) []string {
 	found := []string{}
-	read := 0
+	left := foldersMax
 
 	for _, parent := range parents {
-		entries, err := os.ReadDir(parent)
-		if err != nil {
-			continue
+		if left <= 0 {
+			break
 		}
 
-		for _, entry := range entries {
-			if read == foldersMax {
-				return found
-			}
+		names := listNames(parent, left)
+		left -= len(names)
 
-			read++
-
-			if repo := r.cloneIn(filepath.Join(parent, entry.Name())); repo != "" {
+		for _, name := range names {
+			if repo := r.cloneIn(filepath.Join(parent, name)); repo != "" {
 				found = append(found, repo)
 			}
 		}
 	}
 
 	return found
+}
+
+// listNames are the names of at most countMax entries of folder, sorted; none when it cannot be
+// opened or read.
+func listNames(folder string, countMax int) []string {
+	dir, err := os.Open(folder)
+	if err != nil {
+		return nil
+	}
+
+	// Only read: nothing useful can be done with a failed close.
+	defer func() { _ = dir.Close() }()
+
+	names, err := dir.Readdirnames(countMax)
+	if err != nil {
+		return nil
+	}
+
+	slices.Sort(names)
+
+	return names
 }
 
 // cloneIn is the repository folder is a clone of when CloneFor would find it there, else "".

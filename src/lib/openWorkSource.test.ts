@@ -66,7 +66,11 @@ test('the layout choice is shown only with two or more repositories chosen', () 
 })
 
 test('the picker starts on the remembered choice, else the default, and remembers each change', () => {
-  assert.match(work, /const remembered = loadChoice\(\)\s*chosen = preselect\(build, remembered\.repos\)\s*layout = remembered\.layout \?\? build\.layout/)
+  assert.match(work, /const remembered = loadChoice\(\)\s*const initial = preselect\(build, remembered\.repos\)\s*layout = remembered\.layout \?\? build\.layout/)
+  // nothing preselected leaves the picker open to the next list; a preselection or a pick settles it
+  assert.match(work, /if \(initial\.length === 0\) return\s*picked = true\s*chosen = initial/)
+  assert.match(work, /const pickRepo = \(repo: string\) => \{\s*picked = true/)
+  assert.match(work, /const pickLayout = \(next: RunLayout\) => \{\s*picked = true/)
   assert.equal(work.match(/saveChoice\(\{ repos: chosen, layout \}\)/g)?.length, 2)
   // the browser's storage is touched only in repoChoice.ts, inside try/catch
   assert.doesNotMatch(work, /localStorage/)
