@@ -54,12 +54,14 @@ func (w *Work) OpenPR(key, repo string) Reply {
 		pushes = append(pushes, legPush{leg: leg, repo: repos[leg], ahead: 0})
 	}
 
+	// A press made while another of the run is out leaves that one's error to it.
+	alone := !w.runBusy(record)
 	release := w.hold(key, legs)
 
 	w.launch(func(step *task) {
 		defer release()
 
-		w.openPRs(step, record, pushes)
+		w.openPRs(step, record, pushes, alone)
 	})
 
 	return ok()
@@ -114,7 +116,41 @@ func (w *Work) openRefusal(key string, leg *Leg, repo string) (Reply, bool) {
 		return refusal, true
 	}
 
+	if refusal, refused := w.originRefusal(leg); refused {
+		return refusal, true
+	}
+
 	return w.cloneRefusal(leg)
+}
+
+// originRefusal refuses a push from a worktree whose origin is not the repository the leg
+// recorded: git pushes to the origin, whatever the record says. A run from before Settings
+// recorded none and is known by its origin alone; the dry run pushes nothing.
+func (w *Work) originRefusal(leg *Leg) (Reply, bool) {
+	if w.deps.Dry {
+		return Reply{}, false
+	}
+
+	if leg.Repo == "" {
+		return Reply{}, false
+	}
+
+	if !exists(leg.Worktree) {
+		return Reply{}, false
+	}
+
+	origin := w.deps.OriginOf(leg.Worktree)
+	if js.Lower(origin) == js.Lower(leg.Repo) {
+		return Reply{}, false
+	}
+
+	named := origin
+	if named == "" {
+		named = "no GitHub repository"
+	}
+
+	return conflict(leg.Worktree + " pushes to " + named + ", not " + leg.Repo +
+		": refusing to push " + leg.Branch), true
 }
 
 // cloneRefusal refuses a push from a leg whose repository has no clone in Settings now: the
@@ -147,9 +183,12 @@ type legPush struct {
 // openPRs pushes and opens each leg's PR, one after another, the lock never held across a call
 // to the outside. A leg with no commits is skipped while another has some; with none anywhere
 // the answer is that the branch has none. A failure leaves the PRs that opened in place and is
-// said with its repository.
-func (w *Work) openPRs(step *task, record *Record, pushes []legPush) {
-	record.Error = nil
+// said with its repository. A press alone clears the run's last error first; one made while
+// another press is out keeps that press's error and adds its own.
+func (w *Work) openPRs(step *task, record *Record, pushes []legPush, alone bool) {
+	if alone {
+		record.Error = nil
+	}
 
 	if w.deps.Dry {
 		for _, push := range pushes {
@@ -184,11 +223,25 @@ func (w *Work) openPRs(step *task, record *Record, pushes []legPush) {
 		w.reviewAfterOpen(step, record, fresh)
 	}
 
-	if len(failures) > 0 {
-		message := strings.Join(failures, "; ")
-		record.Error = &message
-		w.log(record, logError, "Pull request failed: "+message)
+	w.prFailed(record, failures)
+}
+
+// prFailed says a press's failures: in the log, and as the run's error after any other press
+// set while this one was out.
+func (w *Work) prFailed(record *Record, failures []string) {
+	if len(failures) == 0 {
+		return
 	}
+
+	message := strings.Join(failures, "; ")
+	kept := message
+
+	if record.Error != nil {
+		kept = *record.Error + "; " + message
+	}
+
+	record.Error = &kept
+	w.log(record, logError, "Pull request failed: "+message)
 }
 
 // countPushes asks git for each leg's commits, and says which legs it could not.
@@ -334,10 +387,9 @@ func (w *Work) createPR(step *task, record *Record, leg *Leg, repo, bodyFile str
 // reviewDue is whether the ticket moves to review now that a PR opened, as policy (Settings'
 // reviewMove) says: "first" once any leg has a PR, "all" once every leg with commits has one,
 // "never" never; and only while no move was answered. opened are the legs with a PR,
-// withCommits the legs with commits or a PR, withPR those of them with a PR. A move that failed
-// is not one answered, so the next PR that opens tries again. Every leg with a PR counts as one
-// with commits, so withPR is opened today; both are kept, as the run's contract names them.
-func reviewDue(policy string, opened, withCommits, withPR int, moved bool) bool {
+// withCommits the legs with commits or a PR (so every leg with commits has a PR once opened
+// reaches it). A move that failed is not one answered, so the next PR that opens tries again.
+func reviewDue(policy string, opened, withCommits int, moved bool) bool {
 	if moved {
 		return false
 	}
@@ -350,16 +402,15 @@ func reviewDue(policy string, opened, withCommits, withPR int, moved bool) bool 
 	case settings.ReviewFirst:
 		return true
 	case settings.ReviewAll:
-		return withPR >= withCommits
+		return opened >= withCommits
 	}
 
 	return false
 }
 
-// reviewCounts are reviewDue's counts for a run: the legs with a PR, the legs with commits or a
-// PR, and those of them with a PR. A leg's commits are what git just said (fresh) or else what
-// it last counted.
-func reviewCounts(record *Record, fresh map[*Leg]float64) (int, int, int) {
+// reviewCounts are reviewDue's counts for a run: the legs with a PR, and the legs with commits or
+// a PR. A leg's commits are what git just said (fresh) or else what it last counted.
+func reviewCounts(record *Record, fresh map[*Leg]float64) (int, int) {
 	opened, withCommits := 0, 0
 
 	for _, leg := range record.Repos {
@@ -380,22 +431,29 @@ func reviewCounts(record *Record, fresh map[*Leg]float64) (int, int, int) {
 		}
 	}
 
-	return opened, withCommits, opened
+	return opened, withCommits
 }
 
 // reviewAfterOpen moves the ticket to review when Settings says it is due now. Jira's answer
 // (moved, already there, or no single review status) records the move as made; a failure does
 // not.
 func (w *Work) reviewAfterOpen(step *task, record *Record, fresh map[*Leg]float64) {
-	opened, withCommits, withPR := reviewCounts(record, fresh)
+	opened, withCommits := reviewCounts(record, fresh)
 	policy := w.settings().Atlassian.Jira.ReviewMove
 
-	if !reviewDue(policy, opened, withCommits, withPR, record.ReviewMoved) {
+	if !reviewDue(policy, opened, withCommits, record.ReviewMoved) {
+		return
+	}
+
+	// Another press's move is out: it is the one move; a failure is tried again at a later PR.
+	if w.reviewMoving[record.Key] {
 		return
 	}
 
 	if !w.deps.Dry {
+		w.reviewMoving[record.Key] = true
 		w.moveJira(step, record, jira.MoveReview())
+		delete(w.reviewMoving, record.Key)
 
 		return
 	}

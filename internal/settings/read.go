@@ -440,8 +440,8 @@ func readDraftChannel(object *js.Object, channels []string, found *problems) *st
 	return nil
 }
 
-// readAtlassian reads the section; checkAllow says whether the build repo must be on allow (a
-// section checked alone has no list to ask).
+// readAtlassian reads the section; checkAllow says whether the default repository (buildRepo)
+// must be on allow (a section checked alone has no list to ask).
 func readAtlassian(raw any, present bool, allow []string, checkAllow bool,
 	found *problems,
 ) Atlassian {
@@ -623,7 +623,7 @@ func readBuildRepo(jira *js.Object, allow []string, checkAllow bool, found *prob
 	return &lower
 }
 
-// outsideList reports whether a build repo is refused by the allowlist: only when the list is
+// outsideList reports whether a repository is refused by the allowlist: only when the list is
 // asked and holds something.
 func outsideList(name string, allow []string, checkAllow bool) bool {
 	if !checkAllow {

@@ -31,7 +31,8 @@ const (
 
 // Tick follows each building run: the session in the session list, commits and uncommitted
 // files from git. A run with an open PR keeps following its session too (a resumed one has a
-// new pid), but not git. Open work is not shown while off, so its runs are not followed then.
+// new pid), and git only in its legs with no PR yet. Open work is not shown while off, so its
+// runs are not followed then.
 func (w *Work) Tick() {
 	w.mu.Lock()
 	defer w.mu.Unlock()

@@ -155,8 +155,8 @@ func LoadedKeys(runsDir string) []string {
 }
 
 // ReviewDue is whether the ticket moves to review after a PR opens.
-func ReviewDue(policy string, opened, withCommits, withPR int, moved bool) bool {
-	return reviewDue(policy, opened, withCommits, withPR, moved)
+func ReviewDue(policy string, opened, withCommits int, moved bool) bool {
+	return reviewDue(policy, opened, withCommits, moved)
 }
 
 // Merged is whether a run counts as merged.
@@ -164,3 +164,34 @@ func Merged(record *Record) bool { return merged(record) }
 
 // RefusedAllOf is the refusal when every leg of record was refused, with none refused.
 func RefusedAllOf(record *Record) string { return errorText(refusedAll(record, nil)) }
+
+// LegRules are the per-leg rules the run page mirrors: whether OPEN PR may run, whether the run
+// counts as merged, and for each leg whether its checks are failing (FIX FAILING CHECKS), its
+// worktree may be removed (REMOVE WORKTREE) and it is kept for another leg's open PR.
+func LegRules(record *Record) *js.Object {
+	legs := make([]any, 0, len(record.Repos))
+
+	for _, leg := range record.Repos {
+		_, quiet := fixQuiet(record.Key, record.State, leg)
+		_, settledNot := cleanupQuiet(record.State, leg)
+		kept := openElsewhere(record, leg) != nil
+
+		canClean := !settledNot
+		if kept {
+			canClean = false
+		}
+
+		rules := js.NewObject()
+		rules.Set("checksFailing", !quiet)
+		rules.Set("canClean", canClean)
+		rules.Set("keptForOthers", kept)
+		legs = append(legs, rules)
+	}
+
+	out := js.NewObject()
+	out.Set("openable", openable(record))
+	out.Set("merged", merged(record))
+	out.Set("legs", legs)
+
+	return out
+}

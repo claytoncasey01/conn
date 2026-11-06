@@ -136,8 +136,16 @@ func TestARunWithoutAUsableLegIsNotRead(t *testing.T) {
 		`"branch":"proj-1-fix","worktree":"/x/widgets-proj-1","worktreeReady":true,` +
 		`"session":null,"claudeSessionId":null,"manualCommand":null,"ahead":0,"dirty":0,` +
 		`"pr":null,"cleaned":null}`
-	seven := strings.TrimSuffix(strings.Repeat(leg+",", 7), ",")
-	six := strings.TrimSuffix(strings.Repeat(leg+",", 6), ",")
+	legs := func(count int) string {
+		each := make([]string, 0, count)
+		for index := range count {
+			number := strconv.Itoa(index)
+			each = append(each, strings.ReplaceAll(leg, "widgets", "widgets"+number))
+		}
+
+		return strings.Join(each, ",")
+	}
+	seven, six := legs(7), legs(6)
 
 	rows := []struct {
 		name, repos, layout string
@@ -178,8 +186,13 @@ func TestLegForFindsARunsRepositoryInAnyCase(t *testing.T) {
 	t.Parallel()
 
 	leg := func(repo string) string {
+		worktree := "/w/" + repo
+		if repo == "" {
+			worktree = "/w/none"
+		}
+
 		return `{"repo":"` + repo + `","clone":"","base":"main","prBase":"main","branch":"b",` +
-			`"worktree":"/w/` + repo + `","worktreeReady":false,"session":null,` +
+			`"worktree":"` + worktree + `","worktreeReady":false,"session":null,` +
 			`"claudeSessionId":null,"manualCommand":null,"ahead":0,"dirty":0,"pr":null,` +
 			`"cleaned":null}`
 	}

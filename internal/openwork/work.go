@@ -149,6 +149,8 @@ type state struct {
 	// resumedAt is when a session was last opened in a slot, by slotKey: it takes a few seconds
 	// to appear.
 	resumedAt map[string]float64
+	// reviewMoving are the runs whose move to review is out, by run key: one move at a time.
+	reviewMoving map[string]bool
 	// dryPolls and dryFixed are each leg's dry PR walk, by legKey: its polls so far, and that FIX
 	// CHECKS was pressed for it.
 	dryPolls map[string]int
@@ -168,7 +170,8 @@ func New(ctx context.Context, deps Deps) *Work {
 		handles: map[string]map[*handle]bool{}, listHandle: nil, lastGit: map[string]float64{},
 		busyPR: map[string]bool{}, running: map[string]bool{}, lastPoll: map[string]float64{},
 		polling: map[string]bool{}, pollError: map[string]string{},
-		resumedAt: map[string]float64{}, dryPolls: map[string]int{}, dryFixed: map[string]bool{},
+		resumedAt: map[string]float64{}, reviewMoving: map[string]bool{},
+		dryPolls: map[string]int{}, dryFixed: map[string]bool{},
 	}
 
 	_ = os.MkdirAll(work.runsDir, folderMode)

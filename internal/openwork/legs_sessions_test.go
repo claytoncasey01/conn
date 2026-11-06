@@ -54,12 +54,8 @@ func legsWorld(t *testing.T, layout, fields string, legExtras ...string) (*world
 
 	for index, name := range []string{"widgets", "gadgets"} {
 		clone := fakeClone(t, base, name)
-		worktree := filepath.Join(base, name+"-proj-1")
-
-		err := os.MkdirAll(worktree, 0o755)
-		if err != nil {
-			t.Fatal(err)
-		}
+		// The worktree's origin is its repository, as git gives a linked worktree its clone's.
+		worktree := fakeCloneAt(t, filepath.Join(base, name+"-proj-1"), name)
 
 		extra := ""
 		if index < len(legExtras) {

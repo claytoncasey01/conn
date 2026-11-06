@@ -409,8 +409,8 @@ func decodeRecord(data []byte, object *js.Object) (*Record, bool) {
 }
 
 // usable is whether every code path can use the record: a null agent, question or leg, no leg,
-// more legs than a run may have, or a layout that is neither shared nor split are a record none
-// could.
+// more legs than a run may have, legs that repeat a repository or worktree (distinctLegs), or a
+// layout that is neither shared nor split are a record none could.
 func usable(record *Record) bool {
 	switch record.Layout {
 	case layoutShared, layoutSplit:
@@ -434,7 +434,47 @@ func usable(record *Record) bool {
 		return false
 	}
 
-	return !slices.Contains(record.Repos, nil)
+	if slices.Contains(record.Repos, nil) {
+		return false
+	}
+
+	return distinctLegs(record.Repos)
+}
+
+// distinctLegs is whether no two legs share a repository (in any case; two that name none share
+// it) or a worktree, and, with several legs, every worktree is an absolute, clean path: the
+// actions on one leg find it by those, and must never reach another's. A run of one leg keeps
+// whatever worktree it had (a run from before legs may hold any).
+func distinctLegs(legs []*Leg) bool {
+	repos := map[string]bool{}
+	worktrees := map[string]bool{}
+
+	for _, leg := range legs {
+		repo := js.Lower(leg.Repo)
+		if repos[repo] {
+			return false
+		}
+
+		if worktrees[leg.Worktree] {
+			return false
+		}
+
+		repos[repo], worktrees[leg.Worktree] = true, true
+
+		if len(legs) == 1 {
+			continue
+		}
+
+		if !filepath.IsAbs(leg.Worktree) {
+			return false
+		}
+
+		if filepath.Clean(leg.Worktree) != leg.Worktree {
+			return false
+		}
+	}
+
+	return true
 }
 
 // legacyRecord is the repository's facts as a file from before legs held them, at the top.

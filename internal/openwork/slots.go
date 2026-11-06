@@ -35,9 +35,9 @@ func (w *Work) isSlot(record *Record, leg *Leg) bool {
 func worktreesOf(record *Record) []string { return legWorktrees(record.Repos) }
 
 // reachFlags are what a slot's claude command adds so its session reaches the other worktrees:
-// the shared session is given each other leg's with --add-dir. The paths are single-quoted, one
-// word whatever they hold; each flag sits before another flag, since --add-dir takes every word
-// up to the next one.
+// the shared session is given each other leg's still there with --add-dir. The paths are
+// single-quoted, one word whatever they hold; each flag sits before another flag, since
+// --add-dir takes every word up to the next one.
 func reachFlags(record *Record, slot *Leg) string {
 	if record.Layout == layoutSplit {
 		return ""
@@ -48,8 +48,18 @@ func reachFlags(record *Record, slot *Leg) string {
 	}
 
 	flags := strings.Builder{}
-	for _, worktree := range otherWorktrees(record) {
-		flags.WriteString(" --add-dir '" + strings.ReplaceAll(worktree, "'", `'\''`) + "'")
+
+	for _, leg := range record.Repos[1:] {
+		// A worktree removed (cleaned up, or gone from the disk) is nothing to reach.
+		if leg.cleaned() {
+			continue
+		}
+
+		if !exists(leg.Worktree) {
+			continue
+		}
+
+		flags.WriteString(" --add-dir '" + strings.ReplaceAll(leg.Worktree, "'", `'\''`) + "'")
 	}
 
 	return flags.String()

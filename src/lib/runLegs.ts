@@ -11,7 +11,7 @@ export const legsWithCommits = (run: Run): RunRepo[] => run.repos.filter(leg => 
 export const legsWithoutPr = (run: Run): RunRepo[] => run.repos.filter(leg => leg.pr === null)
 
 /** Whether OPEN PR may run: while the run builds, and while its PR is open as long as a leg has none (openable, pr_open.go). */
-const prOpenable = (run: Run): boolean => {
+export const prOpenable = (run: Run): boolean => {
   if (run.state === 'building') return true
   if (run.state === 'pr_open') return legsWithoutPr(run).length > 0
   return false

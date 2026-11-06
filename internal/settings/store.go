@@ -163,7 +163,8 @@ func (s *Store) Update(name string, body any) UpdateResult {
 	return UpdateResult{OK: true, Error: "", SaveFailed: false}
 }
 
-// buildRepoRefusal refuses a build repo the allowlist does not cover, when there is a list.
+// buildRepoRefusal refuses a default repository (buildRepo) the allowlist does not cover, when
+// there is a list.
 func buildRepoRefusal(atlassian Atlassian, allow []string) string {
 	buildRepo := atlassian.Jira.BuildRepo
 	if buildRepo == nil {
@@ -217,8 +218,8 @@ func keepAbsent(body any, saved, current Jira) Jira {
 	return saved
 }
 
-// consistent clears what depends on another section: a build repo and base branches the list no
-// longer covers and a draft channel the channels no longer hold.
+// consistent clears what depends on another section: a default repository and base branches the
+// list no longer covers and a draft channel the channels no longer hold.
 func consistent(settings *Settings) {
 	buildRepo := settings.Atlassian.Jira.BuildRepo
 	if buildRepo != nil {

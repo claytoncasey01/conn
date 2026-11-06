@@ -337,6 +337,7 @@ func openPRWorld(t *testing.T, extra string) (*world, string) {
 	}
 
 	writeJSON(t, filepath.Join(worktree, ".conn", "pr-body.md"), "body")
+	fakeCloneAt(t, worktree, "widgets")
 
 	record := runRecord(t, "PROJ-3", `{"branch":"proj-3-fix","worktree":`+
 		js.Stringify(worktree)+`,"repo":"acme/widgets","clone":`+js.Stringify(clone)+`}`)
@@ -419,7 +420,13 @@ func TestOpenPRIsRefusedForARepositoryOffTheListOrWithGitHubOff(t *testing.T) {
 
 	// A record from before Settings names no repository: the worktree's own origin says, and a
 	// folder that is no repository is refused.
-	unknown, _ := openPRWorld(t, `{"repo":null,"clone":null}`)
+	unknown, unknownTree := openPRWorld(t, `{"repo":null,"clone":null}`)
+
+	err := os.RemoveAll(filepath.Join(unknownTree, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	same(t, "unknown", unknown.work.OpenPR("PROJ-3", "").Code, 409)
 	same(t, "unknown calls", unknown.lines(), []string{})
 
@@ -433,6 +440,29 @@ func TestOpenPRIsRefusedForARepositoryOffTheListOrWithGitHubOff(t *testing.T) {
 	}
 
 	same(t, "off calls", off.lines(), []string{})
+}
+
+func TestOpenPRRefusesAWorktreeThatPushesToAnotherRepository(t *testing.T) {
+	t.Parallel()
+
+	made, worktree := openPRWorld(t, "")
+	fakeCloneAt(t, worktree, "gadgets")
+
+	reply := made.work.OpenPR("PROJ-3", "")
+	same(t, "refused", []any{reply.Code, errorOf(reply)}, []any{409, worktree + " pushes to " +
+		"acme/gadgets, not acme/widgets: refusing to push proj-3-fix"})
+	same(t, "calls", made.lines(), []string{})
+
+	bare, bareTree := openPRWorld(t, "")
+
+	err := os.RemoveAll(filepath.Join(bareTree, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reply = bare.work.OpenPR("PROJ-3", "")
+	same(t, "no origin", []any{reply.Code, errorOf(reply)}, []any{409, bareTree + " pushes " +
+		"to no GitHub repository, not acme/widgets: refusing to push proj-3-fix"})
 }
 
 func TestOpenPRChecksAgainOnceThePushIsDone(t *testing.T) {

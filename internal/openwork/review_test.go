@@ -15,31 +15,29 @@ func TestTheReviewMoveIsDueAsTheSettingSays(t *testing.T) {
 	rows := []struct {
 		name   string
 		policy string
-		// opened are the legs with a PR, withCommits the legs with commits or a PR, withPR those
-		// of them with a PR.
-		opened, withCommits, withPR int
-		moved                       bool
-		want                        bool
+		// opened are the legs with a PR, withCommits the legs with commits or a PR.
+		opened, withCommits int
+		moved               bool
+		want                bool
 	}{
-		{"first: the first PR", "first", 1, 2, 1, false, true},
-		{"first: a later PR after a failed move", "first", 2, 2, 2, false, true},
-		{"first: moved already", "first", 2, 2, 2, true, false},
-		{"first: no PR", "first", 0, 2, 0, false, false},
-		{"all: one leg with commits lacks a PR", "all", 1, 2, 1, false, false},
-		{"all: every leg with commits has a PR", "all", 2, 2, 2, false, true},
-		{"all: a leg with no commits is ignored", "all", 1, 1, 1, false, true},
-		{"all: moved already", "all", 2, 2, 2, true, false},
-		{"all: no PR", "all", 0, 0, 0, false, false},
-		{"never", "never", 2, 2, 2, false, false},
-		{"an unknown policy", "sometimes", 1, 1, 1, false, false},
+		{"first: the first PR", "first", 1, 2, false, true},
+		{"first: a later PR after a failed move", "first", 2, 2, false, true},
+		{"first: moved already", "first", 2, 2, true, false},
+		{"first: no PR", "first", 0, 2, false, false},
+		{"all: one leg with commits lacks a PR", "all", 1, 2, false, false},
+		{"all: every leg with commits has a PR", "all", 2, 2, false, true},
+		{"all: a leg with no commits is ignored", "all", 1, 1, false, true},
+		{"all: moved already", "all", 2, 2, true, false},
+		{"all: no PR", "all", 0, 0, false, false},
+		{"never", "never", 2, 2, false, false},
+		{"an unknown policy", "sometimes", 1, 1, false, false},
 	}
 
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := openwork.ReviewDue(row.policy, row.opened, row.withCommits, row.withPR,
-				row.moved)
+			got := openwork.ReviewDue(row.policy, row.opened, row.withCommits, row.moved)
 			same(t, "due", got, row.want)
 		})
 	}

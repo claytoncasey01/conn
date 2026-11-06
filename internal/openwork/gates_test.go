@@ -492,7 +492,7 @@ func TestRetryFailsBeforeAnyCallWhenItMayNotRun(t *testing.T) {
 		},
 		{
 			"stale clone", "", "PROJ-1", fields, othersOnly,
-			regexp.MustCompile(`No build repository is set|not an allowed repository`),
+			regexp.MustCompile(`acme/widgets is not an allowed repository`),
 		},
 		{"another repository", "", "PROJ-1", strings.Replace(fields, "acme/widgets",
 			"acme/gadgets", 1), "", regexp.MustCompile(`No local clone of acme/gadgets`)},

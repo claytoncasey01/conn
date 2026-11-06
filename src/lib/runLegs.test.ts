@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import legsAnswers from '../../testdata/answers/openwork/legs.json'
 import {
   canOpenAll,
   legAfterMerge,
@@ -15,6 +16,7 @@ import {
   legsToOpen,
   legsWithoutPr,
   legWorker,
+  prOpenable,
   prProgress,
   runMerged,
   runPrStatus,
@@ -276,4 +278,21 @@ test('runPrStatus: one leg\'s own status, else the merged one, else the one most
 test('workSummary: one leg as always, several summed with their count', () => {
   assert.equal(workSummary(runOf('building', [leg('a', { ahead: 3, dirty: 2 })])), '3 commits · 2 changed files')
   assert.equal(workSummary(runOf('building', [leg('a', { ahead: 3, dirty: 2 }), leg('b', { ahead: 1 })])), '4 commits · 2 changed files in 2 repositories')
+})
+
+test('the per-leg rules match the server, case by case (testdata/answers/openwork/legs.json)', () => {
+  for (const c of legsAnswers.legs) {
+    const given = c.args[0] as unknown as Pick<Run, 'key' | 'state' | 'layout' | 'repos'>
+    const run = { ...runOf(given.state, given.repos, given.layout), key: given.key }
+    const got = {
+      openable: prOpenable(run),
+      merged: runMerged(run),
+      legs: run.repos.map(l => ({
+        checksFailing: legChecksFailing(run, l),
+        canClean: legCanClean(run, l),
+        keptForOthers: legKeptForOthers(run, l),
+      })),
+    }
+    assert.deepEqual(got, c.out, JSON.stringify(c.args[0]))
+  }
 })

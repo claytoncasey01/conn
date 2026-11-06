@@ -51,14 +51,7 @@ func (w *Work) Runs() []sessions.Run {
 	}
 
 	for _, record := range w.snapshot() {
-		lead := record.lead()
-		prState := ""
-
-		if lead.PR != nil {
-			if lead.PR.Status != nil {
-				prState = lead.PR.Status.State
-			}
-		}
+		prState := historyPRState(record)
 
 		out = append(out, View{
 			key: record.Key, worktrees: worktreesOf(record), data: record.viewJSON(),
@@ -67,6 +60,25 @@ func (w *Work) Runs() []sessions.Run {
 	}
 
 	return out
+}
+
+// historyPRState is the PR state History shows for a run: merged once the run counts as merged
+// (merged), else its lead's, as a run of one always showed.
+func historyPRState(record *Record) string {
+	if merged(record) {
+		return prMerged
+	}
+
+	lead := record.lead()
+	if lead.PR == nil {
+		return ""
+	}
+
+	if lead.PR.Status == nil {
+		return ""
+	}
+
+	return lead.PR.Status.State
 }
 
 // snapshot are the runs, newest first.
