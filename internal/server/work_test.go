@@ -342,11 +342,16 @@ func TestARunIsMadeOnlyForATicketOfTheProjectWithACloneToBuildIn(t *testing.T) {
 	same(t, "runs", len(runs), 1)
 
 	run := parse(t, js.Stringify(runs[0]))
-	same(t, "branch", field(run, "branch"), "proj-2-nightly-job-skipped-when-the-batch")
-	same(t, "bases", []any{field(run, "base"), field(run, "prBase")}, []any{"trunk", "trunk"})
-	same(t, "worktree", field(run, "worktree"),
+	repos, _ := field(run, "repos").([]any)
+	same(t, "legs", len(repos), 1)
+
+	leg, _ := repos[0].(*js.Object)
+	same(t, "branch", field(leg, "branch"), "proj-2-nightly-job-skipped-when-the-batch")
+	same(t, "bases", []any{field(leg, "base"), field(leg, "prBase")}, []any{"trunk", "trunk"})
+	same(t, "worktree", field(leg, "worktree"),
 		filepath.Join(filepath.Dir(rig.clone), "widgets-proj-2"))
-	same(t, "clone", field(run, "clone"), nil)
+	same(t, "clone", field(leg, "clone"), nil)
+	same(t, "layout", field(run, "layout"), "shared")
 
 	data, err := os.ReadFile(filepath.Join(rig.data, "runs", "PROJ-2.json"))
 	if err != nil {
@@ -354,8 +359,10 @@ func TestARunIsMadeOnlyForATicketOfTheProjectWithACloneToBuildIn(t *testing.T) {
 	}
 
 	record := parse(t, string(data))
+	legs, _ := field(record, "repos").([]any)
+	kept, _ := legs[0].(*js.Object)
 	same(t, "on disk", []any{
-		field(record, "repo"), field(record, "clone"),
+		field(kept, "repo"), field(kept, "clone"),
 		field(record, "ticketCategory"),
 	}, []any{"acme/widgets", rig.clone, "new"})
 

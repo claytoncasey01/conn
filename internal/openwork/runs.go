@@ -45,16 +45,17 @@ func (w *Work) Runs() []sessions.Run {
 	}
 
 	for _, record := range w.snapshot() {
+		lead := record.lead()
 		prState := ""
 
-		if record.PR != nil {
-			if record.PR.Status != nil {
-				prState = record.PR.Status.State
+		if lead.PR != nil {
+			if lead.PR.Status != nil {
+				prState = lead.PR.Status.State
 			}
 		}
 
 		out = append(out, View{
-			key: record.Key, worktree: record.Worktree, data: record.viewJSON(),
+			key: record.Key, worktree: lead.Worktree, data: record.viewJSON(),
 			facts: sessions.RunFacts{State: record.State, PRState: prState},
 		})
 	}
@@ -115,19 +116,19 @@ func live(record *Record) bool {
 	return true
 }
 
-// repoOf is the repository a run is in: the one it recorded, else (a run from before Settings)
+// repoOf is the repository a leg is in: the one it recorded, else (a run from before Settings)
 // its worktree's origin; "" when neither says. Only a worktree that exists says: the origin
 // lookup walks up from a missing path, and would name a repository that merely encloses it.
-func (w *Work) repoOf(record *Record) string {
-	if record.Repo != nil {
-		return *record.Repo
+func (w *Work) repoOf(leg *Leg) string {
+	if leg.Repo != "" {
+		return leg.Repo
 	}
 
-	if !exists(record.Worktree) {
+	if !exists(leg.Worktree) {
 		return ""
 	}
 
-	return w.deps.OriginOf(record.Worktree)
+	return w.deps.OriginOf(leg.Worktree)
 }
 
 func exists(path string) bool {
@@ -140,12 +141,12 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// buildProblem is why this run may not research or build now, "" when it may: its repository
+// buildProblem is why this leg may not research or build now, "" when it may: its repository
 // has left the allowlist, or Settings builds in another repository (or finds no clone of it).
 // Asked on every path that starts a helper run or a session, whatever was done before: a run
 // made earlier is not a way around a list changed since.
-func (w *Work) buildProblem(record *Record) string {
-	repo := w.repoOf(record)
+func (w *Work) buildProblem(leg *Leg) string {
+	repo := w.repoOf(leg)
 	if repo != "" {
 		if !w.allowed(repo) {
 			return repo + " is not an allowed repository: add it in Settings."

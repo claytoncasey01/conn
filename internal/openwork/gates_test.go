@@ -570,7 +570,7 @@ func TestAnswersForARunWhoseRepositoryLeftTheListAreRefused(t *testing.T) {
 
 	made.work.Settle()
 	same(t, "state", made.state("PROJ-1"), "asking")
-	same(t, "brief", fileOrNil(filepath.Join(made.record("PROJ-1").Worktree, ".conn",
+	same(t, "brief", fileOrNil(filepath.Join(made.record("PROJ-1").Repos[0].Worktree, ".conn",
 		"brief.md")), nil)
 	same(t, "calls", helperOrGit(made), []string{})
 }

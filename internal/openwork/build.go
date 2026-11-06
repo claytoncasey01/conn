@@ -86,7 +86,7 @@ func (w *Work) Answer(key string, answers any) Reply {
 	}
 
 	if !w.deps.Dry {
-		if problem := w.buildProblem(record); problem != "" {
+		if problem := w.buildProblem(record.lead()); problem != "" {
 			return conflict(problem)
 		}
 	}
@@ -168,9 +168,11 @@ func BriefText(record *Record) string {
 		desc = "(no description; read the ticket in Jira)"
 	}
 
+	lead := record.lead()
+
 	return "# " + record.Key + ": " + record.Title + "\n\n" +
-		"You are implementing this ticket in " + record.Worktree + ", on branch " +
-		record.Branch + ". The pull request will target " + record.PRBase + ".\n\n" +
+		"You are implementing this ticket in " + lead.Worktree + ", on branch " +
+		lead.Branch + ". The pull request will target " + lead.PRBase + ".\n\n" +
 		"## Ticket\n" + desc + "\n\n" +
 		"## Research brief\nRead-only agents searched Jira, Confluence, Slack and the code. " +
 		"Treat their notes as leads to verify, not facts.\n\n" + record.Brief + "\n\n" +
@@ -207,24 +209,24 @@ func label(question *Question) string {
 func (w *Work) launchBuild(step *task, record *Record) error {
 	record.State = stateBuilding
 	record.Stage = stageBuild
+	leg := record.lead()
 
 	if w.deps.Dry {
 		status := "busy"
-		record.Session = &Session{
-			Name: record.Key, SessionID: nil, PID: nil, Status: &status, CommitsAhead: dryAhead,
-			Dirty: dryDirty,
-		}
+		leg.Session = &Session{Name: record.Key, SessionID: nil, PID: nil, Status: &status}
+		leg.Ahead, leg.Dirty = dryAhead, dryDirty
+
 		w.log(record, logBuild, "Session "+record.Key+" opened (dry run)")
 
 		return nil
 	}
 
-	err := writeBrief(record)
+	err := writeBrief(record, leg)
 	if err != nil {
 		return err
 	}
 
-	step.outside(func() { reviews.ExcludeConn(w.ctx, w.excludeDeps(), record.Worktree) })
+	step.outside(func() { reviews.ExcludeConn(w.ctx, w.excludeDeps(), leg.Worktree) })
 
 	if !live(record) {
 		return nil
@@ -232,19 +234,19 @@ func (w *Work) launchBuild(step *task, record *Record) error {
 
 	// Settings can change while git answers: no session starts in a repository that has left
 	// the list.
-	if problem := w.buildProblem(record); problem != "" {
+	if problem := w.buildProblem(leg); problem != "" {
 		return textError(problem)
 	}
 
-	w.openWorkspace(step, record, "claude --name "+record.Key+" --model sonnet "+
+	w.openWorkspace(step, record, leg, "claude --name "+record.Key+" --model sonnet "+
 		"--append-system-prompt-file .conn/delegation.md --permission-mode acceptEdits "+
 		`"Read .conn/brief.md and follow it exactly."`, "opened")
 
 	return nil
 }
 
-func writeBrief(record *Record) error {
-	folder := filepath.Join(record.Worktree, connFolder)
+func writeBrief(record *Record, leg *Leg) error {
+	folder := filepath.Join(leg.Worktree, connFolder)
 
 	err := os.MkdirAll(folder, folderMode)
 	if err == nil {
@@ -295,25 +297,26 @@ func (w *Work) excludeDeps() reviews.LaunchDeps {
 
 // openWorkspace starts command in a new cmux workspace named after the ticket; when cmux fails,
 // it leaves the command for the person to paste.
-func (w *Work) openWorkspace(step *task, record *Record, command, verb string) {
+func (w *Work) openWorkspace(step *task, record *Record, leg *Leg, command, verb string) {
 	var opened struct {
 		ok             bool
 		why, toCommand string
 	}
 
 	step.outside(func() {
-		result := w.deps.Open(w.ctx, record.Key, record.Worktree, command)
+		result := w.deps.Open(w.ctx, record.Key, leg.Worktree, command)
 		opened.ok, opened.why, opened.toCommand = result.OK, result.Error, result.ManualCommand
 	})
 
 	if opened.ok {
-		record.ManualCommand = nil
+		leg.ManualCommand = nil
+
 		w.log(record, logBuild, "Session "+record.Key+" "+verb+" in a new cmux workspace")
 
 		return
 	}
 
-	record.ManualCommand = &opened.toCommand
+	leg.ManualCommand = &opened.toCommand
 	w.log(record, logError, "Could not open a cmux workspace ("+opened.why+"). Run the "+
 		"command shown to start the session.")
 }
@@ -329,7 +332,9 @@ func (w *Work) Resume(key string) Reply {
 		return notFound("no run for " + key)
 	}
 
-	if refusal, refused := w.resumeRefusal(record); refused {
+	leg := record.lead()
+
+	if refusal, refused := w.resumeRefusal(record, leg); refused {
 		return refusal
 	}
 
@@ -339,23 +344,23 @@ func (w *Work) Resume(key string) Reply {
 		return ok()
 	}
 
-	if refusal, refused := w.resumeLiveRefusal(record); refused {
+	if refusal, refused := w.resumeLiveRefusal(record, leg); refused {
 		return refusal
 	}
 
-	command, verb := resumeCommand(record)
+	command, verb := resumeCommand(record.Key, leg)
 	w.resumedAt[key] = w.now()
 	// Held across the cmux call so a cleanup or a second resume cannot interleave with it.
 	w.busyPR[key] = true
 
-	w.openWorkspace(w.held(), record, command, verb)
+	w.openWorkspace(w.held(), record, leg, command, verb)
 	delete(w.busyPR, key)
 	w.touch(record)
 
 	return ok()
 }
 
-func (w *Work) resumeRefusal(record *Record) (Reply, bool) {
+func (w *Work) resumeRefusal(record *Record, leg *Leg) (Reply, bool) {
 	key := record.Key
 
 	resumable := record.State == stateBuilding
@@ -363,7 +368,7 @@ func (w *Work) resumeRefusal(record *Record) (Reply, bool) {
 		resumable = true
 	}
 
-	if record.cleaned() {
+	if leg.cleaned() {
 		return conflict(key + " is cleaned up: nothing to resume"), true
 	}
 
@@ -378,17 +383,17 @@ func (w *Work) resumeRefusal(record *Record) (Reply, bool) {
 	return Reply{}, false
 }
 
-func (w *Work) resumeLiveRefusal(record *Record) (Reply, bool) {
+func (w *Work) resumeLiveRefusal(record *Record, leg *Leg) (Reply, bool) {
 	key := record.Key
 
-	if w.deps.FindSession(record.Key, record.Worktree) != nil {
+	if w.deps.FindSession(record.Key, leg.Worktree) != nil {
 		return conflict("a session for " + key + " is already running"), true
 	}
 
 	// While the first session is still opening it is not in the session list yet, and a second
 	// one would share its conversation.
 	if record.State == stateBuilding {
-		if sessionText(record.ClaudeSessionID) == "" {
+		if sessionText(leg.ClaudeSessionID) == "" {
 			return conflict("the session has not started yet: wait for it to open"), true
 		}
 	}
@@ -398,11 +403,11 @@ func (w *Work) resumeLiveRefusal(record *Record) (Reply, bool) {
 			"appear"), true
 	}
 
-	if !exists(record.Worktree) {
-		return conflict(record.Worktree + " no longer exists"), true
+	if !exists(leg.Worktree) {
+		return conflict(leg.Worktree + " no longer exists"), true
 	}
 
-	if problem := w.buildProblem(record); problem != "" {
+	if problem := w.buildProblem(leg); problem != "" {
 		return conflict(problem), true
 	}
 
@@ -419,15 +424,15 @@ func sessionText(id *string) string {
 
 // resumeCommand is the command that reopens the session, and what the log says it did. The id
 // comes from a file on disk: only a plain UUID is allowed into a shell command.
-func resumeCommand(record *Record) (string, string) {
+func resumeCommand(key string, leg *Leg) (string, string) {
 	rule := ""
-	if exists(filepath.Join(record.Worktree, connFolder, delegationFile)) {
+	if exists(filepath.Join(leg.Worktree, connFolder, delegationFile)) {
 		rule = " --append-system-prompt-file .conn/delegation.md"
 	}
 
-	tail := " --name " + record.Key + " --model sonnet" + rule + " --permission-mode acceptEdits"
+	tail := " --name " + key + " --model sonnet" + rule + " --permission-mode acceptEdits"
 
-	id := sessionText(record.ClaudeSessionID)
+	id := sessionText(leg.ClaudeSessionID)
 	if sessionUUID.MatchString(id) {
 		return "claude --resume " + id + tail, "resumed"
 	}

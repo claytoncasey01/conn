@@ -207,7 +207,7 @@ func (w *Work) SettingsChanged() {
 				continue
 			}
 
-			if problem := w.buildProblem(record); problem != "" {
+			if problem := w.buildProblem(record.lead()); problem != "" {
 				w.interrupt(record, problem+" The research stopped; Retry starts it again once "+
 					"that is fixed.")
 			}

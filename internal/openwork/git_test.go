@@ -217,7 +217,7 @@ func TestARepositoryWithOnlyAMainBranchWorksFromStartToThePR(t *testing.T) {
 		"proj-2-ticket-proj-2")
 
 	record := made.record("PROJ-2")
-	same(t, "bases", []any{record.Base, record.PRBase}, []any{"main", "main"})
+	same(t, "bases", []any{record.Repos[0].Base, record.Repos[0].PRBase}, []any{"main", "main"})
 
 	answers := js.NewObject()
 	for _, question := range record.Questions {

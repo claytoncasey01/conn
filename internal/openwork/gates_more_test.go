@@ -318,7 +318,7 @@ func TestTheFollowUpPollReadsNoPROfARepositoryOffTheList(t *testing.T) {
 		gone.work.Settle()
 		same(t, "gone", gone.has("sh gh "), false)
 		same(t, "file", gone.files(), before)
-		same(t, "status", gone.record("PROJ-5").PR.Status.State, "open")
+		same(t, "status", gone.record("PROJ-5").Repos[0].PR.Status.State, "open")
 	}
 }
 
@@ -485,7 +485,7 @@ func TestOpenPRChecksAgainOnceThePushIsDone(t *testing.T) {
 			same(t, "move", made.has("transition"), false)
 			same(t, "state", made.state("PROJ-3"), "building")
 
-			if made.record("PROJ-3").PR != nil {
+			if made.record("PROJ-3").Repos[0].PR != nil {
 				t.Error("a PR was recorded")
 			}
 		})
@@ -515,7 +515,7 @@ func TestTheBranchStartMakesIsOneOpenPRAccepts(t *testing.T) {
 
 			same(t, "start", made.work.Start(key, body(t, `{"model":"haiku"}`)).Code, 200)
 
-			branch := made.record(key).Branch
+			branch := made.record(key).Repos[0].Branch
 			parsedBranch, valid := settings.ParseBranch(branch)
 
 			if !valid {

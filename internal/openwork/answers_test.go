@@ -3,7 +3,6 @@ package openwork_test
 import (
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -91,11 +90,9 @@ func section(t *testing.T, base, name string) []any {
 func recordOf(t *testing.T, value any) *openwork.Record {
 	t.Helper()
 
-	record := &openwork.Record{}
-
-	err := json.Unmarshal([]byte(js.Stringify(value)), record)
-	if err != nil {
-		t.Fatal(err)
+	record, ok := openwork.DecodeRecord([]byte(js.Stringify(value)))
+	if !ok {
+		t.Fatalf("not a run: %s", js.Stringify(value))
 	}
 
 	return record

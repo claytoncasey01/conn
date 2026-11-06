@@ -46,9 +46,10 @@ func (w *Work) dryPipeline(step *task, record *Record) {
 		return
 	}
 
-	w.log(record, logBranch, "Branch "+record.Branch+" created from origin/"+record.Base+
+	leg := record.lead()
+	w.log(record, logBranch, "Branch "+leg.Branch+" created from origin/"+leg.Base+
 		" (dry run)")
-	record.WorktreeReady = true
+	leg.WorktreeReady = true
 
 	if !wait(dryMoveMs) {
 		return

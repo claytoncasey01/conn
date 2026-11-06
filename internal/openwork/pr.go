@@ -48,10 +48,10 @@ func wellKnown() []string {
 	return []string{"main", "master", "develop", "development", "staging", "hotfix"}
 }
 
-// isProtected is whether Conn never pushes the run's branch: the run's base and the PR target,
+// isProtected is whether Conn never pushes the leg's branch: the leg's base and the PR target,
 // the clone's default branch, the one Settings names, and the long-lived names by habit.
-func (w *Work) isProtected(record *Record) bool {
-	names := append(wellKnown(), record.Base, record.PRBase)
+func (w *Work) isProtected(leg *Leg) bool {
+	names := append(wellKnown(), leg.Base, leg.PRBase)
 
 	if configured := w.settings().Atlassian.Jira.BaseBranch; configured != nil {
 		if *configured != "" {
@@ -59,15 +59,13 @@ func (w *Work) isProtected(record *Record) bool {
 		}
 	}
 
-	if record.Clone != nil {
-		if *record.Clone != "" {
-			if branch, known := DefaultBranch(*record.Clone); known {
-				names = append(names, branch)
-			}
+	if leg.Clone != "" {
+		if branch, known := DefaultBranch(leg.Clone); known {
+			names = append(names, branch)
 		}
 	}
 
-	return slices.Contains(names, record.Branch)
+	return slices.Contains(names, leg.Branch)
 }
 
 func plainBranch(name string) bool {
@@ -96,12 +94,13 @@ func (w *Work) OpenPR(key string) Reply {
 		return conflict("a pull request is already being opened")
 	}
 
-	if refusal, refused := w.pushRefusal(record); refused {
+	leg := record.lead()
+	if refusal, refused := w.pushRefusal(record.Key, leg); refused {
 		return refusal
 	}
 
-	repo := w.repoOf(record)
-	if refusal, refused := w.repoRefusal(record, repo); refused {
+	repo := w.repoOf(leg)
+	if refusal, refused := w.repoRefusal(leg, repo); refused {
 		return refusal
 	}
 
@@ -110,7 +109,7 @@ func (w *Work) OpenPR(key string) Reply {
 	w.launch(func(step *task) {
 		defer delete(w.busyPR, key)
 
-		err := w.pr(step, record, repo)
+		err := w.pr(step, record, leg, repo)
 		if err != nil {
 			message := err.Error()
 			record.Error = &message
@@ -121,20 +120,20 @@ func (w *Work) OpenPR(key string) Reply {
 	return ok()
 }
 
-func (w *Work) pushRefusal(record *Record) (Reply, bool) {
-	refusal := badRequest("refusing to push " + record.Branch)
+func (w *Work) pushRefusal(key string, leg *Leg) (Reply, bool) {
+	refusal := badRequest("refusing to push " + leg.Branch)
 
-	for _, name := range []string{record.Branch, record.Base, record.PRBase} {
+	for _, name := range []string{leg.Branch, leg.Base, leg.PRBase} {
 		if !plainBranch(name) {
 			return refusal, true
 		}
 	}
 
-	if w.isProtected(record) {
+	if w.isProtected(leg) {
 		return refusal, true
 	}
 
-	if !strings.HasPrefix(record.Branch, strings.ToLower(record.Key)+"-") {
+	if !strings.HasPrefix(leg.Branch, strings.ToLower(key)+"-") {
 		return refusal, true
 	}
 
@@ -146,15 +145,15 @@ func (w *Work) pushRefusal(record *Record) (Reply, bool) {
 	return Reply{}, false
 }
 
-// repoRefusal refuses a push to a repository off the allowlist: the run's (a run from before
+// repoRefusal refuses a push to a repository off the allowlist: the leg's (a run from before
 // Settings has none recorded: its worktree's origin says) must still be on it.
-func (w *Work) repoRefusal(record *Record, repo string) (Reply, bool) {
+func (w *Work) repoRefusal(leg *Leg, repo string) (Reply, bool) {
 	if w.deps.Dry {
-		return w.dryRepoRefusal(record)
+		return w.dryRepoRefusal(leg)
 	}
 
 	if repo == "" {
-		return conflict("Could not tell which repository " + record.Worktree + " belongs to."), true
+		return conflict("Could not tell which repository " + leg.Worktree + " belongs to."), true
 	}
 
 	if !w.allowed(repo) {
@@ -165,38 +164,34 @@ func (w *Work) repoRefusal(record *Record, repo string) (Reply, bool) {
 }
 
 // dryRepoRefusal refuses the dry run's push only for a recorded repository off the list.
-func (w *Work) dryRepoRefusal(record *Record) (Reply, bool) {
-	if record.Repo == nil {
+func (w *Work) dryRepoRefusal(leg *Leg) (Reply, bool) {
+	if leg.Repo == "" {
 		return Reply{}, false
 	}
 
-	if *record.Repo == "" {
+	if w.allowed(leg.Repo) {
 		return Reply{}, false
 	}
 
-	if w.allowed(*record.Repo) {
-		return Reply{}, false
-	}
-
-	return conflict(*record.Repo + " is not an allowed repository: add it in Settings."), true
+	return conflict(leg.Repo + " is not an allowed repository: add it in Settings."), true
 }
 
 // pr pushes the branch and opens its PR in repo, the repository OpenPR checked against the
 // allowlist (named to gh, never left to it).
-func (w *Work) pr(step *task, record *Record, repo string) error {
+func (w *Work) pr(step *task, record *Record, leg *Leg, repo string) error {
 	record.Error = nil
 
 	if w.deps.Dry {
-		w.dryPR(step, record)
+		w.dryPR(step, record, leg)
 
 		return nil
 	}
 
 	if repo == "" {
-		return textError("Could not tell which repository " + record.Worktree + " belongs to.")
+		return textError("Could not tell which repository " + leg.Worktree + " belongs to.")
 	}
 
-	ahead, err := w.commitsAhead(step, record)
+	ahead, err := w.commitsAhead(step, leg)
 	if err != nil {
 		return err
 	}
@@ -205,10 +200,10 @@ func (w *Work) pr(step *task, record *Record, repo string) error {
 		return textError("the branch has no commits yet")
 	}
 
-	w.log(record, logPR, "Pushing "+record.Branch)
+	w.log(record, logPR, "Pushing "+leg.Branch)
 
 	step.outside(func() {
-		_, err = w.sh("git", []string{"push", "-u", "origin", record.Branch}, record.Worktree,
+		_, err = w.sh("git", []string{"push", "-u", "origin", leg.Branch}, leg.Worktree,
 			pushTimeout)
 	})
 
@@ -216,7 +211,7 @@ func (w *Work) pr(step *task, record *Record, repo string) error {
 		return err
 	}
 
-	bodyFile, err := w.prBody(step, record)
+	bodyFile, err := w.prBody(step, leg)
 	if err != nil {
 		return err
 	}
@@ -225,11 +220,11 @@ func (w *Work) pr(step *task, record *Record, repo string) error {
 	// meanwhile, and opening the PR is a GitHub write to that repository, so this is checked
 	// last, right before it.
 	if after := w.prRefusal(repo); after != "" {
-		return textError(after + ". " + record.Branch + " was pushed, and no pull request was " +
+		return textError(after + ". " + leg.Branch + " was pushed, and no pull request was " +
 			"opened: press OPEN PR again once that is fixed.")
 	}
 
-	return w.createPR(step, record, repo, bodyFile)
+	return w.createPR(step, record, leg, repo, bodyFile)
 }
 
 func (w *Work) prRefusal(repo string) string {
@@ -249,8 +244,8 @@ func (w *Work) prRefusal(repo string) string {
 }
 
 // prBody is the PR body file: the session's own, or one made from the commit subjects.
-func (w *Work) prBody(step *task, record *Record) (string, error) {
-	bodyFile := filepath.Join(record.Worktree, connFolder, prBodyFile)
+func (w *Work) prBody(step *task, leg *Leg) (string, error) {
+	bodyFile := filepath.Join(leg.Worktree, connFolder, prBodyFile)
 	if exists(bodyFile) {
 		return bodyFile, nil
 	}
@@ -262,9 +257,9 @@ func (w *Work) prBody(step *task, record *Record) (string, error) {
 
 	step.outside(func() {
 		subjects, err = w.sh("git", []string{
-			"log", "origin/" + record.Base + "..HEAD",
+			"log", "origin/" + leg.Base + "..HEAD",
 			"--format=- %s",
-		}, record.Worktree, 0)
+		}, leg.Worktree, 0)
 	})
 
 	if err != nil {
@@ -282,7 +277,7 @@ func (w *Work) prBody(step *task, record *Record) (string, error) {
 	return bodyFile, nil
 }
 
-func (w *Work) createPR(step *task, record *Record, repo, bodyFile string) error {
+func (w *Work) createPR(step *task, record *Record, leg *Leg, repo, bodyFile string) error {
 	var (
 		out string
 		err error
@@ -290,10 +285,10 @@ func (w *Work) createPR(step *task, record *Record, repo, bodyFile string) error
 
 	step.outside(func() {
 		out, err = w.sh("gh", []string{
-			"pr", "create", "--repo", repo, "--base", record.PRBase,
-			"--head", record.Branch, "--title", record.Key + ": " + record.Title,
+			"pr", "create", "--repo", repo, "--base", leg.PRBase,
+			"--head", leg.Branch, "--title", record.Key + ": " + record.Title,
 			"--body-file", bodyFile,
-		}, record.Worktree, createTimeout)
+		}, leg.Worktree, createTimeout)
 	})
 
 	if err != nil {
@@ -308,31 +303,31 @@ func (w *Work) createPR(step *task, record *Record, repo, bodyFile string) error
 		number = js.ToNumber(match[1])
 	}
 
-	record.PR = &PR{URL: url, Number: number, Status: nil}
+	leg.PR = &PR{URL: url, Number: number, Status: nil}
 	record.State = statePROpen
 	record.Stage = stagePR
-	w.log(record, logPR, "Pull request opened into "+record.PRBase+": "+url)
+	w.log(record, logPR, "Pull request opened into "+leg.PRBase+": "+url)
 	w.moveJira(step, record, jira.MoveReview())
 
 	return nil
 }
 
-func (w *Work) commitsAhead(step *task, record *Record) (float64, error) {
+func (w *Work) commitsAhead(step *task, leg *Leg) (float64, error) {
 	var (
 		count float64
 		err   error
 	)
 
-	step.outside(func() { count, err = w.countAhead(record) })
+	step.outside(func() { count, err = w.countAhead(leg) })
 
 	return count, err
 }
 
-// countAhead is the number of commits on the run's branch past its base; 0 when git's answer
+// countAhead is the number of commits on the leg's branch past its base; 0 when git's answer
 // is not a number.
-func (w *Work) countAhead(record *Record) (float64, error) {
-	out, err := w.sh("git", []string{"rev-list", "--count", "origin/" + record.Base + "..HEAD"},
-		record.Worktree, gitTimeout)
+func (w *Work) countAhead(leg *Leg) (float64, error) {
+	out, err := w.sh("git", []string{"rev-list", "--count", "origin/" + leg.Base + "..HEAD"},
+		leg.Worktree, gitTimeout)
 	if err != nil {
 		return 0, err
 	}
@@ -345,19 +340,19 @@ func (w *Work) countAhead(record *Record) (float64, error) {
 	return count, nil
 }
 
-func (w *Work) dryPR(step *task, record *Record) {
-	w.log(record, logPR, "Pushing "+record.Branch)
+func (w *Work) dryPR(step *task, record *Record, leg *Leg) {
+	w.log(record, logPR, "Pushing "+leg.Branch)
 	step.outside(func() { w.deps.Sleep(w.ctx, dryPRWait) })
 
 	number := dryPRFirst + float64(int(ticketNumber(record.Key))%dryPRSpread)
-	record.PR = &PR{
+	leg.PR = &PR{
 		URL: "https://github.com/acme/widgets/pull/" + js.Number(number), Number: number,
 		Status: nil,
 	}
 	record.State = statePROpen
 	record.Stage = stagePR
 	record.JiraStatus = "In Review"
-	w.log(record, logPR, "Pull request opened into "+record.PRBase)
+	w.log(record, logPR, "Pull request opened into "+leg.PRBase)
 	w.log(record, logStatus, "Jira "+record.Key+" is now In Review")
 }
 
@@ -372,7 +367,9 @@ func (w *Work) FixChecks(key string) (Reply, error) {
 		return notFound("no run for " + key), nil
 	}
 
-	refusal, repo, refused := w.fixRefusal(record)
+	leg := record.lead()
+
+	refusal, repo, refused := w.fixRefusal(record.Key, record.State, leg)
 	if refused {
 		return refusal, nil
 	}
@@ -390,19 +387,19 @@ func (w *Work) FixChecks(key string) (Reply, error) {
 		return conflict("another change to this run is in progress"), nil
 	}
 
-	session := w.deps.FindSession(record.Key, record.Worktree)
+	session := w.deps.FindSession(record.Key, leg.Worktree)
 	if session == nil {
-		return conflict("no session for " + key + " is running; open one in " + record.Worktree +
+		return conflict("no session for " + key + " is running; open one in " + leg.Worktree +
 			" first"), nil
 	}
 
-	return w.askToFix(record, repo, session)
+	return w.askToFix(record, leg, repo, session)
 }
 
-func (w *Work) askToFix(record *Record, repo string, session *Found) (Reply, error) {
-	status := record.PR.Status
+func (w *Work) askToFix(record *Record, leg *Leg, repo string, session *Found) (Reply, error) {
+	status := leg.PR.Status
 
-	message, err := prstatus.FixChecksMessage(record.PR.Number, status.Checks.Failed, repo)
+	message, err := prstatus.FixChecksMessage(leg.PR.Number, status.Checks.Failed, repo)
 	if err != nil {
 		return Reply{}, fmt.Errorf("asking the session to fix the checks: %w", err)
 	}
@@ -437,18 +434,18 @@ func failedOr(failed []string) string {
 // is only as fresh as the poll, which stops for a repository off the list or with GitHub off:
 // the session is sent to read that PR on GitHub, so both must hold now. The repository named to
 // it is the PR's own (its URL), checked like the poll's.
-func (w *Work) fixRefusal(record *Record) (Reply, string, bool) {
-	if record.State != statePROpen {
-		return conflict(record.Key + " has no open PR being watched"), "", true
+func (w *Work) fixRefusal(key, state string, leg *Leg) (Reply, string, bool) {
+	if state != statePROpen {
+		return conflict(key + " has no open PR being watched"), "", true
 	}
 
-	if record.PR == nil {
-		return conflict(record.Key + " has no open PR being watched"), "", true
+	if leg.PR == nil {
+		return conflict(key + " has no open PR being watched"), "", true
 	}
 
-	status := record.PR.Status
+	status := leg.PR.Status
 	if status == nil {
-		return conflict(record.Key + " has no open PR being watched"), "", true
+		return conflict(key + " has no open PR being watched"), "", true
 	}
 
 	if status.Checks.State != "failing" {
@@ -463,13 +460,13 @@ func (w *Work) fixRefusal(record *Record) (Reply, string, bool) {
 		return conflict(githubOff), "", true
 	}
 
-	repo := PRURLRepo(record.PR.URL)
-	if !w.prRepoAllowed(record, repo) {
+	repo := PRURLRepo(leg.PR.URL)
+	if !w.prRepoAllowed(leg, repo) {
 		named := repo
 		if named == "" {
 			named = "this repository"
-			if record.Repo != nil {
-				named = *record.Repo
+			if leg.Repo != "" {
+				named = leg.Repo
 			}
 		}
 
@@ -479,9 +476,9 @@ func (w *Work) fixRefusal(record *Record) (Reply, string, bool) {
 	return Reply{}, repo, false
 }
 
-// prRepoAllowed is whether a run's PR may be read: the PR's own repository (its URL) and the
-// run's, when it recorded one, are both on the allowlist.
-func (w *Work) prRepoAllowed(record *Record, repo string) bool {
+// prRepoAllowed is whether a leg's PR may be read: the PR's own repository (its URL) and the
+// leg's, when it recorded one, are both on the allowlist.
+func (w *Work) prRepoAllowed(leg *Leg, repo string) bool {
 	if repo == "" {
 		return false
 	}
@@ -490,10 +487,8 @@ func (w *Work) prRepoAllowed(record *Record, repo string) bool {
 		return false
 	}
 
-	if record.Repo != nil {
-		if *record.Repo != "" {
-			return w.allowed(*record.Repo)
-		}
+	if leg.Repo != "" {
+		return w.allowed(leg.Repo)
 	}
 
 	return true
@@ -567,15 +562,16 @@ func merged(record *Record) bool {
 		return false
 	}
 
-	if record.PR == nil {
+	pull := record.lead().PR
+	if pull == nil {
 		return false
 	}
 
-	if record.PR.Status == nil {
+	if pull.Status == nil {
 		return false
 	}
 
-	return record.PR.Status.State == prMerged
+	return pull.Status.State == prMerged
 }
 
 // Cleanup removes the run's worktree once its PR is done. It refuses while anything could be
@@ -589,7 +585,8 @@ func (w *Work) Cleanup(key string) Reply {
 		return notFound("no run for " + key)
 	}
 
-	if refusal, refused := cleanupRefusal(record); refused {
+	leg := record.lead()
+	if refusal, refused := cleanupRefusal(record.State, leg); refused {
 		return refusal
 	}
 
@@ -599,37 +596,37 @@ func (w *Work) Cleanup(key string) Reply {
 
 	if w.deps.Dry {
 		cleaned := true
-		record.Cleaned = &cleaned
-		w.log(record, logStatus, "Worktree "+record.Worktree+" removed (dry run). The branch "+
-			record.Branch+" stays.")
+		leg.Cleaned = &cleaned
+		w.log(record, logStatus, "Worktree "+leg.Worktree+" removed (dry run). The branch "+
+			leg.Branch+" stays.")
 
 		return ok()
 	}
 
-	if w.deps.FindSession(record.Key, record.Worktree) != nil {
+	if w.deps.FindSession(record.Key, leg.Worktree) != nil {
 		return conflict("the session is still running: close it first")
 	}
 
 	w.busyPR[key] = true
 	defer delete(w.busyPR, key)
 
-	return w.removeWorktree(w.held(), record)
+	return w.removeWorktree(w.held(), record, leg)
 }
 
 // cleanupRefusal refuses a run whose PR is open or whose worktree is gone. The record is read
 // from disk and its path is not recomputed (a run made under another naming, or another clone,
 // must still clean up), so the path is only ever removed when git itself lists it as a linked
 // worktree of a repository.
-func cleanupRefusal(record *Record) (Reply, bool) {
-	if record.State != statePROpen {
+func cleanupRefusal(runState string, leg *Leg) (Reply, bool) {
+	if runState != statePROpen {
 		return conflict("the PR is still open"), true
 	}
 
 	state := ""
 
-	if record.PR != nil {
-		if record.PR.Status != nil {
-			state = record.PR.Status.State
+	if leg.PR != nil {
+		if leg.PR.Status != nil {
+			state = leg.PR.Status.State
 		}
 	}
 
@@ -637,58 +634,56 @@ func cleanupRefusal(record *Record) (Reply, bool) {
 		return conflict("the PR is still open"), true
 	}
 
-	if record.cleaned() {
+	if leg.cleaned() {
 		return conflict("the worktree is already removed"), true
 	}
 
-	if !strings.HasPrefix(record.Worktree, "/") {
-		return badRequest("refusing to remove " + record.Worktree), true
+	if !strings.HasPrefix(leg.Worktree, "/") {
+		return badRequest("refusing to remove " + leg.Worktree), true
 	}
 
-	if strings.Contains(record.Worktree, "\x00") {
-		return badRequest("refusing to remove " + record.Worktree), true
+	if strings.Contains(leg.Worktree, "\x00") {
+		return badRequest("refusing to remove " + leg.Worktree), true
 	}
 
 	return Reply{}, false
 }
 
-func (w *Work) removeWorktree(step *task, record *Record) Reply {
-	if exists(record.Worktree) {
-		reply, refused := w.removeLinked(step, record)
+func (w *Work) removeWorktree(step *task, record *Record, leg *Leg) Reply {
+	if exists(leg.Worktree) {
+		reply, refused := w.removeLinked(step, leg)
 		if refused {
 			return reply
 		}
 	}
 
 	cleaned := true
-	record.Cleaned = &cleaned
-	w.log(record, logStatus, "Worktree "+record.Worktree+" removed. The branch "+record.Branch+
+	leg.Cleaned = &cleaned
+	w.log(record, logStatus, "Worktree "+leg.Worktree+" removed. The branch "+leg.Branch+
 		" stays.")
 
 	return ok()
 }
 
-func (w *Work) removeLinked(step *task, record *Record) (Reply, bool) {
+func (w *Work) removeLinked(step *task, leg *Leg) (Reply, bool) {
 	var (
 		repo   string
 		linked bool
 	)
 
-	step.outside(func() { repo, linked = LinkedWorktreeRepo(w.ctx, record.Worktree, w.deps.Sh) })
+	step.outside(func() { repo, linked = LinkedWorktreeRepo(w.ctx, leg.Worktree, w.deps.Sh) })
 
 	if !linked {
-		return badRequest("refusing to remove " + record.Worktree + ": it is not a linked " +
+		return badRequest("refusing to remove " + leg.Worktree + ": it is not a linked " +
 			"worktree of a repository"), true
 	}
 
-	// It must belong to the repository the run was made in (a record from before Settings has
+	// It must belong to the repository the leg was made in (a record from before Settings has
 	// no clone recorded, and keeps the rule above only).
-	if record.Clone != nil {
-		if *record.Clone != "" {
-			if realPath(repo) != realPath(*record.Clone) {
-				return badRequest("refusing to remove " + record.Worktree + ": it belongs to " +
-					"another repository than " + *record.Clone), true
-			}
+	if leg.Clone != "" {
+		if realPath(repo) != realPath(leg.Clone) {
+			return badRequest("refusing to remove " + leg.Worktree + ": it belongs to " +
+				"another repository than " + leg.Clone), true
 		}
 	}
 
@@ -698,7 +693,7 @@ func (w *Work) removeLinked(step *task, record *Record) (Reply, bool) {
 	)
 
 	step.outside(func() {
-		out, err = w.sh("git", []string{"status", argPorcelain}, record.Worktree, gitTimeout)
+		out, err = w.sh("git", []string{"status", argPorcelain}, leg.Worktree, gitTimeout)
 	})
 
 	if err != nil {
@@ -712,11 +707,11 @@ func (w *Work) removeLinked(step *task, record *Record) (Reply, bool) {
 		}
 
 		return conflict(strconv.Itoa(dirty) + " uncommitted file" + plural + " in " +
-			record.Worktree + ": commit or discard them first"), true
+			leg.Worktree + ": commit or discard them first"), true
 	}
 
 	step.outside(func() {
-		_, err = w.sh("git", []string{argWorktree, "remove", record.Worktree}, repo, removeTimeout)
+		_, err = w.sh("git", []string{argWorktree, "remove", leg.Worktree}, repo, removeTimeout)
 	})
 
 	if err != nil {

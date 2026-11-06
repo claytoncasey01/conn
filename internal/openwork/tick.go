@@ -73,34 +73,37 @@ func followed(record *Record) bool {
 		return false
 	}
 
-	return !record.cleaned()
+	return !record.lead().cleaned()
 }
 
 func (w *Work) followSession(record *Record) {
+	leg := record.lead()
+
 	var found *Found
 	if !w.deps.Dry {
-		found = w.deps.FindSession(record.Key, record.Worktree)
+		found = w.deps.FindSession(record.Key, leg.Worktree)
 	}
 
-	prev := record.Session
-	next := sessionNext(record, found, prev, w.deps.Dry)
+	prev := leg.Session
+	next := sessionNext(record.Key, found, prev, w.deps.Dry)
 
 	if found != nil {
-		if sessionText(record.ClaudeSessionID) != found.SessionID {
+		if sessionText(leg.ClaudeSessionID) != found.SessionID {
 			id := found.SessionID
-			record.ClaudeSessionID = &id
+			leg.ClaudeSessionID = &id
+
 			w.touch(record)
 		}
 	}
 
 	if string(js.Marshal(next)) != string(js.Marshal(prev)) {
-		record.Session = next
+		leg.Session = next
 
 		w.bump()
 	}
 }
 
-func sessionNext(record *Record, found *Found, prev *Session, dry bool) *Session {
+func sessionNext(key string, found *Found, prev *Session, dry bool) *Session {
 	if dry {
 		return prev
 	}
@@ -111,17 +114,11 @@ func sessionNext(record *Record, found *Found, prev *Session, dry bool) *Session
 		}
 	}
 
-	next := &Session{
-		Name: record.Key, SessionID: nil, PID: nil, Status: nil, CommitsAhead: 0, Dirty: 0,
-	}
+	next := &Session{Name: key, SessionID: nil, PID: nil, Status: nil}
 
 	if found != nil {
 		id, pid, status := found.ID, found.PID, found.Status
 		next.SessionID, next.PID, next.Status = &id, &pid, &status
-	}
-
-	if prev != nil {
-		next.CommitsAhead, next.Dirty = prev.CommitsAhead, prev.Dirty
 	}
 
 	return next
@@ -129,6 +126,8 @@ func sessionNext(record *Record, found *Found, prev *Session, dry bool) *Session
 
 // followGit counts the run's commits and changed files; a failing git changes nothing.
 func (w *Work) followGit(record *Record) {
+	leg := record.lead()
+
 	w.launch(func(step *task) {
 		var (
 			ahead, dirty       float64
@@ -137,11 +136,11 @@ func (w *Work) followGit(record *Record) {
 
 		step.outside(func() {
 			calls := sync.WaitGroup{}
-			calls.Go(func() { ahead, aheadErr = w.countAhead(record) })
+			calls.Go(func() { ahead, aheadErr = w.countAhead(leg) })
 			calls.Go(func() {
 				var out string
 
-				out, dirtyErr = w.sh("git", []string{"status", argPorcelain}, record.Worktree,
+				out, dirtyErr = w.sh("git", []string{"status", argPorcelain}, leg.Worktree,
 					gitTimeout)
 				dirty = float64(countLines(out))
 			})
@@ -156,24 +155,19 @@ func (w *Work) followGit(record *Record) {
 			return
 		}
 
-		w.counted(record, ahead, dirty)
+		w.counted(record.Key, leg, ahead, dirty)
 	})
 }
 
-func (w *Work) counted(record *Record, ahead, dirty float64) {
-	current := Session{
-		Name: record.Key, SessionID: nil, PID: nil, Status: nil, CommitsAhead: 0, Dirty: 0,
-	}
-	if record.Session != nil {
-		current = *record.Session
-	}
-
-	changed := record.Session == nil
-	if current.CommitsAhead != ahead {
+// counted keeps a leg's counts. The page reads a session once anything was counted, so one is
+// made for a leg that has none yet.
+func (w *Work) counted(key string, leg *Leg, ahead, dirty float64) {
+	changed := leg.Session == nil
+	if leg.Ahead != ahead {
 		changed = true
 	}
 
-	if current.Dirty != dirty {
+	if leg.Dirty != dirty {
 		changed = true
 	}
 
@@ -181,8 +175,11 @@ func (w *Work) counted(record *Record, ahead, dirty float64) {
 		return
 	}
 
-	current.CommitsAhead, current.Dirty = ahead, dirty
-	record.Session = &current
+	if leg.Session == nil {
+		leg.Session = &Session{Name: key, SessionID: nil, PID: nil, Status: nil}
+	}
+
+	leg.Ahead, leg.Dirty = ahead, dirty
 
 	w.bump()
 }
@@ -204,7 +201,7 @@ func (w *Work) tickPRs() {
 
 		w.lastPoll[key] = now
 		w.polling[key] = true
-		number := record.PR.Number
+		number := record.lead().PR.Number
 
 		w.launch(func(step *task) {
 			defer delete(w.polling, key)
@@ -225,7 +222,9 @@ func (w *Work) pollDue(record *Record, now float64) bool {
 		return false
 	}
 
-	pull := record.PR
+	leg := record.lead()
+
+	pull := leg.PR
 	if pull == nil {
 		return false
 	}
@@ -240,7 +239,7 @@ func (w *Work) pollDue(record *Record, now float64) bool {
 		return false
 	}
 
-	if !w.prRepoAllowed(record, PRURLRepo(pull.URL)) {
+	if !w.prRepoAllowed(leg, PRURLRepo(pull.URL)) {
 		return false
 	}
 
@@ -282,9 +281,9 @@ func (w *Work) pollFailed(record *Record, number float64, err error) {
 }
 
 func (w *Work) pollPR(step *task, record *Record) error {
-	pull := record.PR
+	pull := record.lead().PR
 
-	next, err := w.readPR(step, record)
+	next, err := w.readPR(step, record, pull)
 	if err != nil {
 		return err
 	}
@@ -310,7 +309,7 @@ func (w *Work) pollPR(step *task, record *Record) error {
 	return nil
 }
 
-func (w *Work) readPR(step *task, record *Record) (prstatus.Status, error) {
+func (w *Work) readPR(step *task, record *Record, pull *PR) (prstatus.Status, error) {
 	if w.deps.Dry {
 		return w.dryStatus(record), nil
 	}
@@ -321,7 +320,7 @@ func (w *Work) readPR(step *task, record *Record) (prstatus.Status, error) {
 	)
 
 	step.outside(func() {
-		out, err = w.sh("gh", []string{"pr", "view", record.PR.URL, "--json", prstatus.Fields},
+		out, err = w.sh("gh", []string{"pr", "view", pull.URL, "--json", prstatus.Fields},
 			"", pollTimeout)
 	})
 

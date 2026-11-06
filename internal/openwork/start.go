@@ -165,16 +165,17 @@ func (w *Work) baseMoved(key string, had *Record, target Target) (Reply, bool) {
 		return Reply{}, false
 	}
 
-	if !had.WorktreeReady {
+	lead := had.lead()
+	if !lead.WorktreeReady {
 		return Reply{}, false
 	}
 
-	if had.Base == target.Base {
+	if lead.Base == target.Base {
 		return Reply{}, false
 	}
 
-	return conflict(key + " already has " + had.Branch + " cut from " + had.Base + ", and runs " +
-		"start from " + target.Base + " now. Remove " + had.Worktree + " and the branch " +
+	return conflict(key + " already has " + lead.Branch + " cut from " + lead.Base + ", and runs " +
+		"start from " + target.Base + " now. Remove " + lead.Worktree + " and the branch " +
 		"first."), true
 }
 
@@ -221,21 +222,24 @@ func (w *Work) newRecord(key, model string, ticket *js.Object, target Target) *R
 	}
 
 	category := text(ticket, "statusCategory")
-	repo, clone := target.Repo, target.Clone
 	lower := strings.ToLower(key)
 
 	// Runs start from the branch Settings names (else the clone's default branch) and the PR
 	// goes back into it. The worktree is a sibling of the clone, named for the clone and the
 	// ticket; the run records it, and cleanup removes the path the run recorded.
+	leg := &Leg{
+		Repo: target.Repo, Clone: target.Clone, Base: target.Base, PRBase: target.Base,
+		Branch: lower + "-" + slug, Worktree: siblingOf(target.Clone, lower),
+		WorktreeReady: false, Session: nil, ClaudeSessionID: nil, ManualCommand: nil, Ahead: 0,
+		Dirty: 0, PR: nil, Cleaned: nil,
+	}
+
 	return &Record{
-		Key: key, Title: title, Base: target.Base, PRBase: target.Base, Model: model,
-		Branch: lower + "-" + slug, Worktree: siblingOf(clone, lower), State: stateStarting,
-		Stage: stageResearch, StartedAt: now, UpdatedAt: now,
-		JiraStatus: text(ticket, "status"), Agents: newAgents(), Answered: []Answered{},
-		Questions: []*Question{}, Log: []LogLine{}, Session: nil, PR: nil, Error: nil,
-		ManualCommand: nil, Brief: "", Desc: text(ticket, "desc"), WorktreeReady: false,
-		TicketStatus: text(ticket, "status"), TicketCategory: &category, Repo: &repo,
-		Clone: &clone, ClaudeSessionID: nil, Cleaned: nil,
+		Key: key, Title: title, Model: model, State: stateStarting, Stage: stageResearch,
+		StartedAt: now, UpdatedAt: now, JiraStatus: text(ticket, "status"),
+		Agents: newAgents(), Answered: []Answered{}, Questions: []*Question{}, Log: []LogLine{},
+		Error: nil, Brief: "", Desc: text(ticket, "desc"), TicketStatus: text(ticket, "status"),
+		TicketCategory: &category, Repos: []*Leg{leg}, Layout: layoutShared,
 	}
 }
 
@@ -276,7 +280,7 @@ func (w *Work) pipelineRefusal(record *Record) error {
 		return nil
 	}
 
-	if problem := w.buildProblem(record); problem != "" {
+	if problem := w.buildProblem(record.lead()); problem != "" {
 		return textError(problem)
 	}
 
@@ -295,8 +299,8 @@ func (w *Work) runPipeline(step *task, record *Record) error {
 		return nil
 	}
 
-	if !record.WorktreeReady {
-		err = w.makeWorktree(step, record)
+	if !record.lead().WorktreeReady {
+		err = w.makeWorktree(step, record, record.lead())
 		if err != nil {
 			return err
 		}
@@ -322,17 +326,17 @@ func (w *Work) runPipeline(step *task, record *Record) error {
 	return w.research(step, record)
 }
 
-func (w *Work) makeWorktree(step *task, record *Record) error {
+func (w *Work) makeWorktree(step *task, record *Record, leg *Leg) error {
 	// The branch it starts from is read from a record on disk: only a name git can take as one
 	// argument.
-	from, valid := settings.ParseBranch(record.Base)
+	from, valid := settings.ParseBranch(leg.Base)
 	if !valid {
-		return textError(record.Base + " is not a branch name")
+		return textError(leg.Base + " is not a branch name")
 	}
 
 	// The clone is looked up again, never taken from the record: a repository that has left
 	// the allowlist is not fetched, and a changed setting is followed.
-	if problem := w.buildProblem(record); problem != "" {
+	if problem := w.buildProblem(leg); problem != "" {
 		return textError(problem)
 	}
 
@@ -347,60 +351,61 @@ func (w *Work) makeWorktree(step *task, record *Record) error {
 		return err
 	}
 
-	if exists(record.Worktree) {
-		err = w.reuseWorktree(step, record)
+	if exists(leg.Worktree) {
+		err = w.reuseWorktree(step, record, leg)
 	} else {
-		err = w.addWorktree(step, record, clone, from)
+		err = w.addWorktree(step, record, leg, clone, from)
 	}
 
 	if err != nil {
 		return err
 	}
 
-	record.WorktreeReady = true
+	leg.WorktreeReady = true
+
 	w.touch(record)
 
 	return nil
 }
 
-func (w *Work) reuseWorktree(step *task, record *Record) error {
+func (w *Work) reuseWorktree(step *task, record *Record, leg *Leg) error {
 	head := ""
 
 	step.outside(func() {
-		out, err := w.sh("git", []string{argRevParse, "--abbrev-ref", "HEAD"}, record.Worktree, 0)
+		out, err := w.sh("git", []string{argRevParse, "--abbrev-ref", "HEAD"}, leg.Worktree, 0)
 		if err == nil {
 			head = js.Trim(out)
 		}
 	})
 
-	if head != record.Branch {
+	if head != leg.Branch {
 		on := head
 		if on == "" {
 			on = "another checkout"
 		}
 
-		return textError(record.Worktree + " already exists on " + on + ", not " + record.Branch)
+		return textError(leg.Worktree + " already exists on " + on + ", not " + leg.Branch)
 	}
 
-	w.log(record, logBranch, "Reusing "+record.Worktree)
+	w.log(record, logBranch, "Reusing "+leg.Worktree)
 
 	return nil
 }
 
-func (w *Work) addWorktree(step *task, record *Record, clone, from string) error {
+func (w *Work) addWorktree(step *task, record *Record, leg *Leg, clone, from string) error {
 	branchExists := false
 
 	step.outside(func() {
 		_, err := w.sh("git", []string{
 			argRevParse, "--verify", "--quiet",
-			"refs/heads/" + record.Branch,
+			"refs/heads/" + leg.Branch,
 		}, clone, 0)
 		branchExists = err == nil
 	})
 
-	args := []string{argWorktree, "add", "-b", record.Branch, record.Worktree, "origin/" + from}
+	args := []string{argWorktree, "add", "-b", leg.Branch, leg.Worktree, "origin/" + from}
 	if branchExists {
-		args = []string{argWorktree, "add", record.Worktree, record.Branch}
+		args = []string{argWorktree, "add", leg.Worktree, leg.Branch}
 	}
 
 	var err error
@@ -411,8 +416,8 @@ func (w *Work) addWorktree(step *task, record *Record, clone, from string) error
 		return err
 	}
 
-	w.log(record, logBranch, "Branch "+record.Branch+" created from origin/"+from+" in "+
-		record.Worktree)
+	w.log(record, logBranch, "Branch "+leg.Branch+" created from origin/"+from+" in "+
+		leg.Worktree)
 
 	return nil
 }

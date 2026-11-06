@@ -138,7 +138,7 @@ type LogLine struct {
 	Text string  `json:"text"`
 }
 
-// Session is the build session, once it exists: read from the session list and git.
+// Session is the build session, once it exists: read from the session list.
 type Session struct {
 	// Name is the ticket key.
 	Name string `json:"name"`
@@ -146,9 +146,6 @@ type Session struct {
 	SessionID *string  `json:"sessionId"`
 	PID       *float64 `json:"pid"`
 	Status    *string  `json:"status"`
-	// CommitsAhead and Dirty are the commits on the branch and the files not yet committed.
-	CommitsAhead float64 `json:"commitsAhead"`
-	Dirty        float64 `json:"dirty"`
 }
 
 // PR is a run's pull request and what GitHub last said of it.
@@ -158,48 +155,101 @@ type PR struct {
 	Status *prstatus.Status `json:"status,omitempty"`
 }
 
+// Leg is one repository a run builds in: its clone, its branch and worktree, the session that
+// works in it, and its PR.
+type Leg struct {
+	// Repo and Clone are the repository and the clone the branch was cut in; a run from before
+	// Settings has neither, and its worktree's origin says.
+	Repo  string `json:"repo"`
+	Clone string `json:"clone"`
+	// Base is the branch the leg started from; PRBase is its PR's target, the same branch.
+	Base          string `json:"base"`
+	PRBase        string `json:"prBase"`
+	Branch        string `json:"branch"`
+	Worktree      string `json:"worktree"`
+	WorktreeReady bool   `json:"worktreeReady"`
+	// Session is the build session working in this leg's worktree.
+	Session *Session `json:"session"`
+	// ClaudeSessionID is Claude's own id for the build session, kept so it can be resumed.
+	ClaudeSessionID *string `json:"claudeSessionId"`
+	ManualCommand   *string `json:"manualCommand"`
+	// Ahead and Dirty are the commits on the branch and the files not yet committed.
+	Ahead float64 `json:"ahead"`
+	Dirty float64 `json:"dirty"`
+	PR    *PR     `json:"pr"`
+	// Cleaned is that the worktree was removed after the PR merged or closed.
+	Cleaned *bool `json:"cleaned"`
+}
+
+// LegRun is a leg as the page sees it: the leg without what only the server needs.
+type LegRun struct {
+	Repo            string   `json:"repo"`
+	Base            string   `json:"base"`
+	PRBase          string   `json:"prBase"`
+	Branch          string   `json:"branch"`
+	Worktree        string   `json:"worktree"`
+	Session         *Session `json:"session"`
+	ClaudeSessionID *string  `json:"claudeSessionId"`
+	ManualCommand   *string  `json:"manualCommand"`
+	Ahead           float64  `json:"ahead"`
+	Dirty           float64  `json:"dirty"`
+	PR              *PR      `json:"pr"`
+	Cleaned         *bool    `json:"cleaned"`
+}
+
+func (l *Leg) view() *LegRun {
+	return &LegRun{
+		Repo: l.Repo, Base: l.Base, PRBase: l.PRBase, Branch: l.Branch, Worktree: l.Worktree,
+		Session: l.Session, ClaudeSessionID: l.ClaudeSessionID, ManualCommand: l.ManualCommand,
+		Ahead: l.Ahead, Dirty: l.Dirty, PR: l.PR, Cleaned: l.Cleaned,
+	}
+}
+
+func (l *Leg) cleaned() bool {
+	if l.Cleaned == nil {
+		return false
+	}
+
+	return *l.Cleaned
+}
+
+const (
+	// legsMax is the most repositories one run builds in.
+	legsMax = 6
+	// layoutShared is one build session for every leg, in the first leg's worktree.
+	layoutShared = "shared"
+)
+
 // Record is a run as it is kept on disk: the run the page shows plus what only the server needs.
 // Its fields are in the order a run's keys are first set, which is the order the file and the
 // snapshot write them in.
 type Record struct {
 	Key   string `json:"key"`
 	Title string `json:"title"`
-	// Base is the branch the run started from; PRBase is its PR's target, the same branch.
-	Base     string `json:"base"`
-	PRBase   string `json:"prBase"`
-	Model    string `json:"model"`
-	Branch   string `json:"branch"`
-	Worktree string `json:"worktree"`
-	State    string `json:"state"`
-	Stage    string `json:"stage"`
+	Model string `json:"model"`
+	State string `json:"state"`
+	Stage string `json:"stage"`
 	// StartedAt and UpdatedAt are ms epochs.
 	StartedAt float64 `json:"startedAt"`
 	UpdatedAt float64 `json:"updatedAt"`
 	// JiraStatus is the ticket's status as this run last set or saw it.
-	JiraStatus    string      `json:"jiraStatus"`
-	Agents        []*Agent    `json:"agents"`
-	Answered      []Answered  `json:"answered"`
-	Questions     []*Question `json:"questions"`
-	Log           []LogLine   `json:"log"`
-	Session       *Session    `json:"session"`
-	PR            *PR         `json:"pr"`
-	Error         *string     `json:"error"`
-	ManualCommand *string     `json:"manualCommand"`
-	Brief         string      `json:"brief"`
-	Desc          string      `json:"desc"`
-	WorktreeReady bool        `json:"worktreeReady"`
-	TicketStatus  string      `json:"ticketStatus"`
+	JiraStatus   string      `json:"jiraStatus"`
+	Agents       []*Agent    `json:"agents"`
+	Answered     []Answered  `json:"answered"`
+	Questions    []*Question `json:"questions"`
+	Log          []LogLine   `json:"log"`
+	Error        *string     `json:"error"`
+	Brief        string      `json:"brief"`
+	Desc         string      `json:"desc"`
+	TicketStatus string      `json:"ticketStatus"`
 	// TicketCategory is the ticket's status category when the run started; a run from before
 	// categories has none.
 	TicketCategory *string `json:"ticketCategory,omitempty"`
-	// Repo and Clone are the repository the run builds in and the clone it branched from; a run
-	// from before Settings has neither.
-	Repo  *string `json:"repo,omitempty"`
-	Clone *string `json:"clone,omitempty"`
-	// ClaudeSessionID is Claude's own id for the build session, kept so it can be resumed.
-	ClaudeSessionID *string `json:"claudeSessionId,omitempty"`
-	// Cleaned is that the worktree was removed after the PR merged or closed.
-	Cleaned *bool `json:"cleaned,omitempty"`
+	// Repos are the repositories the run builds in, in the order they were chosen: at least one,
+	// at most legsMax.
+	Repos []*Leg `json:"repos"`
+	// Layout is how the build sessions are laid out over the legs.
+	Layout string `json:"layout"`
 
 	// read is the record as its file held it: a record is written back with its keys where the
 	// file had them (a key this code does not know included), and the keys added since after them.
@@ -208,47 +258,56 @@ type Record struct {
 
 // Run is a run as the page sees it: the record without what only the server needs.
 type Run struct {
-	Key             string      `json:"key"`
-	Title           string      `json:"title"`
-	Base            string      `json:"base"`
-	PRBase          string      `json:"prBase"`
-	Model           string      `json:"model"`
-	Branch          string      `json:"branch"`
-	Worktree        string      `json:"worktree"`
-	State           string      `json:"state"`
-	Stage           string      `json:"stage"`
-	StartedAt       float64     `json:"startedAt"`
-	UpdatedAt       float64     `json:"updatedAt"`
-	JiraStatus      string      `json:"jiraStatus"`
-	Agents          []*Agent    `json:"agents"`
-	Answered        []Answered  `json:"answered"`
-	Questions       []*Question `json:"questions"`
-	Log             []LogLine   `json:"log"`
-	Session         *Session    `json:"session"`
-	PR              *PR         `json:"pr"`
-	Error           *string     `json:"error"`
-	ManualCommand   *string     `json:"manualCommand"`
-	ClaudeSessionID *string     `json:"claudeSessionId,omitempty"`
-	Cleaned         *bool       `json:"cleaned,omitempty"`
+	Key        string      `json:"key"`
+	Title      string      `json:"title"`
+	Model      string      `json:"model"`
+	State      string      `json:"state"`
+	Stage      string      `json:"stage"`
+	StartedAt  float64     `json:"startedAt"`
+	UpdatedAt  float64     `json:"updatedAt"`
+	JiraStatus string      `json:"jiraStatus"`
+	Agents     []*Agent    `json:"agents"`
+	Answered   []Answered  `json:"answered"`
+	Questions  []*Question `json:"questions"`
+	Log        []LogLine   `json:"log"`
+	Error      *string     `json:"error"`
+	Repos      []*LegRun   `json:"repos"`
+	Layout     string      `json:"layout"`
 }
 
 func (r *Record) view() Run {
+	repos := make([]*LegRun, 0, len(r.Repos))
+	for _, leg := range r.Repos {
+		repos = append(repos, leg.view())
+	}
+
 	return Run{
-		Key: r.Key, Title: r.Title, Base: r.Base, PRBase: r.PRBase, Model: r.Model,
-		Branch: r.Branch, Worktree: r.Worktree, State: r.State, Stage: r.Stage,
+		Key: r.Key, Title: r.Title, Model: r.Model, State: r.State, Stage: r.Stage,
 		StartedAt: r.StartedAt, UpdatedAt: r.UpdatedAt, JiraStatus: r.JiraStatus,
 		Agents: r.Agents, Answered: r.Answered, Questions: r.Questions, Log: r.Log,
-		Session: r.Session, PR: r.PR, Error: r.Error, ManualCommand: r.ManualCommand,
-		ClaudeSessionID: r.ClaudeSessionID, Cleaned: r.Cleaned,
+		Error: r.Error, Repos: repos, Layout: r.Layout,
 	}
 }
 
-func (r *Record) cleaned() bool {
-	if r.Cleaned == nil {
-		return false
+// lead is the run's first leg: the one a shared session works in. A record always has one; one
+// without is a bug in this package.
+func (r *Record) lead() *Leg {
+	if len(r.Repos) == 0 {
+		panic("openwork: the run " + r.Key + " has no repository")
 	}
 
-	return *r.Cleaned
+	return r.Repos[0]
+}
+
+// legFor is the run's leg in repo, in any case.
+func (r *Record) legFor(repo string) (*Leg, bool) {
+	for _, leg := range r.Repos {
+		if js.Lower(leg.Repo) == js.Lower(repo) {
+			return leg, true
+		}
+	}
+
+	return nil, false
 }
 
 // newAgents are the four research agents, queued.
@@ -271,10 +330,10 @@ func newAgents() []*Agent {
 }
 
 // readRecord is the run a file holds, or false when it is not one of Conn's: not a JSON object,
-// a key that is not a ticket key (the key names the file and goes into commands), or fields of
-// the wrong type. A run made when the base was one of three named choices recorded that choice
-// as base; the branch it started from is the one its PR targets. A run whose research stage was
-// running when the server stopped is interrupted.
+// a key that is not a ticket key (the key names the file and goes into commands), fields of the
+// wrong type, or no usable leg. A run made when the base was one of three named choices recorded
+// that choice as base; the branch it started from is the one its PR targets. A run whose research
+// stage was running when the server stopped is interrupted.
 func readRecord(data []byte) (*Record, bool) {
 	parsed, err := js.Parse(data)
 	if err != nil {
@@ -297,33 +356,129 @@ func readRecord(data []byte) (*Record, bool) {
 		return nil, false
 	}
 
-	record := &Record{}
-
-	err = json.Unmarshal(data, record)
-	if err != nil {
-		return nil, false
-	}
-
-	// A null agent or question is a record no code path could use.
-	if slices.Contains(record.Agents, nil) {
-		return nil, false
-	}
-
-	if slices.Contains(record.Questions, nil) {
+	record, ok := decodeRecord(data, object)
+	if !ok {
 		return nil, false
 	}
 
 	record.read = object
 
-	return settleRead(record, object), true
+	return settleRead(record), true
 }
 
-func settleRead(record *Record, object *js.Object) *Record {
-	prBase, _ := object.Get("prBase")
+// decodeRecord is the record data holds, in either shape: a file from before legs (no repos) is
+// one leg made from its top-level fields, sharing one session.
+func decodeRecord(data []byte, object *js.Object) (*Record, bool) {
+	record := &Record{}
 
-	branch, ok := settings.ParseBranch(prBase)
-	if ok {
-		record.Base = branch
+	err := json.Unmarshal(data, record)
+	if err != nil {
+		return nil, false
+	}
+
+	if _, present := object.Get("repos"); !present {
+		leg, ok := legacyLeg(data)
+		if !ok {
+			return nil, false
+		}
+
+		record.Repos = []*Leg{leg}
+		record.Layout = layoutShared
+	}
+
+	if record.Layout == "" {
+		record.Layout = layoutShared
+	}
+
+	return record, usable(record)
+}
+
+// usable is whether every code path can use the record: a null agent, question or leg, no leg,
+// or more legs than a run may have are a record none could.
+func usable(record *Record) bool {
+	if slices.Contains(record.Agents, nil) {
+		return false
+	}
+
+	if slices.Contains(record.Questions, nil) {
+		return false
+	}
+
+	if len(record.Repos) == 0 {
+		return false
+	}
+
+	if len(record.Repos) > legsMax {
+		return false
+	}
+
+	return !slices.Contains(record.Repos, nil)
+}
+
+// legacyRecord is the repository's facts as a file from before legs held them, at the top.
+type legacyRecord struct {
+	Base            string         `json:"base"`
+	PRBase          string         `json:"prBase"`
+	Branch          string         `json:"branch"`
+	Worktree        string         `json:"worktree"`
+	WorktreeReady   bool           `json:"worktreeReady"`
+	Session         *legacySession `json:"session"`
+	ClaudeSessionID *string        `json:"claudeSessionId"`
+	ManualCommand   *string        `json:"manualCommand"`
+	PR              *PR            `json:"pr"`
+	Cleaned         *bool          `json:"cleaned"`
+	Repo            *string        `json:"repo"`
+	Clone           *string        `json:"clone"`
+}
+
+// legacySession is the session as a file from before legs held it, with the counts in it.
+type legacySession struct {
+	Session
+
+	CommitsAhead float64 `json:"commitsAhead"`
+	Dirty        float64 `json:"dirty"`
+}
+
+// legacyLeg is the one leg of a file from before legs.
+func legacyLeg(data []byte) (*Leg, bool) {
+	legacy := legacyRecord{}
+
+	err := json.Unmarshal(data, &legacy)
+	if err != nil {
+		return nil, false
+	}
+
+	leg := &Leg{
+		Repo: textOf(legacy.Repo), Clone: textOf(legacy.Clone), Base: legacy.Base,
+		PRBase: legacy.PRBase, Branch: legacy.Branch, Worktree: legacy.Worktree,
+		WorktreeReady: legacy.WorktreeReady, Session: nil,
+		ClaudeSessionID: legacy.ClaudeSessionID, ManualCommand: legacy.ManualCommand,
+		Ahead: 0, Dirty: 0, PR: legacy.PR, Cleaned: legacy.Cleaned,
+	}
+
+	if legacy.Session != nil {
+		session := legacy.Session.Session
+		leg.Session = &session
+		leg.Ahead, leg.Dirty = legacy.Session.CommitsAhead, legacy.Session.Dirty
+	}
+
+	return leg, true
+}
+
+func textOf(value *string) string {
+	if value == nil {
+		return ""
+	}
+
+	return *value
+}
+
+func settleRead(record *Record) *Record {
+	for _, leg := range record.Repos {
+		branch, ok := settings.ParseBranch(leg.PRBase)
+		if ok {
+			leg.Base = branch
+		}
 	}
 
 	switch record.State {
@@ -348,19 +503,42 @@ func stopAgent(agent *Agent) {
 	}
 }
 
-// writeRecord writes the run's file; a failure is ignored: the run goes on in memory.
+// writeRecord writes the run's file; a failure is ignored: the run goes on in memory. A file
+// read from before legs loses its top-level repository keys: they live in repos now.
 func writeRecord(runsDir string, record *Record) {
 	path := filepath.Join(runsDir, record.Key+".json")
-	_ = os.WriteFile(path, record.ordered(record, func(string) bool { return false }), fileMode)
+	_ = os.WriteFile(path, record.ordered(record, legacyKey), fileMode)
 }
 
 // viewJSON is the run as the page sees it.
-func (r *Record) viewJSON() []byte { return r.ordered(r.view(), internalKey) }
+func (r *Record) viewJSON() []byte { return r.ordered(r.view(), hiddenKey) }
+
+// hiddenKey is whether a key the record's file held stays off the page: what only the server
+// needs, or what a file from before legs held at the top.
+func hiddenKey(key string) bool {
+	if internalKey(key) {
+		return true
+	}
+
+	return legacyKey(key)
+}
 
 // internalKey is whether a record's key is what only the server needs.
 func internalKey(key string) bool {
 	switch key {
-	case "brief", "desc", "worktreeReady", "ticketStatus", "ticketCategory", "repo", "clone":
+	case "brief", "desc", "ticketStatus", "ticketCategory":
+		return true
+	}
+
+	return false
+}
+
+// legacyKey is whether a key is one a file from before legs held at the top, about its one
+// repository.
+func legacyKey(key string) bool {
+	switch key {
+	case "base", "prBase", "branch", "worktree", "worktreeReady", "session", "claudeSessionId",
+		"manualCommand", "pr", "cleaned", "repo", "clone":
 		return true
 	}
 

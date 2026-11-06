@@ -101,10 +101,8 @@ func readerTools(id string) []string {
 func ReaderPrompt(record *Record, agentID string, site *jira.Site) string {
 	where := "the repository in your working directory"
 
-	if record.Repo != nil {
-		if *record.Repo != "" {
-			where = "the repository " + *record.Repo
-		}
+	if repo := record.lead().Repo; repo != "" {
+		where = "the repository " + repo
 	}
 
 	desc := record.Desc
@@ -232,7 +230,7 @@ func (w *Work) readerOpts(record *Record, agent *Agent, found findings) claude.O
 
 	dir := ""
 	if agent.ID == agentCode {
-		dir = record.Worktree
+		dir = record.lead().Worktree
 	}
 
 	budget := readerHaikuBudget

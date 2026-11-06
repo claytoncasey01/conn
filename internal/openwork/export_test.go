@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/jira"
+	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/prstatus"
 )
 
@@ -104,10 +105,38 @@ func IsProtected(work *Work, key, branch string) bool {
 	defer work.mu.Unlock()
 
 	record, _ := work.runs.Get(key)
-	copied := *record
+	copied := *record.lead()
 	copied.Branch = branch
 
 	return work.isProtected(&copied)
+}
+
+// RepoOf is the repository a run is in, as the pushes and sessions ask it.
+func RepoOf(work *Work, key string) string {
+	work.mu.Lock()
+	defer work.mu.Unlock()
+
+	record, _ := work.runs.Get(key)
+
+	return work.repoOf(record.lead())
+}
+
+// LegFor is the leg of a record in repo, in any case.
+func LegFor(record *Record, repo string) (*Leg, bool) { return record.legFor(repo) }
+
+// DecodeRecord is the record a run's file holds, in either shape, before it is settled.
+func DecodeRecord(data []byte) (*Record, bool) {
+	parsed, err := js.Parse(data)
+	if err != nil {
+		return nil, false
+	}
+
+	object, isObject := parsed.(*js.Object)
+	if !isObject {
+		return nil, false
+	}
+
+	return decodeRecord(data, object)
 }
 
 // LoadedKeys are the keys of the runs in a runs folder, in the order they are loaded.
