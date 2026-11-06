@@ -344,8 +344,10 @@ export type View = {
   notice: Notice | null
   note: string
   lagging: boolean
-  /** Keys are being held since one was held for lag: nothing is typed until the hold is let go. */
+  /** Keys are being held since one was held for lag: nothing but an interrupt is typed until the hold is let go. */
   held: boolean
+  /** The server closed a cut paste in place of a key, and the note saying so is up until Dismiss or a later key. */
+  pasteClosed: boolean
 }
 
 export type Link = {
@@ -356,7 +358,7 @@ export type Link = {
   input(data: string, focused: boolean): void
   /** Whether output handed to the screen is still waiting to be drawn: the screen's modes may not be the program's yet. */
   drawing(): boolean
-  /** Lets go of a hold on keys, and clears its note: the person's Dismiss. */
+  /** Lets go of a hold on keys and clears the paste-closed note: the person's Dismiss. */
   dismiss(): void
   /** Asks the host for a size, once open and only when it changed. */
   resize(size: Size): void
@@ -373,15 +375,15 @@ export type AttachOptions = { frame: Frame; heard?: () => void; now?: () => numb
 const NORMAL_CLOSE = 1000
 /** What the panel says of input refused for its size, or held while the page catches up. */
 export const TOO_LARGE = `That is too large to type at once: at most ${PASTE_BYTES_MAX >> 10} KiB, sent whole. Nothing was typed.`
-const HELD = 'The terminal is catching up with the program, so nothing was typed since. Once it has, press a key to type again, or Dismiss.'
+const HELD = 'The terminal is catching up with the program, so keys other than Ctrl-C are held. Once it has, press a key to type again, or Dismiss.'
 const PASTE_CLOSED = 'A paste was cut short and has been closed. Check the screen before typing.'
 const RELEASED = 'Typing again. The key that ended the hold was not typed.'
-/** The notes about input that the next key typed makes old: it shows the person is typing on. */
-const CLEARED_BY_A_KEY = new Set([TOO_LARGE, PASTE_CLOSED, RELEASED])
 /**
- * The interrupt keys, Ctrl-C and Ctrl-\: always sent while the terminal is open, held or not, and never part of a hold.
- * One can only stop a program, never submit or answer anything, and it is the person's way out of a program that floods
- * its terminal.
+ * The interrupt keys, Ctrl-C and Ctrl-\: sent whenever the terminal is open, held or not, and never part of a hold, so
+ * the person can stop a program that floods its terminal. In a cooked terminal they are the interrupt and quit signals
+ * and do nothing else. In a raw-mode program they are keys like any other: in Emacs C-c is a prefix, so C-c C-c can
+ * finish a commit or run a block, and in Claude Code a second Ctrl-C exits. Two presses through a hold reach the program
+ * as two keys.
  */
 const INTERRUPTS = new Set(['\x03', '\x1c'])
 
@@ -389,7 +391,10 @@ const INTERRUPTS = new Set(['\x03', '\x1c'])
 export function statusText(view: View): string {
   if (view.phase === 'ended') {
     if (view.exitCode !== null) return `Exited · ${view.exitCode}`
+    return STATUS.ended
   }
+  // A closed terminal takes no keys: neither a lag nor a hold is worth saying
+  if (view.phase === 'closed') return STATUS.closed
   if (view.lagging) return 'Catching up…'
   if (view.held) return 'Held: press a key or click Dismiss'
   return STATUS[view.phase]
@@ -407,7 +412,13 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   const { frame } = options
   const heard = options.heard ?? (() => {})
   const now = options.now ?? (() => performance.now())
-  let view: View = { phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, held: false }
+  let view: View = { phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, held: false, pasteClosed: false }
+  // The note is made of these, the paste-closed warning first: no note of a hold ever replaces it
+  let holdNote = ''
+  let inputNote = ''
+  let pasteClosedAt: number | null = null
+  const noteNow = (): string => [pasteClosedAt === null ? '' : PASTE_CLOSED, holdNote || inputNote].filter(Boolean).join(' ')
+  const noted = (next: Partial<View> = {}) => update({ ...next, note: noteNow(), pasteClosed: pasteClosedAt !== null })
   // When the last key was held, and when the page last caught up: the quiet gap runs from the later
   let heldAt = 0
   let caughtUpAt = 0
@@ -438,7 +449,7 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   const fellBehind = () => {
     if (view.phase === 'closed') return
     socket.close(NORMAL_CLOSE)
-    update({ phase: 'closed', notice: FELL_BEHIND })
+    update({ phase: 'closed', notice: FELL_BEHIND, held: false, lagging: false })
   }
   const drawn = (size: number) => () => {
     pending -= size
@@ -489,7 +500,8 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
     if (message?.t === 'replay-end') {
       if (view.phase === 'replaying') replayDrawn()
     } else if (message?.t === 'paste-closed') {
-      update({ note: PASTE_CLOSED })
+      pasteClosedAt = now()
+      noted()
     } else if (message?.t === 'exit') {
       update({ phase: 'ended', exitCode: message.code, notice: closeNotice(NORMAL_CLOSE, '', message.code) })
     }
@@ -497,18 +509,25 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   socket.onclose = (event: CloseEvent) => {
     if (view.phase === 'ended') return
     if (view.phase === 'closed') return
-    update({ phase: 'closed', notice: closeNotice(event.code, event.reason, null) })
+    update({ phase: 'closed', notice: closeNotice(event.code, event.reason, null), held: false, lagging: false })
   }
   socket.onerror = () => {}
   const typeFrames = (data: string) => {
     const text = inputFrame(data)
     if (text === null) {
-      update({ note: TOO_LARGE })
+      inputNote = TOO_LARGE
+      noted()
       return
     }
-    // A key typed makes old the notes about earlier input; the hold's own note stays until the hold ends
-    if (CLEARED_BY_A_KEY.has(view.note)) update({ note: '' })
     socket.send(text)
+    // A key typed makes old the notes about earlier input. The paste-closed warning is still true after a key (the program
+    // still holds the paste), so only a key well after it, or Dismiss, clears it
+    holdNote = ''
+    inputNote = ''
+    if (pasteClosedAt !== null) {
+      if (now() - pasteClosedAt >= HOLD_QUIET_MS) pasteClosedAt = null
+    }
+    if (view.note !== noteNow()) noted()
   }
   // Behind the program, the screen shown is not the program's: a key would answer something not yet drawn. Once one key
   // is held, all are, until the page has caught up and a key comes after a quiet gap (it only lets go) or Dismiss
@@ -520,12 +539,14 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
       const quiet = at - Math.max(heldAt, caughtUpAt) >= HOLD_QUIET_MS
       heldAt = at
       if (view.lagging || !quiet) return true
-      update({ held: false, note: RELEASED })
+      holdNote = RELEASED
+      noted({ held: false })
       return true
     }
     if (!view.lagging) return false
     heldAt = at
-    update({ held: true, note: HELD })
+    holdNote = HELD
+    noted({ held: true })
     return true
   }
   // An interrupt goes as soon as the socket is open, during a replay too: after falling behind and reconnecting, it is how
@@ -534,6 +555,8 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
     if (view.phase !== 'live') {
       if (view.phase !== 'replaying') return
     }
+    // A pointer motion waiting for its frame went first, so it goes first
+    sendMotion()
     socket.send(inputFrameText(data))
   }
   // The newest pointer motion waits for the next frame, so a fast pointer sends one report a frame, not one an event
@@ -561,9 +584,9 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
     },
     drawing: () => pending > 0,
     dismiss() {
-      if (!view.held) return
-      update({ held: false, note: view.note === HELD ? '' : view.note })
-      heldAt = 0
+      holdNote = ''
+      pasteClosedAt = null
+      noted({ held: false })
     },
     resize(size) {
       const fitted = fitSize(size)

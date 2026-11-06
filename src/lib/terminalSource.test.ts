@@ -157,3 +157,11 @@ for (const [name, id, key] of refused) {
     assert.equal(socket, null)
   })
 }
+
+test('Dismiss shows only while the terminal is live, and only for a hold or a closed paste', () => {
+  assert.match(panel, /\{#if view\.phase === 'live' && \(view\.held \|\| view\.pasteClosed\)\}\s*<button type="button" class="btn cap" onclick=\{event => panel\?\.dismiss\(event\)\}>Dismiss<\/button>/)
+})
+
+test('the status line is statusText, which a closed or ended terminal answers before any lag or hold', () => {
+  assert.match(panel, /\{statusText\(view\)\}/)
+})

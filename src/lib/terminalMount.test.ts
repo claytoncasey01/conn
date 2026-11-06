@@ -527,3 +527,16 @@ test('a reconnect starts with no note from before it', async () => {
   panel.reconnect()
   assert.equal(last().note, '')
 })
+
+test('a paste asked about while live, then the page going behind and holding keys: confirming types nothing', async () => {
+  const { host, panel, socket, term, last, live } = rig()
+  await live()
+  host.dispatch('paste', clipboard('one\ntwo'))
+  assert.equal(last().ask?.kind, 'paste')
+  socket().message(new Uint8Array(2 << 20).buffer)
+  userTypes(term().term, 'a')
+  assert.equal(last().held, true)
+  panel.confirm({ isTrusted: true })
+  assert.equal(socket().typed(), '')
+  assert.notEqual(last().note, '', 'the panel says why nothing was typed')
+})

@@ -96,7 +96,7 @@ export function mount(deps: MountDeps): Panel {
   let fit: Fit | null = null
   let link: Link | null = null
   let look = deps.look
-  let base: View = { phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, held: false }
+  let base: View = { phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, held: false, pasteClosed: false }
   let ask: Ask | null = null
   let held = ''
   let hover = ''

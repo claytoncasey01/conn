@@ -18,7 +18,7 @@
 
   let host: HTMLDivElement | undefined = $state()
   let detachButton: HTMLButtonElement | undefined = $state()
-  let view = $state<PanelView>({ phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, held: false, ask: null, hover: '' })
+  let view = $state<PanelView>({ phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, held: false, pasteClosed: false, ask: null, hover: '' })
   let panel: Panel | null = null
 
   const FONT_SIZE = 13
@@ -100,7 +100,7 @@
     <div class="status" class:live={view.phase === 'live'} class:bad={view.phase === 'closed'}>{statusText(view)}</div>
     <div class="hint">{LEAVE_KEY} leaves the terminal</div>
     <div class="actions">
-      {#if view.held}
+      {#if view.phase === 'live' && (view.held || view.pasteClosed)}
         <button type="button" class="btn cap" onclick={event => panel?.dismiss(event)}>Dismiss</button>
       {/if}
       {#if view.notice?.reconnect}

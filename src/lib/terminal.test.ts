@@ -540,7 +540,7 @@ test('a key held while the hold lasts never clears the note that says keys are h
   clock.now += 100
   link.input('b', true)
   link.input('c', true)
-  assert.match(last().note, /nothing was typed since/)
+  assert.match(last().note, /keys other than Ctrl-C are held/)
 })
 
 test('typed while frames arrive and are drawn around the mark: every key goes through, or none after the first held', () => {
@@ -950,7 +950,112 @@ test('the note that a key ended the hold, and the paste-closed note, clear with 
   assert.equal(last().note, '')
   socket.text('{"t":"paste-closed"}')
   assert.match(last().note, /cut short/)
+  clock.now += HOLD_QUIET_MS
   link.input('d', true)
-  assert.equal(last().note, '')
+  assert.equal(last().note, '', 'a key at least the quiet gap after the paste-closed note clears it')
   assert.equal(sentText(socket), 'cd')
+})
+
+// ---- fix round 5 ----
+
+const PASTE_CLOSED_NOTE = 'A paste was cut short and has been closed. Check the screen before typing.'
+
+test('the paste-closed note stays through a key typed at once', () => {
+  const { socket, link, last } = live()
+  socket.text('{"t":"paste-closed"}')
+  link.input('x', true)
+  assert.ok(last().note.includes(PASTE_CLOSED_NOTE), last().note)
+  assert.equal(sentText(socket), 'x')
+})
+
+test('the paste-closed note stays through a hold and its end, joined with the hold\'s notes', () => {
+  const { socket, screen, link, last, clock } = live()
+  socket.text('{"t":"paste-closed"}')
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  assert.ok(last().note.includes(PASTE_CLOSED_NOTE), last().note)
+  assert.match(last().note, /held/)
+  screen.drain()
+  clock.now += HOLD_QUIET_MS
+  link.input('b', true)
+  assert.ok(last().note.includes(PASTE_CLOSED_NOTE), last().note)
+  assert.match(last().note, /not typed/)
+  // While held, a Ctrl-C that meets the open paste brings the note back with the hold's
+  socket.message(bytesOf(2 * MiB))
+  link.input('c', true)
+  link.input('\x03', true)
+  socket.text('{"t":"paste-closed"}')
+  assert.ok(last().note.includes(PASTE_CLOSED_NOTE), last().note)
+  assert.match(last().note, /held/)
+})
+
+test('Dismiss clears the paste-closed note', () => {
+  const { socket, link, last } = live()
+  socket.text('{"t":"paste-closed"}')
+  assert.equal(last().pasteClosed, true)
+  link.dismiss()
+  assert.equal(last().note, '')
+  assert.equal(last().pasteClosed, false)
+})
+
+const closedStatus: [string, () => View, string][] = [
+  ['closed while behind and held', () => ({ phase: 'closed', exitCode: null, notice: null, note: '', lagging: true, held: true, pasteClosed: false }), 'Closed'],
+  ['ended while held', () => ({ phase: 'ended', exitCode: null, notice: null, note: '', lagging: false, held: true, pasteClosed: false }), 'Ended'],
+  ['ended with its code while behind', () => ({ phase: 'ended', exitCode: 3, notice: null, note: '', lagging: true, held: false, pasteClosed: false }), 'Exited · 3'],
+  ['held and behind', () => ({ phase: 'live', exitCode: null, notice: null, note: '', lagging: true, held: true, pasteClosed: false }), 'Catching up…'],
+]
+
+for (const [name, view, want] of closedStatus) {
+  test(`statusText: ${name}`, () => {
+    assert.equal(statusText(view()), want)
+  })
+}
+
+test('falling behind past the close mark ends the hold and the lag with the terminal', () => {
+  const { socket, link, last } = live()
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  socket.message(bytesOf(WRITE_PENDING_BYTES_MAX))
+  assert.equal(last().phase, 'closed')
+  assert.equal(last().held, false)
+  assert.equal(last().lagging, false)
+})
+
+test('a close from the server ends the hold and the lag', () => {
+  const { socket, link, last } = live()
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  socket.end(1001, 'conn is stopping')
+  assert.equal(last().held, false)
+  assert.equal(last().lagging, false)
+})
+
+const noInterrupt: [string, (parts: ReturnType<typeof rig>) => void][] = [
+  ['while connecting', () => {}],
+  ['once ended', parts => {
+    parts.socket.open()
+    parts.socket.text('{"t":"replay-end"}')
+    parts.screen.drain()
+    parts.socket.text('{"t":"exit","code":0}')
+  }],
+  ['once closed', parts => {
+    parts.socket.open()
+    parts.socket.end(1013, "fell behind the program's output")
+  }],
+]
+
+for (const [name, setUp] of noInterrupt) {
+  test(`Ctrl-C is not sent ${name}`, () => {
+    const parts = rig()
+    setUp(parts)
+    parts.link.input('\x03', true)
+    assert.equal(sentText(parts.socket), '')
+  })
+}
+
+test('Ctrl-C goes after a pointer motion waiting for its frame, in order', () => {
+  const { socket, link } = live()
+  link.input('\x1b[<35;1;1M', true)
+  link.input('\x03', true)
+  assert.equal(sentText(socket), '\x1b[<35;1;1M\x03')
 })
