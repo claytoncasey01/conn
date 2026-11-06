@@ -63,7 +63,12 @@ func (w *Work) On() bool { return w.on() }
 // Handle answers one POST route with its body (a JSON object, {} for anything else).
 func (w *Work) Handle(route Route, body *js.Object) (Reply, error) {
 	if route.Action == ActionFixChecks {
-		return w.FixChecks(route.Key)
+		repo, named := bodyRepo(body)
+		if !named {
+			return badRequest(repoNotName), nil
+		}
+
+		return w.FixChecks(route.Key, repo)
 	}
 
 	handle, known := w.handlers()[route.Action]
@@ -86,20 +91,26 @@ func (w *Work) handlers() map[string]func(key string, body *js.Object) Reply {
 		ActionAnswers: func(key string, body *js.Object) Reply {
 			return w.Answer(key, field(body, "answers"))
 		},
-		ActionPR:     func(key string, _ *js.Object) Reply { return w.OpenPR(key) },
+		ActionPR:     withRepo(w.OpenPR),
 		ActionCancel: func(key string, _ *js.Object) Reply { return w.Cancel(key) },
 		ActionJira: func(key string, body *js.Object) Reply {
 			return w.MoveTicket(key, field(body, "status"))
 		},
-		ActionCleanup: func(key string, _ *js.Object) Reply { return w.Cleanup(key) },
-		ActionResume: func(key string, body *js.Object) Reply {
-			repo, named := resumeRepo(body)
-			if !named {
-				return badRequest(repoNotName)
-			}
+		ActionCleanup: withRepo(w.Cleanup),
+		ActionResume:  withRepo(w.Resume),
+		ActionRetry:   func(key string, _ *js.Object) Reply { return w.Retry(key) },
+	}
+}
 
-			return w.Resume(key, repo)
-		},
-		ActionRetry: func(key string, _ *js.Object) Reply { return w.Retry(key) },
+// withRepo is the answer of an action on a run's legs that takes an optional {repo}: one leg's,
+// or with none every leg it applies to.
+func withRepo(action func(key, repo string) Reply) func(key string, body *js.Object) Reply {
+	return func(key string, body *js.Object) Reply {
+		repo, named := bodyRepo(body)
+		if !named {
+			return badRequest(repoNotName)
+		}
+
+		return action(key, repo)
 	}
 }

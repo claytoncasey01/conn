@@ -54,7 +54,8 @@ func (w *Work) Tick() {
 			continue
 		}
 
-		if record.State != stateBuilding {
+		legs := gitLegs(record)
+		if len(legs) == 0 {
 			continue
 		}
 
@@ -63,7 +64,7 @@ func (w *Work) Tick() {
 		}
 
 		w.lastGit[key] = w.now()
-		w.followGit(record)
+		w.followGit(record, legs)
 	}
 }
 
@@ -146,18 +147,32 @@ type legCount struct {
 	err          error
 }
 
-// followGit counts every leg's commits and changed files, gitLegsAtOnceMax legs at a time; a
-// leg whose git fails keeps its counts.
-func (w *Work) followGit(record *Record) {
-	legs := make([]*Leg, 0, len(record.Repos))
-	slots := make([]bool, 0, len(record.Repos))
+// gitLegs are the legs whose commits and changed files are counted: every leg still there while
+// the run builds, and once a PR is open the legs with none yet (commits may come to them after).
+func gitLegs(record *Record) []*Leg {
+	switch record.State {
+	case stateBuilding:
+		return slices.DeleteFunc(slices.Clone(record.Repos), func(leg *Leg) bool {
+			return leg.cleaned()
+		})
+	case statePROpen:
+		return slices.DeleteFunc(slices.Clone(record.Repos), func(leg *Leg) bool {
+			if leg.cleaned() {
+				return true
+			}
 
-	for _, leg := range record.Repos {
-		if leg.cleaned() {
-			continue
-		}
+			return leg.PR != nil
+		})
+	}
 
-		legs = append(legs, leg)
+	return nil
+}
+
+// followGit counts the legs' commits and changed files, gitLegsAtOnceMax legs at a time; a leg
+// whose git fails keeps its counts.
+func (w *Work) followGit(record *Record, legs []*Leg) {
+	slots := make([]bool, 0, len(legs))
+	for _, leg := range legs {
 		slots = append(slots, w.isSlot(record, leg))
 	}
 
@@ -245,8 +260,8 @@ func (w *Work) counted(key string, leg *Leg, slot bool, ahead, dirty float64) {
 	w.bump()
 }
 
-// tickPRs asks GitHub about each run whose PR is open, until it merges or closes. Reading a PR
-// is a gh call: with GitHub off the status stays as it was.
+// tickPRs asks GitHub about each leg's open PR, each on its own schedule, until it merges or
+// closes. Reading a PR is a gh call: with GitHub off the status stays as it was.
 func (w *Work) tickPRs() {
 	if !w.moduleEnabled(settings.ModuleGitHub) {
 		return
@@ -256,34 +271,36 @@ func (w *Work) tickPRs() {
 
 	for _, key := range w.runs.Keys() {
 		record, _ := w.runs.Get(key)
-		if !w.pollDue(record, now) {
-			continue
-		}
 
-		w.lastPoll[key] = now
-		w.polling[key] = true
-		number := record.lead().PR.Number
-
-		w.launch(func(step *task) {
-			defer delete(w.polling, key)
-
-			err := w.pollPR(step, record)
-			if err != nil {
-				w.pollFailed(record, number, err)
+		for _, leg := range record.Repos {
+			if !w.pollDue(record, leg, now) {
+				continue
 			}
-		})
+
+			polled := legKey(key, leg.Repo)
+			w.lastPoll[polled] = now
+			w.polling[polled] = true
+			number := leg.PR.Number
+
+			w.launch(func(step *task) {
+				defer delete(w.polling, polled)
+
+				err := w.pollPR(step, record, leg)
+				if err != nil {
+					w.pollFailed(record, leg, number, err)
+				}
+			})
+		}
 	}
 }
 
-// pollDue is whether a run's PR is read now. A repository that left the list is not read: the
-// run is kept as it was and followed again once it is allowed. The repository checked is the
-// one the read goes to, the PR's own URL (and the run's, when it recorded one).
-func (w *Work) pollDue(record *Record, now float64) bool {
+// pollDue is whether a leg's PR is read now. A repository that left the list is not read: the
+// leg is kept as it was and followed again once it is allowed. The repository checked is the
+// one the read goes to, the PR's own URL (and the leg's, when it recorded one).
+func (w *Work) pollDue(record *Record, leg *Leg, now float64) bool {
 	if record.State != statePROpen {
 		return false
 	}
-
-	leg := record.lead()
 
 	pull := leg.PR
 	if pull == nil {
@@ -296,7 +313,8 @@ func (w *Work) pollDue(record *Record, now float64) bool {
 		}
 	}
 
-	if w.polling[record.Key] {
+	polled := legKey(record.Key, leg.Repo)
+	if w.polling[polled] {
 		return false
 	}
 
@@ -304,7 +322,7 @@ func (w *Work) pollDue(record *Record, now float64) bool {
 		return false
 	}
 
-	return now-w.lastPoll[record.Key] >= w.pollEvery(pull.Status)
+	return now-w.lastPoll[polled] >= w.pollEvery(pull.Status)
 }
 
 func (w *Work) pollEvery(status *prstatus.Status) float64 {
@@ -321,9 +339,9 @@ func (w *Work) pollEvery(status *prstatus.Status) float64 {
 	return pollMs
 }
 
-// pollFailed says so once per distinct error: an expired gh login would otherwise leave
-// "checked N ago" frozen with no reason.
-func (w *Work) pollFailed(record *Record, number float64, err error) {
+// pollFailed says so once per distinct error of each leg: an expired gh login would otherwise
+// leave "checked N ago" frozen with no reason.
+func (w *Work) pollFailed(record *Record, leg *Leg, number float64, err error) {
 	message := err.Error()
 	if message == "" {
 		message = "failed"
@@ -331,25 +349,27 @@ func (w *Work) pollFailed(record *Record, number float64, err error) {
 
 	why := js.Cut(strings.Split(message, "\n")[0], pollErrorUnitsMax)
 
-	if said, found := w.pollError[record.Key]; found {
+	polled := legKey(record.Key, leg.Repo)
+	if said, found := w.pollError[polled]; found {
 		if said == why {
 			return
 		}
 	}
 
-	w.pollError[record.Key] = why
-	w.log(record, logError, "Could not read PR #"+js.Number(number)+" from GitHub: "+why)
+	w.pollError[polled] = why
+	w.log(record, logError, legSaid(record, leg, "Could not read PR #"+js.Number(number)+
+		" from GitHub: "+why))
 }
 
-func (w *Work) pollPR(step *task, record *Record) error {
-	pull := record.lead().PR
+func (w *Work) pollPR(step *task, record *Record, leg *Leg) error {
+	pull := leg.PR
 
-	next, err := w.readPR(step, record, pull)
+	next, err := w.readPR(step, record, leg)
 	if err != nil {
 		return err
 	}
 
-	delete(w.pollError, record.Key)
+	delete(w.pollError, legKey(record.Key, leg.Repo))
 
 	prev := pull.Status
 	pull.Status = &next
@@ -359,7 +379,7 @@ func (w *Work) pollPR(step *task, record *Record) error {
 	switch {
 	case len(said) > 0:
 		for _, line := range said {
-			w.log(record, logPR, line)
+			w.log(record, logPR, legSaid(record, leg, line))
 		}
 	case atZero(prev) != atZero(&next):
 		w.touch(record)
@@ -370,10 +390,12 @@ func (w *Work) pollPR(step *task, record *Record) error {
 	return nil
 }
 
-func (w *Work) readPR(step *task, record *Record, pull *PR) (prstatus.Status, error) {
+func (w *Work) readPR(step *task, record *Record, leg *Leg) (prstatus.Status, error) {
 	if w.deps.Dry {
-		return w.dryStatus(record), nil
+		return w.dryStatus(record, leg), nil
 	}
+
+	pull := leg.PR
 
 	var (
 		out string

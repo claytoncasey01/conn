@@ -26,7 +26,7 @@ func PollPR(work *Work, key string) error {
 
 	record, _ := work.runs.Get(key)
 
-	return work.pollPR(work.held(), record)
+	return work.pollPR(work.held(), record, record.lead())
 }
 
 // DryStatus is the dry run's next PR status for a key.
@@ -34,7 +34,7 @@ func DryStatus(work *Work, key string) prstatus.Status {
 	work.mu.Lock()
 	defer work.mu.Unlock()
 
-	return work.dryStatus(&Record{Key: key})
+	return work.dryStatus(&Record{Key: key}, &Leg{})
 }
 
 // FixDry presses the dry run's FIX CHECKS for a key.
@@ -42,8 +42,8 @@ func FixDry(work *Work, key string) {
 	work.mu.Lock()
 	defer work.mu.Unlock()
 
-	work.dryFixed[key] = true
-	work.dryPolls[key] = 0
+	work.dryFixed[legKey(key, "")] = true
+	work.dryPolls[legKey(key, "")] = 0
 }
 
 // TouchAll saves every run, as any change does.
@@ -153,3 +153,11 @@ func LoadedKeys(runsDir string) []string {
 
 	return keys
 }
+
+// ReviewDue is whether the ticket moves to review after a PR opens.
+func ReviewDue(policy string, opened, withCommits, withPR int, moved bool) bool {
+	return reviewDue(policy, opened, withCommits, withPR, moved)
+}
+
+// Merged is whether a run counts as merged.
+func Merged(record *Record) bool { return merged(record) }

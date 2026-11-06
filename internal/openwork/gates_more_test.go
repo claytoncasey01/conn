@@ -377,7 +377,7 @@ func TestOpenPRPushesOnlyABranchThisToolMadeToAnAllowedRepository(t *testing.T) 
 	t.Parallel()
 
 	made, _ := openPRWorld(t, "")
-	same(t, "ok", made.work.OpenPR("PROJ-3").Code, 200)
+	same(t, "ok", made.work.OpenPR("PROJ-3", "").Code, 200)
 	until(t, "the PR", func() bool { return made.state("PROJ-3") == "pr_open" })
 
 	if !made.has("sh git push -u origin proj-3-fix") {
@@ -399,7 +399,7 @@ func TestOpenPRPushesOnlyABranchThisToolMadeToAnAllowedRepository(t *testing.T) 
 
 	for _, extra := range refused {
 		odd, _ := openPRWorld(t, extra)
-		same(t, extra, odd.work.OpenPR("PROJ-3").Code, 400)
+		same(t, extra, odd.work.OpenPR("PROJ-3", "").Code, 400)
 		same(t, extra+" calls", odd.lines(), []string{})
 	}
 }
@@ -408,7 +408,7 @@ func TestOpenPRIsRefusedForARepositoryOffTheListOrWithGitHubOff(t *testing.T) {
 	t.Parallel()
 
 	gone, _ := openPRWorld(t, `{"repo":"other/thing"}`)
-	reply := gone.work.OpenPR("PROJ-3")
+	reply := gone.work.OpenPR("PROJ-3", "")
 	same(t, "gone", reply.Code, 409)
 
 	if !strings.Contains(errorOf(reply), "other/thing is not an allowed repository") {
@@ -420,12 +420,12 @@ func TestOpenPRIsRefusedForARepositoryOffTheListOrWithGitHubOff(t *testing.T) {
 	// A record from before Settings names no repository: the worktree's own origin says, and a
 	// folder that is no repository is refused.
 	unknown, _ := openPRWorld(t, `{"repo":null,"clone":null}`)
-	same(t, "unknown", unknown.work.OpenPR("PROJ-3").Code, 409)
+	same(t, "unknown", unknown.work.OpenPR("PROJ-3", "").Code, 409)
 	same(t, "unknown calls", unknown.lines(), []string{})
 
 	off, _ := openPRWorld(t, "")
 	off.update("github", `{"enabled":false}`)
-	reply = off.work.OpenPR("PROJ-3")
+	reply = off.work.OpenPR("PROJ-3", "")
 	same(t, "github off", reply.Code, 409)
 
 	if !strings.Contains(errorOf(reply), "GitHub is off") {
@@ -468,7 +468,7 @@ func TestOpenPRChecksAgainOnceThePushIsDone(t *testing.T) {
 				return answer(name, args, dir)
 			}
 
-			same(t, "open", made.work.OpenPR("PROJ-3").Code, 200)
+			same(t, "open", made.work.OpenPR("PROJ-3", "").Code, 200)
 			until(t, "the held call", func() bool { return made.has("sh git " + held) })
 			made.update(change.section, change.body)
 			waiting.release()
@@ -553,7 +553,7 @@ func TestFixFailingChecksNamesThePRsRepositoryAndNeedsGitHubAndTheList(t *testin
 	}
 
 	fine := newFixWorld()
-	reply, err := fine.work.FixChecks("PROJ-5")
+	reply, err := fine.work.FixChecks("PROJ-5", "")
 	same(t, "ok", []any{reply.Code, err}, []any{200, nil})
 
 	sent := slices.DeleteFunc(fine.lines(), func(line string) bool {
@@ -575,7 +575,7 @@ func TestFixFailingChecksNamesThePRsRepositoryAndNeedsGitHubAndTheList(t *testin
 	} {
 		refused := newFixWorld()
 		refused.update(change.section, change.body)
-		reply, _ = refused.work.FixChecks("PROJ-5")
+		reply, _ = refused.work.FixChecks("PROJ-5", "")
 		same(t, change.section, reply.Code, 409)
 
 		if !strings.Contains(errorOf(reply), change.want) {

@@ -14,7 +14,7 @@ import (
 // command to paste. Every session is named after the ticket key; in a run of several legs a
 // session is found by its folder alone, since a name finds any of them.
 
-// repoNotName is the RESUME SESSION refusal of a repo that is not text.
+// repoNotName is the refusal of a repo that is not text, in the body of an action on legs.
 const repoNotName = "repo must be a repository name"
 
 // sessionSlots are the legs that have a build session: the lead in the shared layout, every leg
@@ -143,9 +143,7 @@ func markLaunched(record *Record, slot *Leg) {
 }
 
 // slotKey keys what is kept per slot: the run and the slot's repository.
-func slotKey(record *Record, slot *Leg) string {
-	return record.Key + " " + js.Lower(slot.Repo)
-}
+func slotKey(record *Record, slot *Leg) string { return legKey(record.Key, slot.Repo) }
 
 // openWorkspace starts command in a new cmux workspace named after the ticket, in the slot's
 // worktree; when cmux fails, it leaves the command on the slot for the person to paste.
@@ -178,8 +176,9 @@ func (w *Work) openWorkspace(step *task, record *Record, slot *Leg, command, ver
 		"the command shown to start the session.")
 }
 
-// resumeRepo is the repository a RESUME SESSION names: "" for every slot.
-func resumeRepo(body *js.Object) (string, bool) {
+// bodyRepo is the repository a RESUME SESSION, OPEN PR, FIX FAILING CHECKS or REMOVE WORKTREE
+// names: "" for every leg it applies to, and false when it is not text.
+func bodyRepo(body *js.Object) (string, bool) {
 	value := field(body, "repo")
 	if value == nil {
 		return "", true
@@ -296,7 +295,7 @@ func (w *Work) resumeRefusal(record *Record) (Reply, bool) {
 		return conflict(key + " is " + record.State + ": nothing to resume"), true
 	}
 
-	if w.busyPR[key] {
+	if w.runBusy(record) {
 		return conflict("another change to this run is in progress"), true
 	}
 
@@ -316,7 +315,7 @@ func (w *Work) reopen(record *Record, slots []*Leg) Reply {
 	}
 
 	// Held across the cmux calls so a cleanup or a second resume cannot interleave with them.
-	w.busyPR[key] = true
+	release := w.hold(key, record.Repos)
 
 	opened := 0
 	failures := []string{}
@@ -332,7 +331,7 @@ func (w *Work) reopen(record *Record, slots []*Leg) Reply {
 		opened++
 	}
 
-	delete(w.busyPR, key)
+	release()
 
 	loud := slices.Concat(said.loud, failures)
 

@@ -103,14 +103,14 @@ func TestCleanupRemovesTheRecordedWorktreeOnlyWhenItIsALinkedOne(t *testing.T) {
 	}
 
 	for _, key := range []string{"PROJ-7", "PROJ-8"} {
-		same(t, key, made.work.Cleanup(key).Code, 200)
+		same(t, key, made.work.Cleanup(key, "").Code, 200)
 	}
 
 	same(t, "legacy", exists(legacy), false)
 	same(t, "renamed", exists(renamed), false)
 
 	for _, key := range []string{"PROJ-9", "PROJ-10", "PROJ-11"} {
-		same(t, key, made.work.Cleanup(key).Code, 400)
+		same(t, key, made.work.Cleanup(key, "").Code, 400)
 	}
 
 	same(t, "clone", exists(filepath.Join(main, "a")), true)
@@ -156,7 +156,7 @@ func TestCleanupRemovesAWorktreeOnlyOfTheRepositoryTheRunRecorded(t *testing.T) 
 			return realSh(t.Context(), name, args, dir, 0)
 		}
 
-		reply := made.work.Cleanup("PROJ-1")
+		reply := made.work.Cleanup("PROJ-1", "")
 		same(t, row.clone, reply.Code, row.code)
 
 		if row.code == 400 {
@@ -236,7 +236,7 @@ func TestARepositoryWithOnlyAMainBranchWorksFromStartToThePR(t *testing.T) {
 	writeJSON(t, filepath.Join(worktree, "b"), "b")
 	gitRun(t, worktree, "add", "b")
 	gitRun(t, worktree, "commit", "-qm", "b")
-	same(t, "open", made.work.OpenPR("PROJ-2").Code, 200)
+	same(t, "open", made.work.OpenPR("PROJ-2", "").Code, 200)
 	until(t, "the PR", func() bool { return made.state("PROJ-2") == "pr_open" })
 	made.work.Settle()
 

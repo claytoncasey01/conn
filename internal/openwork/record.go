@@ -256,6 +256,10 @@ type Record struct {
 	Repos []*Leg `json:"repos"`
 	// Layout is how the build sessions are laid out over the legs.
 	Layout string `json:"layout"`
+	// ReviewMoved is that Jira answered the move to review (moved, already there, or no single
+	// review status), so no later PR asks again; a move that failed leaves it false. Only the
+	// server reads it.
+	ReviewMoved bool `json:"reviewMoved,omitempty"`
 
 	// read is the record as its file held it: a record is written back with its keys where the
 	// file had them (a key this code does not know included), and the keys added since after them.
@@ -544,7 +548,7 @@ func hiddenKey(key string) bool {
 // internalKey is whether a record's key is what only the server needs.
 func internalKey(key string) bool {
 	switch key {
-	case "brief", "desc", "ticketStatus", "ticketCategory":
+	case "brief", "desc", "ticketStatus", "ticketCategory", "reviewMoved":
 		return true
 	}
 

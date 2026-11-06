@@ -125,14 +125,15 @@ func (w *Work) dryAsk(record *Record) {
 	w.log(record, logAsk, "2 questions need you")
 }
 
-// dryStatus is the dry run's PR: pending, then green (or red on odd tickets until FIX CHECKS is
-// pressed), approved, merged.
-func (w *Work) dryStatus(record *Record) prstatus.Status {
-	poll := w.dryPolls[record.Key]
-	w.dryPolls[record.Key] = poll + 1
+// dryStatus is a leg's dry PR: pending, then green (or red on odd tickets until FIX CHECKS is
+// pressed), approved, merged. Each leg walks it on its own.
+func (w *Work) dryStatus(record *Record, leg *Leg) prstatus.Status {
+	polled := legKey(record.Key, leg.Repo)
+	poll := w.dryPolls[polled]
+	w.dryPolls[polled] = poll + 1
 
 	failing := int(ticketNumber(record.Key))%dryOddTickets == 1
-	if w.dryFixed[record.Key] {
+	if w.dryFixed[polled] {
 		failing = false
 	}
 

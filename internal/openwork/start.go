@@ -654,6 +654,15 @@ func (w *Work) moveJira(step *task, record *Record, move jira.Move) {
 	w.moved(record, move, moved)
 }
 
+// reviewMove is whether a move is the one to the ticket's review status.
+func reviewMove(move jira.Move) bool {
+	if move.Named() {
+		return false
+	}
+
+	return !move.Started()
+}
+
 func (w *Work) moved(record *Record, move jira.Move, moved jira.Moved) {
 	record.JiraStatus = moved.To
 	record.TicketStatus = moved.To
@@ -666,6 +675,12 @@ func (w *Work) moved(record *Record, move jira.Move, moved jira.Moved) {
 	record.TicketCategory = &category
 	w.record(moduleAtlassian, true, "Open work moved a Jira ticket")
 
+	// Jira answered the review move (moved, already there, or no single review status): it is
+	// made, and no later PR asks again.
+	if reviewMove(move) {
+		record.ReviewMoved = true
+	}
+
 	if moved.Moved {
 		w.log(record, logStatus, "Jira "+record.Key+" is now "+record.JiraStatus)
 
@@ -673,11 +688,8 @@ func (w *Work) moved(record *Record, move jira.Move, moved jira.Moved) {
 	}
 
 	why := "it is already there"
-
-	if !move.Named() {
-		if !move.Started() {
-			why = "the workflow has no single review status"
-		}
+	if reviewMove(move) {
+		why = "the workflow has no single review status"
 	}
 
 	w.log(record, logStatus, "Jira "+record.Key+" was not moved: "+why+", so it stays "+
@@ -723,7 +735,7 @@ func (w *Work) Cancel(key string) Reply {
 		return conflict(key + " is " + record.State)
 	}
 
-	if w.busyPR[key] {
+	if w.runBusy(record) {
 		return conflict("a pull request is being opened, wait for it to finish")
 	}
 
