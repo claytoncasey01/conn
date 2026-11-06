@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -39,15 +40,22 @@ type fakeProgram struct {
 	exited    chan struct{}
 	exitOnce  sync.Once
 
+	// writeErr, when set, is what every Write fails with; writeGate, when set, holds every
+	// Write until it is closed.
+	writeErr  error
+	writeGate chan struct{}
+
 	mu       sync.Mutex
 	written  []byte
 	sizes    []pty.Size
 	exitCode int
+	attempts int
 }
 
-func newFakeProgram() *fakeProgram {
+func newFakeProgram(writeErr error, writeGate chan struct{}) *fakeProgram {
 	return &fakeProgram{
 		output: make(chan []byte), closed: make(chan struct{}), exited: make(chan struct{}),
+		writeErr: writeErr, writeGate: writeGate,
 	}
 }
 
@@ -69,10 +77,25 @@ func (f *fakeProgram) Read(buffer []byte) (int, error) {
 }
 
 func (f *fakeProgram) Write(data []byte) (int, error) {
+	f.mu.Lock()
+	f.attempts++
+	f.mu.Unlock()
+
 	select {
 	case <-f.closed:
 		return 0, errFakeClosed
+	case <-f.exited:
+		// As a real terminal does once nothing holds the program's side.
+		return 0, fmt.Errorf("write: %w", syscall.EIO)
 	default:
+	}
+
+	if f.writeGate != nil {
+		<-f.writeGate
+	}
+
+	if f.writeErr != nil {
+		return 0, f.writeErr
 	}
 
 	f.mu.Lock()
@@ -169,6 +192,14 @@ func (f *fakeProgram) writtenSoFar() []byte {
 	return slices.Clone(f.written)
 }
 
+// attemptsSoFar is how many Writes the program was given, taken or not.
+func (f *fakeProgram) attemptsSoFar() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.attempts
+}
+
 func (f *fakeProgram) sizesSoFar() []pty.Size {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -176,8 +207,12 @@ func (f *fakeProgram) sizesSoFar() []pty.Size {
 	return slices.Clone(f.sizes)
 }
 
-// fakePrograms is a Spawner of fakePrograms that keeps the last one for the test.
+// fakePrograms is a Spawner of fakePrograms that keeps the last one for the test; each program's
+// writes fail with writeErr, or wait for writeGate, when they are set.
 type fakePrograms struct {
+	writeErr  error
+	writeGate chan struct{}
+
 	mu   sync.Mutex
 	last *fakeProgram
 }
@@ -186,7 +221,7 @@ func (f *fakePrograms) spawn(pty.Spec) (pty.Process, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.last = newFakeProgram()
+	f.last = newFakeProgram(f.writeErr, f.writeGate)
 
 	return f.last, nil
 }
@@ -238,8 +273,56 @@ func (c *countedHost) Resize(sessionID pty.ID, columns, rows uint16) error {
 	return nil
 }
 
-func (c *countedHost) Live() []pty.Info {
-	c.calls.Add(1)
+// scriptedHost is a host with no programs: every Subscribe gets replay and an Output the test
+// closes, saying why with end. Input and resizes are taken and forgotten.
+type scriptedHost struct {
+	replay []byte
 
-	return c.host.Live()
+	mu         sync.Mutex
+	outputs    []chan []byte
+	end        pty.ViewerEnd
+	subscribes int
+}
+
+func (s *scriptedHost) Subscribe(pty.ID) (pty.Viewer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	output := make(chan []byte)
+	s.outputs = append(s.outputs, output)
+	s.subscribes++
+
+	return pty.Viewer{Replay: s.replay, Output: output, Ending: s.ending}, nil
+}
+
+func (s *scriptedHost) Write(pty.ID, []byte) error { return nil }
+
+func (s *scriptedHost) Resize(pty.ID, uint16, uint16) error { return nil }
+
+func (s *scriptedHost) ending() pty.ViewerEnd {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.end
+}
+
+// closeAll closes every viewer's Output, saying why with end.
+func (s *scriptedHost) closeAll(end pty.ViewerEnd) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.end = end
+
+	for _, output := range s.outputs {
+		close(output)
+	}
+
+	s.outputs = nil
+}
+
+func (s *scriptedHost) subscribed() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.subscribes
 }

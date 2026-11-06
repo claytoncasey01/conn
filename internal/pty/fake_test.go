@@ -61,6 +61,8 @@ type fakeProcess struct {
 	writeGate chan struct{}
 	// resizeErr, when set, is what every Resize fails with.
 	resizeErr error
+	// writeErr, when set, is what every Write fails with.
+	writeErr error
 	// afterKill is what the group looks like once it has ended: gone, or members no signal can
 	// reach (EPERM), for good or for unreachableAnswers more looks.
 	afterKill          killOutcome
@@ -106,6 +108,10 @@ func (f *fakeProcess) Write(data []byte) (int, error) {
 	case <-f.closed:
 		return 0, errFakeClosed
 	default:
+	}
+
+	if f.writeErr != nil {
+		return 0, f.writeErr
 	}
 
 	f.mu.Lock()
@@ -282,6 +288,7 @@ type fakes struct {
 	orphans         bool
 	writeGate       chan struct{}
 	resizeErr       error
+	writeErr        error
 	afterKill       killOutcome
 	// pid, when set, is every process's id.
 	pid int
@@ -321,6 +328,7 @@ func (f *fakes) spawn(spec pty.Spec) (pty.Process, error) {
 		orphans:         f.orphans,
 		writeGate:       f.writeGate,
 		resizeErr:       f.resizeErr,
+		writeErr:        f.writeErr,
 		afterKill:       f.afterKill,
 		output:          make(chan []byte),
 		closed:          make(chan struct{}),

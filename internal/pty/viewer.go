@@ -17,6 +17,8 @@ type viewer struct {
 	// Output.
 	ending    bool
 	isStopped bool
+	// why is why Output closed, once the host has decided it.
+	why ViewerEnd
 }
 
 func newViewer() *viewer {
@@ -27,6 +29,7 @@ func newViewer() *viewer {
 		pending:   nil,
 		ending:    false,
 		isStopped: false,
+		why:       ViewerEnd{Dropped: false, Ended: false, ExitCode: 0},
 	}
 }
 
@@ -65,7 +68,12 @@ func (h *Host) Subscribe(sessionID ID) (Viewer, error) {
 		output := make(chan []byte)
 		close(output)
 
-		return Viewer{Replay: watched.scrollback.contents(), Output: output, close: nil}, nil
+		ended := ViewerEnd{Dropped: false, Ended: true, ExitCode: *watched.exitCode}
+
+		return Viewer{
+			Replay: watched.scrollback.contents(), Output: output,
+			Ending: func() ViewerEnd { return ended }, close: nil,
+		}, nil
 	}
 
 	if len(watched.viewers) >= h.limits.ViewersMax {
@@ -82,8 +90,17 @@ func (h *Host) Subscribe(sessionID ID) (Viewer, error) {
 	return Viewer{
 		Replay: watched.scrollback.contents(),
 		Output: added.output,
+		Ending: func() ViewerEnd { return h.viewerEnd(added) },
 		close:  func() { h.unsubscribe(watched, added) },
 	}, nil
+}
+
+// viewerEnd is why the viewer's Output closed, as far as the host has decided.
+func (h *Host) viewerEnd(watching *viewer) ViewerEnd {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return watching.why
 }
 
 // pump is a viewer's goroutine: it hands each batch of pending output to Output, and closes

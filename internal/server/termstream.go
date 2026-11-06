@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -13,14 +14,15 @@ import (
 
 // The reasons a terminal is closed with, in the server's own words: never the frame's content.
 const (
-	reasonExited     = "the program exited"
-	reasonStopping   = "conn is stopping"
-	reasonBehind     = "fell behind the program's output"
-	reasonMalformed  = "malformed frame"
-	reasonTextOnly   = "only text frames are taken"
-	reasonInputRate  = "input over the session's rate"
-	reasonBadSize    = "terminal size out of range"
-	reasonHostFailed = "the terminal failed"
+	reasonExited       = "the program exited"
+	reasonStopping     = "conn is stopping"
+	reasonBehind       = "fell behind the program's output"
+	reasonMalformed    = "malformed frame"
+	reasonTextOnly     = "only text frames are taken"
+	reasonInputRate    = "input over the session's rate"
+	reasonInputBacklog = "input backed up behind the program"
+	reasonBadSize      = "terminal size out of range"
+	reasonHostFailed   = "the terminal failed"
 )
 
 // link is one open terminal: its connection, and the end of its goroutines' shared context.
@@ -51,37 +53,61 @@ func (l *link) drop() {
 	})
 }
 
+// terminal is one open terminal's stream: the viewer, the replay it joined with (handed on
+// alone, so it is not kept once written), its session, and what to call once the replay is
+// written.
+type terminal struct {
+	viewer        pty.Viewer
+	replay        []byte
+	sessionID     pty.ID
+	replayWritten func()
+}
+
 // run is an open terminal: the program's output goes out (on this goroutine), the viewer's
-// frames come in, and pings check the peer is there, until one of them ends the terminal or the
-// terminals are stopped. It returns once all three have ended.
-func (t *Terminals) run(conn *websocket.Conn, viewer pty.Viewer, sessionID pty.ID) {
+// frames come in and wait in a queue for the program, pings check the peer is there, and the
+// terminals stopping closes it, until one of them ends the terminal. It returns once all have
+// ended.
+func (t *Terminals) run(conn *websocket.Conn, streamed terminal) {
 	// The request's context is not used once the connection is taken over; the terminal's own
 	// ends with it.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	open := &link{conn: conn, cancel: cancel, once: sync.Once{}}
+	queue := make(chan clientFrame, inputQueueFramesMax)
 
 	var group sync.WaitGroup
 
-	group.Go(func() { t.readFrames(ctx, open, sessionID) })
+	group.Go(func() { t.readFrames(ctx, open, streamed.sessionID, queue) })
+	group.Go(func() { t.typeFrames(ctx, open, streamed.sessionID, queue) })
 	group.Go(func() { t.ping(ctx, open) })
+	group.Go(func() { t.watchStopping(ctx, open) })
 
-	t.writeOutput(ctx, open, viewer, sessionID)
+	t.writeOutput(ctx, open, streamed)
 
 	open.drop()
 	group.Wait()
 }
 
+// watchStopping closes the terminal as going away once the terminals are stopping, whatever it
+// is writing: the close is queued behind the frame being written, and nothing after it is.
+func (t *Terminals) watchStopping(ctx context.Context, open *link) {
+	select {
+	case <-t.stopping:
+		open.end(websocket.StatusGoingAway, reasonStopping)
+	case <-ctx.Done():
+	}
+}
+
 // writeOutput sends the viewer's replay, then its end, then the program's output as it comes,
-// until the program ends (it then reports the exit), the viewer falls behind, the terminal is
-// ended or the terminals are stopped.
-func (t *Terminals) writeOutput(
-	ctx context.Context, open *link, viewer pty.Viewer, sessionID pty.ID,
-) {
-	if !t.writeBinary(ctx, open, viewer.Replay) {
+// until the viewer's output closes (the terminal then ends as the host says why) or the
+// terminal is ended.
+func (t *Terminals) writeOutput(ctx context.Context, open *link, streamed terminal) {
+	if !t.writeBinary(ctx, open, streamed.replay) {
 		return
 	}
+
+	streamed.replayWritten()
 
 	if !t.writeText(ctx, open, []byte(replayEndText)) {
 		return
@@ -91,13 +117,9 @@ func (t *Terminals) writeOutput(
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.stopping:
-			open.end(websocket.StatusGoingAway, reasonStopping)
-
-			return
-		case batch, more := <-viewer.Output:
+		case batch, more := <-streamed.viewer.Output:
 			if !more {
-				t.outputEnded(ctx, open, sessionID)
+				t.outputEnded(ctx, open, streamed.viewer)
 
 				return
 			}
@@ -109,38 +131,35 @@ func (t *Terminals) writeOutput(
 	}
 }
 
-// outputEnded ends the terminal once the viewer's output has closed: the program has ended, and
-// its exit is reported, or the host dropped the viewer for falling behind.
-func (t *Terminals) outputEnded(ctx context.Context, open *link, sessionID pty.ID) {
-	code, ended := exitCode(t.host.Live(), sessionID)
-	if !ended {
-		open.end(websocket.StatusTryAgainLater, reasonBehind)
+// outputEnded ends the terminal once the viewer's output has closed, as the host says why: the
+// program has ended, and its exit is reported, or the host dropped the viewer for falling behind.
+func (t *Terminals) outputEnded(ctx context.Context, open *link, viewer pty.Viewer) {
+	end := viewer.Ended()
+	sendExit, code, reason := endOfOutput(end)
 
-		return
+	if sendExit {
+		if !t.writeText(ctx, open, exitText(end.ExitCode)) {
+			return
+		}
 	}
 
-	if !t.writeText(ctx, open, exitText(code)) {
-		return
-	}
-
-	open.end(websocket.StatusNormalClosure, reasonExited)
+	open.end(code, reason)
 }
 
-// exitCode is the session's exit code, and whether it has ended, among infos.
-func exitCode(infos []pty.Info, sessionID pty.ID) (int, bool) {
-	for _, info := range infos {
-		if info.ID != sessionID {
-			continue
-		}
-
-		if info.ExitCode == nil {
-			return 0, false
-		}
-
-		return *info.ExitCode, true
+// endOfOutput is how a terminal ends once its viewer's output has closed for end's reason:
+// whether to report the exit first, and the close. A program that ended is a normal close after
+// its exit; a viewer that fell behind is told to come back (1013), which loses nothing it can
+// replay; a host that says neither is a failure of the server's.
+func endOfOutput(end pty.ViewerEnd) (bool, websocket.StatusCode, string) {
+	if end.Ended {
+		return true, websocket.StatusNormalClosure, reasonExited
 	}
 
-	return 0, false
+	if end.Dropped {
+		return false, websocket.StatusTryAgainLater, reasonBehind
+	}
+
+	return false, websocket.StatusInternalError, reasonHostFailed
 }
 
 // writeBinary sends output in frames of at most outputFrameBytesMax, each within
@@ -180,9 +199,12 @@ func (t *Terminals) writeFrame(
 	return true
 }
 
-// readFrames reads the viewer's frames and acts on each, until the peer goes or a frame ends
-// the terminal.
-func (t *Terminals) readFrames(ctx context.Context, open *link, sessionID pty.ID) {
+// readFrames reads the viewer's frames, checks each and queues it for the program, until the
+// peer goes or a frame ends the terminal. It never waits for the program, so the peer's pongs
+// are always read.
+func (t *Terminals) readFrames(
+	ctx context.Context, open *link, sessionID pty.ID, queue chan<- clientFrame,
+) {
 	for {
 		// The read limit is frameBytesMax: a longer frame closes the terminal (the library
 		// closes it as too big) without being read whole.
@@ -193,7 +215,7 @@ func (t *Terminals) readFrames(ctx context.Context, open *link, sessionID pty.ID
 			return
 		}
 
-		code, reason, keep := t.takeFrame(sessionID, kind, data)
+		code, reason, keep := t.takeFrame(sessionID, kind, data, queue)
 		if !keep {
 			open.end(code, reason)
 
@@ -202,10 +224,10 @@ func (t *Terminals) readFrames(ctx context.Context, open *link, sessionID pty.ID
 	}
 }
 
-// takeFrame acts on one frame from the viewer, and says how to close the terminal if it may not
-// go on.
+// takeFrame checks one frame from the viewer and queues it for the program, and says how to
+// close the terminal if it may not go on.
 func (t *Terminals) takeFrame(
-	sessionID pty.ID, kind websocket.MessageType, data []byte,
+	sessionID pty.ID, kind websocket.MessageType, data []byte, queue chan<- clientFrame,
 ) (websocket.StatusCode, string, bool) {
 	if kind != websocket.MessageText {
 		return websocket.StatusUnsupportedData, reasonTextOnly, false
@@ -220,24 +242,67 @@ func (t *Terminals) takeFrame(
 		return websocket.StatusPolicyViolation, reasonInputRate, false
 	}
 
+	select {
+	case queue <- frame:
+		return 0, "", true
+	default:
+		return websocket.StatusPolicyViolation, reasonInputBacklog, false
+	}
+}
+
+// typeFrames hands the queued frames to the host in order, until the terminal ends or the host's
+// answer ends it.
+func (t *Terminals) typeFrames(
+	ctx context.Context, open *link, sessionID pty.ID, queue <-chan clientFrame,
+) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case frame := <-queue:
+			code, reason, keep := outcome(t.apply(sessionID, frame))
+			if !keep {
+				open.end(code, reason)
+
+				return
+			}
+		}
+	}
+}
+
+// apply hands one frame to the host.
+func (t *Terminals) apply(sessionID pty.ID, frame clientFrame) error {
 	switch frame.kind {
 	case frameInput:
-		return outcome(t.host.Write(sessionID, frame.data))
+		err := t.host.Write(sessionID, frame.data)
+		if err != nil {
+			return fmt.Errorf("typing into a session: %w", err)
+		}
+
+		return nil
 	case frameResize:
-		return outcome(t.host.Resize(sessionID, frame.columns, frame.rows))
+		err := t.host.Resize(sessionID, frame.columns, frame.rows)
+		if err != nil {
+			return fmt.Errorf("resizing a session: %w", err)
+		}
+
+		return nil
 	default:
 		panic("server: a parsed frame of no kind")
 	}
 }
 
 // outcome is whether the terminal goes on after the host's answer to input or a resize. Input
-// for a program that has ended, or that is not taking input, is lost, as on any terminal; the
-// end is reported on the output side. A size out of range closes the terminal.
+// for a program that has ended (or is ending, or is no longer held), or that is not taking input,
+// is lost, as on any terminal; an end is reported on the output side. A size out of range closes
+// the terminal; anything else is a failure of the server's.
 func outcome(err error) (websocket.StatusCode, string, bool) {
 	switch {
 	case err == nil:
 		return 0, "", true
 	case errors.Is(err, pty.ErrEnded):
+		return 0, "", true
+	case errors.Is(err, pty.ErrNoSession):
 		return 0, "", true
 	case errors.Is(err, pty.ErrInputBlocked):
 		return 0, "", true

@@ -132,7 +132,9 @@ func resizeFrame(wire wireFrame) (clientFrame, error) {
 }
 
 // cost is what the frame spends of its session's input budget: its bytes of input.
-func (frame clientFrame) cost() int { return len(frame.data) }
+func (frame clientFrame) cost() inputCost {
+	return inputCost{bytes: len(frame.data), resize: frame.kind == frameResize}
+}
 
 // exitText is the server's frame that reports the program's exit code.
 func exitText(code int) []byte {

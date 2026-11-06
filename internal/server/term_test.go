@@ -41,6 +41,10 @@ type rigSetup struct {
 	// readTimeout is the HTTP server's ReadTimeout, which Conn's own server sets.
 	readTimeout time.Duration
 	logger      *lockedBuffer
+	// host, when set, is the host behind the route in place of the real one.
+	host server.TerminalHost
+	// programs, when set, is the fake programs' spawner.
+	programs *fakePrograms
 }
 
 func newTerminalRig(t *testing.T, setup rigSetup) *terminalRig {
@@ -51,7 +55,10 @@ func newTerminalRig(t *testing.T, setup rigSetup) *terminalRig {
 		t.Fatal(err)
 	}
 
-	programs := &fakePrograms{}
+	programs := setup.programs
+	if programs == nil {
+		programs = &fakePrograms{}
+	}
 
 	spawner := setup.spawner
 	if spawner == nil {
@@ -64,9 +71,14 @@ func newTerminalRig(t *testing.T, setup rigSetup) *terminalRig {
 	counted := &countedHost{host: host}
 	lifetime, stop := context.WithCancel(context.Background())
 
+	var behind server.TerminalHost = counted
+	if setup.host != nil {
+		behind = setup.host
+	}
+
 	handler := &server.Server{
 		UI: bundle(), Secret: key,
-		Terminals: server.NewTerminalsTimed(lifetime, counted, setup.times),
+		Terminals: server.NewTerminalsTimed(lifetime, behind, setup.times),
 	}
 	if setup.logger != nil {
 		handler.Logger = newLogger(setup.logger)
@@ -158,6 +170,8 @@ func (rig *terminalRig) dial(
 	got := handshake{conn: conn, status: 0, header: nil, body: "", err: err}
 
 	if conn != nil {
+		// The server's output frames are larger than the library's default read limit.
+		conn.SetReadLimit(clientReadBytesMax)
 		t.Cleanup(func() { _ = conn.CloseNow() })
 	}
 
@@ -244,6 +258,9 @@ func readOutputUntilText(t *testing.T, conn *websocket.Conn) ([]byte, string) {
 // messagesMax bounds how many messages a test reads looking for one.
 const messagesMax = 100_000
 
+// clientReadBytesMax is the test client's read limit: more than an output frame holds.
+const clientReadBytesMax = 1 << 20
+
 // screenLinesRead is how many of a screen's lines a test reads: more than a new terminal has.
 const screenLinesRead = 100
 
@@ -272,6 +289,15 @@ func readOutputUntil(t *testing.T, conn *websocket.Conn, want string) {
 func closeCode(t *testing.T, conn *websocket.Conn) websocket.StatusCode {
 	t.Helper()
 
+	code, _ := closeReason(t, conn)
+
+	return code
+}
+
+// closeReason reads conn until it ends and returns the close code and reason it ended with.
+func closeReason(t *testing.T, conn *websocket.Conn) (websocket.StatusCode, string) {
+	t.Helper()
+
 	ctx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(waitLimit))
 	defer cancel()
 
@@ -282,14 +308,44 @@ func closeCode(t *testing.T, conn *websocket.Conn) websocket.StatusCode {
 				t.Fatal("the connection was not closed in time")
 			}
 
-			return websocket.CloseStatus(err)
+			closed, isClose := errors.AsType[websocket.CloseError](err)
+			if isClose {
+				return closed.Code, closed.Reason
+			}
+
+			return websocket.CloseStatus(err), ""
 		}
 	}
 
 	t.Fatalf("the connection was still open after %d messages", messagesMax)
 
-	return 0
+	return 0, ""
 }
+
+// reasonInputRate is the close reason for input past the session's rate.
+const reasonInputRate = "input over the session's rate"
+
+// sendTyped sends an input frame and waits until the program has been given typed bytes in
+// all, so frames never wait in the server's queue: a rate test then meets the rate, never the
+// queue's bound.
+func sendTyped(t *testing.T, conn *websocket.Conn, program *fakeProgram, frame string, typed int) {
+	t.Helper()
+
+	sendMessage(t, conn, websocket.MessageText, frame)
+
+	deadline := time.Now().Add(testtime.Scaled(waitLimit))
+
+	for len(program.writtenSoFar()) < typed {
+		if time.Now().After(deadline) {
+			t.Fatalf("the program was given %d bytes, want %d", len(program.writtenSoFar()), typed)
+		}
+
+		time.Sleep(typedPoll)
+	}
+}
+
+// typedPoll is how often sendTyped looks.
+const typedPoll = 100 * time.Microsecond
 
 // sendMessage writes one message, failing the test if it cannot.
 func sendMessage(t *testing.T, conn *websocket.Conn, kind websocket.MessageType, data string) {

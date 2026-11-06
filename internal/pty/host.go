@@ -2,8 +2,11 @@ package pty
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -57,6 +60,9 @@ type session struct {
 	exitCode   *int
 	scrollback ring
 	viewers    []*viewer
+	// waited is set once the program has exited, before the session's end is recorded: input
+	// and resizes are refused as ended from then on.
+	waited bool
 	// groupStopped is set once the program's group is known to be empty; from then on its
 	// number is never signalled, since a new program may have been given it.
 	groupStopped bool
@@ -250,10 +256,27 @@ func (h *Host) typeInto(writing *session, data []byte) error {
 
 	_, err := writing.process.Write(data)
 	if err != nil {
-		return fmt.Errorf("typing into a session: %w", err)
+		return writeFailure(err)
 	}
 
 	return nil
+}
+
+// writeFailure is what a failed Write to a program means. EIO is the terminal saying nothing
+// holds its program's side any more, and a closed terminal is a session ending: either way the
+// program has gone, ErrEnded. The write deadline passing is a program not taking its input,
+// ErrInputBlocked. Anything else is the host's own failure.
+func writeFailure(err error) error {
+	switch {
+	case errors.Is(err, syscall.EIO):
+		return fmt.Errorf("%w: %w", ErrEnded, err)
+	case errors.Is(err, os.ErrClosed):
+		return fmt.Errorf("%w: %w", ErrEnded, err)
+	case errors.Is(err, os.ErrDeadlineExceeded):
+		return fmt.Errorf("%w: %w", ErrInputBlocked, err)
+	default:
+		return fmt.Errorf("typing into a session: %w", err)
+	}
 }
 
 // reserve takes a running slot for a Start.
@@ -388,7 +411,7 @@ func (h *Host) runningSession(sessionID ID) (*session, error) {
 		return nil, ErrNoSession
 	}
 
-	if found.exitCode != nil {
+	if found.waited {
 		return nil, ErrEnded
 	}
 

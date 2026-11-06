@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -36,12 +37,19 @@ const (
 	// connectionsMax is the most terminals open at once over all sessions: more than the host's
 	// sessions times their viewers, so it only refuses a flood of handshakes for ended sessions.
 	connectionsMax = 64
+	// replayBytesInFlightMax bounds the replays being written at once, in bytes: eight full
+	// scrollbacks. With the viewers' queues (at most 2 MiB for each of the host's 48 viewers)
+	// it bounds what viewers that do not read can make the server hold.
+	replayBytesInFlightMax = 32 << 20
+	// inputQueueFramesMax is how many of a viewer's frames may wait for the program while it
+	// takes the one before; past it, the viewer is closed. The frames are read on their own
+	// goroutine, so a program that is slow to take input never holds up the reading of pongs.
+	inputQueueFramesMax = 16
 
 	// frameWriteTimeout bounds the writing of each frame: a viewer that takes longer is closed.
 	frameWriteTimeout = 5 * time.Second
 	// pingInterval is how often a viewer is pinged, and pingTimeout how long its answer may
-	// take: a dead peer is dropped within both. The answer waits for the input before it to be
-	// typed, which takes at most the host's turn wait and write timeout, 10 s in all.
+	// take: a dead peer is dropped within both.
 	pingInterval = 15 * time.Second
 	pingTimeout  = 20 * time.Second
 
@@ -61,6 +69,7 @@ const (
 	textUpgradeRequired = "this route takes a WebSocket handshake only"
 	textTooManyViewers  = "the session has too many viewers"
 	textTooManyOpen     = "too many terminals are open"
+	textStopping        = "conn is stopping"
 	textNoSession       = "no such session"
 )
 
@@ -69,7 +78,6 @@ type TerminalHost interface {
 	Subscribe(sessionID pty.ID) (pty.Viewer, error)
 	Write(sessionID pty.ID, data []byte) error
 	Resize(sessionID pty.ID, columns, rows uint16) error
-	Live() []pty.Info
 }
 
 // terminalTimes are the route's waits.
@@ -87,6 +95,9 @@ type Terminals struct {
 	budgets *budgets
 	// open holds a value for each terminal open, at most connectionsMax.
 	open chan struct{}
+	// replayMu guards replayBytes, the bytes of the replays being written.
+	replayMu    sync.Mutex
+	replayBytes int
 	// stopping is closed when the terminals' context ends: every terminal open is closed. A
 	// connection the HTTP server has handed over outlives the server's own shutdown otherwise.
 	stopping <-chan struct{}
@@ -107,9 +118,11 @@ func NewTerminals(ctx context.Context, host TerminalHost) *Terminals {
 			pingInterval:      pingInterval,
 			pingTimeout:       pingTimeout,
 		},
-		budgets:  newBudgets(time.Now),
-		open:     make(chan struct{}, connectionsMax),
-		stopping: ctx.Done(),
+		budgets:     newBudgets(time.Now),
+		open:        make(chan struct{}, connectionsMax),
+		replayMu:    sync.Mutex{},
+		replayBytes: 0,
+		stopping:    ctx.Done(),
 	}
 }
 
@@ -166,6 +179,15 @@ func (t *Terminals) serve(w http.ResponseWriter, r *http.Request, sessionID pty.
 		return
 	}
 
+	// Stopping is looked at on its own: a select with a free place beside it could pick either.
+	select {
+	case <-t.stopping:
+		sendJSON(w, http.StatusServiceUnavailable, errorBody{Error: textStopping})
+
+		return
+	default:
+	}
+
 	select {
 	case t.open <- struct{}{}:
 	default:
@@ -183,7 +205,29 @@ func (t *Terminals) serve(w http.ResponseWriter, r *http.Request, sessionID pty.
 		return
 	}
 
-	defer viewer.Close()
+	// The replay is handed on alone, so nothing here keeps it once it has been written.
+	replay := viewer.Replay
+	viewer.Replay = nil
+
+	defer func() { viewer.Close() }()
+
+	t.serveViewer(w, r, viewer, replay, sessionID)
+}
+
+// serveViewer runs the terminal for a viewer the host gave, once its replay fits within
+// replayBytesInFlightMax.
+func (t *Terminals) serveViewer(
+	w http.ResponseWriter, r *http.Request, viewer pty.Viewer, replay []byte, sessionID pty.ID,
+) {
+	replaySize := len(replay)
+	if !t.takeReplay(replaySize) {
+		sendJSON(w, http.StatusServiceUnavailable, errorBody{Error: textTooManyOpen})
+
+		return
+	}
+
+	replayWritten := sync.OnceFunc(func() { t.giveReplay(replaySize) })
+	defer replayWritten()
 
 	t.budgets.join(sessionID)
 	defer t.budgets.leave(sessionID)
@@ -197,7 +241,31 @@ func (t *Terminals) serve(w http.ResponseWriter, r *http.Request, sessionID pty.
 	// nothing.
 	defer func() { _ = conn.CloseNow() }()
 
-	t.run(conn, viewer, sessionID)
+	t.run(conn, terminal{
+		viewer: viewer, replay: replay, sessionID: sessionID, replayWritten: replayWritten,
+	})
+}
+
+// takeReplay counts size bytes of replay as being written, if they fit.
+func (t *Terminals) takeReplay(size int) bool {
+	t.replayMu.Lock()
+	defer t.replayMu.Unlock()
+
+	if t.replayBytes+size > replayBytesInFlightMax {
+		return false
+	}
+
+	t.replayBytes += size
+
+	return true
+}
+
+// giveReplay counts size bytes of replay as written.
+func (t *Terminals) giveReplay(size int) {
+	t.replayMu.Lock()
+	defer t.replayMu.Unlock()
+
+	t.replayBytes -= size
 }
 
 // refuseViewer answers a handshake whose session the host would not give a viewer.

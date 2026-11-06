@@ -166,7 +166,7 @@ func TestParseClientFrameNeverQuotesTheText(t *testing.T) {
 	}
 }
 
-func FuzzClientFrame(f *testing.F) {
+func FuzzFrame(f *testing.F) {
 	seeds := []string{
 		`{"t":"input","d":"ls\r"}`,
 		`{"t":"resize","cols":132,"rows":43}`,

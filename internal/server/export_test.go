@@ -21,6 +21,10 @@ const (
 	InputBytesBurst    = inputBytesBurst
 	InputFramesBurst   = inputFramesBurst
 	ConnectionsMax     = connectionsMax
+	// The bounds of fix round 1.
+	InputQueueFramesMax    = inputQueueFramesMax
+	InputResizesBurst      = inputResizesBurst
+	ReplayBytesInFlightMax = replayBytesInFlightMax
 )
 
 // TerminalTimes are the terminal route's waits and its clock, which a test shortens or stops.

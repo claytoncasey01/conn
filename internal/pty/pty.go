@@ -280,8 +280,20 @@ const (
 type Viewer struct {
 	Replay []byte
 	Output <-chan []byte
+	// Ending says why Output closed, as the host knew it when it closed it; nil says nothing.
+	// Read it through Ended once Output has closed.
+	Ending func() ViewerEnd
 
 	close func()
+}
+
+// ViewerEnd is why a viewer's Output closed: the session's program ended, with its exit code,
+// or the viewer fell viewerQueueBytesMax behind and was dropped. Neither is set while Output is
+// open, or when the viewer was closed by its owner.
+type ViewerEnd struct {
+	Dropped  bool
+	Ended    bool
+	ExitCode int
 }
 
 // Close stops the viewer and closes its Output. Calling it again does nothing.
@@ -289,4 +301,13 @@ func (v Viewer) Close() {
 	if v.close != nil {
 		v.close()
 	}
+}
+
+// Ended says why the viewer's Output closed; the zero ViewerEnd for a viewer with no Ending.
+func (v Viewer) Ended() ViewerEnd {
+	if v.Ending == nil {
+		return ViewerEnd{Dropped: false, Ended: false, ExitCode: 0}
+	}
+
+	return v.Ending()
 }

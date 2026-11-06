@@ -211,16 +211,12 @@ func TestAnInputFloodIsCutOff(t *testing.T) {
 	frameData := strings.Repeat("a", server.InputFrameBytesMax)
 
 	tests := []struct {
-		name   string
-		frame  string
-		frames int
-		typed  int
+		name      string
+		frameData string
+		frames    int
 	}{
-		{
-			"in bytes", inputFrame(frameData), server.InputBytesBurst/server.InputFrameBytesMax + 1,
-			server.InputBytesBurst,
-		},
-		{"in frames", inputFrame("a"), server.InputFramesBurst + 1, server.InputFramesBurst},
+		{"in bytes", frameData, server.InputBytesBurst / server.InputFrameBytesMax},
+		{"in frames", "a", server.InputFramesBurst},
 	}
 
 	for _, tt := range tests {
@@ -232,16 +228,23 @@ func TestAnInputFloodIsCutOff(t *testing.T) {
 			conn := rig.open(t, sessionID)
 			readOutputUntilText(t, conn)
 
-			for range tt.frames {
-				sendMessage(t, conn, websocket.MessageText, tt.frame)
+			for index := range tt.frames {
+				sendTyped(t, conn, program, inputFrame(tt.frameData), (index+1)*len(tt.frameData))
 			}
 
-			if code := closeCode(t, conn); code != websocket.StatusPolicyViolation {
+			sendMessage(t, conn, websocket.MessageText, inputFrame(tt.frameData))
+
+			code, reason := closeReason(t, conn)
+			if code != websocket.StatusPolicyViolation {
 				t.Fatalf("closed with %v, want %v", code, websocket.StatusPolicyViolation)
 			}
 
-			if typed := len(program.writtenSoFar()); typed != tt.typed {
-				t.Fatalf("%d bytes typed, want exactly %d", typed, tt.typed)
+			if reason != reasonInputRate {
+				t.Fatalf("closed because %q, want %q", reason, reasonInputRate)
+			}
+
+			if typed := len(program.writtenSoFar()); typed != tt.frames*len(tt.frameData) {
+				t.Fatalf("%d bytes typed, want exactly %d", typed, tt.frames*len(tt.frameData))
 			}
 		})
 	}
@@ -262,20 +265,23 @@ func TestTheInputCapIsTheSessions(t *testing.T) {
 	readOutputUntilText(t, second)
 
 	half := server.InputFramesBurst / 2
-	for range half {
-		sendMessage(t, first, websocket.MessageText, inputFrame("a"))
+	for index := range half {
+		sendTyped(t, first, program, inputFrame("a"), index+1)
 	}
 
-	eventually(t, "the first viewer's input never arrived", func() bool {
-		return len(program.writtenSoFar()) == half
-	})
-
-	for range server.InputFramesBurst - half + 1 {
-		sendMessage(t, second, websocket.MessageText, inputFrame("b"))
+	for index := range server.InputFramesBurst - half {
+		sendTyped(t, second, program, inputFrame("b"), half+index+1)
 	}
 
-	if code := closeCode(t, second); code != websocket.StatusPolicyViolation {
+	sendMessage(t, second, websocket.MessageText, inputFrame("b"))
+
+	code, reason := closeReason(t, second)
+	if code != websocket.StatusPolicyViolation {
 		t.Fatalf("closed with %v, want %v", code, websocket.StatusPolicyViolation)
+	}
+
+	if reason != reasonInputRate {
+		t.Fatalf("closed because %q, want %q", reason, reasonInputRate)
 	}
 
 	if typed := len(program.writtenSoFar()); typed != server.InputFramesBurst {
@@ -525,35 +531,28 @@ func TestAPeerThatStopsAnsweringIsDropped(t *testing.T) {
 
 // The terminals open at once are bounded over all sessions, not only per session: an ended
 // session takes any number of viewers (each holds no place of the host's), so a flood of
-// handshakes for one is refused past connectionsMax. A viewer that does not read keeps its
-// terminal open while the server waits for it to answer the close.
+// handshakes is refused past connectionsMax. A scripted host keeps every viewer's output open,
+// so the terminals stay open for as long as the test needs.
 func TestTheTerminalsOpenAtOnceAreBounded(t *testing.T) {
 	t.Parallel()
 
-	rig := newTerminalRig(t, rigSetup{})
-	sessionID, program := rig.start(t)
-	program.finish(0)
-
-	eventually(t, "the session never ended", func() bool {
-		for _, info := range rig.host.Live() {
-			if info.ExitCode != nil {
-				return true
-			}
-		}
-
-		return false
-	})
+	host := &scriptedHost{}
+	rig := newTerminalRig(t, rigSetup{host: host})
 
 	for range server.ConnectionsMax {
-		rig.open(t, sessionID)
+		rig.open(t, sessionShape)
 	}
 
-	refused := rig.dial(t, string(sessionID), nil)
+	refused := rig.dial(t, sessionShape, nil)
 	if refused.err == nil {
 		t.Fatal("a terminal past the limit was opened")
 	}
 
 	if refused.status != 503 {
 		t.Fatalf("status %d, want 503", refused.status)
+	}
+
+	if host.subscribed() != server.ConnectionsMax {
+		t.Fatalf("%d viewers subscribed, want %d", host.subscribed(), server.ConnectionsMax)
 	}
 }

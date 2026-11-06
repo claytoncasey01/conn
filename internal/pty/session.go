@@ -40,6 +40,7 @@ func (h *Host) publish(target *session, chunk []byte) {
 
 	for _, watching := range target.viewers {
 		if len(watching.pending)+len(chunk) > viewerQueueBytesMax {
+			watching.why = ViewerEnd{Dropped: true, Ended: false, ExitCode: 0}
 			watching.stop()
 
 			continue
@@ -107,6 +108,10 @@ func (h *Host) answerQueries(answering *session) {
 func (h *Host) awaitEnd(waiting *session, readDone <-chan struct{}) {
 	code := waiting.process.Wait()
 
+	// From here input and resizes are refused as ended, though the end is recorded only once
+	// the group is stopped and the output drained.
+	h.markWaited(waiting)
+
 	var stopErr error
 
 	if !h.isGroupStopped(waiting) {
@@ -142,6 +147,7 @@ func (h *Host) finish(ending *session, code int, stopErr error) {
 	ending.exitCode = &code
 
 	for _, watching := range ending.viewers {
+		watching.why = ViewerEnd{Dropped: false, Ended: true, ExitCode: code}
 		watching.ending = true
 		watching.wake()
 	}
@@ -158,6 +164,14 @@ func (h *Host) finish(ending *session, code int, stopErr error) {
 
 	h.retire(ending)
 	close(ending.ended)
+}
+
+// markWaited records that the session's program has exited.
+func (h *Host) markWaited(held *session) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	held.waited = true
 }
 
 // isGroupStopped says whether the session's group is known to be empty.
