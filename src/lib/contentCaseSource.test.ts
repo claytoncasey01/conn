@@ -44,6 +44,8 @@ const ALLOW: Record<string, Record<string, string>> = {
     '{st.label}': 'run state: RS constants, or the Jira status uppercased in code',
     '{f.label}': 'ALL / MINE / UNASSIGNED',
     '{m.label}': W_CONST,
+    '{l.label}': W_CONST,
+    '{l.hint}': W_CONST,
   },
   'pages/AdvisorPage.svelte': {
     '{source.archived ? \'history\' : \'sessions\'}': W,
@@ -67,6 +69,7 @@ const ALLOW: Record<string, Record<string, string>> = {
     '{run.answered.length}': N,
     '{run.agents.length}': N,
     '{s.name}': 'pipeline stage, a constant (1 RESEARCH, 2 ASK...)',
+    '{run.repos.length}': N,
   },
   'pages/Overview.svelte': {
     '{session.agentsRunning}': N,

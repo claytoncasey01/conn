@@ -103,14 +103,14 @@ func TestCleanupRemovesTheRecordedWorktreeOnlyWhenItIsALinkedOne(t *testing.T) {
 	}
 
 	for _, key := range []string{"PROJ-7", "PROJ-8"} {
-		same(t, key, made.work.Cleanup(key).Code, 200)
+		same(t, key, made.work.Cleanup(key, "").Code, 200)
 	}
 
 	same(t, "legacy", exists(legacy), false)
 	same(t, "renamed", exists(renamed), false)
 
 	for _, key := range []string{"PROJ-9", "PROJ-10", "PROJ-11"} {
-		same(t, key, made.work.Cleanup(key).Code, 400)
+		same(t, key, made.work.Cleanup(key, "").Code, 400)
 	}
 
 	same(t, "clone", exists(filepath.Join(main, "a")), true)
@@ -156,7 +156,7 @@ func TestCleanupRemovesAWorktreeOnlyOfTheRepositoryTheRunRecorded(t *testing.T) 
 			return realSh(t.Context(), name, args, dir, 0)
 		}
 
-		reply := made.work.Cleanup("PROJ-1")
+		reply := made.work.Cleanup("PROJ-1", "")
 		same(t, row.clone, reply.Code, row.code)
 
 		if row.code == 400 {
@@ -206,8 +206,9 @@ func TestARepositoryWithOnlyAMainBranchWorksFromStartToThePR(t *testing.T) {
 		return realSh(t.Context(), name, args, dir, 0)
 	}
 
-	same(t, "build", parsed(t, made.work.Tickets().Build), body(t,
-		`{"repo":"acme/widgets","base":"main","ready":true,"reason":null}`))
+	same(t, "build", parsed(t, made.work.Tickets().Build), body(t, `{"repos":[{"repo":`+
+		`"acme/widgets","base":"main","ready":true,"reason":null}],"default":"acme/widgets",`+
+		`"layout":"shared"}`))
 	same(t, "start", made.work.Start("PROJ-2", body(t, `{"model":"haiku"}`)).Code, 200)
 	until(t, "the questions", func() bool { return made.state("PROJ-2") == "asking" })
 
@@ -217,7 +218,7 @@ func TestARepositoryWithOnlyAMainBranchWorksFromStartToThePR(t *testing.T) {
 		"proj-2-ticket-proj-2")
 
 	record := made.record("PROJ-2")
-	same(t, "bases", []any{record.Base, record.PRBase}, []any{"main", "main"})
+	same(t, "bases", []any{record.Repos[0].Base, record.Repos[0].PRBase}, []any{"main", "main"})
 
 	answers := js.NewObject()
 	for _, question := range record.Questions {
@@ -235,7 +236,7 @@ func TestARepositoryWithOnlyAMainBranchWorksFromStartToThePR(t *testing.T) {
 	writeJSON(t, filepath.Join(worktree, "b"), "b")
 	gitRun(t, worktree, "add", "b")
 	gitRun(t, worktree, "commit", "-qm", "b")
-	same(t, "open", made.work.OpenPR("PROJ-2").Code, 200)
+	same(t, "open", made.work.OpenPR("PROJ-2", "").Code, 200)
 	until(t, "the PR", func() bool { return made.state("PROJ-2") == "pr_open" })
 	made.work.Settle()
 
@@ -440,7 +441,7 @@ func TestWhileOpenWorkIsOffTheListIsEmptyAndNothingStarts(t *testing.T) {
 	}
 }
 
-func TestARunNeedsTheBuildRepositoryAndAClone(t *testing.T) {
+func TestARunNeedsARepositoryAndAClone(t *testing.T) {
 	t.Parallel()
 
 	base := realTemp(t)
@@ -454,11 +455,10 @@ func TestARunNeedsTheBuildRepositoryAndAClone(t *testing.T) {
 	reply := made.work.Start("PROJ-1", body(t, `{"model":"haiku"}`))
 	same(t, "no repo", []any{reply.Code, errorOf(reply)}, []any{
 		409,
-		"No build repository is set: choose one in Settings.",
+		"Choose at least one repository.",
 	})
-	same(t, "no repo build", parsed(t, made.work.Tickets().Build), body(t, `{"repo":null,`+
-		`"base":null,"ready":false,"reason":"No build repository is set: choose one in `+
-		`Settings."}`))
+	same(t, "no repo build", parsed(t, made.work.Tickets().Build), body(t, `{"repos":[],`+
+		`"default":null,"layout":"shared"}`))
 
 	made.update("repos", `{"allow":["acme/*"],"clones":{"acme/widgets":`+
 		js.Stringify(filepath.Join(base, "does-not-exist"))+`},"cloneRoot":null}`)
@@ -467,13 +467,15 @@ func TestARunNeedsTheBuildRepositoryAndAClone(t *testing.T) {
 	reply = made.work.Start("PROJ-1", body(t, `{"model":"haiku"}`))
 	missing := "No local clone of acme/widgets: set a folder in Settings."
 	same(t, "no clone", []any{reply.Code, errorOf(reply)}, []any{409, missing})
-	same(t, "no clone build", parsed(t, made.work.Tickets().Build), body(t,
-		`{"repo":"acme/widgets","base":null,"ready":false,"reason":`+js.Stringify(missing)+`}`))
+	same(t, "no clone build", parsed(t, made.work.Tickets().Build), body(t, `{"repos":[`+
+		`{"repo":"acme/widgets","base":null,"ready":false,"reason":`+js.Stringify(missing)+
+		`}],"default":"acme/widgets","layout":"shared"}`))
 	same(t, "runs", string(openwork.Snapshot(made.work)), "[]")
 
 	clone := gitClone(t, base, "main")
 	made.update("repos", `{"allow":["acme/*"],"clones":{"acme/widgets":`+js.Stringify(clone)+
 		`},"cloneRoot":null}`)
-	same(t, "ready", parsed(t, made.work.Tickets().Build), body(t,
-		`{"repo":"acme/widgets","base":"main","ready":true,"reason":null}`))
+	same(t, "ready", parsed(t, made.work.Tickets().Build), body(t, `{"repos":[{"repo":`+
+		`"acme/widgets","base":"main","ready":true,"reason":null}],"default":"acme/widgets",`+
+		`"layout":"shared"}`))
 }

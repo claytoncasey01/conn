@@ -3,6 +3,8 @@ package openwork
 import (
 	"net/http"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/sessions"
@@ -12,16 +14,20 @@ import (
 // written to JSON when it is made, under the mutex, so the snapshot never reads a run that is
 // changing.
 type View struct {
-	key, worktree string
-	data          []byte
-	facts         sessions.RunFacts
+	key       string
+	worktrees []string
+	data      []byte
+	facts     sessions.RunFacts
 }
 
 // Key is the run's ticket key: its build session is named after it.
 func (v View) Key() string { return v.key }
 
-// Worktree is the folder the run builds in.
-func (v View) Worktree() string { return v.worktree }
+// Worktree is the folder the run's first repository builds in, where its shared session works.
+func (v View) Worktree() string { return v.worktrees[0] }
+
+// Worktrees are the folders of every repository the run builds in, the first's first.
+func (v View) Worktrees() []string { return slices.Clone(v.worktrees) }
 
 // Facts are the run's state and its PR's state, for the archive.
 func (v View) Facts() *sessions.RunFacts {
@@ -45,21 +51,34 @@ func (w *Work) Runs() []sessions.Run {
 	}
 
 	for _, record := range w.snapshot() {
-		prState := ""
-
-		if record.PR != nil {
-			if record.PR.Status != nil {
-				prState = record.PR.Status.State
-			}
-		}
+		prState := historyPRState(record)
 
 		out = append(out, View{
-			key: record.Key, worktree: record.Worktree, data: record.viewJSON(),
+			key: record.Key, worktrees: worktreesOf(record), data: record.viewJSON(),
 			facts: sessions.RunFacts{State: record.State, PRState: prState},
 		})
 	}
 
 	return out
+}
+
+// historyPRState is the PR state History shows for a run: merged once the run counts as merged
+// (merged), else its lead's, as a run of one always showed.
+func historyPRState(record *Record) string {
+	if merged(record) {
+		return prMerged
+	}
+
+	lead := record.lead()
+	if lead.PR == nil {
+		return ""
+	}
+
+	if lead.PR.Status == nil {
+		return ""
+	}
+
+	return lead.PR.Status.State
 }
 
 // snapshot are the runs, newest first.
@@ -115,19 +134,19 @@ func live(record *Record) bool {
 	return true
 }
 
-// repoOf is the repository a run is in: the one it recorded, else (a run from before Settings)
+// repoOf is the repository a leg is in: the one it recorded, else (a run from before Settings)
 // its worktree's origin; "" when neither says. Only a worktree that exists says: the origin
 // lookup walks up from a missing path, and would name a repository that merely encloses it.
-func (w *Work) repoOf(record *Record) string {
-	if record.Repo != nil {
-		return *record.Repo
+func (w *Work) repoOf(leg *Leg) string {
+	if leg.Repo != "" {
+		return leg.Repo
 	}
 
-	if !exists(record.Worktree) {
+	if !exists(leg.Worktree) {
 		return ""
 	}
 
-	return w.deps.OriginOf(record.Worktree)
+	return w.deps.OriginOf(leg.Worktree)
 }
 
 func exists(path string) bool {
@@ -140,31 +159,55 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// buildProblem is why this run may not research or build now, "" when it may: its repository
-// has left the allowlist, or Settings builds in another repository (or finds no clone of it).
-// Asked on every path that starts a helper run or a session, whatever was done before: a run
-// made earlier is not a way around a list changed since.
-func (w *Work) buildProblem(record *Record) string {
-	repo := w.repoOf(record)
-	if repo != "" {
-		if !w.allowed(repo) {
-			return repo + " is not an allowed repository: add it in Settings."
+// buildProblem is why this leg may not research or build now, "" when it may: its repository
+// has left the allowlist, or Settings finds no clone of it. Asked on every path that starts a
+// helper run or a session, whatever was done before: a run made earlier is not a way around a
+// list changed since.
+func (w *Work) buildProblem(leg *Leg) string {
+	_, problem := w.cloneOf(leg)
+
+	return problem
+}
+
+// cloneOf is the clone a leg builds from now, looked up again in Settings, never taken from the
+// record; or why there is none. A run from before Settings whose worktree is not made says no
+// repository: it was made for the default repository.
+func (w *Work) cloneOf(leg *Leg) (string, string) {
+	current := w.settings()
+
+	repo := w.repoOf(leg)
+	if repo == "" {
+		if current.Atlassian.Jira.BuildRepo == nil {
+			return "", noRepo
+		}
+
+		repo = *current.Atlassian.Jira.BuildRepo
+	}
+
+	if !w.allowed(repo) {
+		return "", notAllowed(repo)
+	}
+
+	clone, found := w.deps.CloneFor(repo, current)
+	if !found {
+		return "", "No local clone of " + repo + ": set a folder in Settings."
+	}
+
+	return clone, ""
+}
+
+// runProblem is why a run may not research or build now, "" when it may: every leg's problem,
+// one sentence each.
+func (w *Work) runProblem(record *Record) string {
+	problems := []string{}
+
+	for _, leg := range record.Repos {
+		if problem := w.buildProblem(leg); problem != "" {
+			problems = append(problems, problem)
 		}
 	}
 
-	target := w.target()
-	if target.Clone == "" {
-		return reasonOr(target.Reason)
-	}
-
-	if repo != "" {
-		if js.Lower(target.Repo) != js.Lower(repo) {
-			return "Open work builds in " + target.Repo + " now, and this run was made for " +
-				repo + ". Start the ticket again."
-		}
-	}
-
-	return ""
+	return strings.Join(problems, " ")
 }
 
 func reasonOr(reason string) string {

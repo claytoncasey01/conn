@@ -1,0 +1,788 @@
+{
+ "legs": [
+  {
+   "args": [
+    {
+     "key": "PROJ-1",
+     "state": "building",
+     "layout": "shared",
+     "repos": [
+      {
+       "repo": "acme/widgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/widgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 2,
+       "dirty": 0,
+       "pr": null,
+       "cleaned": null
+      }
+     ]
+    }
+   ],
+   "out": {
+    "openable": true,
+    "merged": false,
+    "legs": [
+     {
+      "checksFailing": false,
+      "canClean": false,
+      "keptForOthers": false
+     }
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "key": "PROJ-1",
+     "state": "pr_open",
+     "layout": "shared",
+     "repos": [
+      {
+       "repo": "acme/widgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/widgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/5",
+        "number": 5,
+        "status": {
+         "state": "merged",
+         "checks": {
+          "state": "passing",
+          "total": 1,
+          "pending": 0,
+          "failed": []
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      }
+     ]
+    }
+   ],
+   "out": {
+    "openable": false,
+    "merged": true,
+    "legs": [
+     {
+      "checksFailing": false,
+      "canClean": true,
+      "keptForOthers": false
+     }
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "key": "PROJ-1",
+     "state": "pr_open",
+     "layout": "shared",
+     "repos": [
+      {
+       "repo": "acme/widgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/widgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/5",
+        "number": 5,
+        "status": {
+         "state": "open",
+         "checks": {
+          "state": "failing",
+          "total": 1,
+          "pending": 0,
+          "failed": [
+           "lint"
+          ]
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      }
+     ]
+    }
+   ],
+   "out": {
+    "openable": false,
+    "merged": false,
+    "legs": [
+     {
+      "checksFailing": true,
+      "canClean": false,
+      "keptForOthers": false
+     }
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "key": "PROJ-1",
+     "state": "pr_open",
+     "layout": "shared",
+     "repos": [
+      {
+       "repo": "acme/widgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/widgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/5",
+        "number": 5,
+        "status": {
+         "state": "merged",
+         "checks": {
+          "state": "passing",
+          "total": 1,
+          "pending": 0,
+          "failed": []
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      },
+      {
+       "repo": "acme/gadgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/gadgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/6",
+        "number": 6,
+        "status": {
+         "state": "open",
+         "checks": {
+          "state": "failing",
+          "total": 1,
+          "pending": 0,
+          "failed": [
+           "lint"
+          ]
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      }
+     ]
+    }
+   ],
+   "out": {
+    "openable": false,
+    "merged": false,
+    "legs": [
+     {
+      "checksFailing": false,
+      "canClean": false,
+      "keptForOthers": true
+     },
+     {
+      "checksFailing": true,
+      "canClean": false,
+      "keptForOthers": false
+     }
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "key": "PROJ-1",
+     "state": "pr_open",
+     "layout": "split",
+     "repos": [
+      {
+       "repo": "acme/widgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/widgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/5",
+        "number": 5,
+        "status": {
+         "state": "merged",
+         "checks": {
+          "state": "passing",
+          "total": 1,
+          "pending": 0,
+          "failed": []
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      },
+      {
+       "repo": "acme/gadgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/gadgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/6",
+        "number": 6,
+        "status": {
+         "state": "open",
+         "checks": {
+          "state": "failing",
+          "total": 1,
+          "pending": 0,
+          "failed": [
+           "lint"
+          ]
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      }
+     ]
+    }
+   ],
+   "out": {
+    "openable": false,
+    "merged": false,
+    "legs": [
+     {
+      "checksFailing": false,
+      "canClean": true,
+      "keptForOthers": false
+     },
+     {
+      "checksFailing": true,
+      "canClean": false,
+      "keptForOthers": false
+     }
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "key": "PROJ-1",
+     "state": "pr_open",
+     "layout": "shared",
+     "repos": [
+      {
+       "repo": "acme/widgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/widgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/5",
+        "number": 5,
+        "status": {
+         "state": "merged",
+         "checks": {
+          "state": "passing",
+          "total": 1,
+          "pending": 0,
+          "failed": []
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      },
+      {
+       "repo": "acme/gadgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/gadgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 2,
+       "dirty": 0,
+       "pr": null,
+       "cleaned": null
+      }
+     ]
+    }
+   ],
+   "out": {
+    "openable": true,
+    "merged": true,
+    "legs": [
+     {
+      "checksFailing": false,
+      "canClean": true,
+      "keptForOthers": false
+     },
+     {
+      "checksFailing": false,
+      "canClean": false,
+      "keptForOthers": false
+     }
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "key": "PROJ-1",
+     "state": "pr_open",
+     "layout": "shared",
+     "repos": [
+      {
+       "repo": "acme/widgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/widgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/5",
+        "number": 5,
+        "status": {
+         "state": "closed",
+         "checks": {
+          "state": "passing",
+          "total": 1,
+          "pending": 0,
+          "failed": []
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      },
+      {
+       "repo": "acme/gadgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/gadgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/6",
+        "number": 6,
+        "status": {
+         "state": "closed",
+         "checks": {
+          "state": "passing",
+          "total": 1,
+          "pending": 0,
+          "failed": []
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      }
+     ]
+    }
+   ],
+   "out": {
+    "openable": false,
+    "merged": false,
+    "legs": [
+     {
+      "checksFailing": false,
+      "canClean": true,
+      "keptForOthers": false
+     },
+     {
+      "checksFailing": false,
+      "canClean": true,
+      "keptForOthers": false
+     }
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "key": "PROJ-1",
+     "state": "pr_open",
+     "layout": "shared",
+     "repos": [
+      {
+       "repo": "acme/widgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/widgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/5",
+        "number": 5,
+        "status": {
+         "state": "merged",
+         "checks": {
+          "state": "passing",
+          "total": 1,
+          "pending": 0,
+          "failed": []
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": true
+      },
+      {
+       "repo": "acme/gadgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/gadgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/6",
+        "number": 6,
+        "status": {
+         "state": "merged",
+         "checks": {
+          "state": "passing",
+          "total": 1,
+          "pending": 0,
+          "failed": []
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      }
+     ]
+    }
+   ],
+   "out": {
+    "openable": false,
+    "merged": true,
+    "legs": [
+     {
+      "checksFailing": false,
+      "canClean": false,
+      "keptForOthers": false
+     },
+     {
+      "checksFailing": false,
+      "canClean": true,
+      "keptForOthers": false
+     }
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "key": "PROJ-1",
+     "state": "pr_open",
+     "layout": "shared",
+     "repos": [
+      {
+       "repo": "acme/widgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/widgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/5",
+        "number": 5,
+        "status": {
+         "state": "open",
+         "checks": {
+          "state": "pending",
+          "total": 1,
+          "pending": 0,
+          "failed": []
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      },
+      {
+       "repo": "acme/gadgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/gadgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/6",
+        "number": 6
+       },
+       "cleaned": null
+      }
+     ]
+    }
+   ],
+   "out": {
+    "openable": false,
+    "merged": false,
+    "legs": [
+     {
+      "checksFailing": false,
+      "canClean": false,
+      "keptForOthers": true
+     },
+     {
+      "checksFailing": false,
+      "canClean": false,
+      "keptForOthers": false
+     }
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "key": "PROJ-1",
+     "state": "building",
+     "layout": "split",
+     "repos": [
+      {
+       "repo": "acme/widgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/widgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/5",
+        "number": 5,
+        "status": {
+         "state": "open",
+         "checks": {
+          "state": "failing",
+          "total": 1,
+          "pending": 0,
+          "failed": [
+           "lint"
+          ]
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      },
+      {
+       "repo": "acme/gadgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/gadgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 1,
+       "dirty": 0,
+       "pr": null,
+       "cleaned": null
+      }
+     ]
+    }
+   ],
+   "out": {
+    "openable": true,
+    "merged": false,
+    "legs": [
+     {
+      "checksFailing": false,
+      "canClean": false,
+      "keptForOthers": false
+     },
+     {
+      "checksFailing": false,
+      "canClean": false,
+      "keptForOthers": false
+     }
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "key": "PROJ-1",
+     "state": "pr_open",
+     "layout": "shared",
+     "repos": [
+      {
+       "repo": "acme/widgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/widgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/5",
+        "number": 5,
+        "status": {
+         "state": "merged",
+         "checks": {
+          "state": "passing",
+          "total": 1,
+          "pending": 0,
+          "failed": []
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": null
+      },
+      {
+       "repo": "acme/gadgets",
+       "base": "main",
+       "prBase": "main",
+       "branch": "proj-1-fix",
+       "worktree": "/w/gadgets",
+       "session": null,
+       "claudeSessionId": null,
+       "manualCommand": null,
+       "ahead": 0,
+       "dirty": 0,
+       "pr": {
+        "url": "https://github.com/acme/x/pull/6",
+        "number": 6,
+        "status": {
+         "state": "open",
+         "checks": {
+          "state": "passing",
+          "total": 1,
+          "pending": 0,
+          "failed": []
+         },
+         "review": "",
+         "mergeable": "",
+         "at": 1
+        }
+       },
+       "cleaned": true
+      }
+     ]
+    }
+   ],
+   "out": {
+    "openable": false,
+    "merged": false,
+    "legs": [
+     {
+      "checksFailing": false,
+      "canClean": true,
+      "keptForOthers": false
+     },
+     {
+      "checksFailing": false,
+      "canClean": false,
+      "keptForOthers": false
+     }
+    ]
+   }
+  }
+ ]
+}

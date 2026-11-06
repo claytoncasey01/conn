@@ -9,6 +9,7 @@ package settings
 import (
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
 )
@@ -107,11 +108,43 @@ type Slack struct {
 	DraftChannel *string  `json:"draftChannel"`
 }
 
-// Jira is the Open Work projects, the repo builds happen in and the branch they start from.
+// What Open work does with the ticket once pull requests are open: move it to review after the
+// first one, after every repository with changes has one, or never.
+const (
+	ReviewFirst = "first"
+	ReviewAll   = "all"
+	ReviewNever = "never"
+)
+
+// How Open work lays out the sessions of a ticket that spans repositories: one shared session,
+// or one session per repository.
+const (
+	LayoutShared = "shared"
+	LayoutSplit  = "split"
+)
+
+// Jira is the Open Work projects, the repository the picker starts on, the branch builds start
+// from (for every repository, and for the ones named in BaseBranches), when the ticket moves to
+// review and how sessions are laid out.
 type Jira struct {
 	Projects   []string `json:"projects"`
 	BuildRepo  *string  `json:"buildRepo"`
 	BaseBranch *string  `json:"baseBranch"`
+	// BaseBranches maps a lowercase owner/repo to its own base branch. It is never nil.
+	BaseBranches  map[string]string `json:"baseBranches"`
+	ReviewMove    string            `json:"reviewMove"`
+	SessionLayout string            `json:"sessionLayout"`
+}
+
+// BaseFor is the base branch configured for repo (any case): its own entry, else the one for every
+// repository, else nil (the clone's default branch decides). The result is a copy.
+func (j Jira) BaseFor(repo string) *string {
+	own, found := j.BaseBranches[strings.ToLower(repo)]
+	if found {
+		return &own
+	}
+
+	return clonePointer(j.BaseBranch)
 }
 
 // Atlassian is the Atlassian module.
@@ -150,7 +183,11 @@ func Defaults() Settings {
 		Slack:  Slack{Enabled: false, Channels: []string{}, DMs: false, DraftChannel: nil},
 		Atlassian: Atlassian{
 			Enabled: false,
-			Jira:    Jira{Projects: []string{}, BuildRepo: nil, BaseBranch: nil},
+			Jira: Jira{
+				Projects: []string{}, BuildRepo: nil, BaseBranch: nil,
+				BaseBranches: map[string]string{}, ReviewMove: ReviewAll,
+				SessionLayout: LayoutShared,
+			},
 		},
 		Reviews: Reviews{Requested: true, AllOpen: false},
 	}
@@ -185,6 +222,11 @@ func (s Settings) Clone() Settings {
 	copied.Atlassian.Jira.Projects = slices.Clone(s.Atlassian.Jira.Projects)
 	copied.Atlassian.Jira.BuildRepo = clonePointer(s.Atlassian.Jira.BuildRepo)
 	copied.Atlassian.Jira.BaseBranch = clonePointer(s.Atlassian.Jira.BaseBranch)
+	copied.Atlassian.Jira.BaseBranches = maps.Clone(s.Atlassian.Jira.BaseBranches)
+
+	if copied.Atlassian.Jira.BaseBranches == nil {
+		copied.Atlassian.Jira.BaseBranches = map[string]string{}
+	}
 
 	return copied
 }

@@ -51,6 +51,8 @@ type Opts struct {
 	DisallowedTools []string
 	// Dir is the folder the run starts in; "" is the server's.
 	Dir string
+	// AddDirs are folders besides Dir the run's tools may reach (--add-dir); none adds nothing.
+	AddDirs []string
 	// Schema is the JSON schema the answer must follow, as JSON text; "" asks for plain text.
 	Schema string
 	// BudgetUSD caps the run's cost; 0 is 1 USD.
@@ -107,6 +109,12 @@ func Args(opts Opts) []string {
 
 	if opts.NoMCP {
 		args = append(args, "--strict-mcp-config")
+	}
+
+	// --add-dir takes every folder up to the next flag, so --tools must follow it.
+	if len(opts.AddDirs) > 0 {
+		args = append(args, "--add-dir")
+		args = append(args, opts.AddDirs...)
 	}
 
 	// Only the built-ins the caller lists exist at all (none: every built-in is off).

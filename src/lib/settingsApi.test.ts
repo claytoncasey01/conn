@@ -27,7 +27,7 @@ const SETTINGS = {
   repos: { allow: ['acme/*', 'jane/widgets'], clones: { 'acme/infra': '/w/infra' }, cloneRoot: '/w' },
   github: { enabled: true },
   slack: { enabled: false, channels: [], dms: false, draftChannel: null },
-  atlassian: { enabled: false, jira: { projects: [], buildRepo: null } },
+  atlassian: { enabled: false, jira: { projects: [], buildRepo: null, baseBranch: null, baseBranches: {}, reviewMove: 'all', sessionLayout: 'shared' } },
   reviews: { requested: true, allOpen: false },
 }
 const VIEW = {
@@ -204,7 +204,7 @@ test('the sections the page edits are read field by field: a wrong type is the d
   assert.ok(r.ok)
   assert.deepEqual(r.view.settings.github, { enabled: true })
   assert.deepEqual(r.view.settings.slack, { enabled: true, channels: ['#a'], dms: false, draftChannel: null })
-  assert.deepEqual(r.view.settings.atlassian, { enabled: false, jira: { projects: ['PROJ'], buildRepo: null, baseBranch: null } })
+  assert.deepEqual(r.view.settings.atlassian, { enabled: false, jira: { projects: ['PROJ'], buildRepo: null, baseBranch: null, baseBranches: {}, reviewMove: 'all', sessionLayout: 'shared' } })
   assert.deepEqual(r.view.settings.reviews, { requested: true, allOpen: false })
 })
 
@@ -217,6 +217,24 @@ test('the base branch is read as a branch name or none, and an older server that
   const old = await getSettings()
   assert.ok(old.ok)
   assert.equal(old.view.settings.atlassian.jira.baseBranch, null)
+})
+
+test('the per-repository branches, the review move and the layout are read as sent, a wrong value is the default, and an older server that sends none is the defaults', async () => {
+  const jira = { projects: ['PROJ'], buildRepo: null, baseBranch: null }
+  reply(200, { ...VIEW, settings: { ...SETTINGS, atlassian: { enabled: true, jira: { ...jira, baseBranches: { 'Acme/Api': 'develop', 'acme/web': '--x', '../x': 'main', 'acme/db': 7 }, reviewMove: 'first', sessionLayout: 'split' } } } })
+  const good = await getSettings()
+  assert.ok(good.ok)
+  assert.deepEqual(good.view.settings.atlassian.jira.baseBranches, { 'acme/api': 'develop' })
+  assert.equal(good.view.settings.atlassian.jira.reviewMove, 'first')
+  assert.equal(good.view.settings.atlassian.jira.sessionLayout, 'split')
+  reply(200, { ...VIEW, settings: { ...SETTINGS, atlassian: { enabled: true, jira: { ...jira, baseBranches: ['main'], reviewMove: 'sometimes', sessionLayout: 3 } } } })
+  const wrong = await getSettings()
+  assert.ok(wrong.ok)
+  assert.deepEqual(wrong.view.settings.atlassian.jira, { ...jira, baseBranches: {}, reviewMove: 'all', sessionLayout: 'shared' })
+  reply(200, { ...VIEW, settings: { ...SETTINGS, atlassian: { enabled: true, jira } } })
+  const old = await getSettings()
+  assert.ok(old.ok)
+  assert.deepEqual(old.view.settings.atlassian.jira, { ...jira, baseBranches: {}, reviewMove: 'all', sessionLayout: 'shared' })
 })
 
 test('checkModule: a POST with the header, no body, the server’s status; a refusal is its words; a lost connection is an error', async () => {

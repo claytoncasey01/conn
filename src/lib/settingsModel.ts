@@ -233,11 +233,59 @@ export interface SlackSettings {
   dms: boolean
   draftChannel: string | null
 }
+/** When Open work moves the ticket to review: after the first PR opens, after every repository with changes has one, or never. */
+export type ReviewMove = 'first' | 'all' | 'never'
+/** How Open work lays out the sessions of a ticket across repositories: one shared session, or one per repository. */
+export type SessionLayout = 'shared' | 'split'
+
+export const REVIEW_MOVES: readonly { value: ReviewMove; label: string }[] = [
+  { value: 'first', label: 'After the first PR' },
+  { value: 'all', label: 'After every PR' },
+  { value: 'never', label: "Never, I'll do it myself" },
+]
+export const SESSION_LAYOUTS: readonly { value: SessionLayout; label: string }[] = [
+  { value: 'shared', label: 'One shared session' },
+  { value: 'split', label: 'One session per repository' },
+]
+
 export interface AtlassianSettings {
   enabled: boolean
-  /** `baseBranch`: the branch Open work starts from and opens PRs into; none is the repository's default branch. On the page's draft it is the text as typed. */
-  jira: { projects: string[]; buildRepo: string | null; baseBranch?: string | null }
+  jira: {
+    projects: string[]
+    /** The repository the picker starts on when the browser has no earlier choice; none is no default. */
+    buildRepo: string | null
+    /** The branch Open work starts from and opens PRs into, for every repository without its own; none is the repository's default branch. On the page's draft it is the text as typed. */
+    baseBranch?: string | null
+    /** A base branch per repository (lowercase `owner/repo`). On the page's draft the values are the text as typed, and empty is none. */
+    baseBranches: Record<string, string>
+    reviewMove: ReviewMove
+    sessionLayout: SessionLayout
+  }
 }
+
+/** Per-repository base branches as saved: each value parsed, an empty or unusable one left out, repositories lowercased and in name order. */
+function savedBranches(draft: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const repo of Object.keys(draft).sort()) {
+    const parsed = parseBaseBranch(draft[repo])
+    if (parsed.ok && parsed.branch) out[repo.toLowerCase()] = parsed.branch
+  }
+  return out
+}
+
+/** Why each repository's typed base branch is not a branch name (only the ones that are not), keyed by repository. */
+export function baseBranchProblems(draft: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [repo, text] of Object.entries(draft)) {
+    const parsed = parseBaseBranch(text)
+    if (!parsed.ok) out[repo] = parsed.reason
+  }
+  return out
+}
+
+/** The repositories that get a base branch input: the concrete allowed ones (as the default repository choice offers them) and any that already has a saved branch. */
+export const baseBranchRepos = (allow: readonly string[] | null, rows: readonly { repo: string }[], draft: Record<string, string>): string[] =>
+  buildRepoOptions(allow, [...rows, ...Object.keys(draft).map((repo) => ({ repo }))], null)
 
 /** The slack section a save sends: a draft channel that is no longer one of the channels is sent as none. */
 export const slackSection = (s: SlackSettings): SlackSettings => ({
@@ -247,16 +295,33 @@ export const slackSection = (s: SlackSettings): SlackSettings => ({
   draftChannel: s.draftChannel !== null && s.channels.includes(s.draftChannel) ? s.draftChannel : null,
 })
 
-/** The atlassian section a save sends: the base branch always goes (none clears it), as its stored form; a draft that is not a branch is sent as none (the page blocks that save). */
+/** The atlassian section a save sends: every key always goes (none clears the base branch, and the per-repository map replaces the saved one), as its stored form; a draft that is not a branch is sent as none (the page blocks that save). */
 export const atlassianSection = (a: AtlassianSettings): AtlassianSettings => {
   const base = parseBaseBranch(a.jira.baseBranch ?? '')
-  return { enabled: a.enabled, jira: { projects: [...a.jira.projects], buildRepo: a.jira.buildRepo, baseBranch: base.ok ? base.branch : null } }
+  return {
+    enabled: a.enabled,
+    jira: {
+      projects: [...a.jira.projects],
+      buildRepo: a.jira.buildRepo,
+      baseBranch: base.ok ? base.branch : null,
+      baseBranches: savedBranches(a.jira.baseBranches),
+      reviewMove: a.jira.reviewMove,
+      sessionLayout: a.jira.sessionLayout,
+    },
+  }
 }
 
 export const sameSlack = (a: SlackSettings, b: SlackSettings): boolean =>
   a.enabled === b.enabled && a.dms === b.dms && a.draftChannel === b.draftChannel && sameList(a.channels, b.channels)
+const sameBranches = (a: Record<string, string>, b: Record<string, string>): boolean => JSON.stringify(savedBranches(a)) === JSON.stringify(savedBranches(b))
 export const sameAtlassian = (a: AtlassianSettings, b: AtlassianSettings): boolean =>
-  a.enabled === b.enabled && a.jira.buildRepo === b.jira.buildRepo && (a.jira.baseBranch ?? null) === (b.jira.baseBranch ?? null) && sameList(a.jira.projects, b.jira.projects)
+  a.enabled === b.enabled &&
+  a.jira.buildRepo === b.jira.buildRepo &&
+  (a.jira.baseBranch ?? null) === (b.jira.baseBranch ?? null) &&
+  sameBranches(a.jira.baseBranches, b.jira.baseBranches) &&
+  a.jira.reviewMove === b.jira.reviewMove &&
+  a.jira.sessionLayout === b.jira.sessionLayout &&
+  sameList(a.jira.projects, b.jira.projects)
 
 /** The draft-channel choices: "the first channel" (stored as none) and each channel. With no channels there is nothing to choose and no draft. */
 export function draftChannelOptions(channels: readonly string[]): { value: string | null; label: string }[] {
@@ -369,7 +434,7 @@ export function wroteSlack(s: SlackSettings): string {
 
 export function wroteAtlassian(a: AtlassianSettings): string {
   const keys = a.jira.projects.length ? `${count(a.jira.projects.length, 'project', 'projects')} (${a.jira.projects.join(', ')})` : 'no projects'
-  return `Saved: Atlassian is ${onOff(a.enabled)}, ${keys}, ${a.jira.buildRepo ? `builds in ${a.jira.buildRepo}` : 'no build repo'}${a.jira.baseBranch ? ` from ${a.jira.baseBranch}` : ''}`
+  return `Saved: Atlassian is ${onOff(a.enabled)}, ${keys}${a.jira.buildRepo ? `, default repository ${a.jira.buildRepo}` : ''}${a.jira.baseBranch ? `, base branch ${a.jira.baseBranch}` : ''}`
 }
 
 export const wroteReviews = (r: { requested: boolean; allOpen: boolean }): string =>

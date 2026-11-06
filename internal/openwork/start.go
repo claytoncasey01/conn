@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	modelHaiku  = "haiku"
-	modelSonnet = "sonnet"
+	// reposNotNames refuses a START whose repos is not a list of repository names.
+	reposNotNames = "repos must be a list of repository names"
+	modelHaiku    = "haiku"
+	modelSonnet   = "sonnet"
 	// categoryNew is Jira's to-do status category; categoryInProgress its in-progress one.
 	categoryNew        = "new"
 	categoryInProgress = "indeterminate"
@@ -49,6 +51,9 @@ func isActive(state string) bool {
 // not one of the projects', a model that is not haiku or sonnet, a ticket that already has a
 // run, or one not in the list; a ticket that is someone else's or not to do asks to confirm.
 func (w *Work) Start(key string, body *js.Object) Reply {
+	// The places to build are read from disk before the lock is taken.
+	all := w.targetsNow(namesIn(body))
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -67,6 +72,11 @@ func (w *Work) Start(key string, body *js.Object) Reply {
 		return badRequest("model must be haiku or sonnet")
 	}
 
+	choice, refusal, refused := w.choiceOf(body)
+	if refused {
+		return refusal
+	}
+
 	had, found := w.runs.Get(key)
 	if found {
 		if isActive(had.State) {
@@ -82,7 +92,72 @@ func (w *Work) Start(key string, body *js.Object) Reply {
 		return conflict("the last stage of " + key + " is still ending: try again in a moment")
 	}
 
-	return w.startTicket(key, model, had, js.Truthy(field(body, "force")))
+	choice.all = all
+
+	return w.startTicket(key, model, had, js.Truthy(field(body, "force")), choice)
+}
+
+// choice is what a START chose: the repositories by name, in order (none: the default
+// repository), and the layout of their sessions; with the places a run may build now, which
+// the choice is checked against.
+type choice struct {
+	repos  []string
+	layout string
+	all    []Target
+}
+
+// namesIn are the repository names a START's body lists, its other entries left out; choiceOf
+// refuses a body whose repos is not a list of names.
+func namesIn(body *js.Object) []string {
+	list, _ := field(body, "repos").([]any)
+	names := make([]string, 0, len(list))
+
+	for _, item := range list {
+		if name, isText := item.(string); isText {
+			names = append(names, name)
+		}
+	}
+
+	return names
+}
+
+// choiceOf is the choice a START's body makes, or a refusal of a body that is not one: repos
+// that is not a list of names, or a layout that is neither shared nor split. An absent layout is
+// the one Settings starts the picker on.
+func (w *Work) choiceOf(body *js.Object) (choice, Reply, bool) {
+	chosen := []string{}
+
+	if value := field(body, "repos"); value != nil {
+		list, isList := value.([]any)
+		if !isList {
+			return choice{}, badRequest(reposNotNames), true
+		}
+
+		for _, item := range list {
+			name, isText := item.(string)
+			if !isText {
+				return choice{}, badRequest(reposNotNames), true
+			}
+
+			chosen = append(chosen, name)
+		}
+	}
+
+	layout := layoutShared
+	if w.settings().Atlassian.Jira.SessionLayout == layoutSplit {
+		layout = layoutSplit
+	}
+
+	if value, present := body.Get("layout"); present {
+		switch value {
+		case layoutShared, layoutSplit:
+			layout, _ = value.(string)
+		default:
+			return choice{}, badRequest("layout must be shared or split"), true
+		}
+	}
+
+	return choice{repos: chosen, layout: layout, all: nil}, Reply{}, false
 }
 
 func modelOf(value any) string {
@@ -120,7 +195,7 @@ func confirm(message, what string) Reply {
 	return reply
 }
 
-func (w *Work) startTicket(key, model string, had *Record, force bool) Reply {
+func (w *Work) startTicket(key, model string, had *Record, force bool, chose choice) Reply {
 	ticket := w.ticket(key)
 	if ticket == nil {
 		return notFound(key + " is not in the current sprint list")
@@ -132,50 +207,132 @@ func (w *Work) startTicket(key, model string, had *Record, force bool) Reply {
 		}
 	}
 
-	target := w.target()
-	if target.Clone == "" {
-		return conflict(reasonOr(target.Reason))
+	targets, problems := w.chooseTargets(chose.repos, chose.all)
+	if len(problems) > 0 {
+		return conflict(strings.Join(problems, " "))
 	}
 
-	if target.Base == "" {
-		return conflict(reasonOr(target.Reason))
+	if moved := w.baseMoved(key, had, targets); len(moved) > 0 {
+		return conflict(strings.Join(moved, " "))
 	}
 
-	if refusal, refused := w.baseMoved(key, had, target); refused {
-		return refusal
-	}
-
-	record := w.newRecord(key, model, ticket, target)
+	record := w.newRecord(key, model, ticket, targets, chose.layout)
 	w.runs.Set(key, record)
-	w.log(record, logStatus, "Run started for "+key+": branch from "+target.Base+
-		", research on "+strings.ToUpper(model))
+	w.log(record, logStatus, startedLine(record)+w.leftAsItWas(had, targets))
 	w.pipeline(record)
 
 	return ok()
 }
 
-// baseMoved refuses a new run over an old one whose branch was cut from another base than runs
-// start from now.
-func (w *Work) baseMoved(key string, had *Record, target Target) (Reply, bool) {
+// startedLine is the log line a run starts with: the branch's base and the research model, and
+// with several repositories, each with its base.
+func startedLine(record *Record) string {
+	research := ", research on " + strings.ToUpper(record.Model)
+	if len(record.Repos) == 1 {
+		return "Run started for " + record.Key + ": branch from " + record.lead().Base + research
+	}
+
+	where := make([]string, 0, len(record.Repos))
+	for _, leg := range record.Repos {
+		where = append(where, leg.Repo+" from "+leg.Base)
+	}
+
+	return "Run started for " + record.Key + " in " + strings.Join(where, ", ") + research
+}
+
+// leftAsItWas names the worktrees of the run a START replaces that the new run does not build
+// in: they stay on disk as they are, for the person to keep or remove.
+func (w *Work) leftAsItWas(had *Record, targets []Target) string {
+	if had == nil {
+		return ""
+	}
+
+	var said strings.Builder
+
+	for _, leg := range had.Repos {
+		if !leg.WorktreeReady {
+			continue
+		}
+
+		if _, shared := w.sharedTarget(had, leg, targets); shared {
+			continue
+		}
+
+		said.WriteString(". " + leg.Worktree + " of the last run is left as it was")
+	}
+
+	if said.Len() == 0 {
+		return ""
+	}
+
+	return said.String() + "."
+}
+
+// sharedTarget is the target of a new run that builds where an old run's leg did: the same
+// repository in any case, or the same worktree. The one leg of a run from before Settings whose
+// repository nothing says (no record of it, no worktree to ask) built in the default
+// repository: the new run's first.
+func (w *Work) sharedTarget(had *Record, leg *Leg, targets []Target) (Target, bool) {
+	repo := w.repoOf(leg)
+	if repo == "" {
+		if len(had.Repos) == 1 {
+			return targets[0], true
+		}
+	}
+
+	for _, target := range targets {
+		if js.Lower(target.Repo) == js.Lower(repo) {
+			return target, true
+		}
+
+		if siblingOf(target.Clone, js.Lower(had.Key)) == leg.Worktree {
+			return target, true
+		}
+	}
+
+	return Target{}, false
+}
+
+// baseMoved refuses a new run over an old one, for each repository they share, whose branch was
+// cut from another base than runs start from there now. With several repositories each sentence
+// names its repository.
+func (w *Work) baseMoved(key string, had *Record, targets []Target) []string {
 	if w.deps.Dry {
-		return Reply{}, false
+		return nil
 	}
 
 	if had == nil {
-		return Reply{}, false
+		return nil
 	}
 
-	if !had.WorktreeReady {
-		return Reply{}, false
+	several := max(len(had.Repos), len(targets)) > 1
+	moved := []string{}
+
+	for _, leg := range had.Repos {
+		if !leg.WorktreeReady {
+			continue
+		}
+
+		target, shared := w.sharedTarget(had, leg, targets)
+		if !shared {
+			continue
+		}
+
+		if leg.Base == target.Base {
+			continue
+		}
+
+		where := ""
+		if several {
+			where = " in " + target.Repo
+		}
+
+		moved = append(moved, key+" already has "+leg.Branch+" cut from "+leg.Base+where+
+			", and runs start from "+target.Base+" now. Remove "+leg.Worktree+" and the "+
+			"branch first.")
 	}
 
-	if had.Base == target.Base {
-		return Reply{}, false
-	}
-
-	return conflict(key + " already has " + had.Branch + " cut from " + had.Base + ", and runs " +
-		"start from " + target.Base + " now. Remove " + had.Worktree + " and the branch " +
-		"first."), true
+	return moved
 }
 
 // unconfirmed asks to confirm a ticket assigned to someone else, or not in a to-do status.
@@ -211,7 +368,9 @@ func text(ticket *js.Object, key string) string {
 	return value
 }
 
-func (w *Work) newRecord(key, model string, ticket *js.Object, target Target) *Record {
+func (w *Work) newRecord(key, model string, ticket *js.Object, targets []Target,
+	layout string,
+) *Record {
 	now := w.now()
 	title := text(ticket, "title")
 
@@ -221,21 +380,33 @@ func (w *Work) newRecord(key, model string, ticket *js.Object, target Target) *R
 	}
 
 	category := text(ticket, "statusCategory")
-	repo, clone := target.Repo, target.Clone
 	lower := strings.ToLower(key)
 
 	// Runs start from the branch Settings names (else the clone's default branch) and the PR
-	// goes back into it. The worktree is a sibling of the clone, named for the clone and the
-	// ticket; the run records it, and cleanup removes the path the run recorded.
+	// goes back into it. Each worktree is a sibling of its clone, named for the clone and the
+	// ticket; the run records it, and cleanup removes the path the run recorded. Every leg's
+	// branch has the same name.
+	legs := make([]*Leg, 0, len(targets))
+	for _, target := range targets {
+		legs = append(legs, &Leg{
+			Repo: target.Repo, Clone: target.Clone, Base: target.Base, PRBase: target.Base,
+			Branch: lower + "-" + slug, Worktree: siblingOf(target.Clone, lower),
+			WorktreeReady: false, Session: nil, ClaudeSessionID: nil, ManualCommand: nil,
+			Ahead: 0, Dirty: 0, PR: nil, Cleaned: nil,
+		})
+	}
+
+	// One repository has one session whatever was asked.
+	if len(legs) == 1 {
+		layout = layoutShared
+	}
+
 	return &Record{
-		Key: key, Title: title, Base: target.Base, PRBase: target.Base, Model: model,
-		Branch: lower + "-" + slug, Worktree: siblingOf(clone, lower), State: stateStarting,
-		Stage: stageResearch, StartedAt: now, UpdatedAt: now,
-		JiraStatus: text(ticket, "status"), Agents: newAgents(), Answered: []Answered{},
-		Questions: []*Question{}, Log: []LogLine{}, Session: nil, PR: nil, Error: nil,
-		ManualCommand: nil, Brief: "", Desc: text(ticket, "desc"), WorktreeReady: false,
-		TicketStatus: text(ticket, "status"), TicketCategory: &category, Repo: &repo,
-		Clone: &clone, ClaudeSessionID: nil, Cleaned: nil,
+		Key: key, Title: title, Model: model, State: stateStarting, Stage: stageResearch,
+		StartedAt: now, UpdatedAt: now, JiraStatus: text(ticket, "status"),
+		Agents: newAgents(), Answered: []Answered{}, Questions: []*Question{}, Log: []LogLine{},
+		Error: nil, Brief: "", Desc: text(ticket, "desc"), TicketStatus: text(ticket, "status"),
+		TicketCategory: &category, Repos: legs, Layout: layout,
 	}
 }
 
@@ -243,7 +414,7 @@ func siblingOf(clone, lowerKey string) string {
 	return joinPath(dirOf(clone), baseOf(clone)+"-"+lowerKey)
 }
 
-// pipeline makes the worktree, moves the ticket into progress and researches it.
+// pipeline makes the worktrees, moves the ticket into progress and researches it.
 func (w *Work) pipeline(record *Record) {
 	w.running[record.Key] = true
 
@@ -276,7 +447,7 @@ func (w *Work) pipelineRefusal(record *Record) error {
 		return nil
 	}
 
-	if problem := w.buildProblem(record); problem != "" {
+	if problem := w.runProblem(record); problem != "" {
 		return textError(problem)
 	}
 
@@ -295,15 +466,9 @@ func (w *Work) runPipeline(step *task, record *Record) error {
 		return nil
 	}
 
-	if !record.WorktreeReady {
-		err = w.makeWorktree(step, record)
-		if err != nil {
-			return err
-		}
-
-		if !live(record) {
-			return nil
-		}
+	made, err := w.makeWorktrees(step, record)
+	if !made {
+		return err
 	}
 
 	// Atlassian can be turned off while a git call is out: the move and the research each
@@ -322,21 +487,48 @@ func (w *Work) runPipeline(step *task, record *Record) error {
 	return w.research(step, record)
 }
 
-func (w *Work) makeWorktree(step *task, record *Record) error {
+// makeWorktrees makes the worktree of every leg that has none yet, in order, so a Retry resumes
+// where the last try stopped and the worktrees already made stay. False when the pipeline stops
+// here: a leg failed (its error, naming the repository when the run has several) or the run
+// ended meanwhile (nil).
+func (w *Work) makeWorktrees(step *task, record *Record) (bool, error) {
+	for _, leg := range record.Repos {
+		if leg.WorktreeReady {
+			continue
+		}
+
+		err := w.makeWorktree(step, record, leg)
+		if err != nil {
+			if len(record.Repos) == 1 {
+				return false, err
+			}
+
+			return false, textError(leg.Repo + ": " + err.Error())
+		}
+
+		if !live(record) {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+func (w *Work) makeWorktree(step *task, record *Record, leg *Leg) error {
 	// The branch it starts from is read from a record on disk: only a name git can take as one
 	// argument.
-	from, valid := settings.ParseBranch(record.Base)
+	from, valid := settings.ParseBranch(leg.Base)
 	if !valid {
-		return textError(record.Base + " is not a branch name")
+		return textError(leg.Base + " is not a branch name")
 	}
 
 	// The clone is looked up again, never taken from the record: a repository that has left
 	// the allowlist is not fetched, and a changed setting is followed.
-	if problem := w.buildProblem(record); problem != "" {
+	clone, problem := w.cloneOf(leg)
+	if problem != "" {
 		return textError(problem)
 	}
 
-	clone := w.target().Clone
 	w.log(record, logBranch, "Fetching origin/"+from)
 
 	var err error
@@ -347,60 +539,61 @@ func (w *Work) makeWorktree(step *task, record *Record) error {
 		return err
 	}
 
-	if exists(record.Worktree) {
-		err = w.reuseWorktree(step, record)
+	if exists(leg.Worktree) {
+		err = w.reuseWorktree(step, record, leg)
 	} else {
-		err = w.addWorktree(step, record, clone, from)
+		err = w.addWorktree(step, record, leg, clone, from)
 	}
 
 	if err != nil {
 		return err
 	}
 
-	record.WorktreeReady = true
+	leg.WorktreeReady = true
+
 	w.touch(record)
 
 	return nil
 }
 
-func (w *Work) reuseWorktree(step *task, record *Record) error {
+func (w *Work) reuseWorktree(step *task, record *Record, leg *Leg) error {
 	head := ""
 
 	step.outside(func() {
-		out, err := w.sh("git", []string{argRevParse, "--abbrev-ref", "HEAD"}, record.Worktree, 0)
+		out, err := w.sh("git", []string{argRevParse, "--abbrev-ref", "HEAD"}, leg.Worktree, 0)
 		if err == nil {
 			head = js.Trim(out)
 		}
 	})
 
-	if head != record.Branch {
+	if head != leg.Branch {
 		on := head
 		if on == "" {
 			on = "another checkout"
 		}
 
-		return textError(record.Worktree + " already exists on " + on + ", not " + record.Branch)
+		return textError(leg.Worktree + " already exists on " + on + ", not " + leg.Branch)
 	}
 
-	w.log(record, logBranch, "Reusing "+record.Worktree)
+	w.log(record, logBranch, "Reusing "+leg.Worktree)
 
 	return nil
 }
 
-func (w *Work) addWorktree(step *task, record *Record, clone, from string) error {
+func (w *Work) addWorktree(step *task, record *Record, leg *Leg, clone, from string) error {
 	branchExists := false
 
 	step.outside(func() {
 		_, err := w.sh("git", []string{
 			argRevParse, "--verify", "--quiet",
-			"refs/heads/" + record.Branch,
+			"refs/heads/" + leg.Branch,
 		}, clone, 0)
 		branchExists = err == nil
 	})
 
-	args := []string{argWorktree, "add", "-b", record.Branch, record.Worktree, "origin/" + from}
+	args := []string{argWorktree, "add", "-b", leg.Branch, leg.Worktree, "origin/" + from}
 	if branchExists {
-		args = []string{argWorktree, "add", record.Worktree, record.Branch}
+		args = []string{argWorktree, "add", leg.Worktree, leg.Branch}
 	}
 
 	var err error
@@ -411,8 +604,8 @@ func (w *Work) addWorktree(step *task, record *Record, clone, from string) error
 		return err
 	}
 
-	w.log(record, logBranch, "Branch "+record.Branch+" created from origin/"+from+" in "+
-		record.Worktree)
+	w.log(record, logBranch, "Branch "+leg.Branch+" created from origin/"+from+" in "+
+		leg.Worktree)
 
 	return nil
 }
@@ -461,6 +654,15 @@ func (w *Work) moveJira(step *task, record *Record, move jira.Move) {
 	w.moved(record, move, moved)
 }
 
+// reviewMove is whether a move is the one to the ticket's review status.
+func reviewMove(move jira.Move) bool {
+	if move.Named() {
+		return false
+	}
+
+	return !move.Started()
+}
+
 func (w *Work) moved(record *Record, move jira.Move, moved jira.Moved) {
 	record.JiraStatus = moved.To
 	record.TicketStatus = moved.To
@@ -473,6 +675,12 @@ func (w *Work) moved(record *Record, move jira.Move, moved jira.Moved) {
 	record.TicketCategory = &category
 	w.record(moduleAtlassian, true, "Open work moved a Jira ticket")
 
+	// Jira answered the review move (moved, already there, or no single review status): it is
+	// made, and no later PR asks again.
+	if reviewMove(move) {
+		record.ReviewMoved = true
+	}
+
 	if moved.Moved {
 		w.log(record, logStatus, "Jira "+record.Key+" is now "+record.JiraStatus)
 
@@ -480,11 +688,8 @@ func (w *Work) moved(record *Record, move jira.Move, moved jira.Moved) {
 	}
 
 	why := "it is already there"
-
-	if !move.Named() {
-		if !move.Started() {
-			why = "the workflow has no single review status"
-		}
+	if reviewMove(move) {
+		why = "the workflow has no single review status"
 	}
 
 	w.log(record, logStatus, "Jira "+record.Key+" was not moved: "+why+", so it stays "+
@@ -530,7 +735,7 @@ func (w *Work) Cancel(key string) Reply {
 		return conflict(key + " is " + record.State)
 	}
 
-	if w.busyPR[key] {
+	if w.runBusy(record) {
 		return conflict("a pull request is being opened, wait for it to finish")
 	}
 

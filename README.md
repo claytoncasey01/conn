@@ -11,7 +11,7 @@ Conn runs on your machine and listens on 127.0.0.1 only. It reads the files Clau
 - Keeps a searchable archive of finished sessions, each with a short summary. See [history](docs/history.md).
 - Lists your open pull requests with their unresolved review threads. One click starts a Claude Code session, in its own git worktree, that fixes what is open. See [my PRs](docs/my-prs.md).
 - Lists the pull requests that ask for your review, from GitHub and optionally Slack. One click starts a review session in a worktree. See [reviews](docs/reviews.md).
-- Lists the Jira tickets in your current sprint. Conn researches a ticket, asks you what it cannot settle, starts a build session, and opens the PR when you confirm. See [open work](docs/open-work.md).
+- Lists the Jira tickets in your current sprint. You choose the repository, or several, for each ticket when you start it. Conn researches the ticket, asks you what it cannot settle, starts a build session (one across the repositories, or one in each), and opens a PR in each repository when you confirm. See [open work](docs/open-work.md).
 - Ships four built-in themes and a gallery. A theme is a JSON file. See [using themes](docs/using-themes.md) and [writing a theme](docs/themes.md).
 
 Choosing a repository is the only setup. My PRs and Reviews then work through `gh`. The Slack scans and Open work stay off until you turn on the Slack and Atlassian modules in Settings.

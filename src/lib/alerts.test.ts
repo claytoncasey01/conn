@@ -4,7 +4,7 @@ import { attention, diffAlerts, newSeen, oneLine } from './alerts.ts'
 import type { MyPrDraft, MyPrRow, Snapshot } from './types.ts'
 
 const sess = (id: string, status: string) => ({ id, name: 'n' + id, status, waitingFor: status === 'waiting' ? 'permission prompt' : null, activity: 'did a thing' })
-const run = (key: string, state: string, extra = {}) => ({ key, state, questions: [{ answer: null }, { answer: 'x' }], error: 'boom', ...extra })
+const run = (key: string, state: string, extra = {}) => ({ key, state, questions: [{ answer: null }, { answer: 'x' }], error: 'boom', repos: [{}], ...extra })
 const snap = (sessions: object[], runs: object[] = []) => ({ at: 0, sessions, runs }) as unknown as Snapshot
 
 test('the first snapshot only seeds, and an unchanged one raises nothing', () => {
@@ -27,11 +27,52 @@ test('busy to waiting alerts, waiting or busy to idle alerts, a new idle session
 
 test('an open PR going red, green, merged or closed alerts once', () => {
   const seen = newSeen()
-  const pr = (state: string, checks: string) => run('PROJ-5', 'pr_open', { pr: { number: 9, status: { state, checks: { state: checks, failed: ['Backend tests'] } } } })
+  const pr = (state: string, checks: string) => run('PROJ-5', 'pr_open', { repos: [{ pr: { number: 9, status: { state, checks: { state: checks, failed: ['Backend tests'] } } } }] })
   diffAlerts(seen, snap([], [pr('open', 'pending')]))
   assert.deepEqual(diffAlerts(seen, snap([], [pr('open', 'failing')])).map(x => x.title), ['PROJ-5 checks failed'])
   assert.equal(diffAlerts(seen, snap([], [pr('open', 'failing')])).length, 0)
   assert.deepEqual(diffAlerts(seen, snap([], [pr('merged', 'passing')])).map(x => x.title), ['PROJ-5 PR merged'])
+})
+
+test('a one-repository PR alert keeps its exact title, body, tag and link', () => {
+  const seen = newSeen()
+  const pr = (state: string, checks: string) => run('PROJ-5', 'pr_open', { repos: [{ repo: 'acme/widgets', pr: { number: 9, status: { state, checks: { state: checks, failed: [] } } } }] })
+  diffAlerts(seen, snap([], [pr('open', 'pending')]))
+  assert.deepEqual(diffAlerts(seen, snap([], [pr('open', 'failing')])), [{ tag: 'pPROJ-5', title: 'PROJ-5 checks failed', body: 'PR #9', href: '#/work/PROJ-5' }])
+  assert.deepEqual([...seen.checks.keys()], ['PROJ-5'])
+})
+
+// Two legs: each leg's PR is its own alert, keyed by ticket and repository.
+const leg = (repo: string, number: number, state: string, checks: string) => ({ repo, pr: { number, status: { state, checks: { state: checks, failed: [`${repo} tests`] } } } })
+const twoLegs = (a: [string, string], b: [string, string]) => run('PROJ-7', 'pr_open', { repos: [leg('acme/widgets', 1, ...a), leg('acme/gadgets', 2, ...b)] })
+
+test('with two repositories each leg\'s PR alerts on its own transitions', () => {
+  const rows: { name: string; from: [[string, string], [string, string]]; to: [[string, string], [string, string]]; want: { tag: string; title: string; body: string }[] }[] = [
+    { name: 'first leg goes red', from: [['open', 'pending'], ['open', 'pending']], to: [['open', 'failing'], ['open', 'pending']], want: [{ tag: 'pPROJ-7 acme/widgets', title: 'PROJ-7 acme/widgets checks failed', body: 'acme/widgets tests' }] },
+    { name: 'second leg goes red while the first is green', from: [['open', 'passing'], ['open', 'pending']], to: [['open', 'passing'], ['open', 'failing']], want: [{ tag: 'pPROJ-7 acme/gadgets', title: 'PROJ-7 acme/gadgets checks failed', body: 'acme/gadgets tests' }] },
+    { name: 'second leg goes green', from: [['open', 'passing'], ['open', 'pending']], to: [['open', 'passing'], ['open', 'passing']], want: [{ tag: 'pPROJ-7 acme/gadgets', title: 'PROJ-7 acme/gadgets checks passed', body: 'PR #2' }] },
+    { name: 'first leg merges', from: [['open', 'passing'], ['open', 'passing']], to: [['merged', 'passing'], ['open', 'passing']], want: [{ tag: 'pPROJ-7 acme/widgets', title: 'PROJ-7 acme/widgets PR merged', body: 'PR #1' }] },
+    { name: 'second leg closes', from: [['merged', 'passing'], ['open', 'passing']], to: [['merged', 'passing'], ['closed', 'passing']], want: [{ tag: 'pPROJ-7 acme/gadgets', title: 'PROJ-7 acme/gadgets PR closed', body: 'PR #2' }] },
+    { name: 'both go red at once', from: [['open', 'pending'], ['open', 'pending']], to: [['open', 'failing'], ['open', 'failing']], want: [{ tag: 'pPROJ-7 acme/widgets', title: 'PROJ-7 acme/widgets checks failed', body: 'acme/widgets tests' }, { tag: 'pPROJ-7 acme/gadgets', title: 'PROJ-7 acme/gadgets checks failed', body: 'acme/gadgets tests' }] },
+    { name: 'nothing changes', from: [['open', 'failing'], ['open', 'passing']], to: [['open', 'failing'], ['open', 'passing']], want: [] },
+  ]
+  for (const row of rows) {
+    const seen = newSeen()
+    diffAlerts(seen, snap([], [twoLegs(...row.from)]))
+    const got = diffAlerts(seen, snap([], [twoLegs(...row.to)]))
+    assert.deepEqual(got.map(a => ({ tag: a.tag, title: a.title, body: a.body })), row.want, row.name)
+    for (const a of got) assert.equal(a.href, '#/work/PROJ-7', `${row.name}: link`)
+    assert.equal(diffAlerts(seen, snap([], [twoLegs(...row.to)])).length, 0, `${row.name}: alerts once`)
+  }
+})
+
+test('two legs keep their own seen keys, apart from each other and from a one-repository run', () => {
+  const seen = newSeen()
+  diffAlerts(seen, snap([], [twoLegs(['open', 'failing'], ['open', 'passing']), run('PROJ-7X', 'pr_open', { repos: [leg('acme/widgets', 3, 'open', 'failing')] })]))
+  assert.deepEqual([...seen.checks.entries()].sort(), [['PROJ-7 acme/gadgets', 'passing'], ['PROJ-7 acme/widgets', 'failing'], ['PROJ-7X', 'failing']])
+  // the first leg going green does not re-fire or hide the second's state
+  const a = diffAlerts(seen, snap([], [twoLegs(['open', 'passing'], ['open', 'passing']), run('PROJ-7X', 'pr_open', { repos: [leg('acme/widgets', 3, 'open', 'failing')] })]))
+  assert.deepEqual(a.map(x => x.tag), ['pPROJ-7 acme/widgets'])
 })
 
 test('the tab count is sessions on a prompt plus runs with questions', () => {

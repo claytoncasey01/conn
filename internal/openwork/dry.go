@@ -42,13 +42,15 @@ func (w *Work) dryPipeline(step *task, record *Record) {
 		return live(record)
 	}
 
-	if !wait(dryBranchMs) {
-		return
-	}
+	for _, leg := range record.Repos {
+		if !wait(dryBranchMs) {
+			return
+		}
 
-	w.log(record, logBranch, "Branch "+record.Branch+" created from origin/"+record.Base+
-		" (dry run)")
-	record.WorktreeReady = true
+		w.log(record, logBranch, "Branch "+leg.Branch+" created from origin/"+leg.Base+
+			" (dry run)")
+		leg.WorktreeReady = true
+	}
 
 	if !wait(dryMoveMs) {
 		return
@@ -123,14 +125,15 @@ func (w *Work) dryAsk(record *Record) {
 	w.log(record, logAsk, "2 questions need you")
 }
 
-// dryStatus is the dry run's PR: pending, then green (or red on odd tickets until FIX CHECKS is
-// pressed), approved, merged.
-func (w *Work) dryStatus(record *Record) prstatus.Status {
-	poll := w.dryPolls[record.Key]
-	w.dryPolls[record.Key] = poll + 1
+// dryStatus is a leg's dry PR: pending, then green (or red on odd tickets until FIX CHECKS is
+// pressed), approved, merged. Each leg walks it on its own.
+func (w *Work) dryStatus(record *Record, leg *Leg) prstatus.Status {
+	polled := legKey(record.Key, leg.Repo)
+	poll := w.dryPolls[polled]
+	w.dryPolls[polled] = poll + 1
 
 	failing := int(ticketNumber(record.Key))%dryOddTickets == 1
-	if w.dryFixed[record.Key] {
+	if w.dryFixed[polled] {
 		failing = false
 	}
 

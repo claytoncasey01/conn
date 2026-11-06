@@ -3,7 +3,6 @@ package openwork_test
 import (
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -91,11 +90,9 @@ func section(t *testing.T, base, name string) []any {
 func recordOf(t *testing.T, value any) *openwork.Record {
 	t.Helper()
 
-	record := &openwork.Record{}
-
-	err := json.Unmarshal([]byte(js.Stringify(value)), record)
-	if err != nil {
-		t.Fatal(err)
+	record, ok := openwork.DecodeRecord([]byte(js.Stringify(value)))
+	if !ok {
+		t.Fatalf("not a run: %s", js.Stringify(value))
 	}
 
 	return record
@@ -137,7 +134,7 @@ func TestBuildTargetsMatchTheRecordedAnswers(t *testing.T) {
 			current.Repos.Allow = append(current.Repos.Allow, text(pattern))
 		}
 
-		target := openwork.BuildTarget(current,
+		all := openwork.BuildTargets(current, nil,
 			func(repo string, _ settings.Settings) (string, bool) {
 				if get(item, "found") != true {
 					return "", false
@@ -155,11 +152,22 @@ func TestBuildTargetsMatchTheRecordedAnswers(t *testing.T) {
 				return branch, known
 			})
 
+		// No choice: the default repository is the one a START builds in.
+		chosen, problems := openwork.ChooseTargets(all, nil, current.Atlassian.Jira.BuildRepo)
+
+		targets := make([]any, 0, len(chosen))
+
+		for _, target := range chosen {
+			got := js.NewObject()
+			got.Set("repo", target.Repo)
+			got.Set("clone", target.Clone)
+			got.Set("base", target.Base)
+			targets = append(targets, got)
+		}
+
 		got := js.NewObject()
-		got.Set("repo", nilOr(target.Repo, target.Repo != ""))
-		got.Set("clone", nilOr(target.Clone, target.Clone != ""))
-		got.Set("base", nilOr(target.Base, target.Base != ""))
-		got.Set("reason", nilOr(target.Reason, target.Reason != ""))
+		got.Set("targets", targets)
+		got.Set("problems", problems)
 		same(t, strconv.Itoa(index), got, get(item, "out"))
 	}
 }
@@ -253,7 +261,7 @@ func TestReaderPromptsAndBriefsMatchTheRecordedAnswers(t *testing.T) {
 	}
 
 	for index, item := range section(t, "", "brief") {
-		same(t, strconv.Itoa(index), openwork.BriefText(recordOf(t, get(item, "record"))),
+		same(t, strconv.Itoa(index), openwork.BriefText(recordOf(t, get(item, "record")), nil),
 			get(item, "out"))
 	}
 }

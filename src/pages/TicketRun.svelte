@@ -7,7 +7,8 @@
   import Brand from '../lib/Brand.svelte'
   import Nav from '../lib/Nav.svelte'
   import ConfirmAction from '../lib/ConfirmAction.svelte'
-  import type { PrStatus, RunAgent, RunLog, RunState, SourceName } from '../lib/types.ts'
+  import { canOpenAll, legAfterMerge, legCanClean, legChecksFailing, legKeptForOthers, legNeedsPr, legPrWarning, legResumable, legSessionLive, legsToOpen, legWorker, prProgress, runMerged, workSummary } from '../lib/runLegs.ts'
+  import type { PrStatus, Run, RunAgent, RunLog, RunRepo, RunState, SourceName } from '../lib/types.ts'
 
   let { key }: { key: string } = $props()
 
@@ -15,15 +16,20 @@
   const skip = () => Date.now() - born < 800
 
   const run = $derived(live.snap?.runs.find(r => r.key === key))
+  /** The run's first repository: the one its session works in. */
+  const lead = $derived(run?.repos[0])
+  /** A run of one repository: the page shows it as it always has. With more, each repository is a row of its own. */
+  const single = $derived(!!run && run.repos.length === 1)
+  const sessions = $derived(live.snap?.sessions ?? [])
 
   const ACTIVE: RunState[] = ['starting', 'researching', 'asking', 'building']
   const active = $derived(!!run && ACTIVE.includes(run.state))
   const dead = $derived(run?.state === 'failed' || run?.state === 'interrupted' || run?.state === 'cancelled')
-  const sessionId = $derived(run?.session?.sessionId ?? null)
-  /** A session is running for this run, found the way the server finds it (by name or folder): run.session stops following a run once its PR is open. */
-  const sessionLive = $derived(!!run && (live.snap?.sessions ?? []).some(x => x.name === run.key || x.cwd === run.worktree))
+  const sessionId = $derived(lead?.session?.sessionId ?? null)
+  /** A session is running for this run, found the way the server finds it (by name or folder, any repository's): a leg's session stops following a run once its PR is open. */
+  const sessionLive = $derived(!!run && (live.snap?.sessions ?? []).some(x => x.name === run.key || run.repos.some(leg => x.cwd === leg.worktree)))
   /** While the first session is still opening it is not in the registry yet; offering RESUME then would start a second one. */
-  const resumable = $derived(!!run && (run.state === 'pr_open' || (run.state === 'building' && !!run.claudeSessionId)) && !run.cleaned && !sessionLive)
+  const resumable = $derived(!!run && !!lead && (run.state === 'pr_open' || (run.state === 'building' && !!lead.claudeSessionId)) && !lead.cleaned && !sessionLive)
 
   // ---- Jira: the status the ticket is in now. conn does not know the workflow's names: a run moves a to-do ticket into an in-progress status, and the PR into its review status when there is one ----
   const jira = $derived(run ? [{ label: run.jiraStatus.toUpperCase(), after: 'moves to an in-progress status when the run starts, and to its review status when the PR opens', st: 'now' }] : [])
@@ -34,7 +40,7 @@
   }
 
   // ---- the open pull request ----
-  const pr = $derived(run?.pr?.status ?? null)
+  const pr = $derived(lead?.pr?.status ?? null)
   const prSummary = (p: PrStatus) =>
     p.state === 'merged' || p.state === 'closed'
       ? p.state === 'merged' ? 'merged' : 'closed without merging'
@@ -49,6 +55,17 @@
   let jiraTarget = $state<string | null>(null)
   const jiraValue = $derived((jiraTarget ?? '').trim())
   const prDone = $derived(pr?.state === 'merged' || pr?.state === 'closed')
+  /** Every PR merged or closed, at least one merged: the ticket may move on. */
+  const mergedAll = $derived(!!run && runMerged(run))
+  /** A leg's row is drawn in its PR's colour: merged, red, open, or none yet. */
+  const legRim = (leg: RunRepo) =>
+    leg.pr?.status?.state === 'merged'
+      ? 'color-mix(in oklch, var(--role-advisor) 45%, transparent)'
+      : leg.pr?.status?.checks.state === 'failing'
+        ? 'color-mix(in oklch, var(--bad) 45%, transparent)'
+        : leg.pr
+          ? 'color-mix(in oklch, var(--ok) 30%, transparent)'
+          : 'color-mix(in oklch, var(--edge) 16%, transparent)'
 
   // ---- stages ----
   const K = {
@@ -65,11 +82,11 @@
   const agentsDone = $derived(run ? run.agents.filter(a => a.state === 'done').length : 0)
 
   const stages = $derived.by(() => {
-    if (!run) return []
+    if (!run || !lead) return []
     const at = STAGES.indexOf(run.stage)
     const deadLabel = run.state.toUpperCase()
     const mk = (i: number, name: string, kind: keyof typeof K, state: string, note: string) => ({ i, name, state, note, ...K[kind] })
-    const ses = run.session
+    const ses = lead.session
     const out = []
 
     out.push(
@@ -89,7 +106,7 @@
             ? mk(1, '2 ASK', 'dead', deadLabel, `${answered}${open} left for you`)
             : mk(1, '2 ASK', 'todo', 'QUEUED', 'only what the sources could not answer')
     )
-    const work = ses ? `${ses.commitsAhead} commits · ${ses.dirty} changed files` : ''
+    const work = run.repos.some(leg => leg.session) ? workSummary(run) : ''
     out.push(
       at > 2
         ? mk(2, '3 BUILD', 'done', 'DONE', work || 'session finished')
@@ -99,9 +116,12 @@
             : mk(2, '3 BUILD', 'build', 'RUNNING', ses ? `session ${run.key} is ${ses.status === 'waiting' ? 'waiting for you' : ses.status === 'busy' ? 'busy' : 'idle'} · ${work}` : 'opening the session')
           : mk(2, '3 BUILD', 'todo', 'QUEUED', 'starts the moment you answer')
     )
+    const prs = prProgress(run)
     out.push(
-      run.state === 'pr_open'
-        ? mk(3, '4 PR', 'done', pr ? pr.state.toUpperCase() : 'OPEN', run.pr ? `PR #${run.pr.number}${pr ? ` · ${prSummary(pr)}` : ''}` : 'PR open')
+      run.state === 'pr_open' && !single
+        ? mk(3, '4 PR', 'done', mergedAll ? 'MERGED' : 'OPEN', `${prs.opened} of ${prs.wanted} PRs opened${prs.merged ? ` · ${prs.merged} merged` : ''}`)
+        : run.state === 'pr_open'
+        ? mk(3, '4 PR', 'done', pr ? pr.state.toUpperCase() : 'OPEN', lead.pr ? `PR #${lead.pr.number}${pr ? ` · ${prSummary(pr)}` : ''}` : 'PR open')
         : at === 3 && dead
           ? mk(3, '4 PR', 'dead', deadLabel, run.error ?? '')
           : mk(3, '4 PR', 'todo', 'QUEUED', 'Jira moves to its review status when it opens')
@@ -129,14 +149,7 @@
     }
   })
 
-  const prWarning = $derived.by(() => {
-    const s = run?.session
-    if (!s) return ''
-    const w: string[] = []
-    if (s.status !== 'idle') w.push(s.status === 'waiting' ? 'The session is waiting on a prompt.' : 'The session is still working.')
-    if (s.dirty > 0) w.push(`${s.dirty} changed file${s.dirty === 1 ? ' is' : 's are'} not committed and will not be in the PR.`)
-    return w.length ? ` ${w.join(' ')}` : ''
-  })
+  const prWarning = $derived(run && lead ? legPrWarning(run, lead) : '')
 
   async function send() {
     if (!run || !ready) return
@@ -181,14 +194,15 @@
     return s < 5 ? 'now' : s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`
   }
 
-  let copied = $state(false)
+  /** The command last copied, for a moment: each session not opened has its own. */
+  let copiedCommand = $state<string | null>(null)
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text)
-      copied = true
-      setTimeout(() => (copied = false), 1500)
+      copiedCommand = text
+      setTimeout(() => (copiedCommand = null), 1500)
     } catch {
-      copied = false
+      copiedCommand = null
     }
   }
 
@@ -199,6 +213,25 @@
 </script>
 
 <svelte:head><title>{key}</title></svelte:head>
+
+{#snippet manual(cmd: string)}
+  {@const copied = copiedCommand === cmd}
+  <div in:bootIn={{ skip: skip() }} out:bootOut style="display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent); border-radius: var(--radius); background: color-mix(in oklch, var(--edge) 6%, transparent)">
+    <div style="font-size: 10px; letter-spacing: calc(var(--tracking) * 1.1429); color: color-mix(in oklab, var(--mu) 85%, var(--panel))" class="cap">Session not opened · run this in a terminal</div>
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+      <code style="flex: 1 1 320px; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--tx); word-break: break-all; user-select: all">{cmd}</code>
+      <button type="button" onclick={() => copy(cmd)} style="{cbtn} color: {copied ? 'color-mix(in oklab, var(--ok) 50%, var(--bright))' : 'var(--tx)'}; border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent)" class="cap">{copied ? 'Copied' : 'Copy'}</button>
+    </div>
+  </div>
+{/snippet}
+
+{#snippet moveTicket(r: Run)}
+  <label for="jira-target" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 85%, var(--panel))" class="cap">Move Jira to</label>
+  <input id="jira-target" type="text" value={jiraTarget ?? ''} oninput={e => (jiraTarget = e.currentTarget.value)} placeholder="status name" maxlength="40" style="flex: 0 1 220px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: var(--radius); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent); background: color-mix(in oklch, var(--panel) 90%, transparent); color: color-mix(in oklab, var(--tx) 50%, var(--bright)); font: inherit; font-size: 13px" />
+  {#if jiraValue}
+    <ConfirmAction label="MOVE TICKET" confirmText="Moves {r.key} from {r.jiraStatus} to “{jiraValue}”." confirmLabel="MOVE" tone="cyan" run={() => moveJira(key, jiraValue)} />
+  {/if}
+{/snippet}
 
 <div class="page" style="position: relative; min-height: 100vh; color: color-mix(in oklab, var(--tx) 60%, var(--bright)); font-size: 13px; box-sizing: border-box; display: flex; flex-direction: column; --orb-1: var(--ac); --orb-1-a: 16%; --orb-2: var(--edge); --orb-2-a: 13%; --orb-3: var(--warn); --orb-3-a: 7%">
 
@@ -232,7 +265,7 @@
         <div style="font-size: 12px; color: var(--mu)">Open work reads your Jira sprint, so it needs the Atlassian module on and at least one Jira project key.</div>
         <a href={href.settings()} style="color: color-mix(in oklab, var(--ac) 60%, var(--bright)); text-decoration: none; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571)"><span class="cap">Open Settings <span class="g-go" aria-hidden="true"></span></span></a>
       </div>
-    {:else if !run}
+    {:else if !run || !lead}
       <div role="status" style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 56px 20px; border: 1px dashed color-mix(in oklch, var(--edge) 25%, transparent); border-radius: calc(var(--radius) * 1.5); background: color-mix(in oklch, var(--panel) 60%, transparent); text-align: center">
         <div class="hud" style="font-weight: 700; font-size: 22px; letter-spacing: calc(var(--tracking) * 0.5714); color: color-mix(in oklab, var(--tx) 50%, var(--bright))">No run for <span data-content>{key}</span></div>
         <div style="font-size: 12px; color: var(--mu)">It was never started here, or the server has no record of it.</div>
@@ -247,15 +280,19 @@
         <a href={href.work()} style="color: var(--mu); text-decoration: none; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571); padding: 6px 0"><span class="cap"><span class="g-go-back" aria-hidden="true"></span> Open work</span></a>
         <span data-content class="hud" style="font-weight: 700; font-size: 26px; letter-spacing: calc(var(--tracking) * 0.3571); color: color-mix(in oklab, var(--ac) 60%, var(--bright)); text-shadow: 0 0 14px color-mix(in oklch, var(--ac) calc(50% * var(--glow)), transparent)">{run.key}</span>
         <span data-content class="hud" style="flex: 1 1 320px; font-weight: 600; font-size: 20px; color: var(--bright)">{run.title}</span>
-        {#if run.pr}
-          <a href={run.pr.url} target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: var(--radius); border: 1px var(--border-style) color-mix(in oklch, var(--ok) 45%, transparent); background: color-mix(in oklch, var(--ok) 8%, transparent); color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571)"><span class="led" style="width: 8px; height: 8px; background: var(--ok); box-shadow: 0 0 10px color-mix(in oklch, var(--ok) calc(100% * var(--glow)), transparent)"></span>PR #{run.pr.number} <span class="g-go" aria-hidden="true"></span></a>
+        {#if single && lead.pr}
+          <a href={lead.pr.url} target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: var(--radius); border: 1px var(--border-style) color-mix(in oklch, var(--ok) 45%, transparent); background: color-mix(in oklch, var(--ok) 8%, transparent); color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571)"><span class="led" style="width: 8px; height: 8px; background: var(--ok); box-shadow: 0 0 10px color-mix(in oklch, var(--ok) calc(100% * var(--glow)), transparent)"></span>PR #{lead.pr.number} <span class="g-go" aria-hidden="true"></span></a>
         {/if}
-        {#if sessionId}
+        {#if sessionId && (single || run.layout === 'shared')}
           <a href={href.overview(sessionId)} style="display: flex; align-items: center; gap: 8px; min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: var(--radius); border: 1px var(--border-style) color-mix(in oklch, var(--role-lead) 40%, transparent); background: color-mix(in oklch, var(--role-lead) 8%, transparent); color: color-mix(in oklab, var(--role-lead) 65%, var(--bright)); text-decoration: none; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571)"><span class="led" style="width: 8px; height: 8px; background: var(--role-lead); box-shadow: 0 0 10px color-mix(in oklch, var(--role-lead) calc(100% * var(--glow)), transparent)"></span>SESSION {run.key} <span class="g-go" aria-hidden="true"></span></a>
         {/if}
       </div>
       <div style="display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center; font-size: 12px; color: var(--mu)">
-        <span style="word-break: break-all"><span style="color: var(--ac)">⎇ </span>{run.branch} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">←</span> origin/{run.base} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">· PR into</span> {run.prBase}</span>
+        {#if single}
+          <span style="word-break: break-all"><span style="color: var(--ac)">⎇ </span>{lead.branch} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">←</span> origin/{lead.base} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">· PR into</span> {lead.prBase}</span>
+        {:else}
+          <span>{run.repos.length} repositories · {run.layout === 'split' ? 'a session in each' : 'one session across them'}</span>
+        {/if}
         <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">·</span>
         <span>research agents on {researchModel(run.model)}</span>
         <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">·</span>
@@ -276,28 +313,21 @@
         <div role="alert" in:bootIn={{ skip: skip() }} out:bootOut style="padding: 12px 16px; border: 1px var(--border-style) color-mix(in oklch, var(--bad) 40%, transparent); border-radius: var(--radius); background: color-mix(in oklch, var(--bad) 10%, transparent); color: color-mix(in oklab, var(--bad) 55%, var(--bright)); font-size: 12px; line-height: 1.5; word-break: break-word">{run.error}</div>
       {/if}
 
-      {#if run.manualCommand}
-        {@const cmd = run.manualCommand}
-        <div in:bootIn={{ skip: skip() }} out:bootOut style="display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent); border-radius: var(--radius); background: color-mix(in oklch, var(--edge) 6%, transparent)">
-          <div style="font-size: 10px; letter-spacing: calc(var(--tracking) * 1.1429); color: color-mix(in oklab, var(--mu) 85%, var(--panel))" class="cap">Session not opened · run this in a terminal</div>
-          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
-            <code style="flex: 1 1 320px; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--tx); word-break: break-all; user-select: all">{cmd}</code>
-            <button type="button" onclick={() => copy(cmd)} style="{cbtn} color: {copied ? 'color-mix(in oklab, var(--ok) 50%, var(--bright))' : 'var(--tx)'}; border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent)" class="cap">{copied ? 'Copied' : 'Copy'}</button>
-          </div>
-        </div>
+      {#if single && lead.manualCommand}
+        {@render manual(lead.manualCommand)}
       {/if}
 
-      {#if resumable}
+      {#if single && resumable}
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px">
           <span style="font-size: 12px; color: var(--mu)">No session for {run.key} is running.</span>
-          <ConfirmAction label="RESUME SESSION" confirmText="Opens a new cmux workspace in {run.worktree} and continues {run.claudeSessionId ? 'the same conversation' : 'the last conversation in that folder'}." confirmLabel="RESUME" tone="cyan" run={() => resumeRun(key)} />
+          <ConfirmAction label="RESUME SESSION" confirmText="Opens a new cmux workspace in {lead.worktree} and continues {lead.claudeSessionId ? 'the same conversation' : 'the last conversation in that folder'}." confirmLabel="RESUME" tone="cyan" run={() => resumeRun(key)} />
         </div>
       {/if}
 
       {#if active || run.state === 'failed' || run.state === 'interrupted'}
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px">
-          {#if run.state === 'building' && run.session && run.session.commitsAhead > 0}
-            <ConfirmAction label="OPEN PR" confirmText="Pushes {run.branch} and opens a PR into {run.prBase}. Jira moves to its review status, if it has one.{prWarning}" confirmLabel="OPEN PR" tone="green" run={() => openPr(key)} />
+          {#if single && run.state === 'building' && lead.session && lead.ahead > 0}
+            <ConfirmAction label="OPEN PR" confirmText="Pushes {lead.branch} and opens a PR into {lead.prBase}. Jira moves to its review status, if it has one.{prWarning}" confirmLabel="OPEN PR" tone="green" run={() => openPr(key)} />
           {/if}
           {#if run.state === 'failed' || run.state === 'interrupted'}
             <ConfirmAction label="RETRY" confirmText="Retry {run.key}?" confirmLabel="RETRY" tone="cyan" run={() => retryRun(key)} />
@@ -307,15 +337,98 @@
           {/if}
         </div>
       {/if}
+
+      {#if !single && mergedAll}
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px">
+          {@render moveTicket(run)}
+        </div>
+      {/if}
     </section>
 
+    <!-- one row per repository, when the run builds in more than one -->
+    {#if !single}
+      <section aria-label="Repositories" style="display: flex; flex-direction: column; gap: 10px">
+        <div class="hud cap" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--mu) 85%, var(--panel))">Repositories <span class="g-sep" aria-hidden="true"></span> {run.repos.length}</div>
+        {#each run.repos as leg, i (leg.repo.toLowerCase())}
+          {@const ps = leg.pr?.status ?? null}
+          {@const done = ps?.state === 'merged' || ps?.state === 'closed'}
+          {@const cl = ps ? CHECK_LOOK[ps.checks.state] : null}
+          {@const worker = legWorker(run, leg)}
+          {@const workerLive = legSessionLive(run, worker, sessions)}
+          <div class="surf" in:bootIn={{ index: i, skip: skip() }} out:bootOut style="display: flex; flex-direction: column; gap: 10px; padding: 14px 18px; --rim: {legRim(leg)}; --r: calc(var(--radius) * 1.5); --wash: color-mix(in oklch, var(--panel) 70%, transparent)">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px">
+              <span data-content style="font-size: 14px; color: var(--bright); overflow-wrap: anywhere">{leg.repo}</span>
+              {#if i === 0}<span style="font-size: 10px; letter-spacing: calc(var(--tracking) * 0.8571); color: color-mix(in oklab, var(--ac) 60%, var(--bright))" class="cap">lead</span>{/if}
+              {#if leg.pr}
+                <a href={leg.pr.url} target="_blank" rel="noopener noreferrer" style="color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none; font-size: 13px">PR #{leg.pr.number} ↗</a>
+                {#if ps}
+                  <span style="padding: 4px 9px; border-radius: calc(var(--radius) * 0.75); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent); color: var(--tx); font-size: 11px; letter-spacing: calc(var(--tracking) * 0.7143)">{ps.state.toUpperCase()}</span>
+                  {#if !done && cl}
+                    <span style="padding: 4px 9px; border-radius: calc(var(--radius) * 0.75); border: 1px var(--border-style) {cl.color}; color: {cl.color}; font-size: 11px; letter-spacing: calc(var(--tracking) * 0.7143)">{cl.label}{ps.checks.state === 'pending' ? ` · ${ps.checks.pending} OF ${ps.checks.total}` : ''}</span>
+                    {#if ps.review}<span style="padding: 4px 9px; border-radius: calc(var(--radius) * 0.75); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent); color: var(--tx); font-size: 11px; letter-spacing: calc(var(--tracking) * 0.7143)">{ps.review.replace(/_/g, ' ')}</span>{/if}
+                  {/if}
+                {:else}
+                  <span style="font-size: 12px; color: var(--mu)">waiting for the first check of GitHub…</span>
+                {/if}
+              {/if}
+              {#if run.layout === 'split' && leg.session?.sessionId}
+                <a href={href.overview(leg.session.sessionId)} style="color: color-mix(in oklab, var(--role-lead) 65%, var(--bright)); text-decoration: none; font-size: 12px"><span class="cap">Session <span class="g-go" aria-hidden="true"></span></span></a>
+              {/if}
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--mu)">
+              <span style="word-break: break-all"><span style="color: var(--ac)">⎇ </span>{leg.branch} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">←</span> origin/{leg.base} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">· PR into</span> {leg.prBase}</span>
+              <span>{leg.ahead} commit{leg.ahead === 1 ? '' : 's'} · {leg.dirty} changed file{leg.dirty === 1 ? '' : 's'}</span>
+            </div>
+            {#if legChecksFailing(run, leg)}
+              <div style="font-size: 12px; line-height: 1.5; color: color-mix(in oklab, var(--bad) 55%, var(--bright)); word-break: break-word">Failing: {ps?.checks.failed.join(', ') || 'see GitHub'}</div>
+            {/if}
+            {#if leg.manualCommand}
+              {@render manual(leg.manualCommand)}
+            {/if}
+            {#if legAfterMerge(run, leg)}
+              <div style="font-size: 12px; line-height: 1.5; color: var(--warn)">These commits have no PR. The run counts as merged without them; open one here if they belong in it.</div>
+            {/if}
+            {#if leg.cleaned}
+              <span style="font-size: 12px; color: var(--ok)">Worktree removed · branch {leg.branch} stays</span>
+            {:else if legKeptForOthers(run, leg) && done}
+              <span style="font-size: 12px; color: var(--mu)">The worktree stays while the other PRs are open: the run's session works here for them.</span>
+            {/if}
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px">
+              {#if legNeedsPr(run, leg)}
+                <ConfirmAction label="OPEN PR" confirmText="Pushes {leg.branch} in {leg.repo} and opens a PR into {leg.prBase}. Jira moves to its review status as Settings says, if it has one.{legPrWarning(run, leg)}" confirmLabel="OPEN PR" tone="green" run={() => openPr(key, leg.repo)} />
+              {/if}
+              {#if legChecksFailing(run, leg)}
+                <ConfirmAction label="FIX FAILING CHECKS" confirmText="Tells the session working in {worker.worktree} which checks of {leg.repo} failed and to read them with gh, fix the cause and push." confirmLabel="SEND" tone="cyan" run={() => fixChecks(key, leg.repo)} />
+                {#if !workerLive}
+                  <span style="font-size: 12px; color: var(--mu); overflow-wrap: anywhere">No running session found in {worker.worktree}: resume it first.</span>
+                {/if}
+              {/if}
+              {#if legResumable(run, leg, legSessionLive(run, leg, sessions))}
+                <span style="font-size: 12px; color: var(--mu); overflow-wrap: anywhere">No session is running in {leg.worktree}.</span>
+                <ConfirmAction label="RESUME SESSION" confirmText="Opens a new cmux workspace in {leg.worktree} and continues {leg.claudeSessionId ? 'the same conversation' : 'the last conversation in that folder'}." confirmLabel="RESUME" tone="cyan" run={() => resumeRun(key, leg.repo)} />
+              {/if}
+              {#if legCanClean(run, leg)}
+                <ConfirmAction label="REMOVE WORKTREE" confirmText="Removes {leg.worktree}. Refused if a session is still running there or files are uncommitted. The branch stays." confirmLabel="REMOVE" tone="red" run={() => cleanupRun(key, leg.repo)} />
+              {/if}
+            </div>
+          </div>
+        {/each}
+        {#if canOpenAll(run)}
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px">
+            <ConfirmAction label="OPEN ALL PRS" confirmText="Pushes {lead.branch} in each of the {legsToOpen(run).length} repositories with commits and no PR, and opens their PRs one after another. A repository refused does not stop the others." confirmLabel="OPEN ALL PRS" tone="green" run={() => openPr(key)} />
+            <span style="font-size: 12px; color: var(--mu)">Or open each from its row.</span>
+          </div>
+        {/if}
+      </section>
+    {/if}
+
     <!-- the open pull request -->
-    {#if run.state === 'pr_open' && run.pr}
+    {#if single && run.state === 'pr_open' && lead.pr}
       {@const cl = pr ? CHECK_LOOK[pr.checks.state] : null}
       <section aria-label="Pull request" in:bootIn={{ skip: skip() }} out:bootOut style="display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; border: 1px var(--border-style) {pr?.state === 'merged' ? 'color-mix(in oklch, var(--role-advisor) 45%, transparent)' : pr?.checks.state === 'failing' ? 'color-mix(in oklch, var(--bad) 45%, transparent)' : 'color-mix(in oklch, var(--ok) 30%, transparent)'}; border-radius: calc(var(--radius) * 1.5); background: color-mix(in oklch, var(--panel) 70%, transparent)">
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px">
           <span class="hud cap" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--mu) 85%, var(--panel))">Pull request //</span>
-          <a href={run.pr.url} target="_blank" rel="noopener noreferrer" style="color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none; font-size: 13px">PR #{run.pr.number} ↗</a>
+          <a href={lead.pr.url} target="_blank" rel="noopener noreferrer" style="color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none; font-size: 13px">PR #{lead.pr.number} ↗</a>
           {#if pr}
             <span style="padding: 4px 9px; border-radius: calc(var(--radius) * 0.75); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent); color: var(--tx); font-size: 11px; letter-spacing: calc(var(--tracking) * 0.7143)">{pr.state.toUpperCase()}</span>
             {#if !prDone && cl}
@@ -340,16 +453,12 @@
         {#if prDone}
           <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px">
             {#if pr?.state === 'merged'}
-              <label for="jira-target" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 85%, var(--panel))" class="cap">Move Jira to</label>
-              <input id="jira-target" type="text" value={jiraTarget ?? ''} oninput={e => (jiraTarget = e.currentTarget.value)} placeholder="status name" maxlength="40" style="flex: 0 1 220px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: var(--radius); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent); background: color-mix(in oklch, var(--panel) 90%, transparent); color: color-mix(in oklab, var(--tx) 50%, var(--bright)); font: inherit; font-size: 13px" />
-              {#if jiraValue}
-                <ConfirmAction label="MOVE TICKET" confirmText="Moves {run.key} from {run.jiraStatus} to “{jiraValue}”." confirmLabel="MOVE" tone="cyan" run={() => moveJira(key, jiraValue)} />
-              {/if}
+              {@render moveTicket(run)}
             {/if}
-            {#if run.cleaned}
-              <span style="font-size: 12px; color: var(--ok)">Worktree removed · branch {run.branch} stays</span>
+            {#if lead.cleaned}
+              <span style="font-size: 12px; color: var(--ok)">Worktree removed · branch {lead.branch} stays</span>
             {:else}
-              <ConfirmAction label="REMOVE WORKTREE" confirmText="Removes {run.worktree}. Refused if the session is still running or files are uncommitted. The branch stays." confirmLabel="REMOVE" tone="red" run={() => cleanupRun(key)} />
+              <ConfirmAction label="REMOVE WORKTREE" confirmText="Removes {lead.worktree}. Refused if the session is still running or files are uncommitted. The branch stays." confirmLabel="REMOVE" tone="red" run={() => cleanupRun(key)} />
             {/if}
           </div>
         {/if}
@@ -366,7 +475,7 @@
             <span style="font-size: 10px; letter-spacing: calc(var(--tracking) * 0.8571); color: {s.color}; text-align: right">{s.state}</span>
           </div>
           <div style="font-size: 11px; line-height: 1.5; color: var(--mu); margin-top: 6px; word-break: break-word">
-            {#if s.i === 3 && run.pr}<a href={run.pr.url} target="_blank" rel="noopener noreferrer" style="color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none"><span>{s.note} <span class="g-go" aria-hidden="true"></span></span></a>{:else}{s.note}{/if}
+            {#if s.i === 3 && single && lead.pr}<a href={lead.pr.url} target="_blank" rel="noopener noreferrer" style="color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none"><span>{s.note} <span class="g-go" aria-hidden="true"></span></span></a>{:else}{s.note}{/if}
           </div>
         </div>
       {/each}

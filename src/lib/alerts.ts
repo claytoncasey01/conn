@@ -29,7 +29,7 @@ export interface Seen {
   sessions: Map<string, string>
   asks: Map<string, Spell>
   runs: Map<string, string>
-  /** Open PR outcome per run, so a PR going red, green or merged alerts once */
+  /** Open PR outcome per run (one repository) or per run and repository (several), so a PR going red, green or merged alerts once */
   checks: Map<string, string>
   /** A loaded My PRs view has been seen: the first one only seeds `myprs`, and it need not come with the first snapshot */
   myprsSeeded: boolean
@@ -173,13 +173,17 @@ export function diffAlerts(seen: Seen, snap: Snapshot): Alert[] {
       if (r.state === 'asking') out.push({ tag: `r${r.key}`, title: `${r.key} has questions`, body: `${r.questions.filter(q => q.answer === null).length} for you before the build starts`, href: `#/work/${r.key}` })
       else if (r.state === 'failed') out.push({ tag: `r${r.key}`, title: `${r.key} failed`, body: r.error ?? 'the run stopped', href: `#/work/${r.key}` })
     }
-    const pr = r.pr?.status
-    if (pr) {
+    // Each leg's PR is followed on its own. One leg keeps the key and words it always had; with several, the key and title
+    // name the repository too (a key has no space, so "KEY repo" never meets a one-leg key), so two legs never share an alert.
+    for (const leg of r.repos) {
+      const pr = leg.pr?.status
+      if (!pr) continue
+      const id = r.repos.length > 1 ? `${r.key} ${leg.repo.toLowerCase()}` : r.key
       const outcome = pr.state === 'merged' || pr.state === 'closed' ? pr.state : pr.checks.state === 'failing' || pr.checks.state === 'passing' ? pr.checks.state : ''
-      nextChecks.set(r.key, outcome)
-      if (!first && outcome && seen.checks.get(r.key) !== outcome) {
-        const title = { merged: `${r.key} PR merged`, closed: `${r.key} PR closed`, failing: `${r.key} checks failed`, passing: `${r.key} checks passed` }[outcome]!
-        out.push({ tag: `p${r.key}`, title, body: outcome === 'failing' ? pr.checks.failed.join(', ') || `PR #${r.pr!.number}` : `PR #${r.pr!.number}`, href: `#/work/${r.key}` })
+      nextChecks.set(id, outcome)
+      if (!first && outcome && seen.checks.get(id) !== outcome) {
+        const title = { merged: `${id} PR merged`, closed: `${id} PR closed`, failing: `${id} checks failed`, passing: `${id} checks passed` }[outcome]!
+        out.push({ tag: `p${id}`, title, body: outcome === 'failing' ? pr.checks.failed.join(', ') || `PR #${leg.pr!.number}` : `PR #${leg.pr!.number}`, href: `#/work/${r.key}` })
       }
     }
   }

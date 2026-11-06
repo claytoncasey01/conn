@@ -277,6 +277,44 @@ func TestTheWorkSeedGivesTheBuildRepoACloneTheLookupFinds(t *testing.T) {
 	}
 }
 
+// TestTheWorkSeedAllowsTwoRepositoriesWithClones: Open work across repositories needs more than
+// one allowed repository to pick from, each with a clone the lookup finds and a default branch.
+func TestTheWorkSeedAllowsTwoRepositoriesWithClones(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	got := seededStore(t, config.Dry{Work: true}, dir).Get()
+
+	tests := []struct {
+		repo   string
+		folder string
+	}{
+		{"acme/widgets", "dry-clone"},
+		{"acme/gadgets", "dry-clone-gadgets"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.repo, func(t *testing.T) {
+			t.Parallel()
+
+			want := filepath.Join(dir, tt.folder)
+
+			found, ok := origin.NewReader().CloneFor(tt.repo, got, t.TempDir())
+			if !ok {
+				t.Fatal("the clone lookup did not find the stand-in clone")
+			}
+
+			if found != (origin.Clone{Path: want, How: origin.HowSettings}) {
+				t.Errorf("CloneFor = %+v, want %s from settings", found, want)
+			}
+
+			branch, known := openwork.DefaultBranch(want)
+			if branch != "main" {
+				t.Errorf("default branch %q %v", branch, known)
+			}
+		})
+	}
+}
+
 // refusing is a holder that refuses every update.
 type refusing struct{}
 

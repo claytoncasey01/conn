@@ -225,8 +225,26 @@ export interface WorkList {
   truncated: boolean
   /** The Jira project keys from Settings that the list is read for */
   projects: string[]
-  /** Where a run builds: the repository from Settings and whether a local clone of it was found; `reason` says what to fix when not */
-  build: { repo: string | null; base: string | null; ready: boolean; reason: string | null }
+  /** Where a run may build: every allowed repository, the one the picker starts on, and the layout it starts on */
+  build: WorkBuild
+}
+
+/** One repository a run may build in: the branch a run starts from there (null when unknown), and whether a run can start there; `reason` says what to fix when not */
+export interface BuildRepo {
+  repo: string
+  base: string | null
+  ready: boolean
+  reason: string | null
+}
+
+/** Where a run may build, as GET /api/work says. */
+export interface WorkBuild {
+  /** Every allowed repository Settings names or conn found on this machine (clones in the clone folder and ~/projects, live sessions, My PRs rows), in allowlist order; at most 200 */
+  repos: BuildRepo[]
+  /** The default repository from Settings, while it is still one of `repos`: preselected when the browser remembers no choice */
+  default: string | null
+  /** The session layout the picker starts on */
+  layout: RunLayout
 }
 
 /** research -> ask -> build -> pr */
@@ -282,7 +300,7 @@ export interface RunLog {
   text: string
 }
 
-/** The build session, once it exists. Read from the session registry and git. */
+/** The build session, once it exists. Read from the session registry. */
 export interface RunSession {
   /** Same as the ticket key */
   name: string
@@ -290,10 +308,34 @@ export interface RunSession {
   sessionId: string | null
   pid: number | null
   status: SessionStatus | null
-  commitsAhead: number
+}
+
+/** One repository a run builds in: its branch, worktree, session and PR. */
+export interface RunRepo {
+  /** The repository, owner/name; "" for a run from before Settings */
+  repo: string
+  /** The branch the leg started from: the base branch in Settings, else the clone's default branch */
+  base: string
+  /** The PR target: the same branch */
+  prBase: string
+  branch: string
+  worktree: string
+  session: RunSession | null
+  /** Claude's own id for the build session (not the pid), kept so it can be resumed after it exits */
+  claudeSessionId: string | null
+  /** A command to paste into a terminal when the session could not be opened for the person */
+  manualCommand: string | null
+  /** Commits on the branch past its base */
+  ahead: number
   /** Changed files not yet committed */
   dirty: number
+  pr: { url: string; number: number; status?: PrStatus } | null
+  /** The worktree was removed after the PR merged or closed */
+  cleaned: boolean | null
 }
+
+/** How the build sessions are laid out over a run's repositories. */
+export type RunLayout = 'shared' | 'split'
 
 /** What GitHub says about a run's open PR, polled while the run is pr_open. */
 export interface PrStatus {
@@ -316,13 +358,7 @@ export interface PrStatus {
 export interface Run {
   key: string
   title: string
-  /** The branch the run started from: the base branch in Settings, else the clone's default branch */
-  base: string
-  /** The PR target: the same branch */
-  prBase: string
   model: ResearchModel
-  branch: string
-  worktree: string
   state: RunState
   stage: RunStage
   startedAt: number
@@ -333,16 +369,11 @@ export interface Run {
   answered: RunAnswered[]
   questions: RunQuestion[]
   log: RunLog[]
-  session: RunSession | null
-  pr: { url: string; number: number; status?: PrStatus } | null
-  /** The worktree was removed after the PR merged or closed */
-  cleaned?: boolean
-  /** Claude's own id for the build session (not the pid), kept so it can be resumed after it exits */
-  claudeSessionId?: string
   /** Why the run failed or was interrupted */
   error: string | null
-  /** A command to paste into a terminal when the session could not be opened for the person */
-  manualCommand: string | null
+  /** The repositories the run builds in, in the order they were chosen: at least one */
+  repos: RunRepo[]
+  layout: RunLayout
 }
 
 // ---- History: the archive of finished sessions ----

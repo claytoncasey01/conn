@@ -174,6 +174,70 @@ func (r *Reader) CloneFor(repo string, current settings.Settings, home string) (
 	return Clone{Path: "", How: ""}, false
 }
 
+// ClonesIn are the repositories cloned directly in parents (a clone folder, ~/projects), parent
+// by parent and by folder name within one, as CloneFor would find them there: a repo root whose
+// origin is on GitHub and whose folder is named for the repository, in any case. At most
+// foldersMax folders are listed in all, so a huge folder is never read whole (which ones a cut
+// listing holds is the file system's order); a parent that cannot be listed holds none.
+func (r *Reader) ClonesIn(parents []string, foldersMax int) []string {
+	found := []string{}
+	left := foldersMax
+
+	for _, parent := range parents {
+		if left <= 0 {
+			break
+		}
+
+		names := listNames(parent, left)
+		left -= len(names)
+
+		for _, name := range names {
+			if repo := r.cloneIn(filepath.Join(parent, name)); repo != "" {
+				found = append(found, repo)
+			}
+		}
+	}
+
+	return found
+}
+
+// listNames are the names of at most countMax entries of folder, sorted; none when it cannot be
+// opened or read.
+func listNames(folder string, countMax int) []string {
+	dir, err := os.Open(folder)
+	if err != nil {
+		return nil
+	}
+
+	// Only read: nothing useful can be done with a failed close.
+	defer func() { _ = dir.Close() }()
+
+	names, err := dir.Readdirnames(countMax)
+	if err != nil {
+		return nil
+	}
+
+	slices.Sort(names)
+
+	return names
+}
+
+// cloneIn is the repository folder is a clone of when CloneFor would find it there, else "".
+func (r *Reader) cloneIn(folder string) string {
+	if !isRepoRoot(folder) {
+		return ""
+	}
+
+	repo := r.Of(folder)
+	_, name, _ := strings.Cut(repo, "/")
+
+	if name != strings.ToLower(filepath.Base(folder)) {
+		return ""
+	}
+
+	return repo
+}
+
 // candidates are the folders CloneFor tries, in order.
 func candidates(repo string, current settings.Settings, home string) []Clone {
 	_, segment, _ := strings.Cut(repo, "/")

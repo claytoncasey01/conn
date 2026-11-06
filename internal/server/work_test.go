@@ -21,7 +21,7 @@ import (
 // Open work through the server, and the 413 for its routes, through the
 // handler: a dry Open work, so no Jira, git or claude is ever reached. It is not there while
 // the Atlassian module is off, lists no project or the server is in setup; a change in Settings
-// takes effect with no restart; a run needs a clone of the build repository.
+// takes effect with no restart; a run needs a clone of each repository it builds in.
 
 const offText = `{"error":"Atlassian is off. Enable it in Settings."}`
 
@@ -233,15 +233,15 @@ func field(object *js.Object, key string) any {
 	return value
 }
 
-func TestWithOpenWorkOnTheDrySprintIsSyntheticAndTheBuildRepoHasItsClone(t *testing.T) {
+func TestWithOpenWorkOnTheDrySprintIsSyntheticAndTheDefaultRepoHasItsClone(t *testing.T) {
 	t.Parallel()
 
 	rig := newWorkRig(t, workSettings(workOn, ""))
 	list := rig.waitTickets(t)
 
 	same(t, "projects", field(list, "projects"), []any{"PROJ"})
-	same(t, "build", field(list, "build"), parse(t,
-		`{"repo":"acme/widgets","base":"trunk","ready":true,"reason":null}`))
+	same(t, "build", field(list, "build"), parse(t, `{"repos":[{"repo":"acme/widgets",`+
+		`"base":"trunk","ready":true,"reason":null}],"default":"acme/widgets","layout":"shared"}`))
 
 	tickets, _ := field(list, "tickets").([]any)
 	keys, assignees := make([]any, 0, len(tickets)), map[string]bool{}
@@ -342,11 +342,16 @@ func TestARunIsMadeOnlyForATicketOfTheProjectWithACloneToBuildIn(t *testing.T) {
 	same(t, "runs", len(runs), 1)
 
 	run := parse(t, js.Stringify(runs[0]))
-	same(t, "branch", field(run, "branch"), "proj-2-nightly-job-skipped-when-the-batch")
-	same(t, "bases", []any{field(run, "base"), field(run, "prBase")}, []any{"trunk", "trunk"})
-	same(t, "worktree", field(run, "worktree"),
+	repos, _ := field(run, "repos").([]any)
+	same(t, "legs", len(repos), 1)
+
+	leg, _ := repos[0].(*js.Object)
+	same(t, "branch", field(leg, "branch"), "proj-2-nightly-job-skipped-when-the-batch")
+	same(t, "bases", []any{field(leg, "base"), field(leg, "prBase")}, []any{"trunk", "trunk"})
+	same(t, "worktree", field(leg, "worktree"),
 		filepath.Join(filepath.Dir(rig.clone), "widgets-proj-2"))
-	same(t, "clone", field(run, "clone"), nil)
+	same(t, "clone", field(leg, "clone"), nil)
+	same(t, "layout", field(run, "layout"), "shared")
 
 	data, err := os.ReadFile(filepath.Join(rig.data, "runs", "PROJ-2.json"))
 	if err != nil {
@@ -354,8 +359,10 @@ func TestARunIsMadeOnlyForATicketOfTheProjectWithACloneToBuildIn(t *testing.T) {
 	}
 
 	record := parse(t, string(data))
+	legs, _ := field(record, "repos").([]any)
+	kept, _ := legs[0].(*js.Object)
 	same(t, "on disk", []any{
-		field(record, "repo"), field(record, "clone"),
+		field(kept, "repo"), field(kept, "clone"),
 		field(record, "ticketCategory"),
 	}, []any{"acme/widgets", rig.clone, "new"})
 
@@ -370,8 +377,9 @@ func TestWithoutACloneStartIsRefusedWithTheReason(t *testing.T) {
 		`{"allow":["acme/*"],"clones":{"acme/widgets":"/no/such"}}`))
 	reason := "No local clone of acme/widgets: set a folder in Settings."
 	list := rig.waitTickets(t)
-	same(t, "build", field(list, "build"), parse(t, `{"repo":"acme/widgets","base":null,`+
-		`"ready":false,"reason":`+js.Stringify(reason)+`}`))
+	same(t, "build", field(list, "build"), parse(t, `{"repos":[{"repo":"acme/widgets",`+
+		`"base":null,"ready":false,"reason":`+js.Stringify(reason)+`}],`+
+		`"default":"acme/widgets","layout":"shared"}`))
 
 	code, answer := rig.send(t, postOwn("/api/work/PROJ-2/start", `{"model":"haiku"}`))
 	same(t, "start", []any{code, field(parse(t, answer), "error")}, []any{409, reason})
@@ -422,8 +430,10 @@ func TestASaveWithoutBaseBranchKeepsIt(t *testing.T) {
 		`"buildRepo":"acme/widgets","baseBranch":"release/2"}}`, ""))
 	baseOf := func() any {
 		build, _ := field(rig.waitTickets(t), "build").(*js.Object)
+		repos, _ := field(build, "repos").([]any)
+		first, _ := repos[0].(*js.Object)
 
-		return field(build, "base")
+		return field(first, "base")
 	}
 
 	same(t, "named", baseOf(), "release/2")

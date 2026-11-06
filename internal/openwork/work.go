@@ -1,8 +1,8 @@
 // Package openwork is Open work: the open sprint's Jira tickets, and the runs started from them.
-// A run makes a worktree beside the build repository's clone, moves the ticket into progress,
-// has four read-only agents research it (Jira, Confluence, Slack and the code), asks the person
-// what the sources could not settle, opens a build session in cmux, and on OPEN PR pushes the
-// branch and opens the pull request, then follows it until it merges.
+// A run makes a worktree beside the clone of each repository it was started in, moves the ticket
+// into progress, has four read-only agents research it (Jira, Confluence, Slack and the code),
+// asks the person what the sources could not settle, opens a build session in cmux, and on OPEN
+// PR pushes the branch and opens the pull request, then follows it until it merges.
 //
 // Concurrency: one mutex guards the state. Every stretch of work between two calls to the outside
 // (git, gh, claude, cmux, the session list's reply) runs holding it, and every call to the
@@ -18,6 +18,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -33,6 +34,10 @@ const (
 	tickEvery = 600 * time.Millisecond
 	// noClone is why a run cannot start when there is no clone and no reason was given.
 	noClone = "there is no clone to build in"
+	// noRepo is why a run from before Settings cannot build when it names no repository and
+	// Settings names no default one.
+	noRepo = "This run does not say which repository it builds in: choose a Default " +
+		"repository in Settings, or start the ticket again."
 )
 
 // The modules the Settings cards are told about.
@@ -73,6 +78,9 @@ type Deps struct {
 	Settings func() settings.Settings
 	// CloneFor is the local clone of a repository per the settings.
 	CloneFor CloneFinder
+	// SeenRepos are repositories found on this machine (clone folders, live sessions, My PRs
+	// rows), offered when the allowlist covers them; nil finds none. Called without the mutex.
+	SeenRepos func() []string
 	// OriginOf is the GitHub repository of a folder ("" for none).
 	OriginOf func(folder string) string
 	Sh       Sh
@@ -85,8 +93,8 @@ type Deps struct {
 	// Record tells the Settings cards how a Jira, Confluence or Slack run went: one short line
 	// of Conn's own, never text from those services.
 	Record func(name string, ok bool, detail string)
-	// FindSession is the live session named name or in cwd, nil when there is none. It must not
-	// wait on the session list.
+	// FindSession is the live session named name or in cwd, nil when there is none; a name of ""
+	// finds by cwd alone. It must not wait on the session list.
 	FindSession func(name, cwd string) *Found
 	// Reply types text into a live session.
 	Reply func(ctx context.Context, sessionID, text string) Reply
@@ -125,20 +133,28 @@ type state struct {
 	runs       *js.Map[*Record]
 	handles    map[string]map[*handle]bool
 	listHandle *handle
-	lastGit    map[string]float64
-	busyPR     map[string]bool
+	// lastGit is when each leg's git was last counted, and busyPR the legs with a change in
+	// progress, both by legKey.
+	lastGit map[string]float64
+	busyPR  map[string]bool
 	// running are runs whose pipeline is still going, even if it was interrupted: a second one
 	// on the same run would race the first.
 	running map[string]bool
-	// lastPoll, polling and pollError are the PR polls: when each run was last asked, which are
-	// in flight, and the last error logged per run (a repeating failure is reported once).
+	// lastPoll, polling and pollError are the PR polls, by legKey: when each leg's PR was last
+	// asked, which are in flight, and the last error logged per leg (a repeating failure is
+	// reported once).
 	lastPoll  map[string]float64
 	polling   map[string]bool
 	pollError map[string]string
-	// resumedAt is when a session was last opened for a run: it takes a few seconds to appear.
+	// resumedAt is when a session was last opened in a slot, by slotKey: it takes a few seconds
+	// to appear.
 	resumedAt map[string]float64
-	dryPolls  map[string]int
-	dryFixed  map[string]bool
+	// reviewMoving are the runs whose move to review is out, by run key: one move at a time.
+	reviewMoving map[string]bool
+	// dryPolls and dryFixed are each leg's dry PR walk, by legKey: its polls so far, and that FIX
+	// CHECKS was pressed for it.
+	dryPolls map[string]int
+	dryFixed map[string]bool
 }
 
 // New is Work over deps: it makes the runs folder and reads the runs and the cached list.
@@ -154,7 +170,8 @@ func New(ctx context.Context, deps Deps) *Work {
 		handles: map[string]map[*handle]bool{}, listHandle: nil, lastGit: map[string]float64{},
 		busyPR: map[string]bool{}, running: map[string]bool{}, lastPoll: map[string]float64{},
 		polling: map[string]bool{}, pollError: map[string]string{},
-		resumedAt: map[string]float64{}, dryPolls: map[string]int{}, dryFixed: map[string]bool{},
+		resumedAt: map[string]float64{}, reviewMoving: map[string]bool{},
+		dryPolls: map[string]int{}, dryFixed: map[string]bool{},
 	}
 
 	_ = os.MkdirAll(work.runsDir, folderMode)
@@ -207,7 +224,7 @@ func (w *Work) SettingsChanged() {
 				continue
 			}
 
-			if problem := w.buildProblem(record); problem != "" {
+			if problem := w.runProblem(record); problem != "" {
 				w.interrupt(record, problem+" The research stopped; Retry starts it again once "+
 					"that is fixed.")
 			}
@@ -322,8 +339,43 @@ func (w *Work) record(name string, ok bool, detail string) {
 	}
 }
 
-func (w *Work) target() Target {
-	return BuildTarget(w.settings(), w.deps.CloneFor, DefaultBranch)
+// targetsNow are the places a run may build now, and any repository named in chosen that the
+// list does not offer but the allowlist covers (one found nowhere conn looks can still be chosen
+// by name). It reads the disk (clones, default branches) and the session list, so it is called
+// before the mutex is taken; the settings are read without it.
+func (w *Work) targetsNow(chosen []string) []Target {
+	current := w.settings()
+	all := BuildTargets(current, w.seen(), w.deps.CloneFor, DefaultBranch)
+
+	for _, name := range chosen[:min(len(chosen), legsMax)] {
+		if slices.ContainsFunc(all, func(each Target) bool {
+			return js.Lower(each.Repo) == js.Lower(name)
+		}) {
+			continue
+		}
+
+		if _, allowed := patternOf(name, current.Repos.Allow); allowed {
+			all = append(all, targetFor(name, current, w.deps.CloneFor, DefaultBranch))
+		}
+	}
+
+	return all
+}
+
+// chooseTargets are the targets a START chose among all (none: the default repository), in the
+// order chosen, and every problem with the choice.
+func (w *Work) chooseTargets(chosen []string, all []Target) ([]Target, []string) {
+	return ChooseTargets(all, chosen, w.settings().Atlassian.Jira.BuildRepo)
+}
+
+// seen are the repositories found on this machine. It reads the disk and the session list, so
+// it is called before the mutex is taken (by targetsNow).
+func (w *Work) seen() []string {
+	if w.deps.SeenRepos == nil {
+		return nil
+	}
+
+	return w.deps.SeenRepos()
 }
 
 func (w *Work) allowed(repo string) bool { return repos.Allowed(repo, w.settings().Repos.Allow) }

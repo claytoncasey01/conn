@@ -280,7 +280,7 @@ func TestAPutReplacesJustItsSection(t *testing.T) {
 			`"draftChannel":"#code-review"}`,
 		`"reviews":{"requested":false,"allOpen":true}`, `"github":{"enabled":false}`,
 		`"atlassian":{"enabled":true,"jira":{"projects":["PROJ"],"buildRepo":"acme/app",` +
-			`"baseBranch":null}}`,
+			`"baseBranch":null,"baseBranches":{},"reviewMove":"all","sessionLayout":"shared"}}`,
 	} {
 		if !strings.Contains(raw, part) {
 			t.Errorf("GET = %s, want it to hold %s", raw, part)

@@ -44,9 +44,18 @@ func emptyList() ticketList {
 	}
 }
 
-// Build is where a run builds, as the list shows it.
+// Build is where a run may build, as the list shows it: every allowed repository, the one the
+// picker starts on when the browser remembers none, and the layout it starts on.
 type Build struct {
-	Repo   *string `json:"repo"`
+	Repos   []BuildRepo `json:"repos"`
+	Default *string     `json:"default"`
+	Layout  string      `json:"layout"`
+}
+
+// BuildRepo is one repository a run may build in: the branch a run starts from there, and
+// whether one can start there (the reason says what to fix when not).
+type BuildRepo struct {
+	Repo   string  `json:"repo"`
 	Base   *string `json:"base"`
 	Ready  bool    `json:"ready"`
 	Reason *string `json:"reason"`
@@ -122,6 +131,8 @@ func (w *Work) sync() {
 // Tickets is GET /api/work. A list that is old is read again; only tickets of the projects in
 // Settings are shown (a cache from before them can hold others).
 func (w *Work) Tickets() WorkList {
+	targets := w.targetsNow(nil)
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -141,7 +152,6 @@ func (w *Work) Tickets() WorkList {
 		}
 	}
 
-	target := w.target()
 	list := w.list
 
 	return WorkList{
@@ -149,11 +159,32 @@ func (w *Work) Tickets() WorkList {
 		FetchStartedAt: list.FetchStartedAt, Step: list.Step, NeedsAuth: list.NeedsAuth,
 		Error: list.Error, Truncated: list.Truncated,
 		Projects: append([]string{}, jira.Projects(w.settings())...),
-		Build: Build{
-			Repo: textOrNil(target.Repo), Base: textOrNil(target.Base),
-			Ready: target.Reason == "", Reason: textOrNil(target.Reason),
-		},
+		Build:    w.build(targets),
 	}
+}
+
+// build is where a run may build now. The default repository is offered only while it is one of
+// the repositories listed.
+func (w *Work) build(targets []Target) Build {
+	current := w.settings()
+	repos := make([]BuildRepo, 0, len(targets))
+
+	var fallback *string
+
+	for _, target := range targets {
+		repos = append(repos, BuildRepo{
+			Repo: target.Repo, Base: textOrNil(target.Base), Ready: target.Reason == "",
+			Reason: textOrNil(target.Reason),
+		})
+
+		if current.Atlassian.Jira.BuildRepo != nil {
+			if js.Lower(target.Repo) == js.Lower(*current.Atlassian.Jira.BuildRepo) {
+				fallback = &target.Repo
+			}
+		}
+	}
+
+	return Build{Repos: repos, Default: fallback, Layout: current.Atlassian.Jira.SessionLayout}
 }
 
 func (w *Work) stale() bool {
