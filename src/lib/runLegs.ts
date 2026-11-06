@@ -1,6 +1,7 @@
 // A run's legs (one per repository) as the run page reads them: which may open a PR, fix its checks, resume its session or
-// remove its worktree. Each rule copies the server's (internal/openwork), named in its comment, so the page offers a button
-// only where the server would take it.
+// remove its worktree. Each rule follows the server's (internal/openwork), named in its comment, so the page offers a button
+// only where the server would take it. RESUME is the one narrower than the server: while the run builds, a slot with no captured
+// id is offered nothing, since the page cannot see whether its session is still opening.
 import type { PrStatus, Run, RunRepo } from './types.ts'
 
 /** The legs with commits ahead of their base, in order. */
