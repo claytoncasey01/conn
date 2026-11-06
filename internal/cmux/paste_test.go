@@ -20,6 +20,7 @@ func TestNoLineToPasteHoldsAControlCharacter(t *testing.T) {
 		{"a newline in the folder", "/tmp/a\nb", "claude"},
 		{"an escape in the command", "/tmp", "claude \x1b[A"},
 		{"a bidi control in the folder", "/tmp/a\u202eb", "claude"},
+		{"a letter beyond ASCII in the folder", "/tmp/x\u0112touch pwned;#", "claude"},
 	}
 
 	for _, tt := range tests {
@@ -35,7 +36,7 @@ func TestNoLineToPasteHoldsAControlCharacter(t *testing.T) {
 				t.Errorf("a line to paste: %q", failed.ManualCommand)
 			}
 
-			if !strings.Contains(failed.Error, "control character") {
+			if !strings.Contains(failed.Error, "no command to paste") {
 				t.Errorf("error %q", failed.Error)
 			}
 		})

@@ -1,6 +1,6 @@
 // Package argv writes a program's arguments as one shell line, for the two places a person's
-// shell runs a session Conn would otherwise start itself: a terminal app's command (cmux, or the
-// person's own) and the command a person pastes. ShellLine is the only code in Conn that quotes
+// shell runs a session Conn would otherwise start itself: cmux's command and the command a person
+// pastes. ShellLine is the only code in Conn that quotes
 // for a shell; everything else passes arguments to a program directly, with no shell between.
 package argv
 
@@ -128,4 +128,61 @@ func Control(char rune) bool {
 	}
 
 	return strings.ContainsRune(bidiControls, char)
+}
+
+// The printable ASCII bytes, the only bytes a line to paste may hold.
+const (
+	printableFirst = 0x20
+	printableLast  = 0x7e
+)
+
+// PastableLine is whether line may be offered for a person to paste into a shell: every byte is
+// printable ASCII. Quoting cannot make any other byte safe there: an interactive shell's line
+// editor acts on the bytes before any quote is read. Under a C or POSIX locale bash's readline
+// reads every byte of 0x80 or more as a Meta key, so a letter such as U+0112 (bytes C4 92) is
+// ESC D then ESC Ctrl-R, revert-line, and the rest of the line is typed as a new command.
+func PastableLine(line string) bool {
+	for index := range len(line) {
+		if line[index] < printableFirst {
+			return false
+		}
+
+		if line[index] > printableLast {
+			return false
+		}
+	}
+
+	return true
+}
+
+// The invisible characters Invisible finds: the zero-width space, non-joiner and joiner, the word
+// joiner, the byte order mark (zero-width no-break space), and the tag characters.
+const (
+	zeroWidthFirst = 0x200b
+	zeroWidthLast  = 0x200d
+	wordJoiner     = 0x2060
+	byteOrderMark  = 0xfeff
+	tagsFirst      = 0xe0000
+	tagsLast       = 0xe007f
+)
+
+// Invisible is whether char draws nothing: a name holding one is shown differently from the name
+// used.
+func Invisible(char rune) bool {
+	switch char {
+	case wordJoiner, byteOrderMark:
+		return true
+	}
+
+	if char >= zeroWidthFirst {
+		if char <= zeroWidthLast {
+			return true
+		}
+	}
+
+	if char >= tagsFirst {
+		return char <= tagsLast
+	}
+
+	return false
 }

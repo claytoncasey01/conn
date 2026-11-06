@@ -359,3 +359,51 @@ func TestCheckNamesEveryProblem(t *testing.T) {
 		}
 	}
 }
+
+// TestNoLineToPasteHoldsAByteBeyondPrintableASCII: a folder holding a letter beyond ASCII (or a
+// line separator) still starts inside Conn, where no shell reads it, but neither showing the
+// command nor a failed start offers a line to paste, and both say why.
+func TestNoLineToPasteHoldsAByteBeyondPrintableASCII(t *testing.T) {
+	t.Parallel()
+
+	for _, folder := range []string{"/work/x\u0112touch pwned;#", "/work/a\u2028b"} {
+		spec := reviewSpec()
+		spec.Dir = folder
+
+		inside := newRig(settings.WhereInside)
+		if !inside.opener()(t.Context(), spec).OK {
+			t.Errorf("%q did not open inside Conn", folder)
+		}
+
+		inside.startErr = errSpawn
+		failedInside := inside.opener()(t.Context(), spec)
+
+		shown := newRig(settings.WhereCommand).opener()(t.Context(), spec)
+
+		for _, opened := range []launch.Opened{failedInside, shown} {
+			if opened.ManualCommand != "" {
+				t.Errorf("a line to paste: %q", opened.ManualCommand)
+			}
+
+			if !strings.Contains(opened.Error, "no command to paste") {
+				t.Errorf("error %q", opened.Error)
+			}
+		}
+	}
+}
+
+// TestInvisibleCharactersInTheNameOrFolderStartNothing: a name or folder holding a zero-width or
+// tag character, shown differently from what it is, is refused.
+func TestInvisibleCharactersInTheNameOrFolderStartNothing(t *testing.T) {
+	t.Parallel()
+
+	for _, spec := range []pty.Spec{
+		{Argv: []string{"claude"}, Dir: "/w", Env: nil, Name: "pr-1\u200b"},
+		{Argv: []string{"claude"}, Dir: "/w/a\ufeffb", Env: nil, Name: "n"},
+		{Argv: []string{"claude"}, Dir: "/w/a\U000e0041b", Env: nil, Name: "n"},
+	} {
+		if !errors.Is(launch.Check(spec), launch.ErrInvalidSession) {
+			t.Errorf("%+q was taken", spec.Name+" "+spec.Dir)
+		}
+	}
+}

@@ -261,3 +261,54 @@ func TestPastableRefusesWhatALineEditorActsOn(t *testing.T) {
 		})
 	}
 }
+
+// TestAPastableLineIsPrintableASCIIOnly: a line is offered to paste only when every byte is
+// printable ASCII. Under a C or POSIX locale, bash's readline reads each byte of 0x80 or more as a
+// Meta key (U+0112 is ESC D then ESC ^R, revert-line), so any other byte can rewrite the line
+// before a quote is read.
+func TestAPastableLineIsPrintableASCIIOnly(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		line     string
+		pastable bool
+	}{
+		{"plain", `cd '/work/it'\''s here' && claude --name PROJ-1`, true},
+		{"every printable byte", " !~", true},
+		{"empty", "", true},
+		{"a letter beyond ASCII", "cd /work/x\u0112touch pwned", false},
+		{"a line separator", "cd /work/x\u2028y", false},
+		{"a tab", "cd /work/x\ty", false},
+		{"DEL", "cd /work/x\x7f", false},
+		{"a byte that is not UTF-8", "cd /work/x\xff", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := argv.PastableLine(tt.line); got != tt.pastable {
+				t.Errorf("PastableLine(%q) = %v, want %v", tt.line, got, tt.pastable)
+			}
+		})
+	}
+}
+
+// TestInvisibleCharactersAreFound: the zero-width and tag characters, which make a name shown
+// differ from the name used.
+func TestInvisibleCharactersAreFound(t *testing.T) {
+	t.Parallel()
+
+	for _, char := range []rune{0x200b, 0x200c, 0x200d, 0x2060, 0xfeff, 0xe0000, 0xe0041, 0xe007f} {
+		if !argv.Invisible(char) {
+			t.Errorf("U+%04X is not found", char)
+		}
+	}
+
+	for _, char := range []rune{'a', 0x00e9, 0x200a, 0x2061, 0xe0080, 0xfefe} {
+		if argv.Invisible(char) {
+			t.Errorf("U+%04X is found", char)
+		}
+	}
+}

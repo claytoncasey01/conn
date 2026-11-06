@@ -38,6 +38,11 @@ const (
 	triedInside = "a session inside Conn"
 	triedCmux   = "a cmux workspace"
 
+	// textNotPastable is why a line to paste is not offered.
+	textNotPastable = "; the folder, the name or an argument holds a character other than " +
+		"printable ASCII, so there is no command to paste: a shell's line editor can act on it " +
+		"before any quote is read"
+
 	// commandShown is what a session set to open as a command says instead of an error.
 	commandShown = "sessions open as a command (Settings, Where sessions open): run this in a " +
 		"terminal to start the session"
@@ -102,9 +107,11 @@ func New(deps Deps) Opener {
 		case settings.WhereTerminal:
 			return startInTerminal(ctx, deps, spec)
 		case settings.WhereCommand:
+			line, why := pasteOffer(spec)
+
 			return Opened{
 				OK: false, Where: settings.WhereCommand, HostedID: "", Place: "", Tried: "",
-				Error: commandShown, ManualCommand: PasteLine(spec),
+				Error: commandShown + why, ManualCommand: line,
 			}
 		}
 
@@ -134,12 +141,14 @@ func Check(spec pty.Spec) error {
 	}
 
 	problems = append(problems, checkText("the folder", spec.Dir)...)
+	problems = append(problems, checkShown("the folder", spec.Dir)...)
 
 	if spec.Name == "" {
 		problems = append(problems, fmt.Errorf("%w: the session has no name", ErrInvalidSession))
 	}
 
 	problems = append(problems, checkText("the name", spec.Name)...)
+	problems = append(problems, checkShown("the name", spec.Name)...)
 
 	return errors.Join(problems...)
 }
@@ -167,6 +176,19 @@ func checkText(what, value string) []error {
 	return problems
 }
 
+// checkShown is what is wrong with a value people read (the folder, the name): a zero-width or
+// tag character, which makes it shown differently from what it is.
+func checkShown(what, value string) []error {
+	for _, char := range value {
+		if argv.Invisible(char) {
+			return []error{fmt.Errorf("%w: %s holds a character that draws nothing",
+				ErrInvalidSession, what)}
+		}
+	}
+
+	return nil
+}
+
 // PasteLine is the line a person pastes into their own shell to start spec: into its folder,
 // then its program, each word through argv.ShellLine. The folder is absolute, so cd never reads
 // it as an option.
@@ -174,14 +196,27 @@ func PasteLine(spec pty.Spec) string {
 	return argv.ShellLine([]string{"cd", spec.Dir}) + " && " + argv.ShellLine(spec.Argv)
 }
 
+// pasteOffer is the line to paste for spec, or none and why (to add to the words already
+// shown): a line is offered only when every byte is printable ASCII (argv.PastableLine).
+func pasteOffer(spec pty.Spec) (string, string) {
+	line := PasteLine(spec)
+	if argv.PastableLine(line) {
+		return line, ""
+	}
+
+	return "", textNotPastable
+}
+
 // startInside starts spec on a terminal Conn hosts. The program is run as it is when it is an
 // absolute path, and found on PATH otherwise; it must be found at an absolute path, so the
 // process the host starts is the program itself.
 func startInside(ctx context.Context, deps Deps, spec pty.Spec) Opened {
 	failed := func(err error) Opened {
+		line, why := pasteOffer(spec)
+
 		return Opened{
 			OK: false, Where: settings.WhereInside, HostedID: "", Place: "", Tried: triedInside,
-			Error: err.Error(), ManualCommand: PasteLine(spec),
+			Error: err.Error() + why, ManualCommand: line,
 		}
 	}
 
