@@ -1,0 +1,187 @@
+{
+ "preamble": [
+  {
+   "args": [
+    ""
+   ],
+   "out": "",
+   "name": "a new screen"
+  },
+  {
+   "args": [
+    "hello\r\n"
+   ],
+   "out": "",
+   "name": "plain text"
+  },
+  {
+   "args": [
+    "\u001b[?1h"
+   ],
+   "out": "\u001b[?1h",
+   "name": "cursor keys on"
+  },
+  {
+   "args": [
+    "\u001b[?1h\u001b[?1l"
+   ],
+   "out": "",
+   "name": "cursor keys off again"
+  },
+  {
+   "args": [
+    "\u001b="
+   ],
+   "out": "\u001b=",
+   "name": "keypad by ESC ="
+  },
+  {
+   "args": [
+    "\u001b=\u001b>"
+   ],
+   "out": "",
+   "name": "keypad off by ESC >"
+  },
+  {
+   "args": [
+    "\u001b[?66h"
+   ],
+   "out": "\u001b=",
+   "name": "keypad by mode 66"
+  },
+  {
+   "args": [
+    "\u001b[?2004h"
+   ],
+   "out": "\u001b[?2004h",
+   "name": "bracketed paste"
+  },
+  {
+   "args": [
+    "\u001b[?1004h"
+   ],
+   "out": "\u001b[?1004h",
+   "name": "focus reports"
+  },
+  {
+   "args": [
+    "\u001b[?9h"
+   ],
+   "out": "\u001b[?9h",
+   "name": "X10 mouse"
+  },
+  {
+   "args": [
+    "\u001b[?1000h"
+   ],
+   "out": "\u001b[?1000h",
+   "name": "normal mouse"
+  },
+  {
+   "args": [
+    "\u001b[?1002h"
+   ],
+   "out": "\u001b[?1002h",
+   "name": "button mouse"
+  },
+  {
+   "args": [
+    "\u001b[?1003h\u001b[?1006h"
+   ],
+   "out": "\u001b[?1003h\u001b[?1006h",
+   "name": "any-motion mouse with SGR"
+  },
+  {
+   "args": [
+    "\u001b[?1000h\u001b[?1003h"
+   ],
+   "out": "\u001b[?1003h",
+   "name": "the last mouse mode wins"
+  },
+  {
+   "args": [
+    "\u001b[?1003h\u001b[?1000l"
+   ],
+   "out": "",
+   "name": "any mouse mode reset ends tracking"
+  },
+  {
+   "args": [
+    "\u001b[?1006h\u001b[?1006l"
+   ],
+   "out": "",
+   "name": "SGR encoding off"
+  },
+  {
+   "args": [
+    "\u001b[?1016h"
+   ],
+   "out": "\u001b[?1016h",
+   "name": "SGR pixels"
+  },
+  {
+   "args": [
+    "\u001b[?1016h\u001b[?1006h"
+   ],
+   "out": "\u001b[?1006h",
+   "name": "SGR pixels then SGR"
+  },
+  {
+   "args": [
+    "\u001b[?1049h"
+   ],
+   "out": "\u001b[?1049h",
+   "name": "the alternate screen"
+  },
+  {
+   "args": [
+    "\u001b[?47h"
+   ],
+   "out": "\u001b[?1049h",
+   "name": "the alternate screen by 47"
+  },
+  {
+   "args": [
+    "\u001b[?1049h\u001b[?1049l"
+   ],
+   "out": "",
+   "name": "back to the main screen"
+  },
+  {
+   "args": [
+    "\u001b[?2004h\u001b[?1004h\u001b[?1003h\u001b[?1006h\u001b[?25l"
+   ],
+   "out": "\u001b[?2004h\u001b[?1004h\u001b[?1003h\u001b[?1006h",
+   "name": "Claude Code's start"
+  },
+  {
+   "args": [
+    "\u001b[?1;2004;1002;1006;1049h"
+   ],
+   "out": "\u001b[?1049h\u001b[?1h\u001b[?2004h\u001b[?1002h\u001b[?1006h",
+   "name": "many modes in one list"
+  },
+  {
+   "args": [
+    "\u001b[?1;2004;1004;1003;1006;1049h\u001b=\u001bc"
+   ],
+   "out": "",
+   "name": "a full reset"
+  },
+  {
+   "args": [
+    "\u001b[?1;2004;1004;1003;1006h\u001b=\u001b[!p"
+   ],
+   "out": "\u001b[?1003h\u001b[?1006h",
+   "name": "a soft reset keeps the mouse"
+  },
+  {
+   "args": [
+    "\u001b[?2004;1003;1006h\u001b[?25;25;25;25;25;25;25;25;25;25;25;25;25;25;25;25;25h"
+   ],
+   "out": "",
+   "name": "a list too long to read is taken as everything off",
+   "failSafe": true
+  }
+ ]
+}

@@ -304,6 +304,10 @@ func (s *Screen) escapeDispatch(final byte) {
 		s.reverseIndex()
 	case 'c':
 		s.reset()
+	case '=':
+		s.keypad = true
+	case '>':
+		s.keypad = false
 	}
 }
 

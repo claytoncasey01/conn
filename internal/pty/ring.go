@@ -64,7 +64,13 @@ func (r *ring) reserve(size int) {
 
 // contents is a copy of the scrollback, oldest byte first.
 func (r *ring) contents() []byte {
-	out := make([]byte, 0, len(r.data))
+	return r.contentsAfter(nil)
+}
+
+// contentsAfter is prefix then contents, in one new slice.
+func (r *ring) contentsAfter(prefix []byte) []byte {
+	out := make([]byte, 0, len(prefix)+len(r.data))
+	out = append(out, prefix...)
 	out = append(out, r.data[r.start:]...)
 
 	return append(out, r.data[:r.start]...)

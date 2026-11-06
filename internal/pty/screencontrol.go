@@ -53,6 +53,8 @@ func (s *Screen) controlDispatch(final byte) {
 	s.noteControlQuery(final)
 
 	if s.parser.intermediateCount > 0 {
+		s.intermediateControl(final)
+
 		return
 	}
 
@@ -255,11 +257,12 @@ func (s *Screen) privateModes(final byte) {
 		s.privateMode(s.parser.parameters[index], set)
 	}
 
-	// The modes past parametersMax are not read, so whether the program turned focus reports
-	// on or off among them is not known: they count as off, so a viewer's reports count as
-	// input, the safe side.
+	// The modes past parametersMax are not read, so whether the program turned a mode on or off
+	// among them is not known: every mode a viewer sends input by counts as off. A viewer's focus
+	// reports then count as input, and a paste with a line break is held back by the page, the
+	// safe sides.
 	if s.parser.parameterCount > parametersMax {
-		s.focusReports = false
+		s.resetInputModes()
 	}
 }
 
@@ -281,6 +284,8 @@ func (s *Screen) privateMode(mode int, set bool) {
 		s.bracketedPaste = set
 	case modeFocusReports:
 		s.focusReports = set
+	default:
+		s.inputMode(mode, set)
 	}
 }
 
@@ -344,4 +349,30 @@ func (s *Screen) colourLength(index int) int {
 	}
 
 	return 0
+}
+
+// softResetIntermediate and softResetFinal spell DECSTR, CSI ! p.
+const (
+	softResetIntermediate = '!'
+	softResetFinal        = 'p'
+)
+
+// intermediateControl acts on the one control sequence with an intermediate the screen knows,
+// DECSTR, a soft reset.
+func (s *Screen) intermediateControl(final byte) {
+	if s.parser.marker != 0 {
+		return
+	}
+
+	if s.parser.intermediateCount != 1 {
+		return
+	}
+
+	if s.parser.intermediates[0] != softResetIntermediate {
+		return
+	}
+
+	if final == softResetFinal {
+		s.softReset()
+	}
 }

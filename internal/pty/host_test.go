@@ -876,3 +876,80 @@ func TestEndedSessionsAreBounded(t *testing.T) {
 		t.Fatal("the newest ended session was forgotten")
 	}
 }
+
+// A replay starts with the modes the program's screen is in, so a viewer that joins after the
+// sequences that set them have left the scrollback still has them: a paste stays bracketed, the
+// mouse and the cursor keys stay as the program asked.
+func TestAReplayStartsWithTheModesTheProgramSet(t *testing.T) {
+	t.Parallel()
+
+	host, spawner := newFakeHost(t, pty.DefaultLimits())
+
+	sessionID, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	process := spawner.last(t)
+	process.feed(t, []byte("\x1b[?2004h\x1b[?1h\x1b[?1003;1006h"))
+
+	// Enough plain output that the mode switches leave the scrollback.
+	scrollbackBytesMax := pty.DefaultLimits().ScrollbackBytesMax
+
+	var everything []byte
+	for len(everything) < scrollbackBytesMax+pty.ReadBufferBytes {
+		chunk := bytes.Repeat([]byte{'x'}, pty.ReadBufferBytes)
+		everything = append(everything, chunk...)
+		process.feed(t, chunk)
+	}
+
+	const preamble = "\x1b[?1h\x1b[?2004h\x1b[?1003h\x1b[?1006h"
+
+	want := append([]byte(preamble), everything[len(everything)-scrollbackBytesMax:]...)
+
+	viewer := subscribeAfter(t, host, sessionID, want)
+	viewer.Close()
+
+	// Once the program has turned them off, a replay holds no modes.
+	process.feed(t, []byte("\x1b[?2004l\x1b[?1l\x1b[?1003l\x1b[?1006l"))
+	process.finish(0)
+	waitEnded(t, host, sessionID)
+
+	ended, err := host.Subscribe(sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ended.Close()
+
+	if bytes.HasPrefix(ended.Replay, []byte("\x1b[?1h")) {
+		t.Fatalf("an ended session's replay starts with modes the program turned off")
+	}
+}
+
+// An ended session's replay starts with its modes too.
+func TestAnEndedSessionsReplayStartsWithItsModes(t *testing.T) {
+	t.Parallel()
+
+	host, spawner := newFakeHost(t, pty.DefaultLimits())
+
+	sessionID, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	process := spawner.last(t)
+	process.feed(t, []byte("\x1b[?2004hbye"))
+	process.finish(0)
+	waitEnded(t, host, sessionID)
+
+	late, err := host.Subscribe(sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer late.Close()
+
+	const want = "\x1b[?2004h\x1b[?2004hbye"
+	if string(late.Replay) != want {
+		t.Fatalf("replay = %q, want %q", late.Replay, want)
+	}
+}

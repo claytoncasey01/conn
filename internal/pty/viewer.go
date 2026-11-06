@@ -71,7 +71,7 @@ func (h *Host) Subscribe(sessionID ID) (Viewer, error) {
 		ended := ViewerEnd{Dropped: false, Ended: true, ExitCode: *watched.exitCode}
 
 		return Viewer{
-			Replay: watched.scrollback.contents(), Output: output,
+			Replay: watched.replay(), Output: output,
 			Ending: func() ViewerEnd { return ended }, close: nil,
 		}, nil
 	}
@@ -88,7 +88,7 @@ func (h *Host) Subscribe(sessionID ID) (Viewer, error) {
 	go h.pump(added)
 
 	return Viewer{
-		Replay: watched.scrollback.contents(),
+		Replay: watched.replay(),
 		Output: added.output,
 		Ending: func() ViewerEnd { return h.viewerEnd(added) },
 		close:  func() { h.unsubscribe(watched, added) },
@@ -153,4 +153,15 @@ func (h *Host) unsubscribe(watched *session, leaving *viewer) {
 	if index >= 0 {
 		watched.viewers = slices.Delete(watched.viewers, index, index+1)
 	}
+}
+
+// replay is what a new viewer is sent first: the modes the program's screen is in, then the
+// scrollback. The caller holds Host.mu; the screen's own lock is taken inside it, and nothing
+// takes Host.mu while holding the screen's.
+func (watched *session) replay() []byte {
+	watched.screenMu.Lock()
+	preamble := watched.screen.ModePreamble()
+	watched.screenMu.Unlock()
+
+	return watched.scrollback.contentsAfter(preamble)
 }

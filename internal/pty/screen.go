@@ -52,6 +52,13 @@ type Screen struct {
 	origin         bool
 	bracketedPaste bool
 	focusReports   bool
+	// cursorKeys is DECCKM (mode 1), keypad the keypad's application mode, mouseTracking the
+	// mouse mode in force (0, 9, 1000, 1002 or 1003) and mouseEncoding its encoding (0, 1006 or
+	// 1016): screenmodes.go.
+	cursorKeys    bool
+	keypad        bool
+	mouseTracking int
+	mouseEncoding int
 	// lastPrinted is the character a repeat (REP) repeats.
 	lastPrinted rune
 	parser      parser
@@ -116,7 +123,8 @@ func NewScreen(size Size) (*Screen, error) {
 		size: size, columns: columns, rows: rows,
 		main: newGrid(columns, rows), alternate: newGrid(columns, rows), onAlternate: false,
 		cursor: cursorState{}, top: 0, bottom: rows - 1, autowrap: true, origin: false,
-		bracketedPaste: false, focusReports: false,
+		bracketedPaste: false, focusReports: false, cursorKeys: false, keypad: false,
+		mouseTracking: mouseOff, mouseEncoding: mouseEncodingDefault,
 		lastPrinted: cellEmpty, parser: parser{}, queries: make([]Query, 0, queriesPendingMax),
 		generation: 0, changed: false,
 		wide: wideRanges(), graphics: lineDrawing(), answered: answeredQueries(),
@@ -324,8 +332,7 @@ func (s *Screen) reset() {
 	s.top, s.bottom = 0, s.rows-1
 	s.autowrap = true
 	s.origin = false
-	s.bracketedPaste = false
-	s.focusReports = false
+	s.resetInputModes()
 	s.lastPrinted = cellEmpty
 }
 
