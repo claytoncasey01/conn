@@ -22,3 +22,6 @@ func ProcArgsEnvironment(raw []byte) ([]string, bool) { return procArgsEnvironme
 func CmuxIDOf(environment []string, name string) (string, bool) {
 	return cmuxIDOf(environment, name)
 }
+
+// CloseFailure is closeFailure.
+func CloseFailure(err error) Reply { return closeFailure(err) }

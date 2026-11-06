@@ -8,6 +8,7 @@ import (
 
 	"github.com/claytoncasey01/conn/internal/ask"
 	"github.com/claytoncasey01/conn/internal/pty"
+	"github.com/claytoncasey01/conn/internal/sessions"
 )
 
 // TestReviewsCanCloseAHostedSessionThroughTheHost: the input state and the close Reviews uses to
@@ -117,5 +118,47 @@ func TestAHostedCloseIsRefusedUnlessTheReadStillStands(t *testing.T) {
 		if stops := program.stops(); len(stops) != 0 {
 			t.Errorf("program %d was signalled: %v", program.pid, stops)
 		}
+	}
+}
+
+// TestARefusedHostedCloseSaysWhyInAClosesWords: every refusal the host gives a close is a plain
+// answer, never a 500 holding the host's error.
+func TestARefusedHostedCloseSaysWhyInAClosesWords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		code int
+		want string
+	}{
+		{
+			"a paste open", pty.ErrPasteOpen, http.StatusConflict,
+			"a paste into the session's terminal is open, so nothing was closed",
+		},
+		{
+			"not taking input", pty.ErrInputBlocked, http.StatusConflict,
+			"the session is not taking input, so nothing was closed",
+		},
+		{
+			"other input", pty.ErrOtherInput, http.StatusConflict,
+			"something was typed into the session's terminal just now, so nothing was closed",
+		},
+		{"ended", pty.ErrEnded, http.StatusNotFound, "no such live session"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			reply := sessions.CloseFailure(tt.err)
+			if reply.Code != tt.code {
+				t.Errorf("code %d", reply.Code)
+			}
+
+			if body(reply) != `{"error":"`+tt.want+`"}` {
+				t.Errorf("body %s", body(reply))
+			}
+		})
 	}
 }

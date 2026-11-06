@@ -82,6 +82,13 @@ func (l *Loop) closeHosted(ctx context.Context, sessionID pty.ID) Reply {
 // closeFailure is a hosted close the host refused or could not finish, in a close's words.
 func closeFailure(err error) Reply {
 	switch {
+	// Before ErrOtherInput, which it wraps.
+	case errors.Is(err, pty.ErrPasteOpen):
+		return failure(http.StatusConflict, "a paste into the session's terminal is open, so "+
+			"nothing was closed")
+	case errors.Is(err, pty.ErrInputBlocked):
+		return failure(http.StatusConflict, "the session is not taking input, so nothing was "+
+			"closed")
 	case errors.Is(err, pty.ErrNotForeground):
 		return failure(http.StatusConflict, "a program the session started has its terminal, "+
 			"so nothing was closed")
