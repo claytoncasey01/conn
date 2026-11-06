@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import { Terminal } from '@xterm/xterm'
 import { FakeFrames, FakeSocket } from './terminalFakes.test.ts'
 import {
-  attach, cleanPaste, closeNotice, fitSize, forwardable, inputFrames, isMotionReport, linkTarget, parseFrame, QUIET_CSI, QUIET_DCS,
+  attach, cleanPaste, closeNotice, fitSize, forwardable, inputFrame, isMotionReport, linkTarget, parseFrame, QUIET_CSI, QUIET_DCS,
   QUIET_OSC, silence, terminalOptions, CELLS_MAX, FRAME_BYTES_MAX, INPUT_BYTES_MAX, PASTE_BYTES_MAX, SIZE_MAX,
   WRITE_PENDING_BYTES_LOW, WRITE_PENDING_BYTES_MAX,
   type View,
@@ -234,53 +234,48 @@ for (const [name, data, focused, want] of forwarded) {
 const utf8 = (s: string) => new TextEncoder().encode(s).length
 
 test('a keystroke is one input frame', () => {
-  assert.deepEqual(inputFrames('a'), ['{"t":"input","d":"a"}'])
+  assert.equal(inputFrame('a'), '{"t":"input","d":"a"}')
 })
 
-const pastes: [string, string][] = [
-  ['ASCII', 'a'.repeat(200_000)],
-  ['control bytes, six each as JSON', '\x01'.repeat(70_000)],
-  ['a bracketed paste', '\x1b[200~' + 'x'.repeat(100_000) + '\x1b[201~'],
-  ['four-byte characters', '😀'.repeat(40_000)],
-  ['mixed', ('é"\\\n😀\x1b' + 'z'.repeat(50)).repeat(3000)],
+const fits: [string, string][] = [
+  ['ASCII', 'a'.repeat(INPUT_BYTES_MAX)],
+  ['a whole bracketed paste at the cap', `\x1b[200~${'x'.repeat(PASTE_BYTES_MAX)}\x1b[201~`],
+  ['four-byte characters', '😀'.repeat(INPUT_BYTES_MAX / 4)],
+  ['escapes within the envelope', '\x01'.repeat(42)],
 ]
 
-for (const [name, text] of pastes) {
-  test(`a large paste of ${name} is split into frames the server takes, in order, splitting no character`, () => {
-    const frames = inputFrames(text)
-    assert.ok(frames, 'not refused')
-    assert.ok(frames.length > 1)
-    let joined = ''
-    for (const frame of frames) {
-      assert.ok(utf8(frame) <= FRAME_BYTES_MAX, `frame of ${utf8(frame)} bytes`)
-      const parsed = JSON.parse(frame) as { t: string; d: string }
-      assert.deepEqual(Object.keys(parsed), ['t', 'd'])
-      assert.equal(parsed.t, 'input')
-      assert.ok(utf8(parsed.d) >= 1)
-      assert.ok(utf8(parsed.d) <= INPUT_BYTES_MAX)
-      assert.equal(parsed.d, parsed.d.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '?'), 'no half character')
-      joined += parsed.d
-    }
-    assert.equal(joined, text)
+for (const [name, text] of fits) {
+  test(`one frame the server takes for ${name}`, () => {
+    const frame = inputFrame(text)
+    assert.ok(frame)
+    assert.ok(utf8(frame) <= FRAME_BYTES_MAX)
+    assert.equal((JSON.parse(frame) as { d: string }).d, text)
   })
 }
 
-test('a paste over the cap is refused whole, not cut', () => {
-  assert.equal(inputFrames('x'.repeat(PASTE_BYTES_MAX + 1)), null)
-  assert.equal(inputFrames('é'.repeat(PASTE_BYTES_MAX / 2 + 1)), null)
-  assert.ok(inputFrames('x'.repeat(PASTE_BYTES_MAX)))
-})
+const refusedInput: [string, string][] = [
+  ['one byte over', 'a'.repeat(INPUT_BYTES_MAX + 1)],
+  ['two-byte characters over', 'é'.repeat(INPUT_BYTES_MAX / 2 + 1)],
+  ['escaped controls past the frame', '\x01'.repeat(20_000)],
+  ['line breaks past the frame', '\r'.repeat(40_000)],
+]
+
+for (const [name, text] of refusedInput) {
+  test(`input that is not one frame is refused whole: ${name}`, () => {
+    assert.equal(inputFrame(text), null)
+  })
+}
 
 test('the paste cap is under the server\'s 1 MiB input burst', () => {
   assert.ok(PASTE_BYTES_MAX < 1 << 20)
 })
 
 test('a lone half of a surrogate pair is sent as U+FFFD: the server refuses text that is not UTF-8', () => {
-  assert.deepEqual(inputFrames('a\uD800b'), ['{"t":"input","d":"a�b"}'])
+  assert.equal(inputFrame('a\uD800b'), '{"t":"input","d":"a\uFFFDb"}')
 })
 
 test('nothing is sent for empty input', () => {
-  assert.deepEqual(inputFrames(''), [])
+  assert.equal(inputFrame(''), null)
 })
 
 // ---- what the server sends ----
@@ -399,7 +394,8 @@ class FakeScreen {
   }
   write(data: Uint8Array, done: () => void) {
     if (this.throws) throw new Error('write data discarded')
-    this.writes.push(data)
+    // An empty write only asks to be told when everything before it is drawn
+    if (data.length > 0) this.writes.push(data)
     this.waiting.push(done)
   }
   /** Parses every write so far. */
@@ -421,10 +417,12 @@ function rig() {
   return { socket, screen, views, link, last, frames }
 }
 
+/** Open, replayed, and the replay drawn: live. */
 function live() {
   const parts = rig()
   parts.socket.open()
   parts.socket.text('{"t":"replay-end"}')
+  parts.screen.drain()
   return parts
 }
 
@@ -446,26 +444,63 @@ test('the replay is written as bytes, then replay-end makes the terminal live', 
   socket.bytes('old ')
   socket.bytes('screen')
   socket.text('{"t":"replay-end"}')
+  assert.equal(last().phase, 'replaying', 'not live until the replay is drawn')
+  screen.drain()
   assert.equal(last().phase, 'live')
   socket.bytes(' live')
   assert.equal(screen.text(), 'old screen live')
   for (const w of screen.writes) assert.ok(w instanceof Uint8Array, 'bytes, never a string')
 })
 
-test('nothing is typed before the replay has ended, and keys are typed once it has', () => {
-  const { socket, link } = rig()
+test('nothing is typed before the replay has ended and been drawn, and keys are typed once it has', () => {
+  const { socket, screen, link } = rig()
   socket.open()
+  socket.bytes('replay')
   link.input('a', true)
   assert.deepEqual(socket.sent, [])
   socket.text('{"t":"replay-end"}')
   link.input('b', true)
+  assert.deepEqual(socket.sent, [], 'the replay is still being drawn')
+  screen.drain()
+  link.input('c', true)
+  assert.deepEqual(socket.sent, ['{"t":"input","d":"c"}'])
+})
+
+test('keys are held while the page is behind the program, and typed again once it has caught up', () => {
+  const { socket, screen, link, last } = live()
+  const chunk = new Uint8Array(1 << 20).buffer
+  for (let i = 0; i < 2; i++) socket.message(chunk.slice(0))
+  assert.equal(last().lagging, true)
+  link.input('a', true)
+  assert.deepEqual(socket.sent, [])
+  assert.match(last().note, /catching up/)
+  screen.drain()
+  link.input('b', true)
   assert.deepEqual(socket.sent, ['{"t":"input","d":"b"}'])
 })
 
-test('focus reports and unfocused mouse reports are never typed', () => {
-  const { socket, link } = rig()
+test('the connection says when output is still waiting to be drawn', () => {
+  const { socket, screen, link } = live()
+  assert.equal(link.drawing(), false)
+  socket.bytes('x')
+  assert.equal(link.drawing(), true)
+  screen.drain()
+  assert.equal(link.drawing(), false)
+})
+
+test('every frame of output is announced, so a paste waiting for a confirmation can go stale', () => {
+  const socket = new FakeSocket()
+  const screen = new FakeScreen()
+  let heard = 0
+  attach(() => socket, screen, () => {}, new FakeFrames().frame, () => void heard++)
   socket.open()
-  socket.text('{"t":"replay-end"}')
+  socket.bytes('a')
+  socket.bytes('b')
+  assert.equal(heard, 2)
+})
+
+test('focus reports and unfocused mouse reports are never typed', () => {
+  const { socket, link } = live()
   link.input('\x1b[I', true)
   link.input('\x1b[O', false)
   link.input('\x1b[<35;1;1M', false)
@@ -473,12 +508,24 @@ test('focus reports and unfocused mouse reports are never typed', () => {
 })
 
 test('a paste over the cap types nothing and says so', () => {
-  const { socket, link, last } = rig()
-  socket.open()
-  socket.text('{"t":"replay-end"}')
-  link.input('x'.repeat(PASTE_BYTES_MAX + 1), true)
+  const { socket, link, last } = live()
+  link.input('x'.repeat(INPUT_BYTES_MAX + 1), true)
   assert.deepEqual(socket.sent, [])
   assert.match(last().note, /too large/)
+})
+
+test('input that would need more than one frame is refused whole, never cut: escaped control bytes count', () => {
+  const { socket, link, last } = live()
+  // Under the byte cap, but each tab is two bytes as JSON
+  link.input('\t'.repeat(PASTE_BYTES_MAX), true)
+  assert.deepEqual(socket.sent, [])
+  assert.match(last().note, /too large/)
+  link.input('x'.repeat(PASTE_BYTES_MAX), true)
+  assert.equal(socket.sent.length, 1)
+})
+
+test('the paste cap is one input frame less the two paste markers', () => {
+  assert.equal(PASTE_BYTES_MAX, INPUT_BYTES_MAX - 12)
 })
 
 test('the exit frame shows the exit code and stops typing; the close after it changes nothing', () => {
@@ -623,18 +670,6 @@ for (const [name, text, want] of cleaned) {
   })
 }
 
-test('a paste marker is never split between frames, wherever the frame boundary falls', () => {
-  // The first frame ends 1 to 6 bytes into where the end marker would fall
-  for (let into = 1; into <= 6; into++) {
-    const body = 'x'.repeat(INPUT_BYTES_MAX - 6 - 6 + into)
-    const frames = inputFrames(`\x1b[200~${body}\x1b[201~`)
-    assert.ok(frames)
-    const texts = frames.map(f => (JSON.parse(f) as { d: string }).d)
-    assert.equal(texts.length, 2, `into ${into}`)
-    for (const text of texts) assert.match(text.replace(/\x1b\[20[01]~/g, ''), /^x*$/, `a frame holds part of a marker (into ${into})`)
-    assert.equal(texts.join(''), `\x1b[200~${body}\x1b[201~`)
-  }
-})
 
 // ---- pointer motion ----
 

@@ -18,8 +18,14 @@ export const SESSION_ID = /^[0-9a-f]{32}$/
 export const INPUT_BYTES_MAX = 64 << 10
 /** The server's read limit: an input frame's text plus its JSON envelope. */
 export const FRAME_BYTES_MAX = INPUT_BYTES_MAX + 256
-/** The largest paste typed, under the server's 1 MiB input burst so a paste never closes the terminal for its rate. */
-export const PASTE_BYTES_MAX = 256 << 10
+/** The bytes the two bracketed-paste markers add around a paste. */
+const PASTE_MARKER_BYTES = 12
+/**
+ * The largest paste typed: one input frame with its markers, so a paste is never split. A paste split over frames could
+ * lose its tail (the server drops input a program is not reading), and with it the end marker, leaving the program inside
+ * a paste where every later key is pasted text. A larger paste is refused whole.
+ */
+export const PASTE_BYTES_MAX = INPUT_BYTES_MAX - PASTE_MARKER_BYTES
 /** The host's terminal size bounds: each side, and the cells in all. */
 export const SIZE_MAX = 1000
 export const CELLS_MAX = 1 << 18
@@ -31,8 +37,6 @@ export const RESIZE_DEBOUNCE_MS = 150
 const SERVER_FRAME_CHARS_MAX = 64
 /** The longest link a hyperlink may open. */
 const LINK_CHARS_MAX = 2048
-/** The bytes of `{"t":"input","d":""}` around an input frame's text. */
-const INPUT_ENVELOPE_BYTES = 20
 
 // ---- answering nothing ----
 
@@ -205,52 +209,26 @@ export const hasLineBreak = (text: string): boolean => /[\r\n]/.test(text)
 
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
 
-/** The UTF-8 bytes of one code point. */
-const utf8Bytes = (point: number): number => (point < 0x80 ? 1 : point < 0x800 ? 2 : point < 0x10000 ? 3 : 4)
-/** The bytes one character takes in a JSON string: an escape for the controls, the quote and the backslash. */
-const jsonBytes = (char: string, point: number): number => (point < 0x80 ? JSON.stringify(char).length - 2 : utf8Bytes(point))
+const encoder = new TextEncoder()
+/** The UTF-8 bytes of text. */
+const utf8Length = (text: string): number => encoder.encode(text).length
 
-const inputFrame = (text: string): string => JSON.stringify({ t: 'input', d: text })
-
-/** The sequences xterm.js adds to input that a frame never splits: the paste markers. */
-const ATOMIC = /\x1b\[20[01]~|[\s\S]/gu
+const inputFrameText = (text: string): string => JSON.stringify({ t: 'input', d: text })
 
 /**
- * Input as the frames that type it, each within the server's limits, splitting no character and no paste marker (were a
- * frame after the split lost, half a marker would be typed as keys); null for a paste over PASTE_BYTES_MAX, which is refused
- * whole rather than cut. A lone half of a surrogate pair becomes U+FFFD.
+ * Input as the one frame that types it, within the server's limits (its text at most INPUT_BYTES_MAX, the frame at most
+ * FRAME_BYTES_MAX once escaped as JSON); null when it would need more, as it is refused whole rather than cut. A lone half
+ * of a surrogate pair becomes U+FFFD.
  */
-export function inputFrames(data: string): string[] | null {
+export function inputFrame(data: string): string | null {
   // A string's UTF-16 length is never more than its UTF-8 bytes, so a longer one is over the cap without counting
-  if (data.length > PASTE_BYTES_MAX) return null
+  if (data.length > INPUT_BYTES_MAX) return null
+  if (data === '') return null
   const text = data.replace(LONE_SURROGATE, '\uFFFD')
-  const frames: string[] = []
-  let chunk = ''
-  let chunkBytes = 0
-  let chunkJson = 0
-  let total = 0
-  for (const unit of text.match(ATOMIC) ?? []) {
-    let bytes = 0
-    let json = 0
-    for (const char of unit) {
-      const point = char.codePointAt(0) ?? 0
-      bytes += utf8Bytes(point)
-      json += jsonBytes(char, point)
-    }
-    total += bytes
-    if (total > PASTE_BYTES_MAX) return null
-    if (chunkBytes + bytes > INPUT_BYTES_MAX || INPUT_ENVELOPE_BYTES + chunkJson + json > FRAME_BYTES_MAX) {
-      frames.push(inputFrame(chunk))
-      chunk = ''
-      chunkBytes = 0
-      chunkJson = 0
-    }
-    chunk += unit
-    chunkBytes += bytes
-    chunkJson += json
-  }
-  if (chunk !== '') frames.push(inputFrame(chunk))
-  return frames
+  if (utf8Length(text) > INPUT_BYTES_MAX) return null
+  const frame = inputFrameText(text)
+  if (utf8Length(frame) > FRAME_BYTES_MAX) return null
+  return frame
 }
 
 // ---- size ----
@@ -355,8 +333,13 @@ export type Phase = 'connecting' | 'replaying' | 'live' | 'ended' | 'closed'
 export type View = { phase: Phase; exitCode: number | null; notice: Notice | null; note: string; lagging: boolean }
 
 export type Link = {
-  /** Types what the person typed, if it is theirs and the terminal is live; pointer motion at most once a frame. */
+  /**
+   * Types what the person typed, if it is theirs, the terminal is live and the page is not behind the program; pointer
+   * motion at most once a frame.
+   */
   input(data: string, focused: boolean): void
+  /** Whether output handed to the screen is still waiting to be drawn: the screen's modes may not be the program's yet. */
+  drawing(): boolean
   /** Asks the host for a size, once open and only when it changed. */
   resize(size: Size): void
   /** Closes the terminal; nothing more is shown or drawn. */
@@ -367,13 +350,17 @@ export type Link = {
 export type Frame = (run: () => void) => void
 
 const NORMAL_CLOSE = 1000
+/** What the panel says of input refused for its size, or held while the page catches up. */
+export const TOO_LARGE = `That is too large to type at once: at most ${PASTE_BYTES_MAX >> 10} KiB, sent whole. Nothing was typed.`
+const HELD = 'The terminal is catching up with the program, so nothing was typed. Try again in a moment.'
 const FELL_BEHIND: Notice = { text: 'This page fell behind the program\'s output, so the terminal was closed.', reconnect: true }
 
 /**
  * Attaches to a terminal: clears the screen, opens the socket, writes the replay and then live output as bytes, and
- * reports each change of view. It never reconnects by itself.
+ * reports each change of view and each frame of output (`heard`). It goes live only once the replay's last byte is drawn,
+ * so nothing is typed against a screen, or modes, the program has already left. It never reconnects by itself.
  */
-export function attach(open: () => Socket | null, screen: Screen, show: (view: View) => void, frame: Frame): Link {
+export function attach(open: () => Socket | null, screen: Screen, show: (view: View) => void, frame: Frame, heard: () => void = () => {}): Link {
   let view: View = { phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false }
   let wanted: Size | null = null
   let sent: Size | null = null
@@ -389,7 +376,7 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   const socket = open()
   if (!socket) {
     update({ phase: 'closed', notice: closeNotice(1006, '', null) })
-    return { input: () => {}, resize: () => {}, detach: () => {} }
+    return { input: () => {}, drawing: () => false, resize: () => {}, detach: () => {} }
   }
   socket.binaryType = 'arraybuffer'
   const opened = () => view.phase !== 'connecting' && view.phase !== 'closed'
@@ -419,6 +406,16 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
     }
     if (!view.lagging && pending > WRITE_PENDING_BYTES_LOW) update({ lagging: true })
   }
+  // An empty write is drawn after everything written before it: the replay's last byte
+  const replayDrawn = () => {
+    try {
+      screen.write(new Uint8Array(0), () => {
+        if (view.phase === 'replaying') update({ phase: 'live' })
+      })
+    } catch {
+      fellBehind()
+    }
+  }
   socket.onopen = () => {
     if (socket.protocol !== TERMINAL_PROTOCOL) {
       socket.close(NORMAL_CLOSE)
@@ -431,11 +428,14 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   socket.onmessage = (event: MessageEvent<unknown>) => {
     // Nothing from a connection the page has left or closed is drawn: a reconnect's new screen holds only its own replay
     if (detached || view.phase === 'closed') return
-    if (event.data instanceof ArrayBuffer) return draw(event.data)
+    if (event.data instanceof ArrayBuffer) {
+      heard()
+      return draw(event.data)
+    }
     if (typeof event.data !== 'string') return
     const message = parseFrame(event.data)
     if (message?.t === 'replay-end') {
-      if (view.phase === 'replaying') update({ phase: 'live' })
+      if (view.phase === 'replaying') replayDrawn()
     } else if (message?.t === 'exit') {
       update({ phase: 'ended', exitCode: message.code, notice: closeNotice(NORMAL_CLOSE, '', message.code) })
     }
@@ -447,13 +447,13 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   }
   socket.onerror = () => {}
   const typeFrames = (data: string) => {
-    const frames = inputFrames(data)
-    if (!frames) {
-      update({ note: `That paste is too large to type: at most ${PASTE_BYTES_MAX >> 10} KiB at once.` })
+    const text = inputFrame(data)
+    if (text === null) {
+      update({ note: TOO_LARGE })
       return
     }
     if (view.note !== '') update({ note: '' })
-    for (const text of frames) socket.send(text)
+    socket.send(text)
   }
   // The newest pointer motion waits for the next frame, so a fast pointer sends one report a frame, not one an event
   const sendMotion = () => {
@@ -467,6 +467,11 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
     input(data, focused) {
       if (view.phase !== 'live') return
       if (!forwardable(data, focused)) return
+      // Behind the program, the screen shown is not the program's: a key would answer something not yet drawn
+      if (view.lagging) {
+        update({ note: HELD })
+        return
+      }
       if (isMotionReport(data)) {
         if (motion === null) frame(sendMotion)
         motion = data
@@ -476,6 +481,7 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
       sendMotion()
       typeFrames(data)
     },
+    drawing: () => pending > 0,
     resize(size) {
       const fitted = fitSize(size)
       if (!fitted) return

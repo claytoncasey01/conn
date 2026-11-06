@@ -58,3 +58,27 @@ test('a reset alone loses the modes, which is what the preamble is for', async (
   assert.ok(claude)
   assert.notDeepEqual(await modesAfter('', true), await modesAfter(claude.args[0], false))
 })
+
+/** The main buffer's lines, as a viewer's terminal ends with them after `replay`. */
+async function mainAfter(replay: string): Promise<string[]> {
+  const term = new Terminal(terminalOptions())
+  try {
+    silence(term.parser)
+    term.reset()
+    await new Promise<void>(done => term.write(replay, done))
+    const lines: string[] = []
+    const main = term.buffer.normal
+    for (let row = 0; row < main.length; row++) lines.push(main.getLine(row)?.translateToString(true) ?? '')
+    return lines.filter(line => line !== '')
+  } finally {
+    term.dispose()
+  }
+}
+
+test('an editor opened inside the replay keeps the main screen for when it exits: the host adds no switch in front', async () => {
+  // What the host sends (internal/pty TestAReplayDoesNotRepeatAnAlternateSwitchItHolds): the window, with no preamble
+  const window = 'MAIN-1\r\nMAIN-2\r\n\x1b[?1049hVIM'
+  assert.deepEqual(await mainAfter(window + '\x1b[?1049l'), ['MAIN-1', 'MAIN-2'])
+  // A switch in front would have drawn the main screen's lines on the alternate one, lost when the editor exits
+  assert.deepEqual(await mainAfter('\x1b[?1049h' + window + '\x1b[?1049l'), [])
+})

@@ -43,6 +43,7 @@
   function start(into: HTMLDivElement, look: Look): Panel {
     return mount({
       host: into,
+      page: window,
       makeTerminal: options => new Terminal(options),
       makeFit: () => new FitAddon(),
       makeUnicode: () => new Unicode11Addon(),

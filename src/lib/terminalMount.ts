@@ -10,7 +10,7 @@
 // - LEAVE_KEY leaves the terminal, so a keyboard is never trapped in it.
 // - A reconnect is a new terminal, so nothing queued for the old one is drawn after the replay.
 import type { ITerminalAddon, ITerminalOptions, ITheme, Terminal } from '@xterm/xterm'
-import { attach, cleanPaste, fitSize, hasLineBreak, isMouseRelease, isMouseReport, linkTarget, RESIZE_DEBOUNCE_MS, silence, terminalOptions } from './terminal.ts'
+import { attach, cleanPaste, fitSize, hasLineBreak, inputFrame, isMouseRelease, isMouseReport, linkTarget, RESIZE_DEBOUNCE_MS, silence, terminalOptions, TOO_LARGE } from './terminal.ts'
 import type { Frame, LinkCallbacks, Link, Size, Socket, View } from './terminal.ts'
 
 /** The part of xterm.js's Terminal the panel uses. */
@@ -34,6 +34,8 @@ export type PanelView = View & { ask: Ask | null; hover: string }
 
 export type MountDeps = {
   host: Host
+  /** The window: a click that brings it back to the front is a focusing click. */
+  page: Host
   makeTerminal(options: ITerminalOptions): Term
   makeFit(): Fit
   makeUnicode(): ITerminalAddon
@@ -62,6 +64,9 @@ export type Panel = {
   cancel(): void
 }
 
+/** How long a paste waits for its confirmation before it is dropped: the screen it was asked against grows stale. */
+export const PASTE_CONFIRM_MS = 30_000
+
 /** The key that leaves the terminal: the usual key for moving between a window's panes. */
 export const LEAVE_KEY = 'F6'
 
@@ -74,6 +79,12 @@ export const REAL_EVENTS_ONLY = [
 
 const UNICODE_VERSION = '11'
 const LINK_REFUSED = 'This link does not open from the terminal: only web pages outside Conn do.'
+const PASTE_STALE = 'The screen changed, so the paste was not sent. Paste again to be asked again.'
+const PASTE_EXPIRED = 'The paste waited too long for a confirmation, so it was not sent.'
+const PASTE_NOT_LIVE = 'The terminal is not live, so the paste was not sent.'
+/** The markers xterm.js would put around a paste: a paste is checked as one frame with them, bracketed or not. */
+const PASTE_START = '\x1b[200~'
+const PASTE_END = '\x1b[201~'
 
 type Listener = { type: string; run: (event: Event) => void }
 
@@ -87,14 +98,18 @@ export function mount(deps: MountDeps): Panel {
   let ask: Ask | null = null
   let held = ''
   let hover = ''
+  let note = ''
+  let cancelHeld = () => {}
   let stopped = false
-  // Whether the terminal has the keyboard; and whether a click that gave it the focus is still held down
+  // Whether the terminal has the keyboard; whether the window has been left since; and whether a click that gave the
+  // terminal (or the window) the focus is still held down
   let focused = false
+  let windowLeft = false
   let focusingClick = false
   let cancelMeasure = () => {}
 
   const render = () => {
-    if (!stopped) deps.show({ ...base, ask, hover })
+    if (!stopped) deps.show({ ...base, note: note || base.note, ask, hover })
   }
 
   const links: LinkCallbacks = {
@@ -166,11 +181,22 @@ export function mount(deps: MountDeps): Panel {
     term = made
     fit = fitter
     const screen = { reset: () => made.reset(), write: (data: Uint8Array, done: () => void) => made.write(data, done) }
-    link = attach(deps.openSocket, screen, next => ((base = next), render()), deps.frame)
+    link = attach(deps.openSocket, screen, next => ((base = next), render()), deps.frame, () => dropHeld(PASTE_STALE))
     measure()
   }
 
+  /** Drops a paste waiting for its confirmation, saying why. */
+  function dropHeld(why: string) {
+    if (ask?.kind !== 'paste') return
+    cancelHeld()
+    ask = null
+    held = ''
+    note = why
+    render()
+  }
+
   const close = () => {
+    cancelHeld()
     link?.detach()
     term?.dispose()
     link = null
@@ -183,14 +209,26 @@ export function mount(deps: MountDeps): Panel {
 
   const paste = (text: string) => {
     if (!term) return
+    if (!link) return
     if (base.phase !== 'live') return
     const clean = cleanPaste(text)
     if (clean === '') return
-    if (hasLineBreak(clean) && !term.modes.bracketedPasteMode) {
-      held = clean
-      ask = { kind: 'paste', lines: clean.split(/\r\n|\r|\n/).length }
+    // One frame, markers and escapes counted, or nothing: a paste split over frames could lose its end marker
+    if (inputFrame(PASTE_START + clean.replace(/\r?\n/g, '\r') + PASTE_END) === null) {
+      note = TOO_LARGE
       return render()
     }
+    note = ''
+    // While output is still being drawn the screen's modes may not be the program's: a line break is always asked about
+    const asks = !term.modes.bracketedPasteMode || link.drawing() || base.lagging
+    if (hasLineBreak(clean) && asks) {
+      cancelHeld()
+      held = clean
+      ask = { kind: 'paste', lines: clean.split(/\r\n|\r|\n/).length }
+      cancelHeld = deps.later(() => dropHeld(PASTE_EXPIRED), PASTE_CONFIRM_MS)
+      return render()
+    }
+    render()
     term.paste(clean)
   }
 
@@ -206,7 +244,10 @@ export function mount(deps: MountDeps): Panel {
     {
       type: 'pointerdown',
       run: event => {
-        if (event.isTrusted) focusingClick = !focused
+        if (!event.isTrusted) return
+        // The textarea keeps the focus while the window is away, so the click that brings the window back finds it focused
+        focusingClick = !focused || windowLeft
+        windowLeft = false
       },
     },
     {
@@ -223,6 +264,8 @@ export function mount(deps: MountDeps): Panel {
     { type: 'focusout', run: () => (focused = false) },
   ]
   for (const each of listeners) deps.host.addEventListener(each.type, each.run, { capture: true })
+  const left = () => (windowLeft = true)
+  deps.page.addEventListener('blur', left)
   const watcher = deps.watchSize(() => {
     cancelMeasure()
     cancelMeasure = deps.later(measure, RESIZE_DEBOUNCE_MS)
@@ -241,6 +284,7 @@ export function mount(deps: MountDeps): Panel {
       cancelMeasure()
       watcher.disconnect()
       for (const each of listeners) deps.host.removeEventListener(each.type, each.run, { capture: true })
+      deps.page.removeEventListener('blur', left)
       close()
     },
     setLook(next) {
@@ -255,13 +299,19 @@ export function mount(deps: MountDeps): Panel {
       if (!event.isTrusted) return
       const waiting = ask
       const text = held
+      cancelHeld()
       ask = null
       held = ''
       if (waiting?.kind === 'link') deps.openLink(waiting.url)
-      if (waiting?.kind === 'paste') term?.paste(text)
+      if (waiting?.kind === 'paste') {
+        // Typed only into the live terminal it was asked about
+        if (base.phase === 'live' && !base.lagging) term?.paste(text)
+        else note = PASTE_NOT_LIVE
+      }
       render()
     },
     cancel() {
+      cancelHeld()
       ask = null
       held = ''
       render()
