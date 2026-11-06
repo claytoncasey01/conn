@@ -6,12 +6,10 @@ import (
 	"io"
 	"io/fs"
 	"math"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/jira"
@@ -203,23 +201,16 @@ func (w *Work) prBody(step *task, leg *Leg) (string, error) {
 }
 
 // readPRBody is the text of a PR body file, and whether there is one: only a regular file, in a
-// .conn folder of the person's own, opened with no link followed, and at most prBodyBytesMax.
+// .conn folder of the person's own, opened through that folder with no link followed at either
+// (reviews.OpenInOwnFolder), and at most prBodyBytesMax.
 func readPRBody(path string) (string, bool, error) {
-	folder := filepath.Dir(path)
-
-	_, err := os.Lstat(folder)
+	file, err := reviews.OpenInOwnFolder(filepath.Dir(path), filepath.Base(path))
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", false, nil
 	}
 
-	err = reviews.CheckOwnFolder(folder)
-	if err != nil {
+	if errors.Is(err, reviews.ErrNotOwnFolder) {
 		return "", false, nodeError{err: err}
-	}
-
-	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", false, nil
 	}
 
 	if err != nil {

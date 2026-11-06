@@ -455,7 +455,7 @@ func ResumeSpec(claude string, record *Record, slot *Leg) (pty.Spec, string) {
 
 	argv = append(argv, "--name", record.Key, "--model", "sonnet")
 
-	if exists(filepath.Join(slot.Worktree, connFolder, delegationFile)) {
+	if ownDelegation(slot.Worktree) {
 		argv = append(argv, "--append-system-prompt-file", ".conn/delegation.md")
 	}
 
@@ -463,4 +463,23 @@ func ResumeSpec(claude string, record *Record, slot *Leg) (pty.Spec, string) {
 	argv = append(argv, "--permission-mode", "acceptEdits")
 
 	return pty.Spec{Argv: argv, Dir: slot.Worktree, Env: nil, Name: record.Key}, verb
+}
+
+// ownDelegation is whether the worktree holds a delegation.md claude may be pointed at: a regular
+// file, in a .conn folder of the person's own, reached with no link followed. A repository can
+// commit .conn, or the file, as a link, and claude would read wherever it points as its rules.
+func ownDelegation(worktree string) bool {
+	file, err := reviews.OpenInOwnFolder(filepath.Join(worktree, connFolder), delegationFile)
+	if err != nil {
+		return false
+	}
+
+	defer func() { _ = file.Close() }()
+
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+
+	return info.Mode().IsRegular()
 }

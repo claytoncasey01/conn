@@ -10,14 +10,11 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
-	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/launch"
@@ -329,70 +326,6 @@ func WriteLaunchFile(path, content string, shared bool) error {
 	}
 
 	return writeNewPrivate(path, content)
-}
-
-// writeNewPrivate writes a new file at path, 0600: whatever was at the path is removed first, so a
-// link is never followed; a folder is left for the write to fail on.
-func writeNewPrivate(path, content string) error {
-	info, err := os.Lstat(path)
-	if err == nil {
-		if !info.IsDir() {
-			err = os.Remove(path)
-			if err != nil {
-				return asIs(err)
-			}
-		}
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return asIs(err)
-	}
-
-	// O_EXCL refuses whatever appeared at the path since: the file is a new one, made 0600.
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, privateFileMode)
-	if err != nil {
-		return asIs(err)
-	}
-
-	_, err = file.WriteString(content)
-	closeErr := file.Close()
-
-	if err != nil {
-		return asIs(err)
-	}
-
-	if closeErr != nil {
-		return asIs(closeErr)
-	}
-
-	return asIs(os.Chmod(path, privateFileMode))
-}
-
-// CheckOwnFolder refuses folder unless it is a real folder (not a link to one) that the person
-// running Conn owns: a repository can commit .conn as a link, and Conn's own files written there
-// would land wherever it points.
-func CheckOwnFolder(folder string) error {
-	info, err := os.Lstat(folder)
-	if err != nil {
-		return asIs(err)
-	}
-
-	if info.Mode()&fs.ModeSymlink != 0 {
-		return fmt.Errorf("%w: %s is a link", ErrNotOwnFolder, folder)
-	}
-
-	if !info.IsDir() {
-		return fmt.Errorf("%w: %s is not a folder", ErrNotOwnFolder, folder)
-	}
-
-	owner, read := info.Sys().(*syscall.Stat_t)
-	if !read {
-		return fmt.Errorf("%w: the owner of %s cannot be read", ErrNotOwnFolder, folder)
-	}
-
-	if int(owner.Uid) != os.Getuid() {
-		return fmt.Errorf("%w: %s belongs to another user", ErrNotOwnFolder, folder)
-	}
-
-	return nil
 }
 
 // FirstLine is the first line of an error that is not blank, trimmed and cut; "git failed" when

@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/gh"
@@ -119,11 +118,6 @@ func repliesAt(worktree string) *float64 {
 // more than the limit plus one byte, so a file the session made huge, or a link pointed
 // elsewhere, costs nothing.
 func readReplies(path string) (string, bool) {
-	err := reviews.CheckOwnFolder(filepath.Dir(path))
-	if err != nil {
-		return "", false
-	}
-
 	data, err := readCapped(path, myprs.RepliesFileBytesMax+1)
 	if err != nil {
 		return "", false
@@ -132,17 +126,10 @@ func readReplies(path string) (string, bool) {
 	return js.DecodeUTF8(data, false), true
 }
 
+// readCapped reads at most bytesMax of a regular file, opened through its folder, a folder of
+// the person's own, with no link followed at either (reviews.OpenInOwnFolder).
 func readCapped(path string, bytesMax int64) ([]byte, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading the replies file: %w", err)
-	}
-
-	if !info.Mode().IsRegular() {
-		return nil, errNotRegularFile
-	}
-
-	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	file, err := reviews.OpenInOwnFolder(filepath.Dir(path), filepath.Base(path))
 	if err != nil {
 		return nil, fmt.Errorf("opening the replies file: %w", err)
 	}

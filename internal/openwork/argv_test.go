@@ -217,3 +217,63 @@ func checkArguments(t *testing.T, spec pty.Spec, record *openwork.Record, reach 
 		}
 	}
 }
+
+// TestAResumeAddsTheDelegationOnlyFromAConnFolderOfItsOwn: a .conn the repository committed as
+// a link, or a delegation.md that is a link, is never handed to claude as its system prompt.
+func TestAResumeAddsTheDelegationOnlyFromAConnFolderOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		make func(t *testing.T, conn, elsewhere string)
+		want bool
+	}{
+		{"a folder of its own", func(t *testing.T, conn, _ string) {
+			t.Helper()
+			mustDo(t, os.Mkdir(conn, 0o700))
+			mustDo(t, os.WriteFile(filepath.Join(conn, "delegation.md"), []byte("d"), 0o600))
+		}, true},
+		{".conn is a link", func(t *testing.T, conn, elsewhere string) {
+			t.Helper()
+			mustDo(t, os.Symlink(elsewhere, conn))
+		}, false},
+		{"delegation.md is a link", func(t *testing.T, conn, elsewhere string) {
+			t.Helper()
+			mustDo(t, os.Mkdir(conn, 0o700))
+			mustDo(t, os.Symlink(filepath.Join(elsewhere, "delegation.md"),
+				filepath.Join(conn, "delegation.md")))
+		}, false},
+		{"delegation.md is a folder", func(t *testing.T, conn, _ string) {
+			t.Helper()
+			mustDo(t, os.MkdirAll(filepath.Join(conn, "delegation.md"), 0o700))
+		}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, folders := legFolders(t, "widgets-proj-12", "elsewhere")
+			mustDo(t, os.WriteFile(filepath.Join(folders[1], "delegation.md"), []byte("x"),
+				0o600))
+			tt.make(t, filepath.Join(folders[0], ".conn"), folders[1])
+
+			lead := hostileLeg("acme/widgets", folders[0])
+			record := hostileRecord("shared", lead)
+			spec, _ := openwork.ResumeSpec(goldenClaude, record, lead)
+
+			added := slices.Contains(spec.Argv, "--append-system-prompt-file")
+			if added != tt.want {
+				t.Errorf("delegation added %v, want %v", added, tt.want)
+			}
+		})
+	}
+}
+
+func mustDo(t *testing.T, err error) {
+	t.Helper()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+}
