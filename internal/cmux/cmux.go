@@ -88,7 +88,8 @@ type Opener func(ctx context.Context, name, cwd, command string) Opened
 
 // Open starts command in a new cmux workspace in cwd, without focusing it, with the cmux program
 // bin. When cmux fails the person gets the command to paste: the folder through argv.ShellLine,
-// so it is one word whatever it holds. cwd and name go to cmux as arguments, never through a
+// so it is one word whatever it holds, unless the folder or the command holds a control
+// character (argv.Pastable). cwd and name go to cmux as arguments, never through a
 // shell here.
 func Open(bin string) Opener {
 	return func(ctx context.Context, name, cwd, command string) Opened {
@@ -105,8 +106,18 @@ func Open(bin string) Opener {
 			why = result.Err.Error()
 		}
 
+		why = js.Cut(js.Trim(why), errorUnits)
+
+		// A control character would reach a line editor before any quote is read: no line.
+		if !argv.Pastable(cwd + command) {
+			return Opened{
+				OK: false, Error: why + "; the folder or the command holds a control character, " +
+					"so there is no command to paste", ManualCommand: "",
+			}
+		}
+
 		return Opened{
-			OK: false, Error: js.Cut(js.Trim(why), errorUnits),
+			OK: false, Error: why,
 			ManualCommand: argv.ShellLine([]string{"cd", cwd}) + " && " + command,
 		}
 	}

@@ -287,6 +287,24 @@ func TestASpecNoSessionMayStartFromStartsNothing(t *testing.T) {
 		{"a NUL in the name", pty.Spec{
 			Argv: []string{"claude"}, Dir: "/w", Env: nil, Name: "n\x00",
 		}},
+		{"Ctrl-U in the folder", pty.Spec{
+			Argv: []string{"claude"}, Dir: "/w/a\x15touch /tmp/pwned #", Env: nil, Name: "n",
+		}},
+		{"a newline in the folder", pty.Spec{
+			Argv: []string{"claude"}, Dir: "/w/a\nb", Env: nil, Name: "n",
+		}},
+		{"an escape in an argument", pty.Spec{
+			Argv: []string{"claude", "a\x1b[2Jb"}, Dir: "/w", Env: nil, Name: "n",
+		}},
+		{"a right-to-left override in the name", pty.Spec{
+			Argv: []string{"claude"}, Dir: "/w", Env: nil, Name: "a\u202eb",
+		}},
+		{"a C1 control in the folder", pty.Spec{
+			Argv: []string{"claude"}, Dir: "/w/a\u009bb", Env: nil, Name: "n",
+		}},
+		{"bytes that are not UTF-8 in an argument", pty.Spec{
+			Argv: []string{"claude", "a\xffb"}, Dir: "/w", Env: nil, Name: "n",
+		}},
 		{"an argument too long", pty.Spec{
 			Argv: []string{"claude", strings.Repeat("a", 200<<10)}, Dir: "/w", Env: nil,
 			Name: "n",
@@ -327,9 +345,15 @@ func TestASpecNoSessionMayStartFromStartsNothing(t *testing.T) {
 func TestCheckNamesEveryProblem(t *testing.T) {
 	t.Parallel()
 
-	err := launch.Check(pty.Spec{Argv: []string{"a\x00"}, Dir: "rel", Env: nil, Name: ""})
+	err := launch.Check(pty.Spec{
+		Argv: []string{"a\x00", "b\x15"}, Dir: "rel\n", Env: nil, Name: "\u202e",
+	})
 
-	for _, want := range []string{"argument 0 holds a NUL", "not an absolute path", "no name"} {
+	for _, want := range []string{
+		"argument 0 holds a NUL", "not an absolute path",
+		"argument 1 holds a control character", "the folder holds a control character",
+		"the name holds a control character",
+	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("%q is not in %q", want, err)
 		}

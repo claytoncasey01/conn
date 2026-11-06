@@ -219,3 +219,45 @@ func throughShell(t *testing.T, shell string, words []string) []string {
 
 	return strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
 }
+
+// TestPastableRefusesWhatALineEditorActsOn: a word holding a control character (C0, DEL, C1), a
+// bidirectional control or bytes that are not UTF-8 is not pastable: a line editor acts on such
+// bytes before any shell reads the quotes, and a bidi control makes the shown line read
+// differently from the one that runs.
+func TestPastableRefusesWhatALineEditorActsOn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		text     string
+		pastable bool
+	}{
+		{"plain", "/work/it's here $(id)", true},
+		{"beyond ASCII", "/work/\u00e9\u65e5", true},
+		{"empty", "", true},
+		{"Ctrl-U", "a\x15b", false},
+		{"newline", "a\nb", false},
+		{"escape", "a\x1b[2Jb", false},
+		{"tab", "a\tb", false},
+		{"NUL", "a\x00b", false},
+		{"DEL", "a\x7fb", false},
+		{"C1 next line", "a\u0085b", false},
+		{"C1 CSI", "a\u009bb", false},
+		{"right-to-left override", "a\u202eb", false},
+		{"left-to-right isolate", "a\u2066b", false},
+		{"pop directional isolate", "a\u2069b", false},
+		{"right-to-left mark", "a\u200fb", false},
+		{"Arabic letter mark", "a\u061cb", false},
+		{"not UTF-8", "a\xffb", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := argv.Pastable(tt.text); got != tt.pastable {
+				t.Errorf("Pastable(%q) = %v, want %v", tt.text, got, tt.pastable)
+			}
+		})
+	}
+}

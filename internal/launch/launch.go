@@ -114,8 +114,9 @@ func New(deps Deps) Opener {
 }
 
 // Check returns every problem with spec, each wrapping ErrInvalidSession, or nil: a program and
-// a folder, a name, no NUL anywhere (no program can be given one) and nothing longer than
-// argumentBytesMax. It never quotes a value.
+// a folder, a name, no NUL anywhere (no program can be given one), no other control character,
+// bidi control or bytes that are not UTF-8 anywhere (argv.Pastable: each would reach the line to
+// paste), and nothing longer than argumentBytesMax. It never quotes a value.
 func Check(spec pty.Spec) error {
 	var problems []error
 
@@ -154,6 +155,13 @@ func checkText(what, value string) []error {
 	if len(value) > argumentBytesMax {
 		problems = append(problems, fmt.Errorf("%w: %s is %d bytes, more than %d",
 			ErrInvalidSession, what, len(value), argumentBytesMax))
+	}
+
+	// A NUL is said above; any other control, a bidi control or bytes that are not UTF-8 would
+	// reach the line to paste, where a line editor acts on them before any quote is read.
+	if !argv.Pastable(strings.ReplaceAll(value, "\x00", "")) {
+		problems = append(problems, fmt.Errorf("%w: %s holds a control character or is not "+
+			"UTF-8", ErrInvalidSession, what))
 	}
 
 	return problems
