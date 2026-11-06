@@ -173,13 +173,14 @@ export function diffAlerts(seen: Seen, snap: Snapshot): Alert[] {
       if (r.state === 'asking') out.push({ tag: `r${r.key}`, title: `${r.key} has questions`, body: `${r.questions.filter(q => q.answer === null).length} for you before the build starts`, href: `#/work/${r.key}` })
       else if (r.state === 'failed') out.push({ tag: `r${r.key}`, title: `${r.key} failed`, body: r.error ?? 'the run stopped', href: `#/work/${r.key}` })
     }
-    const pr = r.pr?.status
+    const lead = r.repos[0]
+    const pr = lead?.pr?.status
     if (pr) {
       const outcome = pr.state === 'merged' || pr.state === 'closed' ? pr.state : pr.checks.state === 'failing' || pr.checks.state === 'passing' ? pr.checks.state : ''
       nextChecks.set(r.key, outcome)
       if (!first && outcome && seen.checks.get(r.key) !== outcome) {
         const title = { merged: `${r.key} PR merged`, closed: `${r.key} PR closed`, failing: `${r.key} checks failed`, passing: `${r.key} checks passed` }[outcome]!
-        out.push({ tag: `p${r.key}`, title, body: outcome === 'failing' ? pr.checks.failed.join(', ') || `PR #${r.pr!.number}` : `PR #${r.pr!.number}`, href: `#/work/${r.key}` })
+        out.push({ tag: `p${r.key}`, title, body: outcome === 'failing' ? pr.checks.failed.join(', ') || `PR #${lead!.pr!.number}` : `PR #${lead!.pr!.number}`, href: `#/work/${r.key}` })
       }
     }
   }

@@ -4,7 +4,7 @@ import { attention, diffAlerts, newSeen, oneLine } from './alerts.ts'
 import type { MyPrDraft, MyPrRow, Snapshot } from './types.ts'
 
 const sess = (id: string, status: string) => ({ id, name: 'n' + id, status, waitingFor: status === 'waiting' ? 'permission prompt' : null, activity: 'did a thing' })
-const run = (key: string, state: string, extra = {}) => ({ key, state, questions: [{ answer: null }, { answer: 'x' }], error: 'boom', ...extra })
+const run = (key: string, state: string, extra = {}) => ({ key, state, questions: [{ answer: null }, { answer: 'x' }], error: 'boom', repos: [{}], ...extra })
 const snap = (sessions: object[], runs: object[] = []) => ({ at: 0, sessions, runs }) as unknown as Snapshot
 
 test('the first snapshot only seeds, and an unchanged one raises nothing', () => {
@@ -27,7 +27,7 @@ test('busy to waiting alerts, waiting or busy to idle alerts, a new idle session
 
 test('an open PR going red, green, merged or closed alerts once', () => {
   const seen = newSeen()
-  const pr = (state: string, checks: string) => run('PROJ-5', 'pr_open', { pr: { number: 9, status: { state, checks: { state: checks, failed: ['Backend tests'] } } } })
+  const pr = (state: string, checks: string) => run('PROJ-5', 'pr_open', { repos: [{ pr: { number: 9, status: { state, checks: { state: checks, failed: ['Backend tests'] } } } }] })
   diffAlerts(seen, snap([], [pr('open', 'pending')]))
   assert.deepEqual(diffAlerts(seen, snap([], [pr('open', 'failing')])).map(x => x.title), ['PROJ-5 checks failed'])
   assert.equal(diffAlerts(seen, snap([], [pr('open', 'failing')])).length, 0)

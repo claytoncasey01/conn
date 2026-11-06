@@ -83,7 +83,7 @@
   }
   /** A run with an open PR shows what GitHub says about it, not just "PR OPEN". */
   const prSlot = (r: Run) => {
-    const p = r.pr?.status
+    const p = r.repos[0]?.pr?.status
     if (!p) return RS.pr_open
     if (p.state === 'merged') return { label: 'PR MERGED', color: 'var(--role-advisor)', glow: '0 0 10px color-mix(in oklch, var(--role-advisor) calc(100% * var(--glow)), transparent)' }
     if (p.state === 'closed') return { label: 'PR CLOSED', ...GREY }
@@ -449,8 +449,8 @@
             {@const ps = prSlot(selRun)}
             <div in:bootIn={{ skip: skip() }} out:bootOut style="display: flex; flex-direction: column; gap: 10px; padding-top: 16px; border-top: 1px var(--border-style) color-mix(in oklch, var(--edge) 16%, transparent)">
               <div style="display: flex; align-items: center; gap: 10px; color: {ps.color}; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571)"><span class="led" style="width: 9px; height: 9px; background: {ps.color}; box-shadow: {ps.glow}"></span>{ps.label} ·
-                {#if selRun.pr}<a href={selRun.pr.url} target="_blank" rel="noopener noreferrer" style="color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none"><span>#{selRun.pr.number} <span class="g-go" aria-hidden="true"></span></span></a>{/if}</div>
-              <div style="font-size: 11px; line-height: 1.5; color: color-mix(in oklab, var(--mu) 85%, var(--panel))">Handed off. Jira is {selRun.jiraStatus}{selRun.pr?.status && selRun.pr.status.state !== 'merged' && selRun.pr.status.state !== 'closed' && selRun.pr.status.review ? ` · review ${selRun.pr.status.review.replace(/_/g, ' ').toLowerCase()}` : ''}. Nothing to start here.</div>
+                {#if selRun.repos[0].pr}<a href={selRun.repos[0].pr.url} target="_blank" rel="noopener noreferrer" style="color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none"><span>#{selRun.repos[0].pr.number} <span class="g-go" aria-hidden="true"></span></span></a>{/if}</div>
+              <div style="font-size: 11px; line-height: 1.5; color: color-mix(in oklab, var(--mu) 85%, var(--panel))">Handed off. Jira is {selRun.jiraStatus}{selRun.repos[0].pr?.status && selRun.repos[0].pr.status.state !== 'merged' && selRun.repos[0].pr.status.state !== 'closed' && selRun.repos[0].pr.status.review ? ` · review ${selRun.repos[0].pr.status.review.replace(/_/g, ' ').toLowerCase()}` : ''}. Nothing to start here.</div>
               <a href={href.run(sel.key)} style="color: color-mix(in oklab, var(--ac) 60%, var(--bright)); text-decoration: none; font-size: 11px; letter-spacing: calc(var(--tracking) * 0.8571)"><span class="cap">View run <span class="g-go" aria-hidden="true"></span></span></a>
             </div>
           {:else if selRun}
