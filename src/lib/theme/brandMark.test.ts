@@ -42,3 +42,17 @@ test('Default wears the Conn mark in both modes, and Neon, Matrix and CRT keep t
   assert.equal(glyph(matrix, 'dark'), 'prompt')
   assert.equal(glyph(crt, 'dark'), 'none')
 })
+
+test('the header tile is the theme accent with the ink that reads on it, so every theme and accent colors it', () => {
+  const brand = file('src/lib/Brand.svelte')
+  assert.match(brand, /background: var\(--ac\); color: var\(--onac\);/)
+  assert.ok(!/linear-gradient\(135deg/.test(brand), 'the tile is one accent color, not a gradient of two roles')
+  assert.match(file('src/lib/theme/preview.ts'), /\.brand\{[^}]*background:var\(--ac\);color:var\(--onac\)/)
+})
+
+test('the favicon is a solid teal tile with a black mark, the app icon reversed', () => {
+  const svg = file('public/favicon.svg')
+  assert.match(svg, /<rect [^>]*fill="#3bcfcf"/)
+  assert.match(svg, /<g color="#000"/)
+  assert.ok(!svg.includes('Gradient'), 'no gradient')
+})
