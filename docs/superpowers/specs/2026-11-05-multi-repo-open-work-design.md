@@ -109,7 +109,7 @@ leg: { repo, clone, base, prBase, branch, worktree, worktreeReady,
        session, claudeSessionId, manualCommand, ahead, dirty, pr, cleaned }
 ```
 
-and the run gains `layout`. `repo` and `clone` stay server-only, as now. The run the page reads
+and the run gains `layout`. `clone` stays server-only, as now; `repo` is shown, because each row of the page names its repository. The run the page reads
 has `repos` and `layout` and none of the old top-level `base`, `prBase`, `branch`, `worktree`,
 `pr`, `session`, `claudeSessionId`, `manualCommand`, `cleaned`. `ahead` and `dirty` leave
 `session` and live on the leg, so the page can say which legs have work.
