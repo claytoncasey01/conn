@@ -42,12 +42,17 @@ const (
 	// it bounds what viewers that do not read can make the server hold.
 	replayBytesInFlightMax = 32 << 20
 	// inputQueueFramesMax is how many of a viewer's frames may wait for the program while it
-	// takes the one before; past it, the viewer is closed. The frames are read on their own
+	// takes the one before. A frame past it is dropped, as input the program does not take is:
+	// the program is not reading, and the terminal stays open. The frames are typed on their own
 	// goroutine, so a program that is slow to take input never holds up the reading of pongs.
 	inputQueueFramesMax = 16
 
 	// frameWriteTimeout bounds the writing of each frame: a viewer that takes longer is closed.
 	frameWriteTimeout = 5 * time.Second
+	// replayWriteTimeout bounds the writing of a whole replay, so a viewer that reads it just fast
+	// enough for each frame holds its share of replayBytesInFlightMax for no longer than this.
+	// A full scrollback over loopback takes milliseconds.
+	replayWriteTimeout = 30 * time.Second
 	// pingInterval is how often a viewer is pinged, and pingTimeout how long its answer may
 	// take: a dead peer is dropped within both.
 	pingInterval = 15 * time.Second
@@ -82,10 +87,11 @@ type TerminalHost interface {
 
 // terminalTimes are the route's waits.
 type terminalTimes struct {
-	handshakeTimeout  time.Duration
-	frameWriteTimeout time.Duration
-	pingInterval      time.Duration
-	pingTimeout       time.Duration
+	replayWriteTimeout time.Duration
+	handshakeTimeout   time.Duration
+	frameWriteTimeout  time.Duration
+	pingInterval       time.Duration
+	pingTimeout        time.Duration
 }
 
 // Terminals answers the terminal route for a host's sessions.
@@ -113,10 +119,11 @@ func NewTerminals(ctx context.Context, host TerminalHost) *Terminals {
 	return &Terminals{
 		host: host,
 		times: terminalTimes{
-			handshakeTimeout:  HandshakeTimeout,
-			frameWriteTimeout: frameWriteTimeout,
-			pingInterval:      pingInterval,
-			pingTimeout:       pingTimeout,
+			replayWriteTimeout: replayWriteTimeout,
+			handshakeTimeout:   HandshakeTimeout,
+			frameWriteTimeout:  frameWriteTimeout,
+			pingInterval:       pingInterval,
+			pingTimeout:        pingTimeout,
 		},
 		budgets:     newBudgets(time.Now),
 		open:        make(chan struct{}, connectionsMax),
@@ -241,9 +248,7 @@ func (t *Terminals) serveViewer(
 	// nothing.
 	defer func() { _ = conn.CloseNow() }()
 
-	t.run(conn, terminal{
-		viewer: viewer, replay: replay, sessionID: sessionID, replayWritten: replayWritten,
-	})
+	t.run(conn, viewer, sessionID, replay, replayWritten)
 }
 
 // takeReplay counts size bytes of replay as being written, if they fit.

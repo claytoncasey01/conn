@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -131,22 +132,111 @@ func TestPingsAreAnsweredWhileInputWaits(t *testing.T) {
 	}
 }
 
-// Input that backs up past the queue a viewer may have waiting closes that viewer.
-func TestInputBackedUpPastTheQueueCloses(t *testing.T) {
+// Input that backs up past the queue a viewer may have waiting is dropped, as input a program
+// does not take is: the terminal stays open, and once the program takes input again, what was
+// queued reaches it.
+func TestInputBackedUpPastTheQueueIsDropped(t *testing.T) {
 	t.Parallel()
 
-	rig := newTerminalRig(t, rigSetup{programs: &fakePrograms{writeGate: held(t)}})
-	sessionID, _ := rig.start(t)
+	gate := make(chan struct{})
+	rig := newTerminalRig(t, rigSetup{programs: &fakePrograms{writeGate: gate}})
+	sessionID, program := rig.start(t)
 	conn := rig.open(t, sessionID)
 	readOutputUntilText(t, conn)
 
-	// One is in the program, the queue holds the next, and one more has nowhere to go.
-	for range server.InputQueueFramesMax + 2 {
+	// One is in the program, the queue holds the next ones, and the rest have nowhere to go.
+	sendMessage(t, conn, websocket.MessageText, inputFrame("x"))
+	eventually(t, "the first frame never reached the program", func() bool {
+		return program.attemptsSoFar() == 1
+	})
+
+	for range server.InputQueueFramesMax + 4 {
 		sendMessage(t, conn, websocket.MessageText, inputFrame("x"))
 	}
 
-	if _, reason := closeReason(t, conn); reason != "input backed up behind the program" {
-		t.Fatalf("closed because %q, want the input backed up", reason)
+	// The server reads frames in order, so once a ping sent after them is answered, it has
+	// queued or dropped every one; and the terminal is still open.
+	output := make(chan []byte, 1)
+
+	go func() {
+		defer close(output)
+
+		for {
+			_, data, err := conn.Read(context.Background())
+			if err != nil {
+				return
+			}
+
+			output <- data
+		}
+	}()
+
+	pingCtx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(waitLimit))
+	defer cancel()
+
+	err := conn.Ping(pingCtx)
+	if err != nil {
+		t.Fatalf("the terminal was closed: %v", err)
+	}
+
+	close(gate)
+
+	eventually(t, "the queued input never reached the program", func() bool {
+		return len(program.writtenSoFar()) == server.InputQueueFramesMax+1
+	})
+
+	program.feed(t, []byte("still open"))
+
+	if got := <-output; string(got) != "still open" {
+		t.Fatalf("output %q, want %q", got, "still open")
+	}
+
+	sendMessage(t, conn, websocket.MessageText, inputFrame("y"))
+	eventually(t, "input after the backlog never reached the program", func() bool {
+		return strings.HasSuffix(string(program.writtenSoFar()), "y")
+	})
+}
+
+// When the program does not take a frame in time, the frames queued behind it are dropped with
+// it, so text is never typed after a gap; input sent after that is typed.
+func TestABlockedWriteDropsWhatIsQueuedBehindIt(t *testing.T) {
+	t.Parallel()
+
+	replies := make(chan error)
+	rig := newTerminalRig(t, rigSetup{programs: &fakePrograms{writeReplies: replies}})
+	sessionID, program := rig.start(t)
+	conn := rig.open(t, sessionID)
+	readOutputUntilText(t, conn)
+
+	sendMessage(t, conn, websocket.MessageText, inputFrame("a"))
+	eventually(t, "the first frame never reached the program", func() bool {
+		return program.attemptsSoFar() == 1
+	})
+
+	for _, queued := range []string{"b", "c", "d"} {
+		sendMessage(t, conn, websocket.MessageText, inputFrame(queued))
+	}
+
+	// Let the reader queue them before the program refuses the first.
+	time.Sleep(testtime.Scaled(100 * time.Millisecond))
+
+	replies <- fmt.Errorf("write: %w", os.ErrDeadlineExceeded)
+
+	time.Sleep(testtime.Scaled(100 * time.Millisecond))
+	sendMessage(t, conn, websocket.MessageText, inputFrame("e"))
+
+	eventually(t, "input after the dropped ones never reached the program", func() bool {
+		return program.attemptsSoFar() == 2
+	})
+
+	replies <- nil
+
+	eventually(t, "the input after the gap was not typed", func() bool {
+		return len(program.writtenSoFar()) > 0
+	})
+
+	if got := string(program.writtenSoFar()); got != "e" {
+		t.Fatalf("typed %q, want only %q: input queued behind a refused frame was typed", got, "e")
 	}
 }
 
@@ -262,19 +352,18 @@ func TestStoppingInterruptsAReplay(t *testing.T) {
 }
 
 // The replays being written at once are bounded in bytes, so viewers that do not read cannot
-// hold more than that much of them in memory.
+// hold more than that much of them in memory. One replay the size of the bound, larger than a
+// socket's buffers can take, holds it while its viewer reads nothing.
 func TestReplaysInFlightAreBounded(t *testing.T) {
 	t.Parallel()
 
-	host := &scriptedHost{replay: bytes.Repeat([]byte{'r'}, bigReplayBytes)}
+	host := &scriptedHost{replay: bytes.Repeat([]byte{'r'}, server.ReplayBytesInFlightMax)}
 	rig := newTerminalRig(t, rigSetup{
 		host:  host,
 		times: server.TerminalTimes{FrameWriteTimeout: testtime.Scaled(time.Minute)},
 	})
 
-	for range server.ReplayBytesInFlightMax / bigReplayBytes {
-		rig.open(t, sessionShape)
-	}
+	rig.open(t, sessionShape)
 
 	refused := rig.dial(t, sessionShape, nil)
 	if refused.err == nil {
@@ -373,4 +462,86 @@ func TestAWrittenReplayNoLongerCounts(t *testing.T) {
 			t.Fatalf("text %s, want %s", text, replayEnd)
 		}
 	}
+}
+
+// A replay is not kept once it has been written: its memory can be collected while the terminal
+// is still open.
+func TestAReplayIsCollectedOnceWritten(t *testing.T) {
+	t.Parallel()
+
+	host := &scriptedHost{freshReplayBytes: 4 << 20}
+	rig := newTerminalRig(t, rigSetup{host: host})
+	conn := rig.open(t, sessionShape)
+
+	replay, text := readOutputUntilText(t, conn)
+	if len(replay) != 4<<20 {
+		t.Fatalf("replay of %d bytes", len(replay))
+	}
+
+	if text != replayEnd {
+		t.Fatalf("text %s", text)
+	}
+
+	eventually(t, "the written replay was still held while the terminal was open", func() bool {
+		runtime.GC()
+
+		return host.replayCollected(0)
+	})
+
+	// The terminal is still open: a ping goes both ways.
+	pingCtx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(waitLimit))
+	defer cancel()
+
+	go func() { _, _, _ = conn.Read(pingCtx) }()
+
+	err := conn.Ping(pingCtx)
+	if err != nil {
+		t.Fatalf("the terminal was closed: %v", err)
+	}
+}
+
+// slowReadPause is how long a slow viewer waits between the frames it reads: far under the
+// write timeout of one frame, so only the bound on the whole replay can end it.
+const slowReadPause = 900 * time.Millisecond
+
+// A viewer that reads its replay just fast enough to meet each frame's write timeout still has
+// it ended within replayWriteTimeout, and the replay's bytes go back to the bound, so viewers
+// like it cannot keep new terminals out.
+func TestASlowReplayIsBounded(t *testing.T) {
+	t.Parallel()
+
+	// One replay fills the bound, and is larger than a socket's buffers can take.
+	host := &scriptedHost{replay: bytes.Repeat([]byte{'r'}, server.ReplayBytesInFlightMax)}
+	rig := newTerminalRig(t, rigSetup{
+		host: host,
+		times: server.TerminalTimes{
+			// A frame may wait for TCP to reopen its window long after the reader has read, so
+			// the frame's own timeout is far above the reader's pause.
+			FrameWriteTimeout:  testtime.Scaled(30 * time.Second),
+			ReplayWriteTimeout: testtime.Scaled(3 * time.Second),
+		},
+	})
+
+	{
+		conn := rig.open(t, sessionShape)
+
+		go func() {
+			for {
+				_, _, err := conn.Read(context.Background())
+				if err != nil {
+					return
+				}
+
+				time.Sleep(testtime.Scaled(slowReadPause))
+			}
+		}()
+	}
+
+	if refused := rig.dial(t, sessionShape, nil); refused.status != 503 {
+		t.Fatalf("status %d while the slow replays hold the bound, want 503", refused.status)
+	}
+
+	eventually(t, "slow replays kept new terminals out", func() bool {
+		return rig.dial(t, sessionShape, nil).err == nil
+	})
 }

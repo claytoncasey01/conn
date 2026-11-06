@@ -33,7 +33,9 @@ type TerminalTimes struct {
 	PingInterval      time.Duration
 	PingTimeout       time.Duration
 	FrameWriteTimeout time.Duration
-	Now               func() time.Time
+	// ReplayWriteTimeout bounds the writing of a whole replay.
+	ReplayWriteTimeout time.Duration
+	Now                func() time.Time
 }
 
 // NewTerminalsTimed is NewTerminals with the waits and clock times gives.
@@ -50,6 +52,10 @@ func NewTerminalsTimed(ctx context.Context, host TerminalHost, times TerminalTim
 
 	if times.FrameWriteTimeout > 0 {
 		terminals.times.frameWriteTimeout = times.FrameWriteTimeout
+	}
+
+	if times.ReplayWriteTimeout > 0 {
+		terminals.times.replayWriteTimeout = times.ReplayWriteTimeout
 	}
 
 	if times.Now != nil {

@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"weak"
 
 	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/testtime"
@@ -44,6 +46,8 @@ type fakeProgram struct {
 	// Write until it is closed.
 	writeErr  error
 	writeGate chan struct{}
+	// writeReplies, when set, answers each Write in turn: nil takes it, an error fails it.
+	writeReplies chan error
 
 	mu       sync.Mutex
 	written  []byte
@@ -52,10 +56,11 @@ type fakeProgram struct {
 	attempts int
 }
 
-func newFakeProgram(writeErr error, writeGate chan struct{}) *fakeProgram {
+func newFakeProgram(programs *fakePrograms) *fakeProgram {
 	return &fakeProgram{
 		output: make(chan []byte), closed: make(chan struct{}), exited: make(chan struct{}),
-		writeErr: writeErr, writeGate: writeGate,
+		writeErr: programs.writeErr, writeGate: programs.writeGate,
+		writeReplies: programs.writeReplies,
 	}
 }
 
@@ -96,6 +101,13 @@ func (f *fakeProgram) Write(data []byte) (int, error) {
 
 	if f.writeErr != nil {
 		return 0, f.writeErr
+	}
+
+	if f.writeReplies != nil {
+		reply := <-f.writeReplies
+		if reply != nil {
+			return 0, reply
+		}
 	}
 
 	f.mu.Lock()
@@ -210,8 +222,9 @@ func (f *fakeProgram) sizesSoFar() []pty.Size {
 // fakePrograms is a Spawner of fakePrograms that keeps the last one for the test; each program's
 // writes fail with writeErr, or wait for writeGate, when they are set.
 type fakePrograms struct {
-	writeErr  error
-	writeGate chan struct{}
+	writeErr     error
+	writeGate    chan struct{}
+	writeReplies chan error
 
 	mu   sync.Mutex
 	last *fakeProgram
@@ -221,7 +234,7 @@ func (f *fakePrograms) spawn(pty.Spec) (pty.Process, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.last = newFakeProgram(f.writeErr, f.writeGate)
+	f.last = newFakeProgram(f)
 
 	return f.last, nil
 }
@@ -277,6 +290,10 @@ func (c *countedHost) Resize(sessionID pty.ID, columns, rows uint16) error {
 // closes, saying why with end. Input and resizes are taken and forgotten.
 type scriptedHost struct {
 	replay []byte
+	// freshReplayBytes, when set, gives each viewer a replay of its own of that many bytes,
+	// which the host keeps only weakly, so a test can see when it is collected.
+	freshReplayBytes int
+	weakReplays      []weak.Pointer[byte]
 
 	mu         sync.Mutex
 	outputs    []chan []byte
@@ -292,7 +309,13 @@ func (s *scriptedHost) Subscribe(pty.ID) (pty.Viewer, error) {
 	s.outputs = append(s.outputs, output)
 	s.subscribes++
 
-	return pty.Viewer{Replay: s.replay, Output: output, Ending: s.ending}, nil
+	replay := s.replay
+	if s.freshReplayBytes > 0 {
+		replay = bytes.Repeat([]byte{'f'}, s.freshReplayBytes)
+		s.weakReplays = append(s.weakReplays, weak.Make(&replay[0]))
+	}
+
+	return pty.Viewer{Replay: replay, Output: output, Ending: s.ending}, nil
 }
 
 func (s *scriptedHost) Write(pty.ID, []byte) error { return nil }
@@ -325,4 +348,12 @@ func (s *scriptedHost) subscribed() int {
 	defer s.mu.Unlock()
 
 	return s.subscribes
+}
+
+// replayCollected says whether the replay of the viewer at index has been collected.
+func (s *scriptedHost) replayCollected(index int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.weakReplays[index].Value() == nil
 }

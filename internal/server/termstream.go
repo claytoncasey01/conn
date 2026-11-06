@@ -14,15 +14,15 @@ import (
 
 // The reasons a terminal is closed with, in the server's own words: never the frame's content.
 const (
-	reasonExited       = "the program exited"
-	reasonStopping     = "conn is stopping"
-	reasonBehind       = "fell behind the program's output"
-	reasonMalformed    = "malformed frame"
-	reasonTextOnly     = "only text frames are taken"
-	reasonInputRate    = "input over the session's rate"
-	reasonInputBacklog = "input backed up behind the program"
-	reasonBadSize      = "terminal size out of range"
-	reasonHostFailed   = "the terminal failed"
+	reasonExited     = "the program exited"
+	reasonStopping   = "conn is stopping"
+	reasonBehind     = "fell behind the program's output"
+	reasonMalformed  = "malformed frame"
+	reasonTextOnly   = "only text frames are taken"
+	reasonInputRate  = "input over the session's rate"
+	reasonReplaySlow = "the replay took too long to write"
+	reasonBadSize    = "terminal size out of range"
+	reasonHostFailed = "the terminal failed"
 )
 
 // link is one open terminal: its connection, and the end of its goroutines' shared context.
@@ -53,21 +53,15 @@ func (l *link) drop() {
 	})
 }
 
-// terminal is one open terminal's stream: the viewer, the replay it joined with (handed on
-// alone, so it is not kept once written), its session, and what to call once the replay is
-// written.
-type terminal struct {
-	viewer        pty.Viewer
-	replay        []byte
-	sessionID     pty.ID
-	replayWritten func()
-}
-
 // run is an open terminal: the program's output goes out (on this goroutine), the viewer's
 // frames come in and wait in a queue for the program, pings check the peer is there, and the
 // terminals stopping closes it, until one of them ends the terminal. It returns once all have
-// ended.
-func (t *Terminals) run(conn *websocket.Conn, streamed terminal) {
+// ended. The replay is handed to the output alone, and no goroutine captures it, so once it is
+// written nothing holds it.
+func (t *Terminals) run(
+	conn *websocket.Conn, viewer pty.Viewer, sessionID pty.ID, replay []byte,
+	replayWritten func(),
+) {
 	// The request's context is not used once the connection is taken over; the terminal's own
 	// ends with it.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -78,12 +72,14 @@ func (t *Terminals) run(conn *websocket.Conn, streamed terminal) {
 
 	var group sync.WaitGroup
 
-	group.Go(func() { t.readFrames(ctx, open, streamed.sessionID, queue) })
-	group.Go(func() { t.typeFrames(ctx, open, streamed.sessionID, queue) })
+	group.Go(func() { t.readFrames(ctx, open, sessionID, queue) })
+	group.Go(func() { t.typeFrames(ctx, open, sessionID, queue) })
 	group.Go(func() { t.ping(ctx, open) })
 	group.Go(func() { t.watchStopping(ctx, open) })
 
-	t.writeOutput(ctx, open, streamed)
+	if t.writeReplay(ctx, open, replay, replayWritten) {
+		t.writeOutput(ctx, open, viewer)
+	}
 
 	open.drop()
 	group.Wait()
@@ -99,16 +95,29 @@ func (t *Terminals) watchStopping(ctx context.Context, open *link) {
 	}
 }
 
-// writeOutput sends the viewer's replay, then its end, then the program's output as it comes,
-// until the viewer's output closes (the terminal then ends as the host says why) or the
-// terminal is ended.
-func (t *Terminals) writeOutput(ctx context.Context, open *link, streamed terminal) {
-	if !t.writeBinary(ctx, open, streamed.replay) {
-		return
+// writeReplay sends the viewer's replay within replayWriteTimeout, gives its bytes back to the
+// bound however that goes, and says whether it went. A viewer too slow for the bound is told to
+// come back (1013) when it can still be told; one stuck in the middle of a frame is hung up on.
+func (t *Terminals) writeReplay(
+	ctx context.Context, open *link, replay []byte, replayWritten func(),
+) bool {
+	defer replayWritten()
+
+	replayCtx, cancel := context.WithTimeout(ctx, t.times.replayWriteTimeout)
+	defer cancel()
+
+	if !t.writeBinary(replayCtx, open, replay) {
+		open.end(websocket.StatusTryAgainLater, reasonReplaySlow)
+
+		return false
 	}
 
-	streamed.replayWritten()
+	return true
+}
 
+// writeOutput sends the end of the replay, then the program's output as it comes, until the
+// viewer's output closes (the terminal then ends as the host says why) or the terminal is ended.
+func (t *Terminals) writeOutput(ctx context.Context, open *link, viewer pty.Viewer) {
 	if !t.writeText(ctx, open, []byte(replayEndText)) {
 		return
 	}
@@ -117,9 +126,9 @@ func (t *Terminals) writeOutput(ctx context.Context, open *link, streamed termin
 		select {
 		case <-ctx.Done():
 			return
-		case batch, more := <-streamed.viewer.Output:
+		case batch, more := <-viewer.Output:
 			if !more {
-				t.outputEnded(ctx, open, streamed.viewer)
+				t.outputEnded(ctx, open, viewer)
 
 				return
 			}
@@ -163,9 +172,14 @@ func endOfOutput(end pty.ViewerEnd) (bool, websocket.StatusCode, string) {
 }
 
 // writeBinary sends output in frames of at most outputFrameBytesMax, each within
-// frameWriteTimeout; a peer that cannot take one in time is dropped. It says whether all went.
+// frameWriteTimeout and before ctx ends; a peer that cannot take one in time is dropped. It says
+// whether all went.
 func (t *Terminals) writeBinary(ctx context.Context, open *link, output []byte) bool {
 	for len(output) > 0 {
+		if ctx.Err() != nil {
+			return false
+		}
+
 		size := min(len(output), outputFrameBytesMax)
 
 		if !t.writeFrame(ctx, open, websocket.MessageBinary, output[:size]) {
@@ -242,12 +256,13 @@ func (t *Terminals) takeFrame(
 		return websocket.StatusPolicyViolation, reasonInputRate, false
 	}
 
+	// A frame the queue has no room for is dropped, as input the program does not take is.
 	select {
 	case queue <- frame:
-		return 0, "", true
 	default:
-		return websocket.StatusPolicyViolation, reasonInputBacklog, false
 	}
+
+	return 0, "", true
 }
 
 // typeFrames hands the queued frames to the host in order, until the terminal ends or the host's
@@ -260,12 +275,29 @@ func (t *Terminals) typeFrames(
 		case <-ctx.Done():
 			return
 		case frame := <-queue:
-			code, reason, keep := outcome(t.apply(sessionID, frame))
+			err := t.apply(sessionID, frame)
+			if errors.Is(err, pty.ErrInputBlocked) {
+				// The rest of what was queued would be typed after the gap; it goes too.
+				dropQueued(queue)
+			}
+
+			code, reason, keep := outcome(err)
 			if !keep {
 				open.end(code, reason)
 
 				return
 			}
+		}
+	}
+}
+
+// dropQueued empties the queue without waiting; it holds at most inputQueueFramesMax frames.
+func dropQueued(queue <-chan clientFrame) {
+	for range inputQueueFramesMax {
+		select {
+		case <-queue:
+		default:
+			return
 		}
 	}
 }
