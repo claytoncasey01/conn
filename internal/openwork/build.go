@@ -2,7 +2,9 @@ package openwork
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,6 +28,9 @@ const (
 	delegationFile = "delegation.md"
 	briefFile      = "brief.md"
 	connFolder     = ".conn"
+	// repliesFile is what a My PRs self-review session writes for Conn to read; it never belongs
+	// in a build's .conn.
+	repliesFile = "replies.json"
 )
 
 // sessionUUID is Claude's session id shape: only that goes into an argument.
@@ -505,8 +510,31 @@ func writeBrief(record *Record, slot, leg *Leg) error {
 		err = reviews.WriteLaunchFile(filepath.Join(folder, delegationFile), Delegation, false)
 	}
 
+	// What the session writes for Conn to read, as the repository left it (a link to a secret, a
+	// file of someone else's), goes: the session writes its own.
+	for _, name := range []string{prBodyFile, repliesFile} {
+		if err == nil {
+			err = removeIfThere(filepath.Join(folder, name))
+		}
+	}
+
 	if err != nil {
 		return nodeError{err: err}
+	}
+
+	return nil
+}
+
+// removeIfThere removes the file or link at path, never what a link points to; a path with
+// nothing there is not an error.
+func removeIfThere(path string) error {
+	err := os.Remove(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("removing %s: %w", path, err)
 	}
 
 	return nil

@@ -115,9 +115,15 @@ func repliesAt(worktree string) *float64 {
 }
 
 // readReplies is the text of a replies file: a regular file only (not a link, a pipe or a
-// device) and never more than the limit plus one byte, so a file the session made huge, or a
-// link it pointed elsewhere, costs nothing.
+// device), in a .conn folder of the person's own (not a link a repository committed), and never
+// more than the limit plus one byte, so a file the session made huge, or a link pointed
+// elsewhere, costs nothing.
 func readReplies(path string) (string, bool) {
+	err := reviews.CheckOwnFolder(filepath.Dir(path))
+	if err != nil {
+		return "", false
+	}
+
 	data, err := readCapped(path, myprs.RepliesFileBytesMax+1)
 	if err != nil {
 		return "", false
@@ -142,6 +148,16 @@ func readCapped(path string, bytesMax int64) ([]byte, error) {
 	}
 
 	defer func() { _ = file.Close() }()
+
+	// What was opened is what was looked at: a regular file, whatever happened in between.
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("reading the replies file: %w", err)
+	}
+
+	if !opened.Mode().IsRegular() {
+		return nil, errNotRegularFile
+	}
 
 	data, err := io.ReadAll(io.LimitReader(file, bytesMax))
 	if err != nil {

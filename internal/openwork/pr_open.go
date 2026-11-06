@@ -334,7 +334,7 @@ func (w *Work) pushLeg(step *task, record *Record, push legPush) error {
 		return err
 	}
 
-	bodyFile, err := w.prBody(step, leg)
+	prText, err := w.prBody(step, leg)
 	if err != nil {
 		return err
 	}
@@ -347,10 +347,12 @@ func (w *Work) pushLeg(step *task, record *Record, push legPush) error {
 			"opened: press OPEN PR again once that is fixed.")
 	}
 
-	return w.createPR(step, record, leg, push.repo, bodyFile)
+	return w.createPR(step, record, leg, push.repo, prText)
 }
 
-func (w *Work) createPR(step *task, record *Record, leg *Leg, repo, bodyFile string) error {
+// createPR opens the pull request with the body as text (--body=, so a body starting with a dash
+// is still the body), never a path.
+func (w *Work) createPR(step *task, record *Record, leg *Leg, repo, prText string) error {
 	var (
 		out string
 		err error
@@ -360,7 +362,7 @@ func (w *Work) createPR(step *task, record *Record, leg *Leg, repo, bodyFile str
 		out, err = w.sh("gh", []string{
 			"pr", "create", "--repo", repo, "--base", leg.PRBase,
 			"--head", leg.Branch, "--title", record.Key + ": " + record.Title,
-			"--body-file", bodyFile,
+			"--body=" + prText,
 		}, leg.Worktree, createTimeout)
 	})
 
