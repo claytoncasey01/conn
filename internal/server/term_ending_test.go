@@ -673,3 +673,48 @@ func TestAClosedPasteIsToldToThePage(t *testing.T) {
 		t.Fatalf("text %s after a second input, want the terminal still open", text)
 	}
 }
+
+// The frames queued behind the input a cut paste was closed in place of are dropped: they were
+// typed against a screen the person has not seen yet.
+func TestFramesQueuedBehindAClosedPasteAreDropped(t *testing.T) {
+	t.Parallel()
+
+	gate := make(chan struct{})
+	host := &scriptedHost{firstGate: gate, firstErr: fmt.Errorf("typing: %w", pty.ErrPasteClosed)}
+	rig := newTerminalRig(t, rigSetup{host: host})
+	conn := rig.open(t, sessionShape)
+	readOutputUntilText(t, conn)
+	drainInBackground(conn)
+
+	sendMessage(t, conn, websocket.MessageText, inputFrame("a"))
+	eventually(t, "the first frame never reached the host", func() bool {
+		return len(host.writtenSoFar()) == 1
+	})
+
+	for _, letter := range []string{"b", "c", "d"} {
+		sendMessage(t, conn, websocket.MessageText, inputFrame(letter))
+	}
+
+	settled(t, conn)
+	close(gate)
+
+	eventually(t, "the queue was not looked at after the closed paste", func() bool {
+		sendMessage(t, conn, websocket.MessageText, inputFrame("e"))
+		settled(t, conn)
+
+		written := host.writtenSoFar()
+
+		return len(written) > 1
+	})
+
+	written := host.writtenSoFar()
+	if written[0] != "a" {
+		t.Fatalf("the host was given %q first", written)
+	}
+
+	for _, frame := range written[1:] {
+		if frame != "e" {
+			t.Fatalf("a frame queued behind the closed paste was typed: %q", written)
+		}
+	}
+}

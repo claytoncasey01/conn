@@ -51,8 +51,13 @@ type session struct {
 	// writeTurn holds one value while a Write is in the program, so Writes take turns.
 	writeTurn chan struct{}
 	// pasteClosing is what would close the bracketed paste a write cut short left the program
-	// inside, nil when it is inside none. Guarded by writeTurn.
-	pasteClosing []byte
+	// inside, nil when it is inside none; pasteResetsAtOpen is how many times the screen had
+	// read bracketed paste turned off when it opened. Both guarded by writeTurn.
+	pasteClosing      []byte
+	pasteResetsAtOpen uint64
+	// answersHeldBack counts answers to the program's queries not written because a paste was
+	// open: written in, they would be pasted text.
+	answersHeldBack atomic.Uint64
 	// answers queues the replies to the program's terminal queries, from its reader to its
 	// answerer, which closes answered once the reader has closed answers and all are typed.
 	answers  chan []byte
@@ -349,7 +354,7 @@ func (check *screenCheck) passes(writing *session) error {
 	// The program holds input the screen does not show, the start of a paste: no read of the
 	// screen can say what more input would do.
 	if writing.openPaste() != nil {
-		return ErrOtherInput
+		return ErrPasteOpen
 	}
 
 	if !check.mark.Quiet {
@@ -435,6 +440,13 @@ func (h *Host) typeInto(writing *session, data []byte, how typing) (uint64, erro
 		}
 	}
 
+	closing := writing.openPaste()
+	if closing != nil {
+		if !how.closes {
+			return writing.holdBack(how), nil
+		}
+	}
+
 	inputs := writing.inputs.Load()
 	if how.input {
 		inputs = writing.inputs.Add(1)
@@ -445,15 +457,12 @@ func (h *Host) typeInto(writing *session, data []byte, how typing) (uint64, erro
 		}()
 	}
 
-	if how.closes {
-		closing := writing.openPaste()
-		if closing != nil {
-			return inputs, writing.closePaste(closing)
-		}
+	if closing != nil {
+		return inputs, writing.closePaste(closing)
 	}
 
 	written, err := writing.process.Write(data)
-	writing.pasteClosing = pasteClosingAfter(writing.pasteClosing, data, written)
+	writing.notePaste(data, written)
 
 	if err != nil {
 		return 0, writeFailure(err)
@@ -462,18 +471,55 @@ func (h *Host) typeInto(writing *session, data []byte, how typing) (uint64, erro
 	return inputs, nil
 }
 
-// openPaste is what would close a paste a write cut short left open, or nil. A program that no
-// longer asks for bracketed paste (it turned 2004 off, or reset) is inside none: an end marker
-// would reach it as keys. The caller holds the write turn.
+// holdBack is what a query's answer or a focus report does inside an open paste: nothing. Written
+// in, it would be pasted text; a stale answer is worth nothing once the paste is closed. An answer
+// is counted. It returns the input count, unchanged. The caller holds the write turn.
+func (held *session) holdBack(how typing) uint64 {
+	if !how.input {
+		held.answersHeldBack.Add(1)
+	}
+
+	return held.inputs.Load()
+}
+
+// notePaste keeps whether the written bytes of data left a paste open, and when one opens how
+// many times the screen had read bracketed paste turned off. The caller holds the write turn.
+func (held *session) notePaste(data []byte, written int) {
+	opened := held.pasteClosing == nil
+
+	held.pasteClosing = pasteClosingAfter(held.pasteClosing, data, written)
+	if held.pasteClosing == nil {
+		return
+	}
+
+	if opened {
+		held.screenMu.Lock()
+		held.pasteResetsAtOpen = held.screen.PasteResets()
+		held.screenMu.Unlock()
+	}
+}
+
+// openPaste is what would close a paste a write cut short left open, or nil. A program that has
+// turned bracketed paste off (or reset) since the paste opened is taken to be inside none, even if
+// it has turned it on again since: an exit from Claude Code to a shell does both, and the shell
+// would read an end marker as keys. The cost is the other way round: a paste still unread when the
+// program turned 2004 off stays open in it, which submits nothing. The caller holds the write
+// turn.
 func (held *session) openPaste() []byte {
 	if held.pasteClosing == nil {
 		return nil
 	}
 
 	held.screenMu.Lock()
+	resets := held.screen.PasteResets()
 	bracketed := held.screen.BracketedPaste()
 	held.screenMu.Unlock()
 
+	if resets != held.pasteResetsAtOpen {
+		held.pasteClosing = nil
+	}
+
+	// A program that never asked for bracketed paste (the page's modes were stale) is inside none.
 	if !bracketed {
 		held.pasteClosing = nil
 	}

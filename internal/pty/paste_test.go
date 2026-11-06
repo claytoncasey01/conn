@@ -180,8 +180,13 @@ func TestWriteIfStillRefusesWhileAPasteIsOpen(t *testing.T) {
 	always := func([]string) bool { return true }
 
 	_, err = host.WriteIfStill(sessionID, mark, readScreenLines, always, []byte("1\r"))
+	if !errors.Is(err, pty.ErrPasteOpen) {
+		t.Fatalf("a reply while a paste is open = %v, want ErrPasteOpen", err)
+	}
+
+	// Callers that refuse other input refuse it too.
 	if !errors.Is(err, pty.ErrOtherInput) {
-		t.Fatalf("a reply while a paste is open = %v, want ErrOtherInput", err)
+		t.Fatalf("ErrPasteOpen = %v, want it to be ErrOtherInput too", err)
 	}
 
 	if got := string(process.writtenSoFar()); got != written {
@@ -189,22 +194,23 @@ func TestWriteIfStillRefusesWhileAPasteIsOpen(t *testing.T) {
 	}
 }
 
-// Answers to the program's queries and focus reports pass while a paste is open, unchanged: they
-// never close it. The person's next input does.
-func TestAnswersAndFocusReportsDoNotCloseAPaste(t *testing.T) {
+// Answers to the program's queries and focus reports are held back while a paste is open: written
+// in, they would be pasted text in the program's input box. A held-back answer is counted. They
+// never close the paste; the person's next input does.
+func TestAnswersAndFocusReportsAreHeldBackInsideAPaste(t *testing.T) {
 	t.Parallel()
 
 	host, sessionID, process := pasteSession(t, 9)
 
 	_ = host.Write(sessionID, []byte("\x1b[200~abcdef\x1b[201~"))
 
-	// The program asks for its device attributes; the host answers.
+	// The program asks for its device attributes; the host does not answer into the paste.
 	process.feed(t, []byte("\x1b[c"))
 
 	deadline := time.Now().Add(testtime.Scaled(waitLimit))
-	for !bytes.Contains(process.writtenSoFar(), []byte("\x1b[?62;22c")) {
+	for host.AnswersHeldBack(sessionID) == 0 {
 		if time.Now().After(deadline) {
-			t.Fatal("the query was never answered")
+			t.Fatal("the answer was never held back")
 		}
 
 		time.Sleep(waitPoll)
@@ -215,14 +221,24 @@ func TestAnswersAndFocusReportsDoNotCloseAPaste(t *testing.T) {
 		t.Fatalf("a focus report while a paste is open = %v", err)
 	}
 
-	const want = "\x1b[200~abc\x1b[?62;22c\x1b[I"
-	if got := string(process.writtenSoFar()); got != want {
-		t.Fatalf("the program read %q, want %q", got, want)
+	if got := string(process.writtenSoFar()); got != "\x1b[200~abc" {
+		t.Fatalf("the program read %q, want only the cut paste", got)
 	}
 
 	err = host.Write(sessionID, []byte("x"))
 	if !errors.Is(err, pty.ErrPasteClosed) {
 		t.Fatalf("the next input = %v, want ErrPasteClosed", err)
+	}
+
+	// Once closed, answers go through again.
+	process.feed(t, []byte("\x1b[c"))
+
+	for !bytes.Contains(process.writtenSoFar(), []byte("\x1b[?62;22c")) {
+		if time.Now().After(deadline) {
+			t.Fatal("the answer after the close was never written")
+		}
+
+		time.Sleep(waitPoll)
 	}
 }
 
@@ -233,6 +249,8 @@ func TestAPasteIsNotClosedForAProgramThatStoppedBracketing(t *testing.T) {
 
 	tests := []struct{ name, output string }{
 		{"bracketed paste turned off", "\x1b[?2004l"},
+		{"turned off, then on again (an exit to a shell)", "\x1b[?2004l\x1b[?2004h"},
+		{"a full reset, then on again", "\x1bc\x1b[?2004h"},
 		{"a full reset", "\x1bc"},
 		{"a soft reset", "\x1b[!p"},
 	}
@@ -246,7 +264,7 @@ func TestAPasteIsNotClosedForAProgramThatStoppedBracketing(t *testing.T) {
 			_ = host.Write(sessionID, []byte("\x1b[200~abcdef\x1b[201~"))
 
 			process.feed(t, []byte(tt.output))
-			waitBracketed(t, host, sessionID, false)
+			waitPasteResets(t, host, sessionID)
 
 			err := host.Write(sessionID, []byte("x"))
 			if err != nil {
@@ -257,5 +275,75 @@ func TestAPasteIsNotClosedForAProgramThatStoppedBracketing(t *testing.T) {
 				t.Fatalf("the program read %q, want no end marker", got)
 			}
 		})
+	}
+}
+
+// waitPasteResets waits until the host's screen model has read the program turning bracketed
+// paste off, or resetting, since the session began.
+func waitPasteResets(t *testing.T, host *pty.Host, sessionID pty.ID) {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(waitLimit))
+	for host.PasteResets(sessionID) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the screen never read bracketed paste turned off")
+		}
+
+		time.Sleep(waitPoll)
+	}
+}
+
+// A close that is itself cut short leaves the rest of it, never a whole marker again: the key
+// after it is refused and finishes the close, and the key after that is typed.
+func TestACloseCutShortIsFinishedNotRepeated(t *testing.T) {
+	t.Parallel()
+
+	host, sessionID, process := pasteSession(t, 9)
+
+	_ = host.Write(sessionID, []byte("\x1b[200~abcdef\x1b[201~"))
+
+	process.cutNextWrite(3)
+
+	err := host.Write(sessionID, []byte("x"))
+	if !errors.Is(err, pty.ErrInputBlocked) {
+		t.Fatalf("a key whose close was cut = %v, want ErrInputBlocked", err)
+	}
+
+	err = host.Write(sessionID, []byte("y"))
+	if !errors.Is(err, pty.ErrPasteClosed) {
+		t.Fatalf("the key after = %v, want ErrPasteClosed", err)
+	}
+
+	err = host.Write(sessionID, []byte("z"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const want = "\x1b[200~abc\x1b[201~z"
+	if got := string(process.writtenSoFar()); got != want {
+		t.Fatalf("the program read %q, want %q", got, want)
+	}
+}
+
+// A program that turned bracketed paste off and on before the paste opened is still closed: only
+// a reset since the paste opened says the program has left it.
+func TestAResetBeforeThePasteDoesNotKeepItOpen(t *testing.T) {
+	t.Parallel()
+
+	host, sessionID, process := pasteSession(t, 0)
+	process.feed(t, []byte("\x1b[?2004l\x1b[?2004h"))
+	waitPasteResets(t, host, sessionID)
+	waitBracketed(t, host, sessionID, true)
+	process.cutNextWrite(9)
+
+	_ = host.Write(sessionID, []byte("\x1b[200~abcdef\x1b[201~"))
+
+	err := host.Write(sessionID, []byte("x"))
+	if !errors.Is(err, pty.ErrPasteClosed) {
+		t.Fatalf("the next input = %v, want ErrPasteClosed", err)
+	}
+
+	if got := string(process.writtenSoFar()); got != "\x1b[200~abc\x1b[201~" {
+		t.Fatalf("the program read %q", got)
 	}
 }

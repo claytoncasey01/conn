@@ -26,3 +26,26 @@ func DeniedPrefixes() []string { return deniedPrefixes() }
 
 // ReplacedCount is how many variables the host sets itself.
 func ReplacedCount() int { return len(replacedVariables()) }
+
+// AnswersHeldBack is how many answers to the session's queries were held back inside a paste.
+func (h *Host) AnswersHeldBack(sessionID ID) uint64 {
+	held, err := h.find(sessionID)
+	if err != nil {
+		return 0
+	}
+
+	return held.answersHeldBack.Load()
+}
+
+// PasteResets is how many times the session's screen model read bracketed paste turned off.
+func (h *Host) PasteResets(sessionID ID) uint64 {
+	held, err := h.find(sessionID)
+	if err != nil {
+		return 0
+	}
+
+	held.screenMu.Lock()
+	defer held.screenMu.Unlock()
+
+	return held.screen.PasteResets()
+}

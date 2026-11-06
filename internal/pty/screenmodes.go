@@ -66,6 +66,7 @@ func (s *Screen) inputMode(mode int, set bool) bool {
 // resetInputModes turns off every mode a viewer's terminal sends input by: the program's own
 // reset, or modes the screen could not read, which count as off.
 func (s *Screen) resetInputModes() {
+	s.pasteResets++
 	s.cursorKeys = false
 	s.keypad = false
 	s.bracketedPaste = false
@@ -76,6 +77,7 @@ func (s *Screen) resetInputModes() {
 
 // softReset is DECSTR (CSI ! p), as xterm.js does it: the modes reset, the mouse kept.
 func (s *Screen) softReset() {
+	s.pasteResets++
 	s.cursorKeys = false
 	s.keypad = false
 	s.bracketedPaste = false

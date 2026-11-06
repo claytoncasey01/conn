@@ -90,6 +90,7 @@ package pty
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -170,6 +171,11 @@ var (
 	// paste was closed alone in its place, as input, and the person should look at the screen
 	// before typing, since the program now holds what of the paste it read.
 	ErrPasteClosed = errors.New("a paste was cut short and has been closed")
+	// ErrPasteOpen is a WriteIfStill refused because a paste a write cut short is still open in
+	// the program: it holds input the screen does not show. It is ErrOtherInput too, so every
+	// caller that refuses other input refuses it. A person's key in the terminal closes it.
+	ErrPasteOpen = fmt.Errorf("a paste into the terminal was cut short and is still open: %w",
+		ErrOtherInput)
 	// ErrScreenChanged is a WriteIfStill whose session's screen no longer passed its check.
 	ErrScreenChanged = errors.New("the screen changed since it was read")
 	// ErrOtherInput is a WriteIfStill after other input reached the session since its screen

@@ -64,6 +64,8 @@ type Screen struct {
 	fed           uint64
 	sequenceStart uint64
 	alternateFrom uint64
+	// pasteResets counts the times the program turned bracketed paste off, or reset.
+	pasteResets uint64
 	// lastPrinted is the character a repeat (REP) repeats.
 	lastPrinted rune
 	parser      parser
@@ -130,7 +132,7 @@ func NewScreen(size Size) (*Screen, error) {
 		cursor: cursorState{}, top: 0, bottom: rows - 1, autowrap: true, origin: false,
 		bracketedPaste: false, focusReports: false, cursorKeys: false, keypad: false,
 		mouseTracking: mouseOff, mouseEncoding: mouseEncodingDefault,
-		fed: 0, sequenceStart: 0, alternateFrom: 0,
+		fed: 0, sequenceStart: 0, alternateFrom: 0, pasteResets: 0,
 		lastPrinted: cellEmpty, parser: parser{}, queries: make([]Query, 0, queriesPendingMax),
 		generation: 0, changed: false,
 		wide: wideRanges(), graphics: lineDrawing(), answered: answeredQueries(),
@@ -247,6 +249,10 @@ func (s *Screen) Generation() uint64 { return s.generation }
 // FocusReports is whether the program has asked to be told of the terminal's focus (mode 1004).
 func (s *Screen) FocusReports() bool { return s.focusReports }
 
+// PasteResets is how many times the program has turned bracketed paste off, or reset its
+// terminal, since the screen began.
+func (s *Screen) PasteResets() uint64 { return s.pasteResets }
+
 // BracketedPaste is whether the program has asked for pastes bracketed (mode 2004), so a paste
 // it is sent can hold line breaks that are not Enter.
 func (s *Screen) BracketedPaste() bool { return s.bracketedPaste }
@@ -349,7 +355,7 @@ func (s *Screen) show(alternate bool) {
 		return
 	}
 
-	// Only a real switch: one made while already on the alternate screen draws nothing new
+	// Only a real switch: one made while already on the alternate screen draws nothing new.
 	if alternate {
 		s.alternateFrom = s.sequenceStart
 	}

@@ -3,6 +3,7 @@ package sessions_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -69,6 +70,9 @@ type program struct {
 	// program reads a line on it.
 	background atomic.Bool
 	lineMode   atomic.Bool
+	// cut, when above zero, is how many bytes the next Write takes before it fails as a
+	// terminal's write deadline does.
+	cut atomic.Int32
 
 	mutex   sync.Mutex
 	written []byte
@@ -92,6 +96,16 @@ func (p *program) Write(data []byte) (int, error) {
 		}
 
 		<-*gate
+	}
+
+	if cut := int(p.cut.Swap(0)); cut > 0 {
+		taken := min(cut, len(data))
+
+		p.mutex.Lock()
+		p.written = append(p.written, data[:taken]...)
+		p.mutex.Unlock()
+
+		return taken, fmt.Errorf("writing to the terminal: %w", os.ErrDeadlineExceeded)
 	}
 
 	p.mutex.Lock()
@@ -2033,5 +2047,43 @@ func TestATextAnswerLeftInTheBoxKeepsThePromptAnswered(t *testing.T) {
 
 	if typed := held.typed(); typed != "\x1b[200~hi\x1b[201~" {
 		t.Errorf("typed %q, want the text once and no Enter", typed)
+	}
+}
+
+// A reply whose message was cut short by the terminal's write deadline leaves a paste open in the
+// program. Every later reply is refused, and says why and what to do: not "something else was
+// typed", which would never go away by trying again.
+func TestARepliesAfterACutPasteSayThePasteIsOpen(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	hostedID, held := fake.hostedSession(144, "z", "idle", "", idleBox, 1)
+
+	loop := start(t, fake)
+
+	rowOf(t, loop, hostedID, anyRow)
+
+	held.cut.Store(9)
+
+	got := loop.Reply(t.Context(), hostedID, "hello there")
+	if got.Code != http.StatusBadGateway {
+		t.Fatalf("a cut reply: %d %s", got.Code, body(got))
+	}
+
+	typed := held.typed()
+	if typed != "\x1b[200~hel" {
+		t.Fatalf("typed %q", typed)
+	}
+
+	got = loop.Reply(t.Context(), hostedID, "again")
+
+	want := `{"error":"a paste into the session's terminal was cut short and is still open; ` +
+		`open its terminal and press a key to close it, then check the screen","ask":null}`
+	if body(got) != want {
+		t.Errorf("%d %s", got.Code, body(got))
+	}
+
+	if held.typed() != typed {
+		t.Errorf("typed %q after the refusal", held.typed())
 	}
 }

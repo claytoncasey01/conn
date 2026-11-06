@@ -39,6 +39,8 @@ const (
 	textScreenChanged = "the screen changed while this was being sent, so nothing was sent"
 	textOtherInput    = "something else was typed into the session's terminal just now, so " +
 		"nothing was sent"
+	textPasteOpen = "a paste into the session's terminal was cut short and is still open; " +
+		"open its terminal and press a key to close it, then check the screen"
 	textNotTaking = "the session did not take the input in time; check its terminal for " +
 		"what reached it"
 	textNotSent = "the message is in the session's input box but was not sent, because its " +
@@ -278,6 +280,8 @@ func hostedFailure(err error) Reply {
 	switch {
 	case errors.Is(err, pty.ErrScreenChanged):
 		return conflictAsk(textScreenChanged, nil)
+	case errors.Is(err, pty.ErrPasteOpen):
+		return conflictAsk(textPasteOpen, nil)
 	case errors.Is(err, pty.ErrOtherInput):
 		return conflictAsk(textOtherInput, nil)
 	case errors.Is(err, pty.ErrNotForeground):

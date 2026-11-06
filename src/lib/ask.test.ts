@@ -505,3 +505,11 @@ test('waitingAgents: the lead while its session waits and a teammate while its o
   const l3 = { ...l2, status: 'waiting' } as SessionDetail
   assert.deepEqual([...waitingAgents(l3, [l3, mate])].sort(), ['lead', 'u1'])
 })
+
+test('a refusal for a cut paste still open is shown in its own words, not as a changed prompt', () => {
+  const text = "a paste into the session's terminal was cut short and is still open; open its terminal and press a key to close it, then check the screen"
+  const result = parseAnswer(409, { error: text, ask: null })
+  const st = onResult(newPanel(0), 'p1', null, result, 1, 0)
+  assert.equal(st.error, text)
+  assert.equal(st.notice, '')
+})

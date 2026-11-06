@@ -301,6 +301,11 @@ type scriptedHost struct {
 
 	// writeErr, when set, is what every Write answers.
 	writeErr error
+	// firstGate, when set, holds the first Write until it is closed; that Write then answers
+	// firstErr, and later ones nil. written keeps what each Write was given.
+	firstGate chan struct{}
+	firstErr  error
+	written   []string
 
 	mu         sync.Mutex
 	outputs    []chan []byte
@@ -326,16 +331,33 @@ func (s *scriptedHost) Subscribe(pty.ID) (pty.Viewer, error) {
 	return pty.Viewer{Replay: replay, Output: output, Ending: s.ending}, nil
 }
 
-func (s *scriptedHost) Write(pty.ID, []byte) error {
+func (s *scriptedHost) Write(_ pty.ID, data []byte) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.writes++
+	first := s.writes == 1
+	s.written = append(s.written, string(data))
+	s.mu.Unlock()
+
+	if first {
+		if s.firstGate != nil {
+			<-s.firstGate
+
+			return s.firstErr
+		}
+	}
 
 	return s.writeErr
 }
 
 func (s *scriptedHost) Resize(pty.ID, uint16, uint16) error { return nil }
+
+// writtenSoFar is what each Write was given, in order.
+func (s *scriptedHost) writtenSoFar() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return slices.Clone(s.written)
+}
 
 func (s *scriptedHost) ending() pty.ViewerEnd {
 	s.mu.Lock()

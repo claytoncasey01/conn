@@ -282,6 +282,9 @@ func (s *Screen) privateMode(mode int, set bool) {
 		s.alternateWithCursor(set)
 	case modeBracketedPaste:
 		s.bracketedPaste = set
+		if !set {
+			s.pasteResets++
+		}
 	case modeFocusReports:
 		s.focusReports = set
 	default:
