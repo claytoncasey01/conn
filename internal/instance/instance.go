@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -66,26 +65,22 @@ type Lock struct {
 
 // Acquire takes the folder's lock, creating the folder (private to the user) and the lock file
 // when they are missing. It is ErrHeld when another process holds it for the whole of a short
-// wait (acquireAttempts times acquireWait).
+// wait (acquireAttempts times acquireWait), and ErrUnsafe when the folder or the file is not
+// safe to keep the secret in (see openLockFile).
 func Acquire(folder string) (*Lock, error) {
+	return acquire(folder, os.Getuid())
+}
+
+// acquire is Acquire for a process of user uid.
+func acquire(folder string, uid int) (*Lock, error) {
 	err := os.MkdirAll(folder, folderMode)
 	if err != nil {
 		return nil, fmt.Errorf("making the data folder: %w", err)
 	}
 
-	file, err := os.OpenFile(
-		filepath.Join(folder, FileName), os.O_RDWR|os.O_CREATE, fileMode)
+	file, err := openLockFile(folder, uid, os.O_RDWR|os.O_CREATE)
 	if err != nil {
-		return nil, fmt.Errorf("opening the lock file: %w", err)
-	}
-
-	// The mode OpenFile is given applies only to a file it creates: one already there keeps its
-	// own, so it is set here, before anything secret is written.
-	err = file.Chmod(fileMode)
-	if err != nil {
-		_ = file.Close()
-
-		return nil, fmt.Errorf("making the lock file private: %w", err)
+		return nil, err
 	}
 
 	err = lockWithRetry(file)
@@ -171,15 +166,21 @@ func (l *Lock) Release() error {
 }
 
 // Running is the Conn holding the folder, and false when none does. Its Holder is zero when it
-// has not written its details yet.
+// has not written its details yet. It is ErrUnsafe when the folder or the file is not safe to
+// read the secret from (see openLockFile).
 func Running(folder string) (Holder, bool, error) {
-	file, err := os.OpenFile(filepath.Join(folder, FileName), os.O_RDWR, 0)
+	return running(folder, os.Getuid())
+}
+
+// running is Running for a process of user uid.
+func running(folder string, uid int) (Holder, bool, error) {
+	file, err := openLockFile(folder, uid, os.O_RDWR)
 	if errors.Is(err, os.ErrNotExist) {
 		return Holder{}, false, nil
 	}
 
 	if err != nil {
-		return Holder{}, false, fmt.Errorf("opening the lock file: %w", err)
+		return Holder{}, false, err
 	}
 
 	defer func() { _ = file.Close() }()

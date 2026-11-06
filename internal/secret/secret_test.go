@@ -214,3 +214,21 @@ func TestAuthorization(t *testing.T) {
 		t.Fatalf("Header = %q", secret.Header)
 	}
 }
+
+// fmt cannot call Format on a field it cannot export, so a Secret held in an unexported field
+// prints as itself. This is the limit of the mark: keep a Secret out of any value that is printed
+// whole, or hold it in an exported field.
+func TestAnUnexportedFieldIsPrintedAsItself(t *testing.T) {
+	t.Parallel()
+
+	made, err := secret.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	holder := struct{ key secret.Secret }{key: made}
+
+	if !strings.Contains(fmt.Sprintf("%+v", holder), made.String()) {
+		t.Fatal("fmt now marks an unexported Secret: update the warning on Secret")
+	}
+}

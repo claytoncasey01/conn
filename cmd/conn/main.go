@@ -20,6 +20,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/desk"
 	"github.com/claytoncasey01/conn/internal/instance"
 	"github.com/claytoncasey01/conn/internal/secret"
+	"github.com/claytoncasey01/conn/internal/terminal"
 )
 
 // Exit codes. 2 is a usage error, as in the flag package.
@@ -42,19 +43,7 @@ commands:
 // and exit code, and whether stdout is a terminal. Everything below takes them as arguments, so
 // it can be tested.
 func main() {
-	os.Exit(realMain(os.Args[1:], os.LookupEnv, os.Stdout, terminal(os.Stdout), os.Stderr))
-}
-
-// terminal says whether file is a character device: a terminal, or a sink such as /dev/null
-// that keeps nothing. A pipe, a file, a socket or a log is not, so the page's secret, which is
-// printed only to a terminal, is never written where it would be kept or read by another program.
-func terminal(file *os.File) bool {
-	info, err := file.Stat()
-	if err != nil {
-		return false
-	}
-
-	return info.Mode()&os.ModeCharDevice != 0
+	os.Exit(realMain(os.Args[1:], os.LookupEnv, os.Stdout, terminal.Is(os.Stdout), os.Stderr))
 }
 
 // realMain runs the command args name and returns its exit code. No command, or one it does not

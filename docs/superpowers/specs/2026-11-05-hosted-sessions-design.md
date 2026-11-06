@@ -139,7 +139,11 @@ have changed since; this is accepted, shown to the person (the page lists what w
 Stop all), and limited by the per-owner checks in Lifecycle.
 
 Tests that must exist: an `/api` request with no secret, a wrong secret, a wrong Host or a wrong
-Origin is refused on every route (a table over the route list, so a new route cannot skip it); wrong Host, wrong or missing Origin, missing or wrong cookie, an oversize
+Origin is refused on every route (a table over the route list, so a new route cannot skip it;
+as built in Task 1, the server has no route registry, so the list is written by hand in the
+test, and the gate covers every `/api` path structurally: one prefix check on the escaped and
+the decoded path in front of all dispatch, so an unlisted or future `/api` route is behind it
+too); wrong Host, wrong or missing Origin, missing or wrong cookie, an oversize
 frame, a flood of input and a slow viewer are each refused or bounded; no terminal route creates, names or configures a
 session (the existing start routes are protected by the secret like every other); a stop kills a child that ignores SIGTERM and its own children; the secret is absent from
 the child's environment, argv and every log line; a tampered `hosted.json` (a command line, a

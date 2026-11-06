@@ -218,8 +218,9 @@ func TestTheRefusalSaysHowToAuthenticate(t *testing.T) {
 	}
 }
 
-// The page shell and the bundle hold nothing private, so they are served without the secret, and
-// the shell carries the page's Content-Security-Policy.
+// The page shell and the bundle hold nothing private, so they are served without the secret,
+// and a path that only looks like /api (doubled or dotted slashes, capitals) gets the shell: the
+// API's handler never runs for any of them.
 func TestThePageNeedsNoSecret(t *testing.T) {
 	t.Parallel()
 
@@ -228,16 +229,31 @@ func TestThePageNeedsNoSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	paths := []string{"/", "/index.html", "/favicon.svg", "/assets/index-1.js", "/apix"}
+	paths := []string{
+		"/", "/index.html", "/favicon.svg", "/assets/index-1.js", "/apix",
+		"//api/x", "/./api/x", "/API/x", "/Api/snapshot",
+	}
 
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 
-			got := send(t, &server.Server{UI: bundle(), Secret: made}, http.MethodGet, path,
+			var ran atomic.Bool
+
+			handler := server.ServeWith(&server.Server{UI: bundle(), Secret: made},
+				func(w http.ResponseWriter, _ *http.Request, _ string) {
+					ran.Store(true)
+					w.WriteHeader(http.StatusTeapot)
+				})
+
+			got := send(t, handler, http.MethodGet, path,
 				knock{name: "", host: ownHost, origin: "", authorization: nil, want: 0})
 			if got.status != http.StatusOK {
 				t.Fatalf("status %d", got.status)
+			}
+
+			if ran.Load() {
+				t.Fatal("the API's handler ran")
 			}
 		})
 	}
@@ -261,6 +277,10 @@ func TestTheContentSecurityPolicy(t *testing.T) {
 
 	if got.header.Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("X-Content-Type-Options %q", got.header.Get("X-Content-Type-Options"))
+	}
+
+	if got.header.Get("Referrer-Policy") != "no-referrer" {
+		t.Fatalf("Referrer-Policy %q", got.header.Get("Referrer-Policy"))
 	}
 }
 

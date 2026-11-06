@@ -34,6 +34,10 @@ const (
 var ErrNotSecret = errors.New("not a conn secret")
 
 // Secret is one launch's secret. The zero Secret is none, and matches nothing.
+//
+// The mark has a limit: fmt does not call Format on a field it cannot export, so a Secret in an
+// unexported struct field prints as itself when the struct is printed whole (%v, %+v). Never
+// print or log a value that holds one; a test pins this limit.
 type Secret struct {
 	text string
 }

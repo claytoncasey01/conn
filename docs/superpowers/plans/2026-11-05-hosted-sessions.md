@@ -80,7 +80,7 @@
 - Create: `internal/server/term.go` (+ tests, a fuzz test), message types in `internal/pty` or `internal/server`
 
 **Interfaces:**
-- Consumes: Tasks 1-3. Produces: `GET /api/term/<id>` upgrading to a WebSocket. Client frames: `{t:"input",d}`, `{t:"resize",cols,rows}`; first frame or subprotocol carries the secret. Server frames: binary output; `{t:"replay-end"}`, `{t:"exit",code}`.
+- Consumes: Tasks 1-3. Produces: `GET /api/term/<id>` upgrading to a WebSocket. Client frames: `{t:"input",d}`, `{t:"resize",cols,rows}`; first frame or subprotocol carries the secret. Server frames: binary output; `{t:"replay-end"}`, `{t:"exit",code}`. The route lives under `/api`, so Task 1's gate (Host, Origin, secret) stands in front of it like every other route; a browser WebSocket cannot send `Authorization`, so the gate itself must learn to take the secret from `Sec-WebSocket-Protocol` for this route (never a query string), rather than the route sitting outside `/api`.
 
 - [ ] **Step 1:** Failing tests (real `httptest` server, `coder/websocket` client): wrong Host, wrong or missing Origin, no secret, wrong secret each fail the handshake before any session is touched; an unknown id fails; a frame over `inputFrameBytesMax` closes the connection; an input flood is rate-limited; `viewersMax+1` is refused; a slow viewer is closed; replay arrives before live output; resize reaches the host; exit is reported. Fuzz the frame parser (`FuzzFrame`) with a corpus; it never panics.
 - [ ] **Step 2:** Run; expect FAIL; implement; promote `coder/websocket` to a direct dependency and allowlist it in `.golangci.yml` with a comment.

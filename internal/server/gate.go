@@ -43,6 +43,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, next route) {
 
 	w.Header().Set("Content-Security-Policy", fmt.Sprintf(policyFormat, r.Host))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// A link the page follows tells the next site nothing of Conn's address.
+	w.Header().Set("Referrer-Policy", "no-referrer")
 
 	// Routes match the path as sent, not decoded, as a browser's URL.pathname does.
 	urlPath := r.URL.EscapedPath()

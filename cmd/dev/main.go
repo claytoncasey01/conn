@@ -26,6 +26,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/app"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/desk"
+	"github.com/claytoncasey01/conn/internal/terminal"
 )
 
 // Exit codes.
@@ -66,14 +67,7 @@ type loop struct {
 }
 
 func main() {
-	stdoutTerminal := false
-
-	info, err := os.Stdout.Stat()
-	if err == nil {
-		stdoutTerminal = info.Mode()&os.ModeCharDevice != 0
-	}
-
-	os.Exit(realMain(os.LookupEnv, os.Environ(), os.Stdout, stdoutTerminal, os.Stderr))
+	os.Exit(realMain(os.LookupEnv, os.Environ(), os.Stdout, terminal.Is(os.Stdout), os.Stderr))
 }
 
 func realMain(

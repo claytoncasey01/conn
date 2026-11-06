@@ -46,7 +46,9 @@ These are in scope, because Conn promises them:
   string, a cookie, a log line, an error, a command line or a child's environment. The app hands
   it to its window in the address's fragment, which is never sent to a server; `conn serve`
   prints it only to a terminal. The page keeps it in `sessionStorage` and removes it from the
-  address bar. Every write also needs the `x-conn: 1` header. The page and its files need no
+  address bar. A browser records the address with `#k=` in its history before the page removes
+  it, and may sync that history with a browser account; this is accepted because the secret
+  lasts one launch of Conn and the port answers on `127.0.0.1` only. Every write also needs the `x-conn: 1` header. The page and its files need no
   secret: they hold nothing of yours. The page's Content-Security-Policy allows scripts only from
   Conn (no inline script), requests only to Conn, and no framing. A request that gets past the
   gate without the secret, or a way to read the secret without being your user, is in scope.
