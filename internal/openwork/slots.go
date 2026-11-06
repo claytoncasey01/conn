@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
 // A run's build sessions. Each sits in a slot: a leg that has a session, the lead in the shared
@@ -100,6 +101,50 @@ func (w *Work) slotProblem(record *Record, slot *Leg) string {
 	}
 
 	return w.runProblem(record)
+}
+
+// launchProblem is why no build session of the run may start now, "" when one may: the shared
+// session reaches every leg, so any leg's problem stops it; the split sessions start as long as
+// one leg may build, and the problems of all are said when none may.
+func (w *Work) launchProblem(record *Record) string {
+	if record.Layout != layoutSplit {
+		return w.runProblem(record)
+	}
+
+	for _, leg := range record.Repos {
+		if w.buildProblem(leg) == "" {
+			return ""
+		}
+	}
+
+	return w.runProblem(record)
+}
+
+// launched is whether a session was ever started in a slot. Only a split run's leg is ever left
+// unlaunched, and that is recorded since it can be: a shared run's slot, or one with a Claude id
+// or a command to paste, was launched.
+func launched(record *Record, slot *Leg) bool {
+	if slot.SessionLaunched {
+		return true
+	}
+
+	if record.Layout != layoutSplit {
+		return true
+	}
+
+	if slot.ClaudeSessionID != nil {
+		return true
+	}
+
+	return slot.ManualCommand != nil
+}
+
+// markLaunched records that a slot's session was started. Only the split layout can leave a slot
+// unlaunched, so only it records the fact: a shared run's file stays as it always was.
+func markLaunched(record *Record, slot *Leg) {
+	if record.Layout == layoutSplit {
+		slot.SessionLaunched = true
+	}
 }
 
 // slotKey keys what is kept per slot: the run and the slot's repository.
@@ -279,10 +324,16 @@ func (w *Work) reopen(record *Record, slots []*Leg) Reply {
 	w.busyPR[key] = true
 
 	for _, slot := range slots {
-		command, verb := resumeCommand(record, slot)
 		w.resumedAt[slotKey(record, slot)] = w.now()
 
-		w.openWorkspace(w.held(), record, slot, command, verb)
+		if launched(record, slot) {
+			command, verb := resumeCommand(record, slot)
+			w.openWorkspace(w.held(), record, slot, command, verb)
+
+			continue
+		}
+
+		w.launchFresh(record, slot)
 	}
 
 	delete(w.busyPR, key)
@@ -296,6 +347,24 @@ func (w *Work) reopen(record *Record, slots []*Leg) Reply {
 	return ok()
 }
 
+// launchFresh starts a slot left unlaunched when the run's other sessions opened: its brief and
+// excluded .conn/ as the launch makes them, then the launch's command.
+func (w *Work) launchFresh(record *Record, slot *Leg) {
+	err := writeBrief(record, slot, briefFor(record, slot))
+	if err != nil {
+		w.log(record, logError, w.slotSaid(record, slot, err.Error()))
+
+		return
+	}
+
+	worktree := slot.Worktree
+
+	w.held().outside(func() { reviews.ExcludeConn(w.ctx, w.excludeDeps(), worktree) })
+
+	markLaunched(record, slot)
+	w.openWorkspace(w.held(), record, slot, launchCommand(record, slot), "opened")
+}
+
 // slotLiveRefusal is why a slot's session may not be reopened now, "" when it may, and whether
 // that is only that its session runs.
 func (w *Work) slotLiveRefusal(record *Record, slot *Leg) (string, bool) {
@@ -307,7 +376,9 @@ func (w *Work) slotLiveRefusal(record *Record, slot *Leg) (string, bool) {
 	// one would share its conversation.
 	if record.State == stateBuilding {
 		if sessionText(slot.ClaudeSessionID) == "" {
-			return "the session has not started yet: wait for it to open", false
+			if launched(record, slot) {
+				return "the session has not started yet: wait for it to open", false
+			}
 		}
 	}
 

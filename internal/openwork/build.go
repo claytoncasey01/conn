@@ -99,7 +99,7 @@ func (w *Work) Answer(key string, answers any) Reply {
 	}
 
 	if !w.deps.Dry {
-		if problem := w.runProblem(record); problem != "" {
+		if problem := w.launchProblem(record); problem != "" {
 			return conflict(problem)
 		}
 	}
@@ -312,8 +312,9 @@ func (w *Work) launchBuild(step *task, record *Record) error {
 	}
 
 	// Settings can change while git answers: no session starts in a repository that has left
-	// the list, nor reaches one.
-	if problem := w.runProblem(record); problem != "" {
+	// the list, nor reaches one. A split session whose own repository may not build is left
+	// unlaunched while the others open.
+	if problem := w.launchProblem(record); problem != "" {
 		return textError(problem)
 	}
 
@@ -322,12 +323,24 @@ func (w *Work) launchBuild(step *task, record *Record) error {
 			return nil
 		}
 
-		w.openWorkspace(step, record, slot, "claude --name "+record.Key+" --model sonnet "+
-			"--append-system-prompt-file .conn/delegation.md"+reachFlags(record, slot)+
-			` --permission-mode acceptEdits "Read .conn/brief.md and follow it exactly."`, "opened")
+		if problem := w.slotProblem(record, slot); problem != "" {
+			w.log(record, logError, w.sessionNamed(record, slot)+" not opened: "+problem)
+
+			continue
+		}
+
+		markLaunched(record, slot)
+		w.openWorkspace(step, record, slot, launchCommand(record, slot), "opened")
 	}
 
 	return nil
+}
+
+// launchCommand is the command that starts a slot's session for the first time.
+func launchCommand(record *Record, slot *Leg) string {
+	return "claude --name " + record.Key + " --model sonnet --append-system-prompt-file " +
+		".conn/delegation.md" + reachFlags(record, slot) + " --permission-mode acceptEdits " +
+		`"Read .conn/brief.md and follow it exactly."`
 }
 
 // dryBuild opens the dry run's sessions: each slot's is busy, and every leg has commits.
@@ -339,6 +352,7 @@ func (w *Work) dryBuild(record *Record) {
 	}
 
 	for _, slot := range w.sessionSlots(record) {
+		markLaunched(record, slot)
 		slot.Session = &Session{Name: record.Key, SessionID: nil, PID: nil, Status: &status}
 
 		w.log(record, logBuild, w.sessionNamed(record, slot)+" opened (dry run)")

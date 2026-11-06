@@ -173,6 +173,10 @@ type Leg struct {
 	// ClaudeSessionID is Claude's own id for the build session, kept so it can be resumed.
 	ClaudeSessionID *string `json:"claudeSessionId"`
 	ManualCommand   *string `json:"manualCommand"`
+	// SessionLaunched is that a session was started in this leg (it is a slot); a split run's
+	// leg whose repository could not build when the others started is left unlaunched, and
+	// RESUME SESSION starts it fresh. Only the server reads it.
+	SessionLaunched bool `json:"sessionLaunched,omitempty"`
 	// Ahead and Dirty are the commits on the branch and the files not yet committed.
 	Ahead float64 `json:"ahead"`
 	Dirty float64 `json:"dirty"`

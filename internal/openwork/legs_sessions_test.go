@@ -585,3 +585,85 @@ func TestTheDryRunTakesATicketInTwoRepositoriesFromStartToItsSessions(t *testing
 		})
 	}
 }
+
+// allowOnly makes only acme/widgets an allowed repository, its clone kept.
+func allowOnly(made *world, folders legsRun) {
+	made.update("repos", `{"allow":["acme/widgets"],"clones":{"acme/widgets":`+
+		js.Stringify(folders.clones[0])+`},"cloneRoot":null}`)
+}
+
+// allowBoth makes acme/* allowed again, with both clones.
+func allowBoth(made *world, folders legsRun) {
+	made.update("repos", `{"allow":["acme/*"],"clones":{"acme/widgets":`+
+		js.Stringify(folders.clones[0])+`,"acme/gadgets":`+js.Stringify(folders.clones[1])+
+		`},"cloneRoot":null}`)
+}
+
+func TestASplitRunOpensTheSessionsItMayAndOneLeftOutStartsFreshOnResume(t *testing.T) {
+	t.Parallel()
+
+	made, folders := legsWorld(t, "split", askingFields)
+	worktrees := folders.worktrees
+	allowOnly(made, folders)
+	answered(t, made)
+
+	record := made.record("PROJ-1")
+	same(t, "state", record.State, "building")
+	same(t, "cmux", made.cmuxLines(), []string{launchLine(worktrees[0])})
+	same(t, "launched", []bool{record.Repos[0].SessionLaunched, record.Repos[1].SessionLaunched},
+		[]bool{true, false})
+	same(t, "said", made.hasLog("Session PROJ-1 in acme/gadgets not opened: acme/gadgets is "+
+		"not an allowed repository: add it in Settings."), true)
+
+	reply := made.work.Resume("PROJ-1", "acme/gadgets")
+	same(t, "still off", []any{reply.Code, errorOf(reply)}, []any{409, "acme/gadgets: " +
+		"acme/gadgets is not an allowed repository: add it in Settings."})
+
+	allowBoth(made, folders)
+	same(t, "resume", made.work.Resume("PROJ-1", "acme/gadgets").Code, 200)
+	same(t, "fresh", made.cmuxLines(), []string{launchLine(worktrees[0]), launchLine(worktrees[1])})
+	same(t, "brief", readBrief(t, worktrees[1]),
+		openwork.BriefText(&record, record.Repos[1]))
+	same(t, "now launched", made.record("PROJ-1").Repos[1].SessionLaunched, true)
+}
+
+func TestAResumeOfASessionLaunchedWithNoIdYetIsRefused(t *testing.T) {
+	t.Parallel()
+
+	rows := []struct {
+		name, layout, leg, repo, message string
+	}{
+		{
+			"split, launched", "split", `{"sessionLaunched":true}`, "acme/gadgets",
+			"acme/gadgets: the session has not started yet: wait for it to open",
+		},
+		{
+			"shared, from before launches were recorded", "shared", "", "",
+			"the session has not started yet: wait for it to open",
+		},
+	}
+
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			t.Parallel()
+
+			made, _ := legsWorld(t, row.layout, "", row.leg, row.leg)
+			reply := made.work.Resume("PROJ-1", row.repo)
+			same(t, "refused", []any{reply.Code, errorOf(reply)}, []any{409, row.message})
+			same(t, "cmux", made.cmuxLines(), []string{})
+		})
+	}
+}
+
+func TestASharedRunWithARepositoryOffTheListOpensNothing(t *testing.T) {
+	t.Parallel()
+
+	made, folders := legsWorld(t, "shared", askingFields)
+	allowOnly(made, folders)
+
+	reply := made.work.Answer("PROJ-1", body(t, `{"q1":"a"}`))
+	same(t, "refused", []any{reply.Code, errorOf(reply)}, []any{409, "acme/gadgets is not an " +
+		"allowed repository: add it in Settings."})
+	made.work.Settle()
+	same(t, "cmux", made.cmuxLines(), []string{})
+}
