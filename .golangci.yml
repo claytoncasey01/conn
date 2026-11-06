@@ -24,6 +24,11 @@ linters:
             # the one cgo exception: Wails v3 binds Cocoa and WebKit through cgo. Pinned to an
             # exact version; read its release notes before bumping it.
             - github.com/wailsapp/wails/v3
+            # Pseudo-terminals for hosted sessions (internal/pty): the ioctls and signals the
+            # standard library does not wrap. Maintained by the Go team and already in the module
+            # graph through Wails and the SQLite driver, so it adds no new author; chosen over a
+            # third-party pty library for the smaller attack surface.
+            - golang.org/x/sys/unix
     gosec:
       excludes:
         # Conn's job is running gh, git, ps and claude with arguments built from settings and
@@ -41,6 +46,9 @@ linters:
         - empty
         - stdlib
         - generic
+        # A Spawner returns the running program as the Process seam: the real terminal and the
+        # tests' and dry run's scripted fakes are its implementations.
+        - github.com/claytoncasey01/conn/internal/pty.Process
     lll:
       # TigerStyle's hard limit. Tabs count as 4, so the limit matches what an editor shows.
       line-length: 100
@@ -125,6 +133,12 @@ linters:
         linters:
           - contextcheck
         text: "api->work->"
+      # macOS names a pseudo-terminal's program side only through TIOCPTYGNAME, which fills a
+      # buffer; x/sys/unix has no wrapper for it, so this one ioctl passes the buffer's address.
+      - path: internal/pty/terminal_darwin\.go
+        linters:
+          - gosec
+        text: "G103"
       # Start returns the data folder lock's own errors as they are: instance already says what
       # failed (the data folder, the lock file), and `conn serve` prints them as it did before
       # the server moved into internal/app.

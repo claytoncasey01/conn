@@ -1,0 +1,359 @@
+package pty_test
+
+import (
+	"context"
+	"errors"
+	"io"
+	"slices"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/claytoncasey01/conn/internal/pty"
+	"github.com/claytoncasey01/conn/internal/testtime"
+)
+
+// Exit codes the fake reports for each way it ends.
+const (
+	fakeTerminatedCode = 143
+	fakeKilledCode     = 137
+)
+
+// Signal names the fake records, in the order it got them.
+const (
+	signalTerminate = "terminate"
+	signalKill      = "kill"
+)
+
+// waitLimit bounds every wait in these tests, and waitPoll is how often a poll looks.
+const (
+	waitLimit = 5 * time.Second
+	waitPoll  = 5 * time.Millisecond
+)
+
+var errFakeClosed = errors.New("the fake terminal is closed")
+
+// fakeProcess is a scripted program on a terminal: a test feeds its output, reads what was
+// written to it, and ends it.
+type fakeProcess struct {
+	pid             int
+	ignoreTerminate bool
+
+	output    chan []byte
+	closed    chan struct{}
+	closeOnce sync.Once
+	exited    chan struct{}
+	exitOnce  sync.Once
+
+	mu       sync.Mutex
+	written  []byte
+	sizes    []pty.Size
+	signals  []string
+	exitCode int
+}
+
+func (f *fakeProcess) Read(buffer []byte) (int, error) {
+	select {
+	case chunk, open := <-f.output:
+		if !open {
+			return 0, io.EOF
+		}
+
+		if len(chunk) > len(buffer) {
+			panic("a fake output chunk is larger than the host's read buffer")
+		}
+
+		return copy(buffer, chunk), nil
+	case <-f.closed:
+		return 0, errFakeClosed
+	}
+}
+
+func (f *fakeProcess) Write(data []byte) (int, error) {
+	select {
+	case <-f.closed:
+		return 0, errFakeClosed
+	default:
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.written = append(f.written, data...)
+
+	return len(data), nil
+}
+
+func (f *fakeProcess) Resize(size pty.Size) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.sizes = append(f.sizes, size)
+
+	return nil
+}
+
+func (f *fakeProcess) PID() int { return f.pid }
+
+func (f *fakeProcess) Terminate() error {
+	f.record(signalTerminate)
+
+	if !f.ignoreTerminate {
+		f.exit(fakeTerminatedCode)
+	}
+
+	return nil
+}
+
+func (f *fakeProcess) Kill() error {
+	f.record(signalKill)
+	f.exit(fakeKilledCode)
+
+	return nil
+}
+
+func (f *fakeProcess) GroupAlive() bool {
+	select {
+	case <-f.exited:
+		return false
+	default:
+		return true
+	}
+}
+
+func (f *fakeProcess) Wait() int {
+	<-f.exited
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.exitCode
+}
+
+func (f *fakeProcess) Close() error {
+	f.closeOnce.Do(func() { close(f.closed) })
+
+	return nil
+}
+
+func (f *fakeProcess) record(signal string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.signals = append(f.signals, signal)
+}
+
+// exit ends the program with code; the first call wins.
+func (f *fakeProcess) exit(code int) {
+	f.exitOnce.Do(func() {
+		f.mu.Lock()
+		f.exitCode = code
+		f.mu.Unlock()
+		close(f.exited)
+	})
+}
+
+// finish ends the program with code after its output so far.
+func (f *fakeProcess) finish(code int) {
+	f.exit(code)
+	close(f.output)
+}
+
+func (f *fakeProcess) writtenSoFar() []byte {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return slices.Clone(f.written)
+}
+
+func (f *fakeProcess) signalsSoFar() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return slices.Clone(f.signals)
+}
+
+func (f *fakeProcess) sizesSoFar() []pty.Size {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return slices.Clone(f.sizes)
+}
+
+// feed hands the host one chunk of output, failing the test if the host's reader does not take it
+// in time: the reader must never block.
+func (f *fakeProcess) feed(t *testing.T, chunk []byte) {
+	t.Helper()
+
+	timer := time.NewTimer(testtime.Scaled(waitLimit))
+	defer timer.Stop()
+
+	select {
+	case f.output <- chunk:
+	case <-timer.C:
+		t.Fatal("the host stopped reading the program's output")
+	}
+}
+
+// fakes is a Spawner that starts fakeProcesses and keeps them for the test.
+type fakes struct {
+	ignoreTerminate bool
+	err             error
+
+	mu      sync.Mutex
+	started []*fakeProcess
+	specs   []pty.Spec
+}
+
+func (f *fakes) spawn(spec pty.Spec) (pty.Process, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	process := &fakeProcess{
+		pid:             len(f.started) + 1000,
+		ignoreTerminate: f.ignoreTerminate,
+		output:          make(chan []byte),
+		closed:          make(chan struct{}),
+		exited:          make(chan struct{}),
+	}
+	f.started = append(f.started, process)
+	f.specs = append(f.specs, spec)
+
+	return process, nil
+}
+
+// last is the process the latest Start made.
+func (f *fakes) last(t *testing.T) *fakeProcess {
+	t.Helper()
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if len(f.started) == 0 {
+		t.Fatal("no process was started")
+	}
+
+	return f.started[len(f.started)-1]
+}
+
+func (f *fakes) lastSpec(t *testing.T) pty.Spec {
+	t.Helper()
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if len(f.specs) == 0 {
+		t.Fatal("no process was started")
+	}
+
+	return f.specs[len(f.specs)-1]
+}
+
+// testSpec is a valid Spec for the fake.
+func testSpec(t *testing.T) pty.Spec {
+	t.Helper()
+
+	return pty.Spec{
+		Argv: []string{"/bin/sh", "-c", "true"},
+		Dir:  t.TempDir(),
+		Env:  []string{"PATH=/usr/bin:/bin"},
+		Name: "test",
+	}
+}
+
+// newFakeHost is a Host over fakes with limits.
+func newFakeHost(t *testing.T, limits pty.Limits) (*pty.Host, *fakes) {
+	t.Helper()
+
+	spawner := &fakes{}
+	host := pty.NewHost(pty.Config{Spawner: spawner.spawn, Limits: limits})
+
+	t.Cleanup(func() { _ = host.StopAll(context.WithoutCancel(t.Context())) })
+
+	return host, spawner
+}
+
+// info is the session's entry in Live.
+func info(t *testing.T, host *pty.Host, sessionID pty.ID) (pty.Info, bool) {
+	t.Helper()
+
+	for _, entry := range host.Live() {
+		if entry.ID == sessionID {
+			return entry, true
+		}
+	}
+
+	return pty.Info{}, false
+}
+
+// waitEnded waits until the session has ended and returns its entry.
+func waitEnded(t *testing.T, host *pty.Host, sessionID pty.ID) pty.Info {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(waitLimit))
+
+	for time.Now().Before(deadline) {
+		entry, found := info(t, host, sessionID)
+		if !found {
+			t.Fatalf("session %s is not in Live", sessionID)
+		}
+
+		if entry.ExitCode != nil {
+			return entry
+		}
+
+		time.Sleep(waitPoll)
+	}
+
+	t.Fatalf("session %s did not end", sessionID)
+
+	return pty.Info{}
+}
+
+// receive is the next chunk on output, or fails the test.
+func receive(t *testing.T, output <-chan []byte) []byte {
+	t.Helper()
+
+	timer := time.NewTimer(testtime.Scaled(waitLimit))
+	defer timer.Stop()
+
+	select {
+	case chunk, open := <-output:
+		if !open {
+			t.Fatal("the viewer's output closed")
+		}
+
+		return chunk
+	case <-timer.C:
+		t.Fatal("no output arrived")
+	}
+
+	return nil
+}
+
+// drainUntilClosed reads output until it closes, and returns everything read.
+func drainUntilClosed(t *testing.T, output <-chan []byte) []byte {
+	t.Helper()
+
+	timer := time.NewTimer(testtime.Scaled(waitLimit))
+	defer timer.Stop()
+
+	var all []byte
+
+	for {
+		select {
+		case chunk, open := <-output:
+			if !open {
+				return all
+			}
+
+			all = append(all, chunk...)
+		case <-timer.C:
+			t.Fatal("the viewer's output never closed")
+		}
+	}
+}
