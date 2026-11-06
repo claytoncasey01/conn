@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -82,6 +83,12 @@ func TestEventsStreamOutlivesTheReadTimeout(t *testing.T) {
 	reader := bufio.NewReader(response.Body)
 
 	first, _ := reader.ReadString('\n')
+
+	// The page is counted before its first byte is sent, so as soon as anything arrives.
+	if loop.Hub().Count() != 1 {
+		t.Errorf("clients = %d once the first line arrived, want 1", loop.Hub().Count())
+	}
+
 	if first != "retry: 1500\n" {
 		t.Errorf("first line %q", first)
 	}
@@ -289,5 +296,93 @@ func TestActionRoutesAreGuarded(t *testing.T) {
 		if recorder.Body.String() != tt.want {
 			t.Errorf("%s %s body %q", tt.method, tt.target, recorder.Body.String())
 		}
+	}
+}
+
+// The events stream joins the page before it takes the first snapshot: a change that lands
+// between the two is pushed to the page. The snapshot's own build records how many pages were
+// listening as it was taken.
+func TestTheEventsStreamJoinsBeforeItsFirstSnapshot(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mutex sync.Mutex
+		seen  []int
+		loop  *sessions.Loop
+	)
+
+	record := func(listening int) {
+		mutex.Lock()
+		defer mutex.Unlock()
+
+		seen = append(seen, listening)
+	}
+
+	never := func() bool { return false }
+	loop = sessions.NewLoop(sessions.Deps{
+		Home: t.TempDir(), DataDir: t.TempDir(), Kinds: sessions.KindRules{},
+		Procs: func() (string, error) { return "", nil },
+		Env:   func(float64) ([]string, error) { return nil, errNone },
+		PRView: func(context.Context, string, []string) ([]byte, error) {
+			return nil, errNone
+		},
+		RepoOf:   func(string) string { return "" },
+		Upstream: func(string, string) string { return "" },
+		Hooks: sessions.Hooks{
+			Runs: func() []sessions.Run { return []sessions.Run{} },
+			History: func() any {
+				record(loop.Hub().Count())
+
+				return nil
+			},
+			Reviews: func() any { return nil }, MyPrs: nil,
+			Setup: never, OpenWork: never, RepoVisible: func(string) bool { return true },
+			GithubOn: never,
+		},
+		Now: time.Now,
+	})
+
+	go loop.Run(t.Context())
+
+	handler := &server.Server{
+		UI: bundle(), Secret: testKey(t), Clients: loop.Hub().Count, Settings: nil, Themes: nil,
+		Sessions: loop,
+	}
+	test := httptest.NewServer(handler)
+
+	defer test.Close()
+
+	// A change, so the stream's first snapshot is built for it, not taken from the cache.
+	loop.Bump()
+
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		test.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request.Header.Set(secret.Header, testKey(t).Authorization())
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = response.Body.Close() }()
+
+	reader := bufio.NewReader(response.Body)
+	_, _ = reader.ReadString('\n')
+	_, _ = reader.ReadString('\n')
+
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	if len(seen) == 0 {
+		t.Fatal("no snapshot was built")
+	}
+
+	if last := seen[len(seen)-1]; last != 1 {
+		t.Fatalf("the first snapshot was built with %d pages listening, want 1 (seen %v)", last,
+			seen)
 	}
 }

@@ -71,6 +71,14 @@ func (s *Server) snapshot(w http.ResponseWriter, r *http.Request) {
 // events is the live-update stream: the snapshot now, then again whenever it changes (and every
 // 5 s), until the page goes or the server stops.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
+	// The page joins before its first snapshot is taken: a change that lands between the two is
+	// pushed to it (at worst as one snapshot more, which is whole and harmless), and the page is
+	// counted before it has read a byte.
+	hub := s.Sessions.Hub()
+	client := hub.Join()
+
+	defer hub.Leave(client)
+
 	data, err := s.Sessions.Snapshot(r.Context())
 	if err != nil {
 		return
@@ -85,11 +93,6 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 
 	_, _ = w.Write(append([]byte(streamRetry+"data: "), append(data, '\n', '\n')...))
 	_ = controller.Flush()
-
-	hub := s.Sessions.Hub()
-	client := hub.Join()
-
-	defer hub.Leave(client)
 
 	// A page that opens gets the waiting screens read now, not at the next tick; the next frame
 	// carries what they ask.
