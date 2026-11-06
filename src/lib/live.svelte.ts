@@ -2,6 +2,7 @@ import { onSnapshot } from './notify.svelte.ts'
 import { answerBody, parseAnswer, parseOk, type AnswerResult } from './ask.ts'
 import { parseEntryAction, type EntryActionResult } from './entryAction.ts'
 import { fetchEntry as readEntry } from './entry.ts'
+import { repoBody } from './runLegs.ts'
 import type { AgentDetail, HistoryEntry, HistoryList, ResearchModel, RunLayout, SessionDetail, Snapshot, WorkList } from './types.ts'
 
 /** The whole picture, pushed by the server over SSE. `now` ticks each second for runtimes. */
@@ -140,13 +141,13 @@ export async function refreshWork(): Promise<ActionResult> {
 
 export const startRun = (key: string, o: { model: ResearchModel; force?: boolean; repos: string[]; layout?: RunLayout }) => post(`/api/work/${key}/start`, o)
 export const answerRun = (key: string, answers: Record<string, string>) => post(`/api/runs/${key}/answers`, { answers })
-export const openPr = (key: string) => post(`/api/runs/${key}/pr`, {})
+export const openPr = (key: string, repo?: string) => post(`/api/runs/${key}/pr`, repoBody(repo))
 export const cancelRun = (key: string) => post(`/api/runs/${key}/cancel`, {})
 export const retryRun = (key: string) => post(`/api/runs/${key}/retry`, {})
-export const fixChecks = (key: string) => post(`/api/runs/${key}/fix-checks`, {})
+export const fixChecks = (key: string, repo?: string) => post(`/api/runs/${key}/fix-checks`, repoBody(repo))
 export const moveJira = (key: string, status: string) => post(`/api/runs/${key}/jira`, { status })
-export const cleanupRun = (key: string) => post(`/api/runs/${key}/cleanup`, {})
-export const resumeRun = (key: string) => post(`/api/runs/${key}/resume`, {})
+export const cleanupRun = (key: string, repo?: string) => post(`/api/runs/${key}/cleanup`, repoBody(repo))
+export const resumeRun = (key: string, repo?: string) => post(`/api/runs/${key}/resume`, repoBody(repo))
 
 // ---- History ----
 

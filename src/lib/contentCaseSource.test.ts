@@ -69,6 +69,7 @@ const ALLOW: Record<string, Record<string, string>> = {
     '{run.answered.length}': N,
     '{run.agents.length}': N,
     '{s.name}': 'pipeline stage, a constant (1 RESEARCH, 2 ASK...)',
+    '{run.repos.length}': N,
   },
   'pages/Overview.svelte': {
     '{session.agentsRunning}': N,
