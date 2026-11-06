@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	modelHaiku  = "haiku"
-	modelSonnet = "sonnet"
+	// reposNotNames refuses a START whose repos is not a list of repository names.
+	reposNotNames = "repos must be a list of repository names"
+	modelHaiku    = "haiku"
+	modelSonnet   = "sonnet"
 	// categoryNew is Jira's to-do status category; categoryInProgress its in-progress one.
 	categoryNew        = "new"
 	categoryInProgress = "indeterminate"
@@ -67,6 +69,11 @@ func (w *Work) Start(key string, body *js.Object) Reply {
 		return badRequest("model must be haiku or sonnet")
 	}
 
+	choice, refusal, refused := w.choiceOf(body)
+	if refused {
+		return refusal
+	}
+
 	had, found := w.runs.Get(key)
 	if found {
 		if isActive(had.State) {
@@ -82,7 +89,53 @@ func (w *Work) Start(key string, body *js.Object) Reply {
 		return conflict("the last stage of " + key + " is still ending: try again in a moment")
 	}
 
-	return w.startTicket(key, model, had, js.Truthy(field(body, "force")))
+	return w.startTicket(key, model, had, js.Truthy(field(body, "force")), choice)
+}
+
+// choice is what a START chose: the repositories by name, in order (none: the default
+// repository), and the layout of their sessions.
+type choice struct {
+	repos  []string
+	layout string
+}
+
+// choiceOf is the choice a START's body makes, or a refusal of a body that is not one: repos
+// that is not a list of names, or a layout that is neither shared nor split. An absent layout is
+// the one Settings starts the picker on.
+func (w *Work) choiceOf(body *js.Object) (choice, Reply, bool) {
+	chosen := []string{}
+
+	if value := field(body, "repos"); value != nil {
+		list, isList := value.([]any)
+		if !isList {
+			return choice{}, badRequest(reposNotNames), true
+		}
+
+		for _, item := range list {
+			name, isText := item.(string)
+			if !isText {
+				return choice{}, badRequest(reposNotNames), true
+			}
+
+			chosen = append(chosen, name)
+		}
+	}
+
+	layout := layoutShared
+	if w.settings().Atlassian.Jira.SessionLayout == layoutSplit {
+		layout = layoutSplit
+	}
+
+	if value, present := body.Get("layout"); present {
+		switch value {
+		case layoutShared, layoutSplit:
+			layout, _ = value.(string)
+		default:
+			return choice{}, badRequest("layout must be shared or split"), true
+		}
+	}
+
+	return choice{repos: chosen, layout: layout}, Reply{}, false
 }
 
 func modelOf(value any) string {
@@ -120,7 +173,7 @@ func confirm(message, what string) Reply {
 	return reply
 }
 
-func (w *Work) startTicket(key, model string, had *Record, force bool) Reply {
+func (w *Work) startTicket(key, model string, had *Record, force bool, chose choice) Reply {
 	ticket := w.ticket(key)
 	if ticket == nil {
 		return notFound(key + " is not in the current sprint list")
@@ -132,51 +185,130 @@ func (w *Work) startTicket(key, model string, had *Record, force bool) Reply {
 		}
 	}
 
-	target := w.target()
-	if target.Clone == "" {
-		return conflict(reasonOr(target.Reason))
+	targets, problems := w.chooseTargets(chose.repos)
+	if len(problems) > 0 {
+		return conflict(strings.Join(problems, " "))
 	}
 
-	if target.Base == "" {
-		return conflict(reasonOr(target.Reason))
+	if moved := w.baseMoved(key, had, targets); len(moved) > 0 {
+		return conflict(strings.Join(moved, " "))
 	}
 
-	if refusal, refused := w.baseMoved(key, had, target); refused {
-		return refusal
-	}
-
-	record := w.newRecord(key, model, ticket, target)
+	record := w.newRecord(key, model, ticket, targets, chose.layout)
 	w.runs.Set(key, record)
-	w.log(record, logStatus, "Run started for "+key+": branch from "+target.Base+
-		", research on "+strings.ToUpper(model))
+	w.log(record, logStatus, startedLine(record)+leftAsItWas(had, targets))
 	w.pipeline(record)
 
 	return ok()
 }
 
-// baseMoved refuses a new run over an old one whose branch was cut from another base than runs
-// start from now.
-func (w *Work) baseMoved(key string, had *Record, target Target) (Reply, bool) {
+// startedLine is the log line a run starts with: the branch's base and the research model, and
+// with several repositories, each with its base.
+func startedLine(record *Record) string {
+	research := ", research on " + strings.ToUpper(record.Model)
+	if len(record.Repos) == 1 {
+		return "Run started for " + record.Key + ": branch from " + record.lead().Base + research
+	}
+
+	where := make([]string, 0, len(record.Repos))
+	for _, leg := range record.Repos {
+		where = append(where, leg.Repo+" from "+leg.Base)
+	}
+
+	return "Run started for " + record.Key + " in " + strings.Join(where, ", ") + research
+}
+
+// leftAsItWas names the worktrees of the run a START replaces that the new run does not build
+// in: they stay on disk as they are, for the person to keep or remove.
+func leftAsItWas(had *Record, targets []Target) string {
+	if had == nil {
+		return ""
+	}
+
+	var said strings.Builder
+
+	for _, leg := range had.Repos {
+		if !leg.WorktreeReady {
+			continue
+		}
+
+		if _, shared := sharedTarget(had, leg, targets); shared {
+			continue
+		}
+
+		said.WriteString(". " + leg.Worktree + " of the last run is left as it was")
+	}
+
+	if said.Len() == 0 {
+		return ""
+	}
+
+	return said.String() + "."
+}
+
+// sharedTarget is the target of a new run that builds where an old run's leg did: the same
+// repository in any case, or the same worktree. The one leg of a run from before Settings, which
+// recorded no repository, built in the default repository: the new run's first.
+func sharedTarget(had *Record, leg *Leg, targets []Target) (Target, bool) {
+	if leg.Repo == "" {
+		if len(had.Repos) == 1 {
+			return targets[0], true
+		}
+	}
+
+	for _, target := range targets {
+		if js.Lower(target.Repo) == js.Lower(leg.Repo) {
+			return target, true
+		}
+
+		if siblingOf(target.Clone, js.Lower(had.Key)) == leg.Worktree {
+			return target, true
+		}
+	}
+
+	return Target{}, false
+}
+
+// baseMoved refuses a new run over an old one, for each repository they share, whose branch was
+// cut from another base than runs start from there now. With several repositories each sentence
+// names its repository.
+func (w *Work) baseMoved(key string, had *Record, targets []Target) []string {
 	if w.deps.Dry {
-		return Reply{}, false
+		return nil
 	}
 
 	if had == nil {
-		return Reply{}, false
+		return nil
 	}
 
-	lead := had.lead()
-	if !lead.WorktreeReady {
-		return Reply{}, false
+	several := max(len(had.Repos), len(targets)) > 1
+	moved := []string{}
+
+	for _, leg := range had.Repos {
+		if !leg.WorktreeReady {
+			continue
+		}
+
+		target, shared := sharedTarget(had, leg, targets)
+		if !shared {
+			continue
+		}
+
+		if leg.Base == target.Base {
+			continue
+		}
+
+		where := ""
+		if several {
+			where = " in " + target.Repo
+		}
+
+		moved = append(moved, key+" already has "+leg.Branch+" cut from "+leg.Base+where+
+			", and runs start from "+target.Base+" now. Remove "+leg.Worktree+" and the "+
+			"branch first.")
 	}
 
-	if lead.Base == target.Base {
-		return Reply{}, false
-	}
-
-	return conflict(key + " already has " + lead.Branch + " cut from " + lead.Base + ", and runs " +
-		"start from " + target.Base + " now. Remove " + lead.Worktree + " and the branch " +
-		"first."), true
+	return moved
 }
 
 // unconfirmed asks to confirm a ticket assigned to someone else, or not in a to-do status.
@@ -212,7 +344,9 @@ func text(ticket *js.Object, key string) string {
 	return value
 }
 
-func (w *Work) newRecord(key, model string, ticket *js.Object, target Target) *Record {
+func (w *Work) newRecord(key, model string, ticket *js.Object, targets []Target,
+	layout string,
+) *Record {
 	now := w.now()
 	title := text(ticket, "title")
 
@@ -225,13 +359,22 @@ func (w *Work) newRecord(key, model string, ticket *js.Object, target Target) *R
 	lower := strings.ToLower(key)
 
 	// Runs start from the branch Settings names (else the clone's default branch) and the PR
-	// goes back into it. The worktree is a sibling of the clone, named for the clone and the
-	// ticket; the run records it, and cleanup removes the path the run recorded.
-	leg := &Leg{
-		Repo: target.Repo, Clone: target.Clone, Base: target.Base, PRBase: target.Base,
-		Branch: lower + "-" + slug, Worktree: siblingOf(target.Clone, lower),
-		WorktreeReady: false, Session: nil, ClaudeSessionID: nil, ManualCommand: nil, Ahead: 0,
-		Dirty: 0, PR: nil, Cleaned: nil,
+	// goes back into it. Each worktree is a sibling of its clone, named for the clone and the
+	// ticket; the run records it, and cleanup removes the path the run recorded. Every leg's
+	// branch has the same name.
+	legs := make([]*Leg, 0, len(targets))
+	for _, target := range targets {
+		legs = append(legs, &Leg{
+			Repo: target.Repo, Clone: target.Clone, Base: target.Base, PRBase: target.Base,
+			Branch: lower + "-" + slug, Worktree: siblingOf(target.Clone, lower),
+			WorktreeReady: false, Session: nil, ClaudeSessionID: nil, ManualCommand: nil,
+			Ahead: 0, Dirty: 0, PR: nil, Cleaned: nil,
+		})
+	}
+
+	// One repository has one session whatever was asked.
+	if len(legs) == 1 {
+		layout = layoutShared
 	}
 
 	return &Record{
@@ -239,7 +382,7 @@ func (w *Work) newRecord(key, model string, ticket *js.Object, target Target) *R
 		StartedAt: now, UpdatedAt: now, JiraStatus: text(ticket, "status"),
 		Agents: newAgents(), Answered: []Answered{}, Questions: []*Question{}, Log: []LogLine{},
 		Error: nil, Brief: "", Desc: text(ticket, "desc"), TicketStatus: text(ticket, "status"),
-		TicketCategory: &category, Repos: []*Leg{leg}, Layout: layoutShared,
+		TicketCategory: &category, Repos: legs, Layout: layout,
 	}
 }
 
@@ -280,7 +423,7 @@ func (w *Work) pipelineRefusal(record *Record) error {
 		return nil
 	}
 
-	if problem := w.buildProblem(record.lead()); problem != "" {
+	if problem := w.runProblem(record); problem != "" {
 		return textError(problem)
 	}
 
@@ -299,15 +442,9 @@ func (w *Work) runPipeline(step *task, record *Record) error {
 		return nil
 	}
 
-	if !record.lead().WorktreeReady {
-		err = w.makeWorktree(step, record, record.lead())
-		if err != nil {
-			return err
-		}
-
-		if !live(record) {
-			return nil
-		}
+	made, err := w.makeWorktrees(step, record)
+	if !made {
+		return err
 	}
 
 	// Atlassian can be turned off while a git call is out: the move and the research each
@@ -326,6 +463,33 @@ func (w *Work) runPipeline(step *task, record *Record) error {
 	return w.research(step, record)
 }
 
+// makeWorktrees makes the worktree of every leg that has none yet, in order, so a Retry resumes
+// where the last try stopped and the worktrees already made stay. False when the pipeline stops
+// here: a leg failed (its error, naming the repository when the run has several) or the run
+// ended meanwhile (nil).
+func (w *Work) makeWorktrees(step *task, record *Record) (bool, error) {
+	for _, leg := range record.Repos {
+		if leg.WorktreeReady {
+			continue
+		}
+
+		err := w.makeWorktree(step, record, leg)
+		if err != nil {
+			if len(record.Repos) == 1 {
+				return false, err
+			}
+
+			return false, textError(leg.Repo + ": " + err.Error())
+		}
+
+		if !live(record) {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
 func (w *Work) makeWorktree(step *task, record *Record, leg *Leg) error {
 	// The branch it starts from is read from a record on disk: only a name git can take as one
 	// argument.
@@ -336,11 +500,11 @@ func (w *Work) makeWorktree(step *task, record *Record, leg *Leg) error {
 
 	// The clone is looked up again, never taken from the record: a repository that has left
 	// the allowlist is not fetched, and a changed setting is followed.
-	if problem := w.buildProblem(leg); problem != "" {
+	clone, problem := w.cloneOf(leg)
+	if problem != "" {
 		return textError(problem)
 	}
 
-	clone := w.target().Clone
 	w.log(record, logBranch, "Fetching origin/"+from)
 
 	var err error

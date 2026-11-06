@@ -44,6 +44,8 @@ const ALLOW: Record<string, Record<string, string>> = {
     '{st.label}': 'run state: RS constants, or the Jira status uppercased in code',
     '{f.label}': 'ALL / MINE / UNASSIGNED',
     '{m.label}': W_CONST,
+    '{l.label}': W_CONST,
+    '{l.hint}': W_CONST,
   },
   'pages/AdvisorPage.svelte': {
     '{source.archived ? \'history\' : \'sessions\'}': W,

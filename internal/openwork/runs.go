@@ -3,6 +3,7 @@ package openwork
 import (
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/sessions"
@@ -142,30 +143,54 @@ func exists(path string) bool {
 }
 
 // buildProblem is why this leg may not research or build now, "" when it may: its repository
-// has left the allowlist, or Settings builds in another repository (or finds no clone of it).
-// Asked on every path that starts a helper run or a session, whatever was done before: a run
-// made earlier is not a way around a list changed since.
+// has left the allowlist, or Settings finds no clone of it. Asked on every path that starts a
+// helper run or a session, whatever was done before: a run made earlier is not a way around a
+// list changed since.
 func (w *Work) buildProblem(leg *Leg) string {
+	_, problem := w.cloneOf(leg)
+
+	return problem
+}
+
+// cloneOf is the clone a leg builds from now, looked up again in Settings, never taken from the
+// record; or why there is none. A run from before Settings whose worktree is not made says no
+// repository: it was made for the default repository.
+func (w *Work) cloneOf(leg *Leg) (string, string) {
+	current := w.settings()
+
 	repo := w.repoOf(leg)
-	if repo != "" {
-		if !w.allowed(repo) {
-			return repo + " is not an allowed repository: add it in Settings."
+	if repo == "" {
+		if current.Atlassian.Jira.BuildRepo == nil {
+			return "", noRepo
+		}
+
+		repo = *current.Atlassian.Jira.BuildRepo
+	}
+
+	if !w.allowed(repo) {
+		return "", notAllowed(repo)
+	}
+
+	clone, found := w.deps.CloneFor(repo, current)
+	if !found {
+		return "", "No local clone of " + repo + ": set a folder in Settings."
+	}
+
+	return clone, ""
+}
+
+// runProblem is why a run may not research or build now, "" when it may: every leg's problem,
+// one sentence each.
+func (w *Work) runProblem(record *Record) string {
+	problems := []string{}
+
+	for _, leg := range record.Repos {
+		if problem := w.buildProblem(leg); problem != "" {
+			problems = append(problems, problem)
 		}
 	}
 
-	target := w.target()
-	if target.Clone == "" {
-		return reasonOr(target.Reason)
-	}
-
-	if repo != "" {
-		if js.Lower(target.Repo) != js.Lower(repo) {
-			return "Open work builds in " + target.Repo + " now, and this run was made for " +
-				repo + ". Start the ticket again."
-		}
-	}
-
-	return ""
+	return strings.Join(problems, " ")
 }
 
 func reasonOr(reason string) string {

@@ -2,9 +2,12 @@ package openwork
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +29,8 @@ const (
 	argRevParse  = "rev-parse"
 	argPorcelain = "--porcelain"
 	argWorktree  = "worktree"
+	// buildReposMax is the most repositories the list of places to build offers.
+	buildReposMax = 200
 )
 
 var (
@@ -46,8 +51,8 @@ var (
 type Sh func(ctx context.Context, name string, args []string, dir string,
 	timeout time.Duration) (string, error)
 
-// Target is where a run builds: the build repository from Settings, its local clone, and the
-// branch it starts from. Reason says what to fix when a run cannot start, "" when it can.
+// Target is one repository a run may build in: the repository, its local clone, and the branch
+// a run starts from there. Reason says what to fix when a run cannot start there, "" when it can.
 type Target struct {
 	Repo   string
 	Clone  string
@@ -58,46 +63,207 @@ type Target struct {
 // CloneFinder is the local clone of a repository per the settings, false when there is none.
 type CloneFinder func(repo string, current settings.Settings) (string, bool)
 
-// BuildTarget is where a run builds now: the build repository, its clone, and the branch runs
-// start from (atlassian.jira.baseBranch, else the clone's default branch).
-func BuildTarget(current settings.Settings, find CloneFinder,
+// BuildTargets are the repositories a run may build in, each with its clone and the branch runs
+// start from there (its own base branch, else atlassian.jira.baseBranch, else the clone's
+// default branch). Every allowed repository Settings names is one: an exact allowlist entry, a
+// clone set in Settings, the default repository and a repository with a base branch of its own.
+// They are in allowlist order (the first pattern that allows each), by name within a pattern.
+func BuildTargets(current settings.Settings, find CloneFinder,
+	defaultOf func(clone string) (string, bool),
+) []Target {
+	names := allowedRepos(current)
+	targets := make([]Target, 0, len(names))
+
+	for _, repo := range names {
+		targets = append(targets, targetFor(repo, current, find, defaultOf))
+	}
+
+	return targets
+}
+
+// allowedRepos are the allowed repositories Settings names, once each in any case, in allowlist
+// order and by name within a pattern; at most buildReposMax.
+func allowedRepos(current settings.Settings) []string {
+	jira := current.Atlassian.Jira
+
+	// The default repository comes first, so a name in two places is spelled as it is.
+	named := []string{}
+	if jira.BuildRepo != nil {
+		named = append(named, *jira.BuildRepo)
+	}
+
+	named = slices.Concat(named, current.Repos.Allow, current.Repos.Clones.Keys(),
+		slices.Sorted(maps.Keys(jira.BaseBranches)))
+
+	type ranked struct {
+		name    string
+		pattern int
+	}
+
+	listed := []ranked{}
+	seen := map[string]bool{}
+
+	for _, name := range named {
+		if len(listed) == buildReposMax {
+			break
+		}
+
+		pattern, allowed := patternOf(name, current.Repos.Allow)
+		if !allowed {
+			continue
+		}
+
+		if seen[js.Lower(name)] {
+			continue
+		}
+
+		seen[js.Lower(name)] = true
+		listed = append(listed, ranked{name: name, pattern: pattern})
+	}
+
+	slices.SortStableFunc(listed, func(left, right ranked) int {
+		if left.pattern != right.pattern {
+			return left.pattern - right.pattern
+		}
+
+		return strings.Compare(js.Lower(left.name), js.Lower(right.name))
+	})
+
+	names := make([]string, 0, len(listed))
+	for _, entry := range listed {
+		names = append(names, entry.name)
+	}
+
+	return names
+}
+
+// patternOf is the index of the first allowlist pattern that allows name, false when name is not
+// a repository name or none allows it.
+func patternOf(name string, allow []string) (int, bool) {
+	if !repos.IsName(name) {
+		return 0, false
+	}
+
+	for index, pattern := range allow {
+		if repos.Allowed(name, []string{pattern}) {
+			return index, true
+		}
+	}
+
+	return 0, false
+}
+
+// targetFor is repo as a place to build: not allowed, without a clone, without a branch to start
+// from, or ready.
+func targetFor(repo string, current settings.Settings, find CloneFinder,
 	defaultOf func(clone string) (string, bool),
 ) Target {
-	repo := current.Atlassian.Jira.BuildRepo
-	if repo == nil {
-		return Target{
-			Repo: "", Clone: "", Base: "",
-			Reason: "No build repository is set: choose one in Settings.",
-		}
+	if !repos.Allowed(repo, current.Repos.Allow) {
+		return Target{Repo: repo, Clone: "", Base: "", Reason: notAllowed(repo)}
 	}
 
-	if !repos.Allowed(*repo, current.Repos.Allow) {
-		return Target{
-			Repo: *repo, Clone: "", Base: "",
-			Reason: *repo + " is not an allowed repository: add it in Settings.",
-		}
-	}
-
-	clone, found := find(*repo, current)
+	clone, found := find(repo, current)
 	if !found {
 		return Target{
-			Repo: *repo, Clone: "", Base: "",
-			Reason: "No local clone of " + *repo + ": set a folder in Settings.",
+			Repo: repo, Clone: "", Base: "",
+			Reason: "No local clone of " + repo + ": set a folder in Settings.",
 		}
 	}
 
-	if base := current.Atlassian.Jira.BaseBranch; base != nil {
-		return Target{Repo: *repo, Clone: clone, Base: *base, Reason: ""}
+	if base := current.Atlassian.Jira.BaseFor(repo); base != nil {
+		return Target{Repo: repo, Clone: clone, Base: *base, Reason: ""}
 	}
 
 	base, known := defaultOf(clone)
 	if !known {
-		return Target{Repo: *repo, Clone: clone, Base: "", Reason: "conn could not tell the " +
+		return Target{Repo: repo, Clone: clone, Base: "", Reason: "conn could not tell the " +
 			"default branch of " + nodepath.Base(clone) + ": set a Base branch on the Atlassian " +
 			"card in Settings."}
 	}
 
-	return Target{Repo: *repo, Clone: clone, Base: base, Reason: ""}
+	return Target{Repo: repo, Clone: clone, Base: base, Reason: ""}
+}
+
+func notAllowed(repo string) string {
+	return repo + " is not an allowed repository: add it in Settings."
+}
+
+// ChooseTargets are the targets a START chose, in the order chosen, and every problem with the
+// choice, one sentence each: none chosen (with no fallback, the default repository), more than
+// legsMax, one chosen twice in any case, one that is not among all, two that are the same clone
+// folder, and one that is not ready. Only targets with no problem are returned.
+func ChooseTargets(all []Target, chosen []string, fallback *string) ([]Target, []string) {
+	names := chosen
+	if len(names) == 0 {
+		if fallback == nil {
+			return []Target{}, []string{"Choose at least one repository."}
+		}
+
+		names = []string{*fallback}
+	}
+
+	if len(names) > legsMax {
+		return []Target{}, []string{"Choose at most " + strconv.Itoa(legsMax) +
+			" repositories, not " + strconv.Itoa(len(names)) + "."}
+	}
+
+	picked := []Target{}
+	problems := []string{}
+	choice := choosing{names: map[string]bool{}, clones: map[string]string{}}
+
+	for _, name := range names {
+		found, problem := choice.choose(all, name)
+		if problem != "" {
+			problems = append(problems, problem)
+
+			continue
+		}
+
+		picked = append(picked, found)
+	}
+
+	return picked, problems
+}
+
+// choosing is what the names chosen so far hold: their lowercase names, and the repository each
+// clone folder was chosen for.
+type choosing struct {
+	names  map[string]bool
+	clones map[string]string
+}
+
+// choose is the target name is, or the problem with choosing it after the names before it.
+func (c choosing) choose(all []Target, name string) (Target, string) {
+	if c.names[js.Lower(name)] {
+		return Target{}, name + " is chosen twice."
+	}
+
+	c.names[js.Lower(name)] = true
+
+	index := slices.IndexFunc(all, func(each Target) bool {
+		return js.Lower(each.Repo) == js.Lower(name)
+	})
+	if index < 0 {
+		return Target{}, notAllowed(name)
+	}
+
+	found := all[index]
+	if found.Clone == "" {
+		return Target{}, reasonOr(found.Reason)
+	}
+
+	folder := filepath.Clean(found.Clone)
+	if earlier, taken := c.clones[folder]; taken {
+		return Target{}, found.Repo + " is the same clone as " + earlier + ": " + folder + "."
+	}
+
+	c.clones[folder] = found.Repo
+
+	if found.Reason != "" {
+		return Target{}, found.Reason
+	}
+
+	return found, ""
 }
 
 // DefaultBranch is the default branch of a clone, as its git config on disk says

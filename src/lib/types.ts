@@ -225,8 +225,26 @@ export interface WorkList {
   truncated: boolean
   /** The Jira project keys from Settings that the list is read for */
   projects: string[]
-  /** Where a run builds: the repository from Settings and whether a local clone of it was found; `reason` says what to fix when not */
-  build: { repo: string | null; base: string | null; ready: boolean; reason: string | null }
+  /** Where a run may build: every allowed repository, the one the picker starts on, and the layout it starts on */
+  build: WorkBuild
+}
+
+/** One repository a run may build in: the branch a run starts from there (null when unknown), and whether a run can start there; `reason` says what to fix when not */
+export interface BuildRepo {
+  repo: string
+  base: string | null
+  ready: boolean
+  reason: string | null
+}
+
+/** Where a run may build, as GET /api/work says. */
+export interface WorkBuild {
+  /** Every allowed repository Settings names, in allowlist order */
+  repos: BuildRepo[]
+  /** The default repository from Settings, while it is still one of `repos`: preselected when the browser remembers no choice */
+  default: string | null
+  /** The session layout the picker starts on */
+  layout: RunLayout
 }
 
 /** research -> ask -> build -> pr */

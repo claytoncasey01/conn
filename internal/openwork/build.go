@@ -86,7 +86,7 @@ func (w *Work) Answer(key string, answers any) Reply {
 	}
 
 	if !w.deps.Dry {
-		if problem := w.buildProblem(record.lead()); problem != "" {
+		if problem := w.runProblem(record); problem != "" {
 			return conflict(problem)
 		}
 	}

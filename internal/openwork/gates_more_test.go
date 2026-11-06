@@ -80,15 +80,15 @@ func TestALegacyRunInARepositoryOffTheListRunsNothing(t *testing.T) {
 	made.work.Settle()
 	same(t, "calls", helperOrGit(made), []string{})
 
-	// The list widened to the worktree's repository, but Settings building elsewhere: made for
-	// another repository.
+	// The list widened to the worktree's repository, which has no clone in Settings: the run's
+	// own repository is looked up, and it names it.
 	made.update("repos", `{"allow":["other/*","acme/*"],"clones":{"other/gadgets":`+
 		js.Stringify(gadgets)+`},"cloneRoot":null}`)
 
 	reply := made.work.Resume("PROJ-3")
 	same(t, "moved", reply.Code, 409)
 
-	if !strings.Contains(errorOf(reply), "this run was made for acme/widgets") {
+	if !strings.Contains(errorOf(reply), "No local clone of acme/widgets") {
 		t.Error(errorOf(reply))
 	}
 

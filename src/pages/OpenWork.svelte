@@ -7,7 +7,8 @@
   import { branchName, dur } from '../lib/format.ts'
   import Brand from '../lib/Brand.svelte'
   import Nav from '../lib/Nav.svelte'
-  import type { ResearchModel, Run, RunState, Ticket } from '../lib/types.ts'
+  import { loadChoice, preselect, saveChoice, startBody, toggleRepo } from '../lib/repoChoice.ts'
+  import type { ResearchModel, Run, RunLayout, RunState, Ticket, WorkBuild } from '../lib/types.ts'
 
   const born = Date.now()
   const skip = () => Date.now() - born < 800
@@ -127,8 +128,37 @@
     { name: '4 PR', note: 'Jira moves to its review status, if it has one', color: 'var(--ok)' },
   ])
 
-  /** A run needs a local clone of the build repository from Settings; without one START is off and the reason is shown */
-  const build = $derived(list?.build ?? { repo: null, base: null, ready: false, reason: null })
+  /** Where a run may build: each allowed repository, ready or with what to fix */
+  const NO_BUILD: WorkBuild = { repos: [], default: null, layout: 'shared' }
+  const build = $derived(list?.build ?? NO_BUILD)
+
+  // The repositories START builds in, in the order they were ticked (the first is the lead), and the layout of their sessions.
+  // The picker starts on what this browser chose last, else the default repository, once the list names repositories; a choice is
+  // remembered as it is made.
+  let chosen = $state<string[]>([])
+  let layout = $state<RunLayout>('shared')
+  let picked = false
+  $effect(() => {
+    if (picked || build.repos.length === 0) return
+    picked = true
+    const remembered = loadChoice()
+    chosen = preselect(build, remembered.repos)
+    layout = remembered.layout ?? build.layout
+  })
+  /** The chosen repositories that a run can start in now: one that stopped being ready is not sent */
+  const chosenReady = $derived(chosen.filter(r => build.repos.some(b => b.repo === r && b.ready)))
+  const pickRepo = (repo: string) => {
+    chosen = toggleRepo(chosen, repo)
+    saveChoice({ repos: chosen, layout })
+  }
+  const pickLayout = (next: RunLayout) => {
+    layout = next
+    saveChoice({ repos: chosen, layout })
+  }
+  const LAYOUTS: { id: RunLayout; label: string; hint: string }[] = [
+    { id: 'shared', label: 'ONE SESSION', hint: 'one Claude works in every repository' },
+    { id: 'split', label: 'ONE PER REPOSITORY', hint: 'a session in each, side by side' },
+  ]
 
   type Reason = 'assignee' | 'status'
   let step = $state<'idle' | 'confirm' | 'working'>('idle')
@@ -160,7 +190,7 @@
     }
     step = 'working'
     startError = ''
-    const r = await startRun(t.key, { model, force: force || undefined })
+    const r = await startRun(t.key, startBody(model, force, chosenReady, layout))
     if (r.ok) {
       step = 'idle'
       location.hash = href.run(t.key)
@@ -398,8 +428,48 @@
               {/if}
               <div style="display: flex; flex-direction: column; gap: 8px">
                 <div style="font-size: 10px; letter-spacing: calc(var(--tracking) * 1.1429); color: color-mix(in oklab, var(--mu) 85%, var(--panel))" class="cap">Branch</div>
-                <div style="font-size: 12px; color: var(--mu); line-height: 1.5; overflow-wrap: anywhere"><span style="color: var(--ac)">⎇ </span>{branchName(sel.key, sel.title)} <span style="white-space: nowrap"><span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">←</span> origin/{build.base ?? 'the default branch'}</span> <span style="white-space: nowrap"><span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">· PR into</span> {build.base ?? 'the default branch'}</span></div>
+                <div style="font-size: 12px; color: var(--mu); line-height: 1.5; overflow-wrap: anywhere"><span style="color: var(--ac)">⎇ </span>{branchName(sel.key, sel.title)}</div>
               </div>
+
+              <fieldset style="display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0">
+                <legend style="padding: 0; margin-bottom: 8px; font-size: 10px; letter-spacing: calc(var(--tracking) * 1.1429); color: color-mix(in oklab, var(--mu) 85%, var(--panel))" class="cap">Repositories</legend>
+                {#each build.repos as r (r.repo.toLowerCase())}
+                  {@const on = chosenReady.includes(r.repo)}
+                  {@const lead = chosenReady.length > 1 && chosenReady[0] === r.repo}
+                  <label style="display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px; min-height: 44px; box-sizing: border-box; border-radius: var(--radius); cursor: {r.ready ? 'pointer' : 'default'}; border: 1px var(--border-style) {on ? 'color-mix(in oklch, var(--edge) 65%, transparent)' : 'color-mix(in oklch, var(--edge) 20%, transparent)'}; background: {on ? 'color-mix(in oklch, var(--edge) 13%, transparent)' : 'transparent'}; opacity: {r.ready ? 1 : 0.7}">
+                    <input type="checkbox" checked={on} disabled={!r.ready} onchange={() => pickRepo(r.repo)} style="margin: 2px 0 0; accent-color: var(--ac)" />
+                    <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                      <span data-content style="font-size: 12px; color: {on ? 'var(--tx)' : 'var(--mu)'}; overflow-wrap: anywhere">{r.repo}{#if lead}<span style="margin-left: 8px; font-size: 10px; letter-spacing: calc(var(--tracking) * 0.8571); color: color-mix(in oklab, var(--ac) 60%, var(--bright))" class="cap">lead</span>{/if}</span>
+                      {#if r.ready}
+                        <span style="font-size: 11px; color: color-mix(in oklab, var(--mu) 85%, var(--panel)); overflow-wrap: anywhere">from origin/{r.base ?? 'the default branch'} · PR into {r.base ?? 'the default branch'}</span>
+                      {:else}
+                        <span data-content style="font-size: 11px; line-height: 1.5; color: var(--warn); overflow-wrap: anywhere">{r.reason ?? 'There is no clone to build in.'}</span>
+                      {/if}
+                    </span>
+                  </label>
+                {/each}
+                {#if build.repos.length === 0}
+                  <div role="status" style="font-size: 12px; line-height: 1.5; color: var(--warn)">No repository to build in yet: allow one and set its clone in Settings.</div>
+                {/if}
+                {#if build.repos.some(r => !r.ready)}
+                  <a href={href.settings()} style="font-size: 12px; color: color-mix(in oklab, var(--ac) 60%, var(--bright))">Open Settings</a>
+                {/if}
+              </fieldset>
+
+              {#if chosenReady.length > 1}
+                <div style="display: flex; flex-direction: column; gap: 8px">
+                  <div style="font-size: 10px; letter-spacing: calc(var(--tracking) * 1.1429); color: color-mix(in oklab, var(--mu) 85%, var(--panel))" class="cap">Sessions</div>
+                  <div role="group" aria-label="Sessions across repositories" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+                    {#each LAYOUTS as l (l.id)}
+                      {@const on = layout === l.id}
+                      <button type="button" onclick={() => pickLayout(l.id)} aria-pressed={on} style="display: flex; flex-direction: column; gap: 3px; align-items: flex-start; padding: 10px 12px; min-height: 52px; text-align: left; cursor: pointer; border-radius: var(--radius); border: 1px var(--border-style) {on ? 'color-mix(in oklch, var(--edge) 65%, transparent)' : 'color-mix(in oklch, var(--edge) 20%, transparent)'}; background: {on ? 'color-mix(in oklch, var(--edge) 13%, transparent)' : 'transparent'}; color: {on ? 'var(--tx)' : 'var(--mu)'}">
+                        <span style="font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571); font-weight: 600">{l.label}</span>
+                        <span style="font-size: 10px; color: {on ? 'color-mix(in oklab, var(--edge) 75%, var(--bright))' : 'color-mix(in oklab, var(--mu) 75%, var(--panel))'}">{l.hint}</span>
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
 
               <div style="display: flex; flex-direction: column; gap: 8px">
                 <div style="font-size: 10px; letter-spacing: calc(var(--tracking) * 1.1429); color: color-mix(in oklab, var(--mu) 85%, var(--panel))" class="cap">Research agents</div>
@@ -435,15 +505,12 @@
                   <button type="button" onclick={() => (step = 'idle')} style="{cbtn} color: var(--tx); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent)" class="cap">Cancel</button>
                 </div>
               {:else}
-                <button type="button" class="go" onclick={() => start(sel, false)} disabled={step === 'working' || !build.ready} style="display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 52px; box-sizing: border-box; width: 100%; border: 0; border-radius: var(--radius); cursor: {step === 'working' || !build.ready ? 'default' : 'pointer'}; background: linear-gradient(135deg, var(--ac), var(--k-subtask)); color: var(--onac); font-weight: 700; font-size: 14px; letter-spacing: calc(var(--tracking) * 1.2857); box-shadow: 0 0 26px color-mix(in oklch, var(--ac) calc(38% * var(--glow)), transparent); opacity: {step === 'working' ? 0.6 : build.ready ? 1 : 0.4}">{#if step === 'working'}<span data-content>STARTING {sel.key}…</span>{:else}<span aria-hidden="true">▶</span><span data-content>START {sel.key}</span>{/if}</button>
-              {/if}
-              {#if !build.ready}
-                <div role="status" style="font-size: 12px; line-height: 1.5; color: var(--warn); overflow-wrap: anywhere">{build.reason ?? 'There is no clone to build in.'} <a href={href.settings()} style="color: color-mix(in oklab, var(--ac) 60%, var(--bright))">Open Settings</a></div>
+                <button type="button" class="go" onclick={() => start(sel, false)} disabled={step === 'working' || chosenReady.length === 0} style="display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 52px; box-sizing: border-box; width: 100%; border: 0; border-radius: var(--radius); cursor: {step === 'working' || chosenReady.length === 0 ? 'default' : 'pointer'}; background: linear-gradient(135deg, var(--ac), var(--k-subtask)); color: var(--onac); font-weight: 700; font-size: 14px; letter-spacing: calc(var(--tracking) * 1.2857); box-shadow: 0 0 26px color-mix(in oklch, var(--ac) calc(38% * var(--glow)), transparent); opacity: {step === 'working' ? 0.6 : chosenReady.length > 0 ? 1 : 0.4}">{#if step === 'working'}<span data-content>STARTING {sel.key}…</span>{:else if chosenReady.length === 0}<span>Choose a repository</span>{:else}<span aria-hidden="true">▶</span><span data-content>START {sel.key}</span>{/if}</button>
               {/if}
               {#if startError}
                 <div role="alert" style="font-size: 12px; line-height: 1.5; color: color-mix(in oklab, var(--bad) 55%, var(--bright)); word-break: break-word">{startError}</div>
               {/if}
-              <div style="font-size: 11px; line-height: 1.5; color: color-mix(in oklab, var(--mu) 85%, var(--panel)); text-align: center">Moves {sel.key} to an In Progress status, creates the branch and opens a session named {sel.key}.</div>
+              <div style="font-size: 11px; line-height: 1.5; color: color-mix(in oklab, var(--mu) 85%, var(--panel)); text-align: center">Moves {sel.key} to an In Progress status, creates the branch in {chosenReady.length > 1 ? `each of the ${chosenReady.length} repositories` : 'the repository'} and opens {chosenReady.length > 1 ? (layout === 'split' ? 'a session in each' : 'one session across them') : 'a session'} named {sel.key}.</div>
             </div>
           {:else if selRun?.state === 'pr_open'}
             {@const ps = prSlot(selRun)}

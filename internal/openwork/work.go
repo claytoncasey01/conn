@@ -18,6 +18,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -33,6 +34,10 @@ const (
 	tickEvery = 600 * time.Millisecond
 	// noClone is why a run cannot start when there is no clone and no reason was given.
 	noClone = "there is no clone to build in"
+	// noRepo is why a run from before Settings cannot build when it names no repository and
+	// Settings names no default one.
+	noRepo = "This run does not say which repository it builds in: choose a Default " +
+		"repository in Settings, or start the ticket again."
 )
 
 // The modules the Settings cards are told about.
@@ -207,7 +212,7 @@ func (w *Work) SettingsChanged() {
 				continue
 			}
 
-			if problem := w.buildProblem(record.lead()); problem != "" {
+			if problem := w.runProblem(record); problem != "" {
 				w.interrupt(record, problem+" The research stopped; Retry starts it again once "+
 					"that is fixed.")
 			}
@@ -322,8 +327,28 @@ func (w *Work) record(name string, ok bool, detail string) {
 	}
 }
 
-func (w *Work) target() Target {
-	return BuildTarget(w.settings(), w.deps.CloneFor, DefaultBranch)
+// chooseTargets are the targets a START chose (none: the default repository), in the order
+// chosen, and every problem with the choice. A repository the list does not offer but the
+// allowlist covers (a clone found under the clone folder) can still be chosen by name.
+func (w *Work) chooseTargets(chosen []string) ([]Target, []string) {
+	current := w.settings()
+	all := BuildTargets(current, w.deps.CloneFor, DefaultBranch)
+
+	if len(chosen) <= legsMax {
+		for _, name := range chosen {
+			if slices.ContainsFunc(all, func(each Target) bool {
+				return js.Lower(each.Repo) == js.Lower(name)
+			}) {
+				continue
+			}
+
+			if _, allowed := patternOf(name, current.Repos.Allow); allowed {
+				all = append(all, targetFor(name, current, w.deps.CloneFor, DefaultBranch))
+			}
+		}
+	}
+
+	return ChooseTargets(all, chosen, current.Atlassian.Jira.BuildRepo)
 }
 
 func (w *Work) allowed(repo string) bool { return repos.Allowed(repo, w.settings().Repos.Allow) }

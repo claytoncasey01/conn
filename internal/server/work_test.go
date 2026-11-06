@@ -240,8 +240,8 @@ func TestWithOpenWorkOnTheDrySprintIsSyntheticAndTheBuildRepoHasItsClone(t *test
 	list := rig.waitTickets(t)
 
 	same(t, "projects", field(list, "projects"), []any{"PROJ"})
-	same(t, "build", field(list, "build"), parse(t,
-		`{"repo":"acme/widgets","base":"trunk","ready":true,"reason":null}`))
+	same(t, "build", field(list, "build"), parse(t, `{"repos":[{"repo":"acme/widgets",`+
+		`"base":"trunk","ready":true,"reason":null}],"default":"acme/widgets","layout":"shared"}`))
 
 	tickets, _ := field(list, "tickets").([]any)
 	keys, assignees := make([]any, 0, len(tickets)), map[string]bool{}
@@ -377,8 +377,9 @@ func TestWithoutACloneStartIsRefusedWithTheReason(t *testing.T) {
 		`{"allow":["acme/*"],"clones":{"acme/widgets":"/no/such"}}`))
 	reason := "No local clone of acme/widgets: set a folder in Settings."
 	list := rig.waitTickets(t)
-	same(t, "build", field(list, "build"), parse(t, `{"repo":"acme/widgets","base":null,`+
-		`"ready":false,"reason":`+js.Stringify(reason)+`}`))
+	same(t, "build", field(list, "build"), parse(t, `{"repos":[{"repo":"acme/widgets",`+
+		`"base":null,"ready":false,"reason":`+js.Stringify(reason)+`}],`+
+		`"default":"acme/widgets","layout":"shared"}`))
 
 	code, answer := rig.send(t, postOwn("/api/work/PROJ-2/start", `{"model":"haiku"}`))
 	same(t, "start", []any{code, field(parse(t, answer), "error")}, []any{409, reason})
@@ -429,8 +430,10 @@ func TestASaveWithoutBaseBranchKeepsIt(t *testing.T) {
 		`"buildRepo":"acme/widgets","baseBranch":"release/2"}}`, ""))
 	baseOf := func() any {
 		build, _ := field(rig.waitTickets(t), "build").(*js.Object)
+		repos, _ := field(build, "repos").([]any)
+		first, _ := repos[0].(*js.Object)
 
-		return field(build, "base")
+		return field(first, "base")
 	}
 
 	same(t, "named", baseOf(), "release/2")
