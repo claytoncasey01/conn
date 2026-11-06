@@ -5,15 +5,16 @@ import type { SessionSummary } from './types.ts'
 type Run = { key: string | null; worktree: string; sessionId: string | null }
 
 /**
- * The run's hosted session: the one with the run's session id; else, by the run's name or folder, only when exactly one
- * hosted session has it. Two in one worktree are not told apart by guessing, since the terminal shown is the one typed into.
+ * The run's hosted session: the one with the run's session id. Only when the run has no session id, or no listed session
+ * has it, is it found by the run's name or folder, and then only when exactly one hosted session has it. A run whose own
+ * session is listed but not hosted has no terminal here: another session in its worktree is never shown as its own,
+ * since the terminal shown is the one typed into.
  */
 export function runTerminalSession(sessions: readonly SessionSummary[], run: Run): SessionSummary | null {
-  const hosted = sessions.filter(each => each.hosted)
   if (run.sessionId !== null) {
-    const byId = hosted.find(each => each.id === run.sessionId)
-    if (byId) return byId
+    const own = sessions.find(each => each.id === run.sessionId)
+    if (own) return own.hosted ? own : null
   }
-  const matching = hosted.filter(each => (run.key !== null && each.name === run.key) || each.cwd === run.worktree)
+  const matching = sessions.filter(each => each.hosted).filter(each => (run.key !== null && each.name === run.key) || each.cwd === run.worktree)
   return matching.length === 1 ? matching[0] : null
 }

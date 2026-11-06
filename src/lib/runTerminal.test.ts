@@ -32,3 +32,12 @@ test('a session that is not hosted is never the run\'s terminal', () => {
 test('a hosted session of another run is not this one\'s', () => {
   assert.equal(runTerminalSession([session('d'.repeat(32))], run), null)
 })
+
+test('a run whose own session is listed but not hosted has no terminal, even with one hosted session in its worktree', () => {
+  const sessions = [session('a'.repeat(32), { hosted: false, cwd: run.worktree }), session('b'.repeat(32), { cwd: run.worktree })]
+  assert.equal(runTerminalSession(sessions, run), null)
+})
+
+test('a run whose session id is not listed falls back to the one hosted session in its worktree', () => {
+  assert.equal(runTerminalSession([session('b'.repeat(32), { cwd: run.worktree })], run)?.id, 'b'.repeat(32))
+})
