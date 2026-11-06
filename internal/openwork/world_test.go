@@ -53,6 +53,8 @@ type world struct {
 	sessionsIn map[string]*openwork.Found
 	// onReply runs as text is typed into a session, before it is taken; nil does nothing.
 	onReply func()
+	// dryRunning says whether a hosted session the fake opened still runs.
+	dryRunning bool
 }
 
 type worldOpts struct {
@@ -167,6 +169,12 @@ func (w *world) deps(opts worldOpts) openwork.Deps {
 		Claude: "claude",
 		Record: func(name string, ok bool, detail string) {
 			w.call("record", name, ok, detail)
+		},
+		HostedRunning: func(string) bool {
+			w.mu.Lock()
+			defer w.mu.Unlock()
+
+			return w.dryRunning
 		},
 		FindSession: func(name, cwd string) *openwork.Found {
 			w.call("findSession", name, cwd)

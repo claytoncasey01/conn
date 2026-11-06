@@ -210,3 +210,20 @@ func TestDrySessionsHaveProcessIDsNoSystemGives(t *testing.T) {
 		t.Errorf("pids %v", pids)
 	}
 }
+
+// TestTheBannerDrawsNoControlCharacter: a name holding C0, DEL, C1 or a bidi control is drawn
+// without them.
+func TestTheBannerDrawsNoControlCharacter(t *testing.T) {
+	t.Parallel()
+
+	made, _ := host(t)
+
+	name := "PROJ-9" + "\x1b[2J\x7f\u009b\u202e"
+
+	sessionID, err := made.Start(t.Context(), drysession.Spec("/w", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	screenHolds(t, made, sessionID, `"PROJ-9[2J"`)
+}

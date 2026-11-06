@@ -1,4 +1,6 @@
 // Package openwork is Open work: the open sprint's Jira tickets, and the runs started from them.
+// A run makes a worktree beside the clone of each repository it was started in, moves the ticket
+// into progress, has four read-only agents research it (Jira, Confluence, Slack and the code),
 // asks the person what the sources could not settle, opens a build session where the settings
 // say (inside Conn, a terminal app, or a command to paste), and on OPEN PR pushes the branch and
 // opens the pull request, then follows it until it merges. A run may build in several
@@ -94,6 +96,9 @@ type Deps struct {
 	Open launch.Opener
 	// Claude is the claude program as configured (CONN_CLAUDE): the build session's program.
 	Claude string
+	// HostedRunning says whether a session Conn hosts, by the id its host issued, still runs:
+	// the dry run reuses its running session rather than opening another.
+	HostedRunning func(hostedID string) bool
 	// Record tells the Settings cards how a Jira, Confluence or Slack run went: one short line
 	// of Conn's own, never text from those services.
 	Record func(name string, ok bool, detail string)
@@ -159,6 +164,8 @@ type state struct {
 	// CHECKS was pressed for it.
 	dryPolls map[string]int
 	dryFixed map[string]bool
+	// dryHosted is the hosted id of the dry session each slot last opened, by slotKey.
+	dryHosted map[string]string
 }
 
 // New is Work over deps: it makes the runs folder and reads the runs and the cached list.
@@ -176,6 +183,7 @@ func New(ctx context.Context, deps Deps) *Work {
 		polling: map[string]bool{}, pollError: map[string]string{},
 		resumedAt: map[string]float64{}, reviewMoving: map[string]bool{},
 		dryPolls: map[string]int{}, dryFixed: map[string]bool{},
+		dryHosted: map[string]string{},
 	}
 
 	_ = os.MkdirAll(work.runsDir, folderMode)

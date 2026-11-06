@@ -65,6 +65,34 @@ func TestTheDryRunFollowsThePipelineToAMergedPR(t *testing.T) {
 	same(t, "a dry session for the build and for the resume", made.count("dry-session"), 2)
 }
 
+// TestADryResumeReusesItsRunningSession: Resume in a dry run opens no second session while the
+// run's dry session still runs, so presses cannot fill the host.
+func TestADryResumeReusesItsRunningSession(t *testing.T) {
+	t.Parallel()
+
+	base := realTemp(t)
+	made := newWorld(t, worldOpts{
+		base: base, settings: workSettings(makeClone(t, base), ""), dry: true,
+	})
+
+	made.work.Tickets()
+	until(t, "the dry list", func() bool { return len(made.work.Tickets().Tickets) == 6 })
+	same(t, "start", made.work.Start("PROJ-2", body(t, `{"model":"haiku"}`)).Code, 200)
+	until(t, "the questions", func() bool { return made.state("PROJ-2") == "asking" })
+	same(t, "answers", made.work.Answer("PROJ-2", body(t, `{"q1":"c1","q2":"x"}`)).Code, 200)
+	made.work.Settle()
+
+	made.mu.Lock()
+	made.dryRunning = true
+	made.mu.Unlock()
+
+	for range 3 {
+		same(t, "resume", made.work.Resume("PROJ-2", "").Code, 200)
+	}
+
+	same(t, "one dry session", made.count("dry-session"), 1)
+}
+
 // TestTheDryRunOpensItsSessionOnlyInsideConn: set to open sessions elsewhere, the dry run opens
 // no session at all, as before there was one inside Conn.
 func TestTheDryRunOpensItsSessionOnlyInsideConn(t *testing.T) {

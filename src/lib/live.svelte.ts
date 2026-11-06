@@ -195,5 +195,5 @@ async function postEntry(path: string, body: object): Promise<EntryActionResult>
 export const summarizeEntry = (uuid: string, model?: 'haiku' | 'sonnet') =>
   postEntry(`/api/history/${encodeURIComponent(uuid)}/summary`, model ? { model } : {})
 
-/** Open the session again in a cmux workspace. A cmux failure comes back as ok:false with `manualCommand` to paste. */
+/** Open the session again where Settings say sessions open. A start that did not happen (or sessions set to open as a command) comes back as ok:false with `manualCommand` to paste. */
 export const resumeEntry = (uuid: string) => postEntry(`/api/history/${encodeURIComponent(uuid)}/resume`, {})

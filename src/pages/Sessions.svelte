@@ -7,6 +7,7 @@
   import Brand from '../lib/Brand.svelte'
   import StopSession from '../lib/StopSession.svelte'
   import InterruptButton from '../lib/InterruptButton.svelte'
+  import { NOT_LINKED, NOT_LINKED_WHY, notLinked } from '../lib/hostedLink.ts'
   import { hideTerminal, loadTerminal, terminalPanel, toggleTerminal } from '../lib/terminalPanel.svelte.ts'
   import Nav from '../lib/Nav.svelte'
   import FilterBar from '../lib/FilterBar.svelte'
@@ -224,6 +225,9 @@
           <div style="position: absolute; right: 14px; bottom: 12px; display: flex; align-items: center; gap: 8px; justify-content: flex-end; max-width: calc(100% - 28px); padding: 2px 0 2px 8px; background: color-mix(in oklch, var(--panel) 96%, transparent)">
             {#if s.team?.leadId}
               <a class="tab" href={href.overview(s.team.leadId)} aria-label="Open the lead of {s.name}" style="display: flex; align-items: center; min-height: 28px; padding: 0 9px; border-radius: calc(var(--radius) * 0.75); border: 1px var(--border-style) {TEAMMATE_COLORS.border}; color: {TEAMMATE_COLORS.fg}; font-size: 11px; letter-spacing: calc(var(--tracking) * 0.5714); text-decoration: none"><span class="cap">Lead <span class="g-fwd" aria-hidden="true"></span></span></a>
+            {/if}
+            {#if notLinked(s)}
+              <span title={NOT_LINKED_WHY} style="font-size: 11px; color: var(--mu)">{NOT_LINKED}</span>
             {/if}
             {#if s.hosted}
               <button type="button" class="tab cap" onclick={() => toggleTerminal(s.id)} aria-pressed={terminalPanel.open === s.id} aria-label="Terminal of {s.name}" style="display: flex; align-items: center; min-height: 28px; padding: 0 9px; border-radius: calc(var(--radius) * 0.75); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 40%, transparent); background: {terminalPanel.open === s.id ? 'color-mix(in oklch, var(--edge) 14%, transparent)' : 'transparent'}; color: color-mix(in oklab, var(--edge) 55%, var(--bright)); font: inherit; font-size: 11px; letter-spacing: calc(var(--tracking) * 0.5714); cursor: pointer">Terminal</button>

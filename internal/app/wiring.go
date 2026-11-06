@@ -111,7 +111,7 @@ func newHandler(
 	workTab = newWork(ctx, workParts{
 		cfg: cfg, store: store, reader: reader, runner: runner, statuses: statuses,
 		logger: logger, myPrRepos: func() []string { return myPrsTab.Repos() },
-		open: opener,
+		open: opener, host: host,
 	}, live)
 
 	// My PRs and Reviews poll GitHub as the same account: they share its hourly budget and a

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/claytoncasey01/conn/internal/argv"
 	"github.com/claytoncasey01/conn/internal/pty"
 )
 
@@ -100,13 +101,13 @@ func newScript(pid int, name string) *script {
 	return started
 }
 
-// quoted is name in quotes, with every control character left out: the name is Conn's own,
-// but it is drawn on a terminal.
+// quoted is name in quotes, with every control character left out (C0, DEL, C1 and the bidi
+// controls, as argv.Control finds them): the name is Conn's own, but it is drawn on a terminal.
 func quoted(name string) string {
 	kept := make([]rune, 0, len(name))
 
 	for _, char := range name {
-		if char >= printFirst {
+		if !argv.Control(char) {
 			kept = append(kept, char)
 		}
 	}

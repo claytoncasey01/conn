@@ -333,7 +333,7 @@
       {#if single && resumable}
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px">
           <span style="font-size: 12px; color: var(--mu)">No session for {run.key} is running.</span>
-          <ConfirmAction label="RESUME SESSION" confirmText="Opens a new cmux workspace in {lead.worktree} and continues {lead.claudeSessionId ? 'the same conversation' : 'the last conversation in that folder'}." confirmLabel="RESUME" tone="cyan" run={() => resumeRun(key)} />
+          <ConfirmAction label="RESUME SESSION" confirmText="Opens a new session in {lead.worktree}, where Settings say sessions open, and continues {lead.claudeSessionId ? 'the same conversation' : 'the last conversation in that folder'}." confirmLabel="RESUME" tone="cyan" run={() => resumeRun(key)} />
         </div>
       {/if}
 
@@ -429,7 +429,7 @@
               {/if}
               {#if legResumable(run, leg, legSessionLive(run, leg, sessions))}
                 <span style="font-size: 12px; color: var(--mu); overflow-wrap: anywhere">No session is running in {leg.worktree}.</span>
-                <ConfirmAction label="RESUME SESSION" confirmText="Opens a new cmux workspace in {leg.worktree} and continues {leg.claudeSessionId ? 'the same conversation' : 'the last conversation in that folder'}." confirmLabel="RESUME" tone="cyan" run={() => resumeRun(key, leg.repo)} />
+                <ConfirmAction label="RESUME SESSION" confirmText="Opens a new session in {leg.worktree}, where Settings say sessions open, and continues {leg.claudeSessionId ? 'the same conversation' : 'the last conversation in that folder'}." confirmLabel="RESUME" tone="cyan" run={() => resumeRun(key, leg.repo)} />
               {/if}
               {#if legCanClean(run, leg)}
                 <ConfirmAction label="REMOVE WORKTREE" confirmText="Removes {leg.worktree}. Refused if a session is still running there or files are uncommitted. The branch stays." confirmLabel="REMOVE" tone="red" run={() => cleanupRun(key, leg.repo)} />

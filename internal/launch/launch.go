@@ -206,7 +206,10 @@ func startInside(ctx context.Context, deps Deps, spec pty.Spec) Opened {
 	}
 }
 
-// findProgram is program as an absolute path: as it is, or found on PATH.
+// findProgram is program as an absolute path: as it is, or found on PATH. It must be claude
+// itself, or a wrapper that execs it in its place: the session list links a hosted session to
+// claude's registry by the process id the host started, so a wrapper that starts claude as a
+// child leaves the row unlinked (the page says so) and its replies and answers refused.
 func findProgram(lookPath func(string) (string, error), program string) (string, error) {
 	if filepath.IsAbs(program) {
 		return program, nil
@@ -214,13 +217,15 @@ func findProgram(lookPath func(string) (string, error), program string) (string,
 
 	found, err := lookPath(program)
 	if err != nil {
-		return "", fmt.Errorf("%w: %s is not on PATH; set CONN_CLAUDE to its absolute path",
-			ErrNoProgram, program)
+		return "", fmt.Errorf("%w: %s is not on PATH; set CONN_CLAUDE to the absolute path of "+
+			"claude itself (a wrapper must exec claude, not start it as a child)", ErrNoProgram,
+			program)
 	}
 
 	if !filepath.IsAbs(found) {
-		return "", fmt.Errorf("%w: %s was found at a relative path; set CONN_CLAUDE to its "+
-			"absolute path", ErrNoProgram, program)
+		return "", fmt.Errorf("%w: %s was found at a relative path; set CONN_CLAUDE to the "+
+			"absolute path of claude itself (a wrapper must exec claude, not start it as a child)",
+			ErrNoProgram, program)
 	}
 
 	return found, nil

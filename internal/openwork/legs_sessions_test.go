@@ -136,10 +136,10 @@ func TestTheResearchOfARunInTwoRepositoriesReadsBothWorktrees(t *testing.T) {
 // launchLine is the cmux call that starts a build session in worktree, its arguments as one
 // shell line; reach are the other worktrees it is given, each one --add-dir argument.
 func launchLine(worktree string, reach ...string) string {
-	words := []string{
-		"claude", "--name", "PROJ-1", "--model", "sonnet",
-		"--append-system-prompt-file", ".conn/delegation.md",
-	}
+	words := make([]string, 0, len(reach)*2+11)
+	words = append(words, "claude", "--name", "PROJ-1", "--model", "sonnet",
+		"--append-system-prompt-file", ".conn/delegation.md")
+
 	for _, folder := range reach {
 		words = append(words, "--add-dir", folder)
 	}
@@ -521,6 +521,15 @@ func TestTheDryRunTakesATicketInTwoRepositoriesFromStartToItsSessions(t *testing
 				same(t, line, slices.ContainsFunc(record.Log, func(each openwork.LogLine) bool {
 					return each.Text == line
 				}), true)
+			}
+
+			// Inside Conn, each session is the dry run's scripted one, in its own worktree.
+			made.work.Settle()
+
+			for index, want := range row.sessions {
+				prefix := "dry-session PROJ-2 " + record.Repos[index].Worktree + " "
+				same(t, "a dry session in "+record.Repos[index].Repo,
+					made.countPrefix(prefix) == 1, want)
 			}
 
 			same(t, "resume", made.work.Resume("PROJ-2", "").Code, 200)

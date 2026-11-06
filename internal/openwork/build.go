@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/drysession"
@@ -403,14 +404,13 @@ func legWorktrees(legs []*Leg) []string {
 // read the brief. The ticket's title, description and answers are in the brief, never in an
 // argument; the key is a checked ticket key and each folder is one argument.
 func LaunchSpec(claude string, record *Record, slot *Leg) pty.Spec {
-	argv := []string{
+	// -- ends the options: nothing after it is read as one, whatever a later change puts there.
+	argv := slices.Concat([]string{
 		claude, "--name", record.Key, "--model", "sonnet",
 		"--append-system-prompt-file", ".conn/delegation.md",
-	}
-	argv = append(argv, reachArgs(record, slot)...)
-	// -- ends the options: nothing after it is read as one, whatever a later change puts there.
-	argv = append(argv, "--permission-mode", "acceptEdits",
-		"--", "Read .conn/brief.md and follow it exactly.")
+	}, reachArgs(record, slot), []string{
+		"--permission-mode", "acceptEdits", "--", "Read .conn/brief.md and follow it exactly.",
+	})
 
 	return pty.Spec{Argv: argv, Dir: slot.Worktree, Env: nil, Name: record.Key}
 }
@@ -448,6 +448,12 @@ func (w *Work) openDry(step *task, record *Record, slot *Leg) {
 		return
 	}
 
+	// A press of Resume while the slot's dry session still runs opens no second one: each
+	// would take one of the host's places.
+	if w.dryStillRunning(record, slot) {
+		return
+	}
+
 	var opened launch.Opened
 
 	spec := drysession.Spec(slot.Worktree, record.Key)
@@ -457,7 +463,25 @@ func (w *Work) openDry(step *task, record *Record, slot *Leg) {
 	if !opened.OK {
 		w.log(record, logError, w.sessionNamed(record, slot)+": could not open the dry run's "+
 			"session ("+opened.Error+")")
+
+		return
 	}
+
+	w.dryHosted[slotKey(record, slot)] = string(opened.HostedID)
+}
+
+// dryStillRunning is whether the dry session a slot last opened still runs.
+func (w *Work) dryStillRunning(record *Record, slot *Leg) bool {
+	hostedID, opened := w.dryHosted[slotKey(record, slot)]
+	if !opened {
+		return false
+	}
+
+	if w.deps.HostedRunning == nil {
+		return false
+	}
+
+	return w.deps.HostedRunning(hostedID)
 }
 
 // briefFor is the brief a slot's session is given: its own leg's in the split layout, the run's

@@ -161,7 +161,7 @@
         {#if transcriptGone}
           <span id="resume-why" style="font-size: 12px; color: color-mix(in oklab, var(--role-lead) 50%, var(--mu))">The transcript is gone, so this conversation cannot be resumed.</span>
         {:else}
-          <span style="font-size: 12px; color: color-mix(in oklab, var(--mu) 85%, var(--panel))">Opens this conversation again in a new cmux workspace.</span>
+          <span style="font-size: 12px; color: color-mix(in oklab, var(--mu) 85%, var(--panel))">Opens this conversation again, where Settings say sessions open.</span>
         {/if}
       </div>
 
@@ -184,7 +184,7 @@
             {#if resumed.command}<pre style="margin: 0; padding: 10px 12px; border-radius: calc(var(--radius) * 0.75); background: color-mix(in oklch, var(--sunk) 40%, transparent); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 20%, transparent); font: inherit; font-size: 12px; line-height: 1.5; color: var(--tx); white-space: pre-wrap; overflow-wrap: anywhere; user-select: all">{resumed.command}</pre>{/if}
           </div>
         {:else}
-          <div role="status" style="font-size: 12px; color: color-mix(in oklab, var(--ok) 50%, var(--bright))">Opened in a new cmux workspace. It shows up under SESSIONS in a few seconds.</div>
+          <div role="status" style="font-size: 12px; color: color-mix(in oklab, var(--ok) 50%, var(--bright))">Opened. It shows up under SESSIONS in a few seconds.</div>
         {/if}
       {/if}
     </div>
