@@ -38,12 +38,13 @@ type terminalProcess struct {
 	command  *exec.Cmd
 }
 
-// Spawn is the real Spawner. It starts spec's program as the leader of a new session and process
-// group, on a new pseudo-terminal that is its controlling terminal, with ChildEnv's environment.
-// Every descriptor Conn opens is close-on-exec, so the program inherits only its terminal, as
-// stdin, stdout and stderr.
-func Spawn(spec Spec) (Process, error) {
-	err := checkSpec(spec)
+// Spawn is the real Spawner. It starts the requested program as the leader of a new session and
+// process group, on a new pseudo-terminal that is its controlling terminal, with ChildEnv's
+// environment. Every descriptor Conn opens is close-on-exec, so the program inherits only its
+// terminal, as stdin, stdout and stderr.
+func Spawn(requested Spec) (Process, error) {
+	// A Host has done this already; doing it again costs little and keeps a direct call safe.
+	spec, err := childSpec(requested)
 	if err != nil {
 		return nil, err
 	}
@@ -92,8 +93,8 @@ func newCommand(spec Spec, childSide *os.File) *exec.Cmd {
 		// An absolute path (checkSpec): no PATH lookup.
 		Path: spec.Argv[0],
 		Args: slices.Clone(spec.Argv),
-		// Never nil, which would hand the program Conn's own environment.
-		Env:        ChildEnv(spec.Env),
+		// ChildEnv's (childSpec), which is never nil: nil would hand the program Conn's own.
+		Env:        spec.Env,
 		Dir:        spec.Dir,
 		Stdin:      childSide,
 		Stdout:     childSide,

@@ -145,7 +145,10 @@ func TestStartChecksTheSpec(t *testing.T) {
 		{"no folder", func(spec *pty.Spec) { spec.Dir = "" }, 1},
 		{"no name", func(spec *pty.Spec) { spec.Name = "" }, 1},
 		{"too long a name", func(spec *pty.Spec) { spec.Name = string(make([]byte, 257)) }, 1},
-		{"too many variables", func(spec *pty.Spec) { spec.Env = make([]string, 4097) }, 1},
+		{"too many variables", func(spec *pty.Spec) { spec.Env = variables(4097) }, 1},
+		{"too many variables once TERM is added", func(spec *pty.Spec) {
+			spec.Env = variables(4096)
+		}, 1},
 		{"every problem at once", func(spec *pty.Spec) {
 			spec.Argv = nil
 			spec.Dir = ""
@@ -180,6 +183,35 @@ func TestStartChecksTheSpec(t *testing.T) {
 				t.Fatal("an invalid spec was spawned")
 			}
 		})
+	}
+}
+
+// variables is count distinct environment entries, none of them TERM.
+func variables(count int) []string {
+	entries := make([]string, 0, count)
+	for index := range count {
+		entries = append(entries, fmt.Sprintf("V%d=1", index))
+	}
+
+	return entries
+}
+
+// The limit bounds the environment the program gets, TERM included.
+func TestStartAcceptsAnEnvironmentAtTheLimit(t *testing.T) {
+	t.Parallel()
+
+	host, spawner := newFakeHost(t, pty.DefaultLimits())
+	spec := testSpec(t)
+	spec.Env = variables(4095)
+
+	_, err := host.Start(t.Context(), spec)
+	if err != nil {
+		t.Fatalf("Start = %v, want a session", err)
+	}
+
+	got := len(spawner.lastSpec(t).Env)
+	if got != 4096 {
+		t.Fatalf("the spawner got %d variables, want 4096", got)
 	}
 }
 

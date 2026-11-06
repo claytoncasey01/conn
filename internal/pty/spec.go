@@ -6,7 +6,26 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 )
+
+// childSpec is requested as it is started: its own copy of Argv, and ChildEnv's environment. Its
+// limits are checked on the result, so they bound what the program gets.
+func childSpec(requested Spec) (Spec, error) {
+	spec := Spec{
+		Argv: slices.Clone(requested.Argv),
+		Dir:  requested.Dir,
+		Env:  ChildEnv(requested.Env),
+		Name: requested.Name,
+	}
+
+	err := checkSpec(spec)
+	if err != nil {
+		return Spec{}, err
+	}
+
+	return spec, nil
+}
 
 // checkSpec returns every problem with spec, each wrapping ErrInvalidSpec, or nil. No problem
 // quotes the spec's values: an argument or a variable may hold something private.

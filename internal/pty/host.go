@@ -3,7 +3,6 @@ package pty
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sync"
 	"time"
 )
@@ -86,10 +85,11 @@ func checkLimit(name string, value, most int64) {
 	}
 }
 
-// Start runs spec's program on a new terminal and returns the session's ID. ctx bounds only the
-// start: the program runs until it exits or is stopped, whatever happens to ctx after.
-func (h *Host) Start(ctx context.Context, spec Spec) (ID, error) {
-	err := checkSpec(spec)
+// Start runs the requested program on a new terminal and returns the session's ID. ctx bounds
+// only the start: the program runs until it exits or is stopped, whatever happens to ctx after.
+func (h *Host) Start(ctx context.Context, requested Spec) (ID, error) {
+	// The spawner gets its own copy, with the environment a hosted program may have.
+	spec, err := childSpec(requested)
 	if err != nil {
 		return "", err
 	}
@@ -108,10 +108,6 @@ func (h *Host) Start(ctx context.Context, spec Spec) (ID, error) {
 	if err != nil {
 		return "", err
 	}
-
-	// The spawner gets its own copy, with the environment a hosted program may have.
-	spec.Argv = slices.Clone(spec.Argv)
-	spec.Env = ChildEnv(spec.Env)
 
 	process, err := h.spawner(spec)
 	if err != nil {

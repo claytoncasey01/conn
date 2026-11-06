@@ -359,6 +359,20 @@ func readThrough(t *testing.T, process pty.Process) string {
 	return ""
 }
 
+// What Start accepts, the real spawner starts: both bound the environment the program gets.
+func TestRealSpawnStartsAnEnvironmentAtTheLimit(t *testing.T) {
+	t.Parallel()
+
+	host := newRealHost(t)
+	env := make([]string, 0, 4095)
+
+	for index := range 4095 {
+		env = append(env, "V"+strconv.Itoa(index)+"=1")
+	}
+
+	startReal(t, host, shell("exit 0"), env)
+}
+
 func TestRealDescriptorsAreCloseOnExec(t *testing.T) {
 	t.Parallel()
 
