@@ -99,8 +99,26 @@ test('first run puts the keyboard at Step 1 (the Services heading), once, and on
 })
 
 test('the Atlassian card has a Base branch box: labelled, a draft until its card is saved, and Save waits while the name is not a branch', () => {
-  assert.match(page, /<label class="lab" for="jira-base">Base branch<\/label>/)
+  assert.match(page, /<label class="lab" for="jira-base">Base branch for every repository without its own<\/label>/)
   assert.match(page, /id="jira-base"[^>]*oninput=\{\(e\) => \{ atl\.jira\.baseBranch = e\.currentTarget\.value; edited\('atlassian'\) \}\}/)
-  assert.match(page, /\{@render saveRow\('atlassian', atlDirty && !baseProblem, saveAtlassian\)\}/)
+  assert.match(page, /\{@render saveRow\('atlassian', atlDirty && !anyBaseProblem, saveAtlassian\)\}/)
+  assert.match(page, /const anyBaseProblem = \$derived\(baseProblem !== null \|\| Object\.keys\(repoProblems\)\.length > 0\)/)
   assert.match(page, /Empty: the repository's default branch\./)
+})
+
+test('the Atlassian card: the build repository is an optional default with None as a real choice, each allowed repository has its own optional base branch box, and the review move and layout are two selects, all drafts until Save', () => {
+  assert.match(page, /<label class="lab" for="jira-build">Default repository \(optional\)<\/label>/)
+  assert.match(page, /<option value="">None<\/option>/)
+  assert.match(page, /\{#each baseRepos as repo, index \(repo\.toLowerCase\(\)\)\}/)
+  assert.match(page, /Base branch for \{plainText\(repo\)\} \(optional\)/)
+  assert.match(page, /oninput=\{\(e\) => \{ atl\.jira\.baseBranches\[key\] = e\.currentTarget\.value; edited\('atlassian'\) \}\}/)
+  assert.match(page, /<label class="lab" for="jira-review">Move the ticket to review<\/label>/)
+  assert.match(page, /<label class="lab" for="jira-layout">Sessions across repositories<\/label>/)
+  assert.match(page, /\{#each REVIEW_MOVES as m \(m\.value\)\}/)
+  assert.match(page, /\{#each SESSION_LAYOUTS as l \(l\.value\)\}/)
+  // each select has its one-line help, and a choice only edits the draft
+  assert.match(page, /id="jira-review-hint" class="hint"/)
+  assert.match(page, /id="jira-layout-hint" class="hint"/)
+  assert.match(script, /const setReviewMove = \(value: string\) => \{[\s\S]*?edited\('atlassian'\)\s*\}/)
+  assert.match(script, /const setSessionLayout = \(value: string\) => \{[\s\S]*?edited\('atlassian'\)\s*\}/)
 })

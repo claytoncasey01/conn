@@ -19,7 +19,8 @@ import (
 const defaultsJSON = `{"version":1,"repos":{"allow":null,"clones":{},"cloneRoot":null},` +
 	`"github":{"enabled":true},` +
 	`"slack":{"enabled":false,"channels":[],"dms":false,"draftChannel":null},` +
-	`"atlassian":{"enabled":false,"jira":{"projects":[],"buildRepo":null,"baseBranch":null}},` +
+	`"atlassian":{"enabled":false,"jira":{"projects":[],"buildRepo":null,"baseBranch":null,` +
+	`"baseBranches":{},"reviewMove":"all","sessionLayout":"shared"}},` +
 	`"reviews":{"requested":true,"allOpen":false}}`
 
 var errDiskFull = errors.New("disk full")
@@ -166,7 +167,8 @@ func TestAFullValidFileReadsAsItIs(t *testing.T) {
 		`"github":{"enabled":false},"slack":{"enabled":true,` +
 		`"channels":["#code-review","#dev.team"],"dms":true,"draftChannel":"#code-review"},` +
 		`"atlassian":{"enabled":true,"jira":{"projects":["PROJ","AB2"],"buildRepo":"acme/app",` +
-		`"baseBranch":null}},"reviews":{"requested":false,"allOpen":true}}`
+		`"baseBranch":null,"baseBranches":{},"reviewMove":"all","sessionLayout":"shared"}},` +
+		`"reviews":{"requested":false,"allOpen":true}}`
 
 	if got := js.Stringify(settings.Parse(parse(t, full), true)); got != full {
 		t.Fatalf("got %s", got)
@@ -435,7 +437,8 @@ func TestValidateSectionMessages(t *testing.T) {
 		{
 			"atlassian", `{"enabled":true,"jira":{"projects":["PROJ"],"buildRepo":"Acme/App"}}`,
 			`{"ok":true,"value":{"enabled":true,"jira":{"projects":["PROJ"],` +
-				`"buildRepo":"acme/app","baseBranch":null}}}`,
+				`"buildRepo":"acme/app","baseBranch":null,"baseBranches":{},` +
+				`"reviewMove":"all","sessionLayout":"shared"}}}`,
 		},
 	}
 	for _, tt := range tests {

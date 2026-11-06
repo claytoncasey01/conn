@@ -7,7 +7,11 @@
   import { checkModule, putSection, withSavedSection, withStatus, type ModuleName, type SettingsView } from '../lib/settingsApi.ts'
   import {
     STATE_TONES,
+    REVIEW_MOVES,
+    SESSION_LAYOUTS,
     atlassianSection,
+    baseBranchProblems,
+    baseBranchRepos,
     buildRepoOptions,
     covered,
     draftChannelOptions,
@@ -27,6 +31,8 @@
     wroteSlack,
     type AtlassianSettings,
     type ModuleStatus,
+    type ReviewMove,
+    type SessionLayout,
     type SlackSettings,
   } from '../lib/settingsModel.ts'
   import SettingsNameList from './SettingsNameList.svelte'
@@ -37,7 +43,10 @@
   const OFF_TEXT = 'Off: conn makes no calls'
 
   const copySlack = (s: SlackSettings): SlackSettings => ({ ...s, channels: [...s.channels] })
-  const copyAtl = (a: AtlassianSettings): AtlassianSettings => ({ enabled: a.enabled, jira: { projects: [...a.jira.projects], buildRepo: a.jira.buildRepo, baseBranch: a.jira.baseBranch ?? null } })
+  const copyAtl = (a: AtlassianSettings): AtlassianSettings => ({
+    enabled: a.enabled,
+    jira: { projects: [...a.jira.projects], buildRepo: a.jira.buildRepo, baseBranch: a.jira.baseBranch ?? null, baseBranches: { ...a.jira.baseBranches }, reviewMove: a.jira.reviewMove, sessionLayout: a.jira.sessionLayout },
+  })
 
   // ---- drafts: what is on screen; what the server holds is view.settings ----
   let ghOn = $state(untrack(() => view.settings.github.enabled))
@@ -187,6 +196,18 @@
   // the base branch as typed: a name the server would refuse is said under the box, and the card's Save waits for a good one
   const baseCheck = $derived(parseBaseBranch(atl.jira.baseBranch ?? ''))
   const baseProblem = $derived(baseCheck.ok ? null : baseCheck.reason)
+  // each repository's own base branch as typed: the repositories that get a box, and the ones whose text a save would refuse
+  const baseRepos = $derived(baseBranchRepos(view.settings.repos.allow, view.clones, atl.jira.baseBranches))
+  const repoProblems = $derived(baseBranchProblems(atl.jira.baseBranches))
+  const anyBaseProblem = $derived(baseProblem !== null || Object.keys(repoProblems).length > 0)
+  const setReviewMove = (value: string) => {
+    atl.jira.reviewMove = (REVIEW_MOVES.find((m) => m.value === value)?.value ?? 'all') satisfies ReviewMove
+    edited('atlassian')
+  }
+  const setSessionLayout = (value: string) => {
+    atl.jira.sessionLayout = (SESSION_LAYOUTS.find((l) => l.value === value)?.value ?? 'shared') satisfies SessionLayout
+    edited('atlassian')
+  }
   // a chosen build repo the list no longer covers stays on screen, named, and the card says why a save will be refused
   const buildStale = $derived(atl.jira.buildRepo !== null && !covered(atl.jira.buildRepo, view.settings.repos.allow))
   // the modules and Slack's channels as they are SAVED (they are what conn does now); the two review switches as edited, which is the point of a live sentence
@@ -308,23 +329,46 @@
           onchange={(next) => { atl.jira.projects = next; edited('atlassian') }}
         />
         <div class="selrow">
-          <label class="lab" for="jira-build">Open work builds in</label>
-          <select id="jira-build" class="sel" value={atl.jira.buildRepo ?? ''} onchange={(e) => { atl.jira.buildRepo = e.currentTarget.value || null; edited('atlassian') }}>
-            <option value="">None chosen</option>
+          <label class="lab" for="jira-build">Default repository (optional)</label>
+          <select id="jira-build" class="sel" aria-describedby="jira-build-hint" value={atl.jira.buildRepo ?? ''} onchange={(e) => { atl.jira.buildRepo = e.currentTarget.value || null; edited('atlassian') }}>
+            <option value="">None</option>
             {#if buildStale && atl.jira.buildRepo}<option value={atl.jira.buildRepo}>{plainText(atl.jira.buildRepo)} (not allowed)</option>{/if}
             {#each buildOptions as r (r.toLowerCase())}<option value={r.toLowerCase()}>{plainText(r)}</option>{/each}
           </select>
-          {#if buildStale}<p class="hint err" data-content>{plainText(atl.jira.buildRepo ?? '')} is not on the allowed list, so a save is refused. Pick another repository, or None chosen.</p>{/if}
+          {#if buildStale}<p class="hint err" data-content>{plainText(atl.jira.buildRepo ?? '')} is not on the allowed list, so a save is refused. Pick another repository, or None.</p>{/if}
+          <p id="jira-build-hint" class="hint">Preselected in the picker when this browser has no earlier choice.</p>
           {#if buildOptions.length === 0}<p class="hint">Allowed repositories appear here once the list is saved.</p>{/if}
         </div>
         <div class="selrow">
-          <label class="lab" for="jira-base">Base branch</label>
+          <label class="lab" for="jira-base">Base branch for every repository without its own</label>
           <input id="jira-base" class="fld" type="text" value={atl.jira.baseBranch ?? ''} oninput={(e) => { atl.jira.baseBranch = e.currentTarget.value; edited('atlassian') }} placeholder="main" autocomplete="off" spellcheck="false" aria-invalid={baseProblem ? 'true' : undefined} aria-describedby="jira-base-hint{baseProblem ? ' jira-base-err' : ''}" />
           <p id="jira-base-hint" class="hint">Runs start from this branch and open their PRs into it. Empty: the repository's default branch.</p>
           {#if baseProblem}<p id="jira-base-err" class="hint err" data-content>{baseProblem}</p>{/if}
         </div>
+        {#each baseRepos as repo, index (repo.toLowerCase())}
+          {@const key = repo.toLowerCase()}
+          <div class="selrow">
+            <label class="lab" for="jira-base-{index}" data-content>Base branch for {plainText(repo)} (optional)</label>
+            <input id="jira-base-{index}" class="fld" type="text" value={atl.jira.baseBranches[key] ?? ''} oninput={(e) => { atl.jira.baseBranches[key] = e.currentTarget.value; edited('atlassian') }} placeholder={atl.jira.baseBranch || 'default branch'} autocomplete="off" spellcheck="false" aria-invalid={repoProblems[key] ? 'true' : undefined} aria-describedby={repoProblems[key] ? `jira-base-${index}-err` : undefined} />
+            {#if repoProblems[key]}<p id="jira-base-{index}-err" class="hint err" data-content>{repoProblems[key]}</p>{/if}
+          </div>
+        {/each}
+        <div class="selrow">
+          <label class="lab" for="jira-review">Move the ticket to review</label>
+          <select id="jira-review" class="sel" aria-describedby="jira-review-hint" value={atl.jira.reviewMove} onchange={(e) => setReviewMove(e.currentTarget.value)}>
+            {#each REVIEW_MOVES as m (m.value)}<option value={m.value}>{m.label}</option>{/each}
+          </select>
+          <p id="jira-review-hint" class="hint">When Open work moves the Jira ticket to review: once the first PR is open, once every repository with changes has one, or not at all.</p>
+        </div>
+        <div class="selrow">
+          <label class="lab" for="jira-layout">Sessions across repositories</label>
+          <select id="jira-layout" class="sel" aria-describedby="jira-layout-hint" value={atl.jira.sessionLayout} onchange={(e) => setSessionLayout(e.currentTarget.value)}>
+            {#each SESSION_LAYOUTS as l (l.value)}<option value={l.value}>{l.label}</option>{/each}
+          </select>
+          <p id="jira-layout-hint" class="hint">The layout the picker starts on when more than one repository is chosen.</p>
+        </div>
       </fieldset>
-      {@render saveRow('atlassian', atlDirty && !baseProblem, saveAtlassian)}
+      {@render saveRow('atlassian', atlDirty && !anyBaseProblem, saveAtlassian)}
     </article>
   </div>
 </section>

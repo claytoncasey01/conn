@@ -1,8 +1,8 @@
 // The Settings requests: typed wrappers over /api/settings. Not post() in live.svelte.ts: the page needs the server's own words
 // when a save is refused (a 400 names the entry), so every wrapper answers a result and never throws.
 import { parseOk } from './ask.ts'
-import { parseBaseBranch, repoName } from './settingsModel.ts'
-import type { AtlassianSettings, ModuleState, ModuleStatus, ReposSettings, SlackSettings } from './settingsModel.ts'
+import { parseBaseBranch, repoName, REVIEW_MOVES, SESSION_LAYOUTS } from './settingsModel.ts'
+import type { AtlassianSettings, ModuleState, ModuleStatus, ReposSettings, ReviewMove, SessionLayout, SlackSettings } from './settingsModel.ts'
 
 /** `settings.json` as the server holds it. */
 export interface Settings {
@@ -79,13 +79,32 @@ function readSlack(v: unknown): SlackSettings {
   const channels = strings(o.channels)
   return { enabled: bool(o.enabled, false), channels, dms: bool(o.dms, false), draftChannel: isStr(o.draftChannel) && channels.includes(o.draftChannel) ? o.draftChannel : null }
 }
+/** The per-repository base branches: each repository a name and each branch one, anything else left out. */
+function readBranches(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!isObj(v)) return out
+  for (const [repo, text] of Object.entries(v)) {
+    const parsed = isStr(text) ? parseBaseBranch(text) : null
+    if (repoName(repo) && parsed?.ok && parsed.branch) out[repo.toLowerCase()] = parsed.branch
+  }
+  return out
+}
 function readAtlassian(v: unknown): AtlassianSettings {
   const o = isObj(v) ? v : {}
   const jira = isObj(o.jira) ? o.jira : {}
   const base = isStr(jira.baseBranch) ? parseBaseBranch(jira.baseBranch) : null
+  const reviewMove = REVIEW_MOVES.find((m) => m.value === jira.reviewMove)?.value ?? ('all' satisfies ReviewMove)
+  const sessionLayout = SESSION_LAYOUTS.find((l) => l.value === jira.sessionLayout)?.value ?? ('shared' satisfies SessionLayout)
   return {
     enabled: bool(o.enabled, false),
-    jira: { projects: strings(jira.projects), buildRepo: isStr(jira.buildRepo) && repoName(jira.buildRepo) ? jira.buildRepo : null, baseBranch: base?.ok ? base.branch : null },
+    jira: {
+      projects: strings(jira.projects),
+      buildRepo: isStr(jira.buildRepo) && repoName(jira.buildRepo) ? jira.buildRepo : null,
+      baseBranch: base?.ok ? base.branch : null,
+      baseBranches: readBranches(jira.baseBranches),
+      reviewMove,
+      sessionLayout,
+    },
   }
 }
 function readStatus(v: unknown): ModuleStatus {

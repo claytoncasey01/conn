@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
@@ -19,6 +20,9 @@ const (
 	// code units as the page counts them.
 	branchUnitsMax = 100
 	pathUnitsMax   = 1024
+
+	// baseBranchesMax is the most repositories with a base branch of their own.
+	baseBranchesMax = 100
 
 	// shownUnitsMax is the longest a value is shown in a message; a longer one is cut to
 	// shownCutUnits and an ellipsis.
@@ -454,7 +458,133 @@ func readAtlassian(raw any, present bool, allow []string, checkAllow bool,
 
 	return Atlassian{
 		Enabled: boolField(object, "enabled", false, "atlassian", found),
-		Jira:    Jira{Projects: projects, BuildRepo: buildRepo, BaseBranch: baseBranch},
+		Jira: Jira{
+			Projects: projects, BuildRepo: buildRepo, BaseBranch: baseBranch,
+			BaseBranches: readBaseBranches(jira, allow, checkAllow, found),
+			ReviewMove:   readChoice(jira, "reviewMove", reviewMoves(), ReviewAll, found),
+			SessionLayout: readChoice(jira, "sessionLayout", sessionLayouts(), LayoutShared,
+				found),
+		},
+	}
+}
+
+// reviewMoves are the values of atlassian.jira.reviewMove.
+func reviewMoves() []string { return []string{ReviewFirst, ReviewAll, ReviewNever} }
+
+// sessionLayouts are the values of atlassian.jira.sessionLayout.
+func sessionLayouts() []string { return []string{LayoutShared, LayoutSplit} }
+
+// choiceRule says which of values are allowed: "a", "b" or "c".
+func choiceRule(values []string) string {
+	quoted := make([]string, len(values))
+	for index, value := range values {
+		quoted[index] = strconv.Quote(value)
+	}
+
+	last := len(quoted) - 1
+
+	return "it must be " + strings.Join(quoted[:last], ", ") + " or " + quoted[last]
+}
+
+// readChoice reads atlassian.jira.<key>, one of allowed; absent, null or anything else is
+// fallback (and anything else is reported).
+func readChoice(jira *js.Object, key string, allowed []string, fallback string,
+	found *problems,
+) string {
+	raw, present := jira.Get(key)
+	if !present {
+		return fallback
+	}
+
+	if raw == nil {
+		return fallback
+	}
+
+	text, isString := raw.(string)
+	if isString {
+		if slices.Contains(allowed, text) {
+			return text
+		}
+	}
+
+	found.addf("atlassian.jira.%s %s dropped: %s", key, show(raw), choiceRule(allowed))
+
+	return fallback
+}
+
+// readBaseBranches reads atlassian.jira.baseBranches: repository (lowercased, first spelling
+// wins) to branch. Every entry that cannot be used is reported and left out, as are the ones
+// past baseBranchesMax; a null branch is no entry. The map is never nil.
+func readBaseBranches(jira *js.Object, allow []string, checkAllow bool,
+	found *problems,
+) map[string]string {
+	kept := map[string]string{}
+
+	raw, present := jira.Get("baseBranches")
+	if !present {
+		return kept
+	}
+
+	if raw == nil {
+		return kept
+	}
+
+	object, isObject := raw.(*js.Object)
+	if !isObject {
+		found.addf("atlassian.jira.baseBranches %s dropped: not an object of repository to "+
+			"branch", show(raw))
+
+		return kept
+	}
+
+	repoNames := object.Keys()
+	if len(repoNames) > baseBranchesMax {
+		found.addf("atlassian.jira.baseBranches holds %d entries: only the first %d are read",
+			len(repoNames), baseBranchesMax)
+
+		repoNames = repoNames[:baseBranchesMax]
+	}
+
+	for _, repo := range repoNames {
+		value, _ := object.Get(repo)
+		readBaseBranchEntry(kept, repo, value, allow, checkAllow, found)
+	}
+
+	return kept
+}
+
+// readBaseBranchEntry adds one repository's base branch to kept, or reports why it cannot.
+func readBaseBranchEntry(kept map[string]string, repo string, value any, allow []string,
+	checkAllow bool, found *problems,
+) {
+	if !repos.IsName(repo) {
+		found.addf("atlassian.jira.baseBranches %s dropped: not owner/repo", show(repo))
+
+		return
+	}
+
+	if outsideList(repo, allow, checkAllow) {
+		found.addf("atlassian.jira.baseBranches %s dropped: it is not an allowed repository",
+			show(repo))
+
+		return
+	}
+
+	if value == nil {
+		return
+	}
+
+	branch, isBranch := ParseBranch(value)
+	if !isBranch {
+		found.addf("atlassian.jira.baseBranches[%s] %s dropped: %s", show(repo), show(value),
+			branchRule)
+
+		return
+	}
+
+	_, repeated := kept[strings.ToLower(repo)]
+	if !repeated {
+		kept[strings.ToLower(repo)] = branch
 	}
 }
 

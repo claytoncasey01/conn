@@ -8,6 +8,8 @@ import {
   addName,
   agoText,
   atlassianSection,
+  baseBranchProblems,
+  baseBranchRepos,
   buildRepoOptions,
   draftChannelOptions,
   listsSentence,
@@ -85,18 +87,18 @@ test('a base branch the page accepts, the server accepts as stored; one the serv
 })
 
 test('the Atlassian save sends the base branch: trimmed, none when empty, and the server keeps what was sent', () => {
-  const a = { enabled: true, jira: { projects: ['PROJ'], buildRepo: null as string | null, baseBranch: ' develop ' as string | null } }
-  assert.deepEqual(atlassianSection(a).jira, { projects: ['PROJ'], buildRepo: null, baseBranch: 'develop' })
+  const a = { enabled: true, jira: { projects: ['PROJ'], buildRepo: null as string | null, baseBranch: ' develop ' as string | null, baseBranches: {}, reviewMove: 'all' as const, sessionLayout: 'shared' as const } }
+  assert.deepEqual(atlassianSection(a).jira, { projects: ['PROJ'], buildRepo: null, baseBranch: 'develop', baseBranches: {}, reviewMove: 'all', sessionLayout: 'shared' })
   assert.equal(atlassianSection({ ...a, jira: { ...a.jira, baseBranch: '' } }).jira.baseBranch, null)
-  assert.equal(atlassianSection({ enabled: true, jira: { projects: [], buildRepo: null } }).jira.baseBranch, null)
+  assert.equal(atlassianSection({ enabled: true, jira: { projects: [], buildRepo: null, baseBranches: {}, reviewMove: 'all' as const, sessionLayout: 'shared' as const } }).jira.baseBranch, null)
   const sent = validateSection('atlassian', atlassianSection(a))
   assert.ok(sent.ok)
   assert.equal((sent.value as { jira: { baseBranch: string | null } }).jira.baseBranch, 'develop')
   // a changed base branch is a change of the card; none and a missing field are the same
-  const saved = { enabled: true, jira: { projects: ['PROJ'], buildRepo: null, baseBranch: null } }
-  assert.ok(sameAtlassian(saved, { enabled: true, jira: { projects: ['PROJ'], buildRepo: null } }))
+  const saved = { enabled: true, jira: { projects: ['PROJ'], buildRepo: null, baseBranch: null, baseBranches: {}, reviewMove: 'all' as const, sessionLayout: 'shared' as const } }
+  assert.ok(sameAtlassian(saved, { enabled: true, jira: { projects: ['PROJ'], buildRepo: null, baseBranches: {}, reviewMove: 'all' as const, sessionLayout: 'shared' as const } }))
   assert.ok(!sameAtlassian(saved, { ...saved, jira: { ...saved.jira, baseBranch: 'develop' } }))
-  assert.equal(wroteAtlassian({ enabled: true, jira: { projects: ['PROJ'], buildRepo: 'acme/app', baseBranch: 'develop' } }), 'Saved: Atlassian is on, 1 project (PROJ), builds in acme/app from develop')
+  assert.equal(wroteAtlassian({ enabled: true, jira: { projects: ['PROJ'], buildRepo: 'acme/app', baseBranch: 'develop', baseBranches: {}, reviewMove: 'all' as const, sessionLayout: 'shared' as const } }), 'Saved: Atlassian is on, 1 project (PROJ), default repository acme/app, base branch develop')
 })
 
 test('adding a channel or a key: validated, never a repeat, never past the limit, the list given is not changed', () => {
@@ -130,18 +132,23 @@ test('a save never sends a draft channel that is not one of the channels (removi
   assert.equal(slackSection(s).draftChannel, '#b')
   // what a save sends is accepted by the server
   assert.ok(validateSection('slack', slackSection({ ...s, draftChannel: '#gone' })).ok)
-  assert.ok(validateSection('atlassian', atlassianSection({ enabled: true, jira: { projects: ['PROJ'], buildRepo: null } })).ok)
+  assert.ok(validateSection('atlassian', atlassianSection({ enabled: true, jira: { projects: ['PROJ'], buildRepo: null, baseBranches: {}, reviewMove: 'all' as const, sessionLayout: 'shared' as const } })).ok)
 })
 
 test('a card is changed when any of its fields differs from what was saved', () => {
   const s = { enabled: true, channels: ['#a'], dms: false, draftChannel: null }
   assert.ok(sameSlack(s, { ...s, channels: ['#a'] }))
   for (const o of [{ enabled: false }, { channels: ['#a', '#b'] }, { channels: [] }, { dms: true }, { draftChannel: '#a' }]) assert.ok(!sameSlack(s, { ...s, ...o }), JSON.stringify(o))
-  const a = { enabled: true, jira: { projects: ['PROJ'], buildRepo: 'acme/app' as string | null } }
+  const a = { enabled: true, jira: { projects: ['PROJ'], buildRepo: 'acme/app' as string | null, baseBranches: {}, reviewMove: 'all' as const, sessionLayout: 'shared' as const } }
   assert.ok(sameAtlassian(a, atlassianSection(a)))
   assert.ok(!sameAtlassian(a, { ...a, enabled: false }))
   assert.ok(!sameAtlassian(a, { ...a, jira: { ...a.jira, projects: [] } }))
   assert.ok(!sameAtlassian(a, { ...a, jira: { ...a.jira, buildRepo: null } }))
+  assert.ok(!sameAtlassian(a, { ...a, jira: { ...a.jira, baseBranches: { 'acme/app': 'develop' } } }))
+  assert.ok(!sameAtlassian(a, { ...a, jira: { ...a.jira, reviewMove: 'never' } }))
+  assert.ok(!sameAtlassian(a, { ...a, jira: { ...a.jira, sessionLayout: 'split' } }))
+  // a repository box left empty is the same as none
+  assert.ok(sameAtlassian(a, { ...a, jira: { ...a.jira, baseBranches: { 'acme/app': '  ' } } }))
 })
 
 test('draft channel choices: none without channels, else the first channel (stored as none) and each channel', () => {
@@ -261,7 +268,31 @@ test('what a save says it wrote, from what was sent', () => {
   assert.equal(wroteSlack({ enabled: true, channels: ['#a', '#b'], dms: true, draftChannel: '#b' }), 'Saved: Slack is on, 2 channels (#a, #b), DM scan on, drafts in #b')
   assert.equal(wroteSlack({ enabled: true, channels: ['#a'], dms: false, draftChannel: null }), 'Saved: Slack is on, 1 channel (#a), DM scan off, drafts in #a')
   assert.equal(wroteSlack({ enabled: false, channels: [], dms: false, draftChannel: null }), 'Saved: Slack is off, no channels, DM scan off, no drafts')
-  assert.equal(wroteAtlassian({ enabled: true, jira: { projects: ['PROJ'], buildRepo: 'acme/app' } }), 'Saved: Atlassian is on, 1 project (PROJ), builds in acme/app')
-  assert.equal(wroteAtlassian({ enabled: false, jira: { projects: [], buildRepo: null } }), 'Saved: Atlassian is off, no projects, no build repo')
+  assert.equal(wroteAtlassian({ enabled: true, jira: { projects: ['PROJ'], buildRepo: 'acme/app', baseBranches: {}, reviewMove: 'all' as const, sessionLayout: 'shared' as const } }), 'Saved: Atlassian is on, 1 project (PROJ), default repository acme/app')
+  assert.equal(wroteAtlassian({ enabled: false, jira: { projects: [], buildRepo: null, baseBranches: {}, reviewMove: 'all' as const, sessionLayout: 'shared' as const } }), 'Saved: Atlassian is off, no projects')
   assert.equal(wroteReviews({ requested: true, allOpen: false }), 'Saved: "Requests me" is on, "Every open non-draft PR" is off')
+})
+
+test('the Atlassian save sends the per-repository branches, the review move and the layout, and the server keeps them as sent', () => {
+  const a = {
+    enabled: true,
+    jira: { projects: ['PROJ'], buildRepo: null, baseBranch: null, baseBranches: { 'acme/web': '  ', 'acme/api': ' develop ' }, reviewMove: 'first' as const, sessionLayout: 'split' as const },
+  }
+  const sent = atlassianSection(a)
+  // an empty box is no entry, the others are trimmed
+  assert.deepEqual(sent.jira, { projects: ['PROJ'], buildRepo: null, baseBranch: null, baseBranches: { 'acme/api': 'develop' }, reviewMove: 'first', sessionLayout: 'split' })
+  const checked = validateSection('atlassian', sent)
+  assert.ok(checked.ok)
+  assert.deepEqual(checked.value, sent)
+  // a typed branch the server would refuse is said by repository, and is not sent
+  const bad = { ...a, jira: { ...a.jira, baseBranches: { 'acme/api': 'a..b', 'acme/web': 'main' } } }
+  assert.deepEqual(Object.keys(baseBranchProblems(bad.jira.baseBranches)), ['acme/api'])
+  assert.deepEqual(atlassianSection(bad).jira.baseBranches, { 'acme/web': 'main' })
+})
+
+test('each allowed repository gets a base branch box: the concrete allowed ones, and any that already has a saved branch', () => {
+  const rows = [{ repo: 'acme/app' }, { repo: 'acme/infra' }, { repo: 'other/thing' }]
+  assert.deepEqual(baseBranchRepos(['acme/*'], rows, {}), ['acme/app', 'acme/infra'])
+  assert.deepEqual(baseBranchRepos(['acme/*'], rows, { 'acme/lib': 'develop', 'other/gone': 'main' }), ['acme/app', 'acme/infra', 'acme/lib'])
+  assert.deepEqual(baseBranchRepos(null, rows, {}), [])
 })

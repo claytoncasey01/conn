@@ -5,9 +5,10 @@
 // module whose own switch is off makes no real call and writes nothing: GitHub only with
 // CONN_MYPRS_DRY or CONN_REVIEWS_DRY (every module runs dry in any seeded run), "Requests me"
 // only with CONN_REVIEWS_DRY, Slack never, Atlassian only with CONN_WORK_DRY, which also points
-// the build repository (acme/widgets) at a stand-in clone made in that folder: a folder whose git
-// config names that repo as origin and whose origin/HEAD names main, so the real clone and
-// default-branch lookups run and no git process is needed. Nothing here is real.
+// the build repository (acme/widgets) and a second one (acme/gadgets) at stand-in clones made in
+// that folder: a folder whose git config names that repo as origin and whose origin/HEAD names
+// main, so the real clone and default-branch lookups run and no git process is needed. Nothing
+// here is real.
 package dryseed
 
 import (
@@ -121,15 +122,25 @@ func update(holder Holder, name, body string) string {
 	return result.Error
 }
 
-// seedWork makes the stand-in clone and points Open work at it. What went wrong, or "".
-func seedWork(dir string, holder Holder) string {
-	clone := filepath.Join(dir, "dry-clone")
+// cloneRepos are the repositories seedWork makes stand-in clones of, with the folder each is in.
+// The first is the build repository.
+func cloneRepos() [][2]string {
+	return [][2]string{
+		{"acme/widgets", "dry-clone"},
+		{"acme/gadgets", "dry-clone-gadgets"},
+	}
+}
+
+// makeClone makes the stand-in clone of repo in dir/name and returns its folder. What went wrong
+// is the second result, or "".
+func makeClone(dir, name, repo string) (string, string) {
+	clone := filepath.Join(dir, name)
 	refs := filepath.Join(clone, ".git", "refs", "remotes", "origin")
 
 	err := os.MkdirAll(refs, folderMode)
 	if err == nil {
 		err = os.WriteFile(filepath.Join(clone, ".git", "config"),
-			[]byte("[remote \"origin\"]\n\turl = https://github.com/acme/widgets.git\n"), fileMode)
+			[]byte("[remote \"origin\"]\n\turl = https://github.com/"+repo+".git\n"), fileMode)
 	}
 
 	if err == nil {
@@ -138,11 +149,27 @@ func seedWork(dir string, holder Holder) string {
 	}
 
 	if err != nil {
-		return settings.NodeError(err)
+		return "", settings.NodeError(err)
 	}
 
-	why := update(holder, settings.SectionRepos, `{"allow":["acme/*"],"clones":{"acme/widgets":`+
-		js.Stringify(clone)+`},"cloneRoot":null}`)
+	return clone, ""
+}
+
+// seedWork makes the stand-in clones and points Open work at them. What went wrong, or "".
+func seedWork(dir string, holder Holder) string {
+	clones := js.NewObject()
+
+	for _, pair := range cloneRepos() {
+		clone, why := makeClone(dir, pair[1], pair[0])
+		if why != "" {
+			return why
+		}
+
+		clones.Set(pair[0], clone)
+	}
+
+	why := update(holder, settings.SectionRepos,
+		`{"allow":["acme/*"],"clones":`+js.Stringify(clones)+`,"cloneRoot":null}`)
 	if why != "" {
 		return why
 	}

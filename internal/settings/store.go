@@ -2,6 +2,7 @@ package settings
 
 import (
 	"log"
+	"maps"
 	"slices"
 	"sync"
 
@@ -176,7 +177,9 @@ func buildRepoRefusal(atlassian Atlassian, allow []string) string {
 	return "atlassian.jira.buildRepo " + show(*buildRepo) + ": it is not an allowed repository"
 }
 
-func hasBaseBranch(body any) bool {
+// hasJiraKey reports whether a PUT body's jira object carries key (a page that does not know the
+// key leaves it out).
+func hasJiraKey(body any, key string) bool {
 	object, isObject := body.(*js.Object)
 	if !isObject {
 		return false
@@ -187,13 +190,35 @@ func hasBaseBranch(body any) bool {
 		return false
 	}
 
-	_, present := jira.Get("baseBranch")
+	_, present := jira.Get(key)
 
 	return present
 }
 
-// consistent clears what depends on another section: a build repo the list no longer covers and
-// a draft channel the channels no longer hold.
+// keepAbsent is saved with every key the body left out taken from current, whole: null clears
+// baseBranch and an empty object clears baseBranches, but a key not sent is not changed.
+func keepAbsent(body any, saved, current Jira) Jira {
+	if !hasJiraKey(body, "baseBranch") {
+		saved.BaseBranch = clonePointer(current.BaseBranch)
+	}
+
+	if !hasJiraKey(body, "baseBranches") {
+		saved.BaseBranches = maps.Clone(current.BaseBranches)
+	}
+
+	if !hasJiraKey(body, "reviewMove") {
+		saved.ReviewMove = current.ReviewMove
+	}
+
+	if !hasJiraKey(body, "sessionLayout") {
+		saved.SessionLayout = current.SessionLayout
+	}
+
+	return saved
+}
+
+// consistent clears what depends on another section: a build repo and base branches the list no
+// longer covers and a draft channel the channels no longer hold.
 func consistent(settings *Settings) {
 	buildRepo := settings.Atlassian.Jira.BuildRepo
 	if buildRepo != nil {
@@ -201,6 +226,10 @@ func consistent(settings *Settings) {
 			settings.Atlassian.Jira.BuildRepo = nil
 		}
 	}
+
+	maps.DeleteFunc(settings.Atlassian.Jira.BaseBranches, func(repo, _ string) bool {
+		return !repos.Allowed(repo, settings.Repos.Allow)
+	})
 
 	draft := settings.Slack.DraftChannel
 	if draft != nil {
@@ -273,11 +302,7 @@ func (s *Store) next(name string, body any) (Settings, string) {
 			return Settings{}, refusal
 		}
 
-		// A section sent without baseBranch (a page that does not know the field) leaves it as
-		// it is; null clears it.
-		if !hasBaseBranch(body) {
-			value.Jira.BaseBranch = clonePointer(s.current.Atlassian.Jira.BaseBranch)
-		}
+		value.Jira = keepAbsent(body, value.Jira, s.current.Atlassian.Jira)
 
 		next.Atlassian = value
 	case Reviews:
