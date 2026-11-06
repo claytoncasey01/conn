@@ -65,13 +65,15 @@ type CloneFinder func(repo string, current settings.Settings) (string, bool)
 
 // BuildTargets are the repositories a run may build in, each with its clone and the branch runs
 // start from there (its own base branch, else atlassian.jira.baseBranch, else the clone's
-// default branch). Every allowed repository Settings names is one: an exact allowlist entry, a
-// clone set in Settings, the default repository and a repository with a base branch of its own.
-// They are in allowlist order (the first pattern that allows each), by name within a pattern.
-func BuildTargets(current settings.Settings, find CloneFinder,
+// default branch). One is every allowed repository Settings names (the default repository, an
+// exact allowlist entry, a clone set in Settings, a repository with a base branch of its own) and
+// every allowed one in seen, the repositories found on this machine. A pattern alone names none.
+// They are in allowlist order (the first pattern that allows each), and in the order they were
+// named within a pattern.
+func BuildTargets(current settings.Settings, seen []string, find CloneFinder,
 	defaultOf func(clone string) (string, bool),
 ) []Target {
-	names := allowedRepos(current)
+	names := allowedRepos(current, seen)
 	targets := make([]Target, 0, len(names))
 
 	for _, repo := range names {
@@ -81,9 +83,9 @@ func BuildTargets(current settings.Settings, find CloneFinder,
 	return targets
 }
 
-// allowedRepos are the allowed repositories Settings names, once each in any case, in allowlist
-// order and by name within a pattern; at most buildReposMax.
-func allowedRepos(current settings.Settings) []string {
+// allowedRepos are the allowed repositories Settings names and seen holds, once each in any case,
+// in allowlist order and in the order named within a pattern; at most buildReposMax.
+func allowedRepos(current settings.Settings, seen []string) []string {
 	jira := current.Atlassian.Jira
 
 	// The default repository comes first, so a name in two places is spelled as it is.
@@ -92,7 +94,7 @@ func allowedRepos(current settings.Settings) []string {
 		named = append(named, *jira.BuildRepo)
 	}
 
-	named = slices.Concat(named, current.Repos.Allow, current.Repos.Clones.Keys(),
+	named = slices.Concat(named, current.Repos.Allow, current.Repos.Clones.Keys(), seen,
 		slices.Sorted(maps.Keys(jira.BaseBranches)))
 
 	type ranked struct {
@@ -101,7 +103,7 @@ func allowedRepos(current settings.Settings) []string {
 	}
 
 	listed := []ranked{}
-	seen := map[string]bool{}
+	once := map[string]bool{}
 
 	for _, name := range named {
 		if len(listed) == buildReposMax {
@@ -113,20 +115,16 @@ func allowedRepos(current settings.Settings) []string {
 			continue
 		}
 
-		if seen[js.Lower(name)] {
+		if once[js.Lower(name)] {
 			continue
 		}
 
-		seen[js.Lower(name)] = true
+		once[js.Lower(name)] = true
 		listed = append(listed, ranked{name: name, pattern: pattern})
 	}
 
 	slices.SortStableFunc(listed, func(left, right ranked) int {
-		if left.pattern != right.pattern {
-			return left.pattern - right.pattern
-		}
-
-		return strings.Compare(js.Lower(left.name), js.Lower(right.name))
+		return left.pattern - right.pattern
 	})
 
 	names := make([]string, 0, len(listed))

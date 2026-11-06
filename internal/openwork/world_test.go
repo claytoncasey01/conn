@@ -54,6 +54,8 @@ type worldOpts struct {
 	runs  []any
 	cache any
 	dry   bool
+	// seen are the repositories found on this machine.
+	seen []string
 	// sleep stands in for the dry run's waits; nil waits a twentieth of the time.
 	sleep func(ctx context.Context, wait time.Duration)
 }
@@ -150,7 +152,8 @@ func (w *world) deps(opts worldOpts) openwork.Deps {
 
 			return clone.Path, found
 		},
-		OriginOf: reader.Of, Sh: w.fakeSh, Helper: w.fakeHelper,
+		SeenRepos: func() []string { return opts.seen },
+		OriginOf:  reader.Of, Sh: w.fakeSh, Helper: w.fakeHelper,
 		FetchSprint: w.fakeFetch, Transition: w.fakeTransition, Open: w.fakeOpen,
 		Record: func(name string, ok bool, detail string) {
 			w.call("record", name, ok, detail)

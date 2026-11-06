@@ -131,6 +131,8 @@ func (w *Work) sync() {
 // Tickets is GET /api/work. A list that is old is read again; only tickets of the projects in
 // Settings are shown (a cache from before them can hold others).
 func (w *Work) Tickets() WorkList {
+	seen := w.seen()
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -157,15 +159,15 @@ func (w *Work) Tickets() WorkList {
 		FetchStartedAt: list.FetchStartedAt, Step: list.Step, NeedsAuth: list.NeedsAuth,
 		Error: list.Error, Truncated: list.Truncated,
 		Projects: append([]string{}, jira.Projects(w.settings())...),
-		Build:    w.build(),
+		Build:    w.build(seen),
 	}
 }
 
 // build is where a run may build now. The default repository is offered only while it is one of
 // the repositories listed.
-func (w *Work) build() Build {
+func (w *Work) build(seen []string) Build {
 	current := w.settings()
-	targets := BuildTargets(current, w.deps.CloneFor, DefaultBranch)
+	targets := BuildTargets(current, seen, w.deps.CloneFor, DefaultBranch)
 	repos := make([]BuildRepo, 0, len(targets))
 
 	var fallback *string

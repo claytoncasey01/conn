@@ -87,10 +87,12 @@ why next to it.
 
 `POST /api/work/<KEY>/start` takes `{ model, force?, repos?, layout? }`. `repos` is a list of 1 to
 `legsMax` (6) repository names, in order; the first is the **lead**. Absent or empty, the request
-means `[buildRepo]`; with no `buildRepo` it is refused with "Choose at least one repository." A
-duplicate, an unknown name or too many is a 400. Every chosen repository must be allowed and ready;
-all problems are returned together, one sentence per repository. `layout` defaults to
-`sessionLayout`.
+means `[buildRepo]`; with no `buildRepo` it is refused with "Choose at least one repository."
+Only a malformed body is a 400: a `repos` that is not a list of names, or a `layout` that is
+neither `shared` nor `split`. Every chosen repository must be allowed and ready; every problem with
+the choice (none chosen, a duplicate in any case or by clone folder, an unknown or not allowed
+name, one not ready, or more than `legsMax`) is returned together in one 409, one sentence per
+repository. `layout` defaults to `sessionLayout`.
 
 The start panel gets a multi-select of the allowed repositories (a checkbox list, each row showing
 its resolved base branch), a two-way choice for the layout that appears only with two or more

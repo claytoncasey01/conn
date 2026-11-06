@@ -134,7 +134,7 @@ func TestBuildTargetsMatchTheRecordedAnswers(t *testing.T) {
 			current.Repos.Allow = append(current.Repos.Allow, text(pattern))
 		}
 
-		all := openwork.BuildTargets(current,
+		all := openwork.BuildTargets(current, nil,
 			func(repo string, _ settings.Settings) (string, bool) {
 				if get(item, "found") != true {
 					return "", false

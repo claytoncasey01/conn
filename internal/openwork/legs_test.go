@@ -83,9 +83,10 @@ func TestTheListOffersEveryAllowedRepositoryWithItsBase(t *testing.T) {
 
 	made, _, _ := twoRepoWorld(t)
 
+	// The default repository is named first, so it is listed first.
 	same(t, "build", parsed(t, made.work.Tickets().Build), body(t, `{"repos":[`+
-		`{"repo":"acme/gadgets","base":"main","ready":true,"reason":null},`+
-		`{"repo":"acme/widgets","base":"main","ready":true,"reason":null}],`+
+		`{"repo":"acme/widgets","base":"main","ready":true,"reason":null},`+
+		`{"repo":"acme/gadgets","base":"main","ready":true,"reason":null}],`+
 		`"default":"acme/widgets","layout":"shared"}`))
 }
 
@@ -286,7 +287,13 @@ func TestStartingATicketAgainIsRefusedForEachSharedRepositoryCutFromAnotherBase(
 func fakeClone(t *testing.T, base, name string) string {
 	t.Helper()
 
-	clone := filepath.Join(base, "clones", name)
+	return fakeCloneAt(t, filepath.Join(base, "clones", name), name)
+}
+
+// fakeCloneAt is fakeClone in the folder clone.
+func fakeCloneAt(t *testing.T, clone, name string) string {
+	t.Helper()
+
 	heads := filepath.Join(clone, ".git", "refs", "remotes", "origin")
 
 	err := os.MkdirAll(heads, 0o755)
@@ -333,4 +340,23 @@ func TestTheDryRunMakesEveryLegsBranch(t *testing.T) {
 	}
 
 	same(t, "nothing ran", helperOrGit(made), []string{})
+}
+
+func TestARepositoryFoundOnThisMachineIsOfferedWithNothingNamedInSettings(t *testing.T) {
+	t.Parallel()
+
+	current := body(t, `{"version":1,"repos":{"allow":["acme/*"],"clones":{},"cloneRoot":null},`+
+		`"atlassian":{"enabled":true,"jira":{"projects":["PROJ"],"buildRepo":null}}}`)
+	made := newWorld(t, worldOpts{
+		settings: current, cache: cacheOf(ticket("PROJ-2", "new")),
+		seen: []string{"acme/widgets", "acme/elsewhere"},
+	})
+	fakeCloneAt(t, filepath.Join(made.home, "projects", "widgets"), "widgets")
+
+	same(t, "build", parsed(t, made.work.Tickets().Build), body(t, `{"repos":[`+
+		`{"repo":"acme/widgets","base":"main","ready":true,"reason":null},`+
+		`{"repo":"acme/elsewhere","base":null,"ready":false,"reason":"No local clone of `+
+		`acme/elsewhere: set a folder in Settings."}],"default":null,"layout":"shared"}`))
+	same(t, "start", made.work.Start("PROJ-2", body(t,
+		`{"model":"haiku","repos":["acme/widgets"]}`)).Code, 200)
 }

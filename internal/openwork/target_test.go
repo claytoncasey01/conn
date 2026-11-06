@@ -1,6 +1,7 @@
 package openwork_test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,6 +20,8 @@ type targetWorld struct {
 	buildRepo    string
 	base         string
 	baseBranches map[string]string
+	// seen are the repositories found on this machine, in the order found.
+	seen []string
 	// found are the clones on disk, by lowercase repository.
 	found map[string]string
 	// defaults are the default branches the clones name, by clone folder.
@@ -54,17 +57,18 @@ func (world targetWorld) targets() []openwork.Target {
 		return branch, known
 	}
 
-	return openwork.BuildTargets(current, find, defaultOf)
+	return openwork.BuildTargets(current, world.seen, find, defaultOf)
 }
 
 // twoRepos is acme/* allowed, with clones of widgets and gadgets set in Settings and on disk.
 func twoRepos() targetWorld {
 	return targetWorld{
 		allow:        []string{"acme/*"},
-		clones:       []string{"acme/widgets", "/x/widgets", "acme/gadgets", "/x/gadgets"},
+		clones:       []string{"acme/gadgets", "/x/gadgets", "acme/widgets", "/x/widgets"},
 		buildRepo:    "",
 		base:         "",
 		baseBranches: nil,
+		seen:         nil,
 		found:        map[string]string{"acme/widgets": "/x/widgets", "acme/gadgets": "/x/gadgets"},
 		defaults:     map[string]string{"/x/widgets": "main", "/x/gadgets": "trunk"},
 	}
@@ -109,7 +113,7 @@ func TestBuildTargetsListEveryAllowedRepositoryAndWhetherARunCanStartThere(t *te
 		world targetWorld
 		want  []openwork.Target
 	}{
-		{"both ready, by name within the pattern", twoRepos(), []openwork.Target{
+		{"both ready, in the order named", twoRepos(), []openwork.Target{
 			target("acme/gadgets", "/x/gadgets", "trunk", ""),
 			target("acme/widgets", "/x/widgets", "main", ""),
 		}},
@@ -134,16 +138,16 @@ func TestBuildTargetsListEveryAllowedRepositoryAndWhetherARunCanStartThere(t *te
 			"in allowlist order, from every place Settings names a repository", exact,
 			[]openwork.Target{
 				target("other/one", "/x/one", "main", ""),
-				target("acme/apple", "", "", "No local clone of acme/apple: set a folder in "+
+				target("acme/zebra", "", "", "No local clone of acme/zebra: set a folder in "+
 					"Settings."),
 				target("acme/widgets", "/x/widgets", "main", ""),
-				target("acme/zebra", "", "", "No local clone of acme/zebra: set a folder in "+
+				target("acme/apple", "", "", "No local clone of acme/apple: set a folder in "+
 					"Settings."),
 			},
 		},
 		{"nothing allowed", targetWorld{
 			allow: []string{}, clones: []string{"acme/widgets", "/x/widgets"},
-			buildRepo: "acme/widgets", base: "", baseBranches: nil,
+			buildRepo: "acme/widgets", base: "", baseBranches: nil, seen: nil,
 			found: twoRepos().found, defaults: twoRepos().defaults,
 		}, []openwork.Target{}},
 	}
@@ -253,4 +257,82 @@ func TestChooseTargetsReturnsTheChosenOnesOrEveryProblemAtOnce(t *testing.T) {
 			same(t, "problems", problems, row.problems)
 		})
 	}
+}
+
+// seenWorld is an allowlist of patterns only, with nothing named in Settings, and clones on disk
+// of acme/a, acme/b and other/a; seen are the repositories found on this machine.
+func seenWorld(allow, seen []string) targetWorld {
+	return targetWorld{
+		allow: allow, clones: []string{}, buildRepo: "", base: "", baseBranches: nil, seen: seen,
+		found:    map[string]string{"acme/a": "/x/a", "acme/b": "/x/b", "other/a": "/y/a"},
+		defaults: map[string]string{"/x/a": "main", "/x/b": "main", "/y/a": "main"},
+	}
+}
+
+func TestBuildTargetsOfferTheAllowedRepositoriesFoundOnThisMachine(t *testing.T) {
+	t.Parallel()
+
+	acme := []string{"acme/*"}
+	noClone := "No local clone of acme/c: set a folder in Settings."
+
+	rows := []struct {
+		name  string
+		world targetWorld
+		want  []string
+	}{
+		{"a pattern alone names none", seenWorld(acme, nil), []string{}},
+		{
+			"found, in the order found", seenWorld(acme, []string{"acme/b", "acme/a"}),
+			[]string{"acme/b", "acme/a"},
+		},
+		{
+			"once each in any case", seenWorld(acme, []string{"acme/a", "ACME/A", "Acme/b"}),
+			[]string{"acme/a", "Acme/b"},
+		},
+		{"only what the allowlist covers, and only names", seenWorld(acme,
+			[]string{"other/a", "acme", "acme/*", "acme/a"}), []string{"acme/a"}},
+		{"allowlist order, then the order found", seenWorld([]string{"other/*", "acme/*"},
+			[]string{"acme/b", "other/a", "acme/a"}), []string{"other/a", "acme/b", "acme/a"}},
+		{"after what Settings names", func() targetWorld {
+			world := seenWorld(acme, []string{"acme/a", "acme/b"})
+			world.clones = []string{"acme/b", "/x/b"}
+
+			return world
+		}(), []string{"acme/b", "acme/a"}},
+		{
+			"found without a clone CloneFor finds", seenWorld(acme, []string{"acme/c"}),
+			[]string{"acme/c: " + noClone},
+		},
+	}
+
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := []string{}
+
+			for _, listed := range row.world.targets() {
+				if listed.Reason != "" {
+					got = append(got, listed.Repo+": "+listed.Reason)
+
+					continue
+				}
+
+				got = append(got, listed.Repo)
+			}
+
+			same(t, "listed", got, row.want)
+		})
+	}
+}
+
+func TestBuildTargetsListAtMostBuildReposMax(t *testing.T) {
+	t.Parallel()
+
+	seen := make([]string, 0, openwork.BuildReposMax+1)
+	for index := range openwork.BuildReposMax + 1 {
+		seen = append(seen, "acme/r"+strconv.Itoa(index))
+	}
+
+	same(t, "listed", len(seenWorld([]string{"acme/*"}, seen).targets()), openwork.BuildReposMax)
 }

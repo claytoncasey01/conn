@@ -78,6 +78,9 @@ type Deps struct {
 	Settings func() settings.Settings
 	// CloneFor is the local clone of a repository per the settings.
 	CloneFor CloneFinder
+	// SeenRepos are repositories found on this machine (clone folders, live sessions, My PRs
+	// rows), offered when the allowlist covers them; nil finds none. Called without the mutex.
+	SeenRepos func() []string
 	// OriginOf is the GitHub repository of a folder ("" for none).
 	OriginOf func(folder string) string
 	Sh       Sh
@@ -330,9 +333,9 @@ func (w *Work) record(name string, ok bool, detail string) {
 // chooseTargets are the targets a START chose (none: the default repository), in the order
 // chosen, and every problem with the choice. A repository the list does not offer but the
 // allowlist covers (a clone found under the clone folder) can still be chosen by name.
-func (w *Work) chooseTargets(chosen []string) ([]Target, []string) {
+func (w *Work) chooseTargets(chosen, seen []string) ([]Target, []string) {
 	current := w.settings()
-	all := BuildTargets(current, w.deps.CloneFor, DefaultBranch)
+	all := BuildTargets(current, seen, w.deps.CloneFor, DefaultBranch)
 
 	if len(chosen) <= legsMax {
 		for _, name := range chosen {
@@ -349,6 +352,16 @@ func (w *Work) chooseTargets(chosen []string) ([]Target, []string) {
 	}
 
 	return ChooseTargets(all, chosen, current.Atlassian.Jira.BuildRepo)
+}
+
+// seen are the repositories found on this machine. It reads the disk and the session list, so
+// it is called before the mutex is taken.
+func (w *Work) seen() []string {
+	if w.deps.SeenRepos == nil {
+		return nil
+	}
+
+	return w.deps.SeenRepos()
 }
 
 func (w *Work) allowed(repo string) bool { return repos.Allowed(repo, w.settings().Repos.Allow) }

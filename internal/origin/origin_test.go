@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -628,5 +629,61 @@ func TestFolderRepoOnlyForAFolderThatExists(t *testing.T) {
 		if got := origin.NewReader().FolderRepo(tt.folder); got != tt.want {
 			t.Fatalf("%s: got %q", tt.folder, got)
 		}
+	}
+}
+
+func TestClonesInFindsTheClonesCloneForWouldFind(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	projects := t.TempDir()
+	write(t, filepath.Join(root, "widgets", ".git", "config"),
+		config("git@github.com:acme/widgets.git", ""))
+	write(t, filepath.Join(root, "Gadgets", ".git", "config"),
+		config("https://github.com/Acme/Gadgets.git", ""))
+	// Named for another repository: CloneFor would never look here for it.
+	write(t, filepath.Join(root, "renamed", ".git", "config"),
+		config("git@github.com:acme/other.git", ""))
+	// Not on GitHub, and not a repository at all.
+	write(t, filepath.Join(root, "local", ".git", "config"), config("/srv/git/local.git", ""))
+	write(t, filepath.Join(root, "plain", "file"), "x")
+	write(t, filepath.Join(projects, "tools", ".git", "config"),
+		config("git@github.com:acme/tools.git", ""))
+
+	rows := []struct {
+		name       string
+		parents    []string
+		foldersMax int
+		want       []string
+	}{
+		{
+			"every clone, the clone folder first",
+			[]string{root, projects},
+			100,
+			[]string{"acme/gadgets", "acme/widgets", "acme/tools"},
+		},
+		{
+			"a parent that is not there",
+			[]string{filepath.Join(root, "nope"), projects},
+			100,
+			[]string{"acme/tools"},
+		},
+		{
+			"at most foldersMax folders read",
+			[]string{root, projects},
+			2,
+			[]string{"acme/gadgets"},
+		},
+	}
+
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := origin.NewReader().ClonesIn(row.parents, row.foldersMax)
+			if !slices.Equal(got, row.want) {
+				t.Fatalf("got %v, want %v", got, row.want)
+			}
+		})
 	}
 }

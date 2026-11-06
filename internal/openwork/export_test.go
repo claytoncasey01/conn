@@ -121,6 +121,9 @@ func RepoOf(work *Work, key string) string {
 	return work.repoOf(record.lead())
 }
 
+// BuildReposMax is the most repositories the list of places to build offers.
+const BuildReposMax = buildReposMax
+
 // LegFor is the leg of a record in repo, in any case.
 func LegFor(record *Record, repo string) (*Leg, bool) { return record.legFor(repo) }
 

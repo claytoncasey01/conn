@@ -105,7 +105,7 @@ func newHandler(
 	// Open work makes the runs folder at boot, even while it is off.
 	workTab = newWork(ctx, workParts{
 		cfg: cfg, store: store, reader: reader, runner: runner, statuses: statuses,
-		logger: logger,
+		logger: logger, myPrRepos: func() []string { return myPrsTab.Repos() },
 	}, live)
 
 	// My PRs and Reviews poll GitHub as the same account: they share its hourly budget and a

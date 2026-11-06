@@ -51,6 +51,8 @@ func isActive(state string) bool {
 // not one of the projects', a model that is not haiku or sonnet, a ticket that already has a
 // run, or one not in the list; a ticket that is someone else's or not to do asks to confirm.
 func (w *Work) Start(key string, body *js.Object) Reply {
+	seen := w.seen()
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -89,14 +91,18 @@ func (w *Work) Start(key string, body *js.Object) Reply {
 		return conflict("the last stage of " + key + " is still ending: try again in a moment")
 	}
 
+	choice.seen = seen
+
 	return w.startTicket(key, model, had, js.Truthy(field(body, "force")), choice)
 }
 
 // choice is what a START chose: the repositories by name, in order (none: the default
-// repository), and the layout of their sessions.
+// repository), and the layout of their sessions; with the repositories found on this machine,
+// which the choice is checked against.
 type choice struct {
 	repos  []string
 	layout string
+	seen   []string
 }
 
 // choiceOf is the choice a START's body makes, or a refusal of a body that is not one: repos
@@ -135,7 +141,7 @@ func (w *Work) choiceOf(body *js.Object) (choice, Reply, bool) {
 		}
 	}
 
-	return choice{repos: chosen, layout: layout}, Reply{}, false
+	return choice{repos: chosen, layout: layout, seen: nil}, Reply{}, false
 }
 
 func modelOf(value any) string {
@@ -185,7 +191,7 @@ func (w *Work) startTicket(key, model string, had *Record, force bool, chose cho
 		}
 	}
 
-	targets, problems := w.chooseTargets(chose.repos)
+	targets, problems := w.chooseTargets(chose.repos, chose.seen)
 	if len(problems) > 0 {
 		return conflict(strings.Join(problems, " "))
 	}
