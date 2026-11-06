@@ -50,9 +50,9 @@ type session struct {
 	ended chan struct{}
 	// writeTurn holds one value while a Write is in the program, so Writes take turns.
 	writeTurn chan struct{}
-	// pasteOpen says the program was last sent the start of a bracketed paste and not its end:
-	// a write cut short left it inside the paste. Guarded by writeTurn.
-	pasteOpen bool
+	// pasteClosing is what would close the bracketed paste a write cut short left the program
+	// inside, nil when it is inside none. Guarded by writeTurn.
+	pasteClosing []byte
 	// answers queues the replies to the program's terminal queries, from its reader to its
 	// answerer, which closes answered once the reader has closed answers and all are typed.
 	answers  chan []byte
@@ -346,6 +346,12 @@ type screenCheck struct {
 
 // passes is nil when the check stands in the write's turn, else why it does not.
 func (check *screenCheck) passes(writing *session) error {
+	// The program holds input the screen does not show, the start of a paste: no read of the
+	// screen can say what more input would do.
+	if writing.openPaste() != nil {
+		return ErrOtherInput
+	}
+
 	if !check.mark.Quiet {
 		return ErrOtherInput
 	}
@@ -395,14 +401,19 @@ func (h *Host) write(sessionID ID, data []byte, check *screenCheck) (uint64, err
 	// (Escape, then [ and a letter), so then they count.
 	input := !writing.focusReported(data)
 
-	return h.typeInto(writing, data, typing{check: check, input: input})
+	// A focus report never closes a paste a write cut short; the person's own input does.
+	closes := !onlyFocusReports(data)
+
+	return h.typeInto(writing, data, typing{check: check, input: input, closes: closes})
 }
 
-// typing is how typeInto types: with a check to pass first, or none, and as input (counted
-// against screen reads) or as an answer to the program's own query (not counted).
+// typing is how typeInto types: with a check to pass first, or none; as input (counted against
+// screen reads) or as an answer to the program's own query (not counted); and whether it is input
+// that first closes a paste a write cut short, in its place.
 type typing struct {
-	check *screenCheck
-	input bool
+	check  *screenCheck
+	input  bool
+	closes bool
 }
 
 // typeInto writes data to the session's program in its turn, and returns the input count after
@@ -434,7 +445,16 @@ func (h *Host) typeInto(writing *session, data []byte, how typing) (uint64, erro
 		}()
 	}
 
-	err = writing.writeClosingPaste(data)
+	if how.closes {
+		closing := writing.openPaste()
+		if closing != nil {
+			return inputs, writing.closePaste(closing)
+		}
+	}
+
+	written, err := writing.process.Write(data)
+	writing.pasteClosing = pasteClosingAfter(writing.pasteClosing, data, written)
+
 	if err != nil {
 		return 0, writeFailure(err)
 	}
@@ -442,23 +462,41 @@ func (h *Host) typeInto(writing *session, data []byte, how typing) (uint64, erro
 	return inputs, nil
 }
 
-// writeClosingPaste writes data to the program, after the end of a paste a write cut short left
-// open, and keeps whether what the program has now read leaves a paste open. The caller holds
-// the write turn.
-func (held *session) writeClosingPaste(data []byte) error {
-	sent := data
-	if held.pasteOpen {
-		sent = append(append(make([]byte, 0, len(pasteEnd)+len(data)), pasteEnd...), data...)
+// openPaste is what would close a paste a write cut short left open, or nil. A program that no
+// longer asks for bracketed paste (it turned 2004 off, or reset) is inside none: an end marker
+// would reach it as keys. The caller holds the write turn.
+func (held *session) openPaste() []byte {
+	if held.pasteClosing == nil {
+		return nil
 	}
 
-	written, err := held.process.Write(sent)
-	held.pasteOpen = pasteOpenAfter(held.pasteOpen, sent[:max(0, min(written, len(sent)))])
+	held.screenMu.Lock()
+	bracketed := held.screen.BracketedPaste()
+	held.screenMu.Unlock()
+
+	if !bracketed {
+		held.pasteClosing = nil
+	}
+
+	return held.pasteClosing
+}
+
+// closePaste writes closing alone, in place of the input that found the paste open, and returns
+// ErrPasteClosed for that input; or why closing could not be written, keeping what is left of
+// it. The caller holds the write turn.
+func (held *session) closePaste(closing []byte) error {
+	written, err := held.process.Write(closing)
+
+	held.pasteClosing = nil
+	if written < len(closing) {
+		held.pasteClosing = closing[max(0, written):]
+	}
 
 	if err != nil {
-		return fmt.Errorf("writing input: %w", err)
+		return writeFailure(fmt.Errorf("closing a paste: %w", err))
 	}
 
-	return nil
+	return ErrPasteClosed
 }
 
 // takeTurn waits for the session's write turn, at most writeWaitMax: writes take turns, and the

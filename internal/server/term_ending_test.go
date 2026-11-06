@@ -649,3 +649,27 @@ func TestReplayBoundHoldsEightFullReplays(t *testing.T) {
 			server.ReplayBytesInFlightMax, 8*full)
 	}
 }
+
+// Input refused because a cut paste was closed in its place keeps the terminal, and the page is
+// told, so it can say to look at the screen before typing.
+func TestAClosedPasteIsToldToThePage(t *testing.T) {
+	t.Parallel()
+
+	host := &scriptedHost{writeErr: fmt.Errorf("typing: %w", pty.ErrPasteClosed)}
+	rig := newTerminalRig(t, rigSetup{host: host})
+	conn := rig.open(t, sessionShape)
+	readOutputUntilText(t, conn)
+
+	sendMessage(t, conn, websocket.MessageText, `{"t":"input","d":"\r"}`)
+
+	if _, text := readOutputUntilText(t, conn); text != `{"t":"paste-closed"}` {
+		t.Fatalf("text %s, want the paste-closed frame", text)
+	}
+
+	// The terminal is still open: the next input is answered too.
+	sendMessage(t, conn, websocket.MessageText, `{"t":"input","d":"x"}`)
+
+	if _, text := readOutputUntilText(t, conn); text != `{"t":"paste-closed"}` {
+		t.Fatalf("text %s after a second input, want the terminal still open", text)
+	}
+}

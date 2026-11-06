@@ -228,8 +228,6 @@ func (f *fakeProcess) Keyboard() (pty.Keyboard, error) {
 	return pty.Keyboard{Foreground: !f.background.Load(), LineMode: f.lineMode.Load()}, nil
 }
 
-// reuse makes the group's number look taken again, as a new program that a reused pid made a
-// group leader would.
 // cutNextWrite makes the next Write take only count bytes, then fail as a write deadline does.
 func (f *fakeProcess) cutNextWrite(count int) {
 	f.mu.Lock()
@@ -238,6 +236,8 @@ func (f *fakeProcess) cutNextWrite(count int) {
 	f.cut = count
 }
 
+// reuse makes the group's number look taken again, as a new program that a reused pid made a
+// group leader would.
 func (f *fakeProcess) reuse() { f.reused.Store(true) }
 
 func (f *fakeProcess) record(signal string) {

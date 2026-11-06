@@ -166,6 +166,10 @@ var (
 	// ErrInputBlocked is a Write that waited writeWaitMax behind another: the program is not
 	// reading its input.
 	ErrInputBlocked = errors.New("the program is not taking input")
+	// ErrPasteClosed is input refused because a paste a write cut short was still open: the
+	// paste was closed alone in its place, as input, and the person should look at the screen
+	// before typing, since the program now holds what of the paste it read.
+	ErrPasteClosed = errors.New("a paste was cut short and has been closed")
 	// ErrScreenChanged is a WriteIfStill whose session's screen no longer passed its check.
 	ErrScreenChanged = errors.New("the screen changed since it was read")
 	// ErrOtherInput is a WriteIfStill after other input reached the session since its screen

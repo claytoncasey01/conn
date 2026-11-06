@@ -325,6 +325,14 @@ func (t *Terminals) typeFrames(
 				dropQueued(queue)
 			}
 
+			if errors.Is(err, pty.ErrPasteClosed) {
+				// The host closed a cut paste in this frame's place: what was typed after it
+				// was typed against a screen the person has not seen yet, so it goes, and the
+				// page is told to look first.
+				dropQueued(queue)
+				t.writeText(ctx, open, []byte(pasteClosedText))
+			}
+
 			code, reason, keep := outcome(err)
 			if !keep {
 				open.end(code, reason)
@@ -381,6 +389,8 @@ func outcome(err error) (websocket.StatusCode, string, bool) {
 	case errors.Is(err, pty.ErrNoSession):
 		return 0, "", true
 	case errors.Is(err, pty.ErrInputBlocked):
+		return 0, "", true
+	case errors.Is(err, pty.ErrPasteClosed):
 		return 0, "", true
 	case errors.Is(err, pty.ErrInvalidSize):
 		return websocket.StatusPolicyViolation, reasonBadSize, false

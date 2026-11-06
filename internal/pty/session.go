@@ -103,7 +103,7 @@ func (h *Host) answerQueries(answering *session) {
 	for reply := range answering.answers {
 		// A reply the program does not take, or takes after it has ended, is lost, as it would
 		// be on any terminal; nothing else is to be done about it.
-		_, _ = h.typeInto(answering, reply, typing{check: nil, input: false})
+		_, _ = h.typeInto(answering, reply, typing{check: nil, input: false, closes: false})
 	}
 }
 

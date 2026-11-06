@@ -299,10 +299,14 @@ type scriptedHost struct {
 	freshReplayBytes int
 	weakReplays      []weak.Pointer[byte]
 
+	// writeErr, when set, is what every Write answers.
+	writeErr error
+
 	mu         sync.Mutex
 	outputs    []chan []byte
 	end        pty.ViewerEnd
 	subscribes int
+	writes     int
 }
 
 func (s *scriptedHost) Subscribe(pty.ID) (pty.Viewer, error) {
@@ -322,7 +326,14 @@ func (s *scriptedHost) Subscribe(pty.ID) (pty.Viewer, error) {
 	return pty.Viewer{Replay: replay, Output: output, Ending: s.ending}, nil
 }
 
-func (s *scriptedHost) Write(pty.ID, []byte) error { return nil }
+func (s *scriptedHost) Write(pty.ID, []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.writes++
+
+	return s.writeErr
+}
 
 func (s *scriptedHost) Resize(pty.ID, uint16, uint16) error { return nil }
 

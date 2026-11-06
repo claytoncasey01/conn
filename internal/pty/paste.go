@@ -9,21 +9,68 @@ const (
 	pasteEnd   = "\x1b[201~"
 )
 
-// pasteOpenAfter says whether a program is inside a paste once it has read written, having been
-// inside one before it when open: the newest whole marker decides, and with none it is as it was.
-// A marker cut short is no marker: a start cut short opened nothing, an end cut short closed
-// nothing.
-func pasteOpenAfter(open bool, written []byte) bool {
-	started := bytes.LastIndex(written, []byte(pasteStart))
-	ended := bytes.LastIndex(written, []byte(pasteEnd))
+// pasteClosingAfter is what would close the paste a program is left inside once it has read the
+// first written bytes of attempted, having needed closing before (nil: inside none). The markers
+// it read whole decide; a write cut inside a marker leaves the rest of that marker to finish:
+// the rest of an end marker, or the rest of a start marker and then a whole end marker. A marker
+// is never repeated whole after a part of it, which a parser reading the part as a sequence of
+// its own would not recover from.
+func pasteClosingAfter(closing, attempted []byte, written int) []byte {
+	state := closing
+	from := 0
 
-	if started > ended {
-		return true
+	for from < len(attempted) {
+		start, marker := nextMarker(attempted[from:])
+		if start < 0 {
+			break
+		}
+
+		start += from
+		if start >= written {
+			break
+		}
+
+		end := start + len(marker)
+		if end > written {
+			return markerRest(marker, written-start)
+		}
+
+		state = nil
+		if marker == pasteStart {
+			state = []byte(pasteEnd)
+		}
+
+		from = end
 	}
 
-	if ended > started {
-		return false
+	return state
+}
+
+// nextMarker is where the first paste marker in data begins, and which one, or -1.
+func nextMarker(data []byte) (int, string) {
+	started := bytes.Index(data, []byte(pasteStart))
+	ended := bytes.Index(data, []byte(pasteEnd))
+
+	if started < 0 {
+		return ended, pasteEnd
 	}
 
-	return open
+	if ended < 0 {
+		return started, pasteStart
+	}
+
+	if started < ended {
+		return started, pasteStart
+	}
+
+	return ended, pasteEnd
+}
+
+// markerRest is what finishes marker, done bytes of it already read, and closes the paste.
+func markerRest(marker string, done int) []byte {
+	if marker == pasteEnd {
+		return []byte(pasteEnd[done:])
+	}
+
+	return []byte(pasteStart[done:] + pasteEnd)
 }

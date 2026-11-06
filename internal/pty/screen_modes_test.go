@@ -64,6 +64,10 @@ func TestScreenModePreambleSwitchesScreensOnlyForASwitchThatHasLeft(t *testing.T
 		{"the switch before the window", before + "\x1b[?1049hVIM", switchAt + 9, "\x1b[?1049h"},
 		{"a C1 switch before the window", before + "\u009b?47hVIM", switchAt + 1, "\x1b[?1049h"},
 		{"a C1 switch inside the window, after an ESC before it", "\x1b[mAB\u009b?47hVIM", 3, ""},
+		{
+			"switched again while on the alternate screen, the first switch before the window",
+			before + "\x1b[?1049hVIM1\x1b[?1049hVIM2", switchAt + 8, "\x1b[?1049h",
+		},
 		{"left the alternate screen", "\x1b[?1049hVIM\x1b[?1049l", 1 << 20, ""},
 		{"switched again inside the window", "\x1b[?1049hA\x1b[?1049lB\x1b[?1049hC", 12, ""},
 	}

@@ -32,6 +32,7 @@ func TestOutcomeOfTheHostsAnswer(t *testing.T) {
 		{"the program ended", fmt.Errorf("writing: %w", pty.ErrEnded), 0, true},
 		{"not taking input", fmt.Errorf("writing: %w", pty.ErrInputBlocked), 0, true},
 		{"no longer held", fmt.Errorf("writing: %w", pty.ErrNoSession), 0, true},
+		{"a cut paste closed", fmt.Errorf("writing: %w", pty.ErrPasteClosed), 0, true},
 		{
 			"a size out of range", fmt.Errorf("resizing: %w", pty.ErrInvalidSize),
 			websocket.StatusPolicyViolation, false,

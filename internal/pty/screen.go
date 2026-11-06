@@ -345,12 +345,13 @@ func (s *Screen) reset() {
 // show shows the alternate screen or the main one. Leaving the alternate screen clears it, as
 // xterm.js does.
 func (s *Screen) show(alternate bool) {
-	if alternate {
-		s.alternateFrom = s.sequenceStart
-	}
-
 	if s.onAlternate == alternate {
 		return
+	}
+
+	// Only a real switch: one made while already on the alternate screen draws nothing new
+	if alternate {
+		s.alternateFrom = s.sequenceStart
 	}
 
 	if !alternate {

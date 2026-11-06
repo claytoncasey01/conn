@@ -11,9 +11,10 @@ import (
 //	{"t":"input","d":"<what the person typed, as text>"}
 //	{"t":"resize","cols":<columns>,"rows":<rows>}
 //
-// The server sends the program's output as binary frames, and two text frames:
+// The server sends the program's output as binary frames, and three text frames:
 //
 //	{"t":"replay-end"}          after the scrollback, before live output
+//	{"t":"paste-closed"}        input refused: a paste cut short was closed in its place
 //	{"t":"exit","code":<code>}  once the program has ended, before a normal close
 const (
 	// typeInput and typeResize are the two values of a client frame's "t".
@@ -22,6 +23,8 @@ const (
 
 	// replayEndText is the server's frame that ends a viewer's replay.
 	replayEndText = `{"t":"replay-end"}`
+	// pasteClosedText tells the page its input was refused: a paste cut short was closed.
+	pasteClosedText = `{"t":"paste-closed"}`
 	// exitTextPrefix and exitTextSuffix wrap the exit code in the server's exit frame.
 	exitTextPrefix = `{"t":"exit","code":`
 	exitTextSuffix = `}`

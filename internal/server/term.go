@@ -28,7 +28,7 @@ const (
 	inputFrameBytesMax = 64 << 10
 	// frameEnvelopeBytesMax is the most a client frame's JSON adds around its input, so
 	// frameBytesMax is the most one client frame may be: the WebSocket's read limit. A page
-	// splits a paste so that each frame, escaped as JSON, stays within it.
+	// sends a paste whole in one frame, escaped as JSON, or refuses it.
 	frameEnvelopeBytesMax = 256
 	frameBytesMax         = inputFrameBytesMax + frameEnvelopeBytesMax
 	// outputFrameBytesMax is the most one binary frame of output holds; the replay and a large
