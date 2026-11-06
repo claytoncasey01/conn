@@ -106,6 +106,8 @@ type Terminals struct {
 	host    TerminalHost
 	times   terminalTimes
 	budgets *budgets
+	// interrupts holds when each session was last sent an interrupt.
+	interrupts *interrupts
 	// open holds a value for each terminal open, at most connectionsMax.
 	open chan struct{}
 	// replayMu guards replayBytes, the bytes of the replays being written.
@@ -145,6 +147,7 @@ func NewTerminals(ctx context.Context, host TerminalHost) *Terminals {
 			pingTimeout:        pingTimeout,
 		},
 		budgets:     newBudgets(time.Now),
+		interrupts:  newInterrupts(time.Now),
 		open:        make(chan struct{}, connectionsMax),
 		replayMu:    sync.Mutex{},
 		replayBytes: 0,

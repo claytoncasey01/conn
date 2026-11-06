@@ -60,7 +60,14 @@ func NewTerminalsTimed(ctx context.Context, host TerminalHost, times TerminalTim
 
 	if times.Now != nil {
 		terminals.budgets = newBudgets(times.Now)
+		terminals.interrupts = newInterrupts(times.Now)
 	}
 
 	return terminals
 }
+
+// InterruptRepeatWindow is interruptRepeatWindow.
+const InterruptRepeatWindow = interruptRepeatWindow
+
+// BudgetsKept is how many sessions' input budgets terminals keeps.
+func BudgetsKept(terminals *Terminals) int { return terminals.budgets.count() }

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { afterEach, test } from 'node:test'
-import { INTERRUPT_HELP, interruptOffered, interruptSession } from './interrupt.ts'
+import { INTERRUPT_HELP, INTERRUPT_REPEAT_MS, interruptOffered, interruptOnRow, interruptSession } from './interrupt.ts'
 
 const realFetch = globalThis.fetch
 afterEach(() => {
@@ -18,8 +18,27 @@ test('an interrupt is offered on a closed panel only: live keys work, and an end
   }
 })
 
-test('it says what it does', () => {
-  assert.equal(INTERRUPT_HELP, 'Sends Ctrl-C to the program')
+test('it says what it does, and that a second press soon after is not sent', () => {
+  assert.equal(INTERRUPT_HELP, 'Sends Ctrl-C to the program. A second press within 3 seconds is not sent: two could make it quit')
+})
+
+test('the page waits as long as the server before offering a second press', () => {
+  const server = readFileSync(new URL('../../internal/server/terminterrupt.go', import.meta.url), 'utf8')
+  const window = /interruptRepeatWindow = (\d+) \* time\.Second/.exec(server)
+  assert.ok(window, 'the server names its repeat window in seconds')
+  assert.equal(Number(window[1]) * 1000, INTERRUPT_REPEAT_MS)
+})
+
+test('a Sessions card offers it for a hosted program still running, never for one that ended', () => {
+  for (const [row, offered] of [
+    [{ hosted: true }, true],
+    [{ hosted: true, exitCode: 0 }, false],
+    [{ hosted: true, exitCode: 130 }, false],
+    [{ hosted: false }, false],
+    [{}, false],
+  ] as const) {
+    assert.equal(interruptOnRow(row), offered, JSON.stringify(row))
+  }
 })
 
 test('an interrupt is one POST with the page header and no body, and the server’s words when it is refused', async () => {
@@ -54,9 +73,15 @@ test('an id the host does not issue sends nothing', async () => {
   assert.equal(called, false)
 })
 
-test('the panel offers it while closed, and the hosted Sessions card always', () => {
+test('the button rests for the window after Ctrl-C was sent', () => {
+  const button = readFileSync(new URL('./InterruptButton.svelte', import.meta.url), 'utf8')
+  assert.match(button, /setTimeout\([^\n]*INTERRUPT_REPEAT_MS\)/)
+  assert.match(button, /disabled=\{resting\}/)
+})
+
+test('the panel offers it while closed, and the Sessions card while the hosted program runs', () => {
   const panel = readFileSync(new URL('./Terminal.svelte', import.meta.url), 'utf8')
   assert.match(panel, /\{#if interruptOffered\(view\)\}\s*<InterruptButton id=\{sessionId\} \/>/)
   const sessions = readFileSync(new URL('../pages/Sessions.svelte', import.meta.url), 'utf8')
-  assert.match(sessions, /\{#if s\.hosted\}[\s\S]*?<InterruptButton id=\{s\.id\} compact \/>/)
+  assert.match(sessions, /\{#if interruptOnRow\(s\)\}\s*<InterruptButton id=\{s\.id\} compact \/>/)
 })

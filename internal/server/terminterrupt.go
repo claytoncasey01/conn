@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/claytoncasey01/conn/internal/pty"
 )
@@ -19,6 +21,10 @@ import (
 // lets a client take, never a signal; it names nothing but a session the host issued, takes no
 // body, needs the page's write guard on top of the gate every /api route has, and spends the
 // session's input budget, which its viewers' keys share.
+//
+// A second Ctrl-C soon after the first makes claude quit, and a person pressing again because
+// nothing seemed to happen means no such thing: an interrupt within interruptRepeatWindow of the
+// last one sent to the same session is not typed, and the answer says it was already sent.
 
 const (
 	// interruptSuffix ends the route's path, after the session's id.
@@ -32,7 +38,65 @@ const (
 	textPasteShut = "a paste into the terminal was cut short and has just been closed: " +
 		"interrupt again"
 	textNotEmpty = "an interrupt takes no body"
+	textAlready  = "already sent: Ctrl-C reached the program a moment ago, and a second one " +
+		"so soon could make it quit"
+
+	// interruptRepeatWindow is how long after an interrupt is sent another to the same session
+	// is not typed: longer than claude's own window for a second Ctrl-C to quit it.
+	interruptRepeatWindow = 3 * time.Second
 )
+
+// interrupts holds when each session was last sent an interrupt, for interruptRepeatWindow:
+// only sessions the host holds are kept, and each is forgotten once its window has passed.
+type interrupts struct {
+	now func() time.Time
+
+	mu   sync.Mutex
+	sent map[pty.ID]time.Time
+}
+
+func newInterrupts(now func() time.Time) *interrupts {
+	return &interrupts{now: now, mu: sync.Mutex{}, sent: make(map[pty.ID]time.Time)}
+}
+
+// claim takes the session's next interrupt, and says when, or that one was sent within the
+// window and this one is not to be typed.
+func (record *interrupts) claim(sessionID pty.ID) (time.Time, bool) {
+	record.mu.Lock()
+	defer record.mu.Unlock()
+
+	now := record.now()
+
+	for held, sentAt := range record.sent {
+		if now.Sub(sentAt) >= interruptRepeatWindow {
+			delete(record.sent, held)
+		}
+	}
+
+	_, recent := record.sent[sessionID]
+	if recent {
+		return time.Time{}, false
+	}
+
+	record.sent[sessionID] = now
+
+	return now, true
+}
+
+// release gives back a claim that typed nothing, unless a later claim has taken its place.
+func (record *interrupts) release(sessionID pty.ID, claimedAt time.Time) {
+	record.mu.Lock()
+	defer record.mu.Unlock()
+
+	held, found := record.sent[sessionID]
+	if !found {
+		return
+	}
+
+	if held.Equal(claimedAt) {
+		delete(record.sent, sessionID)
+	}
+}
 
 // interruptID is the session an interrupt route names, and whether the path is one.
 func interruptID(urlPath string) (pty.ID, bool) {
@@ -44,8 +108,8 @@ func interruptID(urlPath string) (pty.ID, bool) {
 	return terminalID(rest)
 }
 
-// interrupt answers the interrupt route: the write guard, an empty body, the input budget, then
-// ETX typed through the host.
+// interrupt answers the interrupt route: the write guard, an empty body, a session the host
+// holds, no interrupt sent within the window, the input budget, then ETX typed through the host.
 func (t *Terminals) interrupt(w http.ResponseWriter, r *http.Request, sessionID pty.ID) {
 	if r.Method != http.MethodPost {
 		sendJSON(w, http.StatusMethodNotAllowed, errorBody{Error: textMethod})
@@ -72,17 +136,43 @@ func (t *Terminals) interrupt(w http.ResponseWriter, r *http.Request, sessionID 
 		return
 	}
 
+	// An empty write types nothing: it asks only whether the host holds the session, so an id
+	// it never issued is refused before any budget or claim is kept for it.
+	err = t.host.Write(sessionID, nil)
+	if err != nil {
+		code, text := interruptFailure(err)
+		sendJSON(w, code, errorBody{Error: text})
+
+		return
+	}
+
+	t.typeInterrupt(w, sessionID)
+}
+
+// typeInterrupt types ETX into a session the host holds, unless one was sent within the window
+// or the session's input budget is spent.
+func (t *Terminals) typeInterrupt(w http.ResponseWriter, sessionID pty.ID) {
+	claimedAt, claimed := t.interrupts.claim(sessionID)
+	if !claimed {
+		sendJSON(w, http.StatusConflict, errorBody{Error: textAlready})
+
+		return
+	}
+
 	t.budgets.join(sessionID)
 	defer t.budgets.leave(sessionID)
 
 	if !t.budgets.spend(sessionID, inputCost{bytes: 1, resize: false}) {
+		t.interrupts.release(sessionID, claimedAt)
 		sendJSON(w, http.StatusTooManyRequests, errorBody{Error: textInputCap})
 
 		return
 	}
 
-	err = t.host.Write(sessionID, []byte{interruptKey})
+	err := t.host.Write(sessionID, []byte{interruptKey})
 	if err != nil {
+		t.interrupts.release(sessionID, claimedAt)
+
 		code, text := interruptFailure(err)
 		sendJSON(w, code, errorBody{Error: text})
 

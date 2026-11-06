@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -193,27 +194,26 @@ func TestInterruptOfAnEndedSessionTypesNothing(t *testing.T) {
 }
 
 // TestInterruptsAreUnderTheSessionsInputCap: an interrupt spends one of the session's input
-// frames, which its viewers' input shares: once the burst is spent, with the clock stopped, the
-// next is refused and types nothing.
+// frames, which its viewers' input shares: once a viewer has spent the burst, with the clock
+// stopped, the interrupt is refused and types nothing; and since it typed nothing, it does not
+// count as sent, so one once the budget has refilled is typed, well inside the repeat window.
 func TestInterruptsAreUnderTheSessionsInputCap(t *testing.T) {
 	t.Parallel()
 
-	stopped := time.Unix(1_800_000_000, 0)
-	rig := newTerminalRig(t, rigSetup{times: server.TerminalTimes{Now: func() time.Time {
-		return stopped
-	}}})
+	clock := &movableClock{}
+	clock.add(time.Hour)
+
+	rig := newTerminalRig(t, rigSetup{times: server.TerminalTimes{Now: clock.now}})
 	sessionID, program := rig.start(t)
+	conn := rig.open(t, sessionID)
 
-	for range server.InputFramesBurst {
-		code, body := rig.postInterrupt(t, string(sessionID), "", nil)
-		if code != http.StatusOK {
-			t.Fatalf("code %d: %s", code, body)
-		}
+	defer func() { _ = conn.CloseNow() }()
+
+	readOutputUntilText(t, conn)
+
+	for index := range server.InputFramesBurst {
+		sendTyped(t, conn, program, inputFrame("a"), index+1)
 	}
-
-	eventually(t, "every ETX typed", func() bool {
-		return len(program.writtenSoFar()) == server.InputFramesBurst
-	})
 
 	code, body := rig.postInterrupt(t, string(sessionID), "", nil)
 	if code != http.StatusTooManyRequests {
@@ -222,5 +222,88 @@ func TestInterruptsAreUnderTheSessionsInputCap(t *testing.T) {
 
 	if len(program.writtenSoFar()) != server.InputFramesBurst {
 		t.Errorf("typed %d", len(program.writtenSoFar()))
+	}
+
+	clock.add(interruptRefill)
+
+	code, body = rig.postInterrupt(t, string(sessionID), "", nil)
+	if code != http.StatusOK {
+		t.Fatalf("once refilled: code %d: %s", code, body)
+	}
+
+	eventually(t, "the ETX typed", func() bool {
+		return bytes.HasSuffix(program.writtenSoFar(), []byte{0x03})
+	})
+}
+
+// interruptRefill is long enough for the input budget to refill a frame, and far shorter than
+// the repeat window.
+const interruptRefill = 10 * time.Millisecond
+
+// movableClock is a clock a test moves on.
+type movableClock struct{ at atomic.Int64 }
+
+func (c *movableClock) now() time.Time { return time.Unix(0, c.at.Load()) }
+
+func (c *movableClock) add(by time.Duration) { c.at.Add(int64(by)) }
+
+// TestASecondInterruptSoonAfterIsNotSent: two presses close together send one Ctrl-C, since a
+// second one would make claude quit; the second is answered "already sent", and one after the
+// window is sent.
+func TestASecondInterruptSoonAfterIsNotSent(t *testing.T) {
+	t.Parallel()
+
+	clock := &movableClock{}
+	clock.add(time.Hour)
+
+	rig := newTerminalRig(t, rigSetup{times: server.TerminalTimes{Now: clock.now}})
+	sessionID, program := rig.start(t)
+
+	code, _ := rig.postInterrupt(t, string(sessionID), "", nil)
+	if code != http.StatusOK {
+		t.Fatalf("first: %d", code)
+	}
+
+	clock.add(server.InterruptRepeatWindow - time.Millisecond)
+
+	code, body := rig.postInterrupt(t, string(sessionID), "", nil)
+	if code != http.StatusConflict {
+		t.Fatalf("second: %d %s", code, body)
+	}
+
+	if !strings.Contains(body, "already sent") {
+		t.Errorf("second: %s", body)
+	}
+
+	clock.add(time.Millisecond)
+
+	code, _ = rig.postInterrupt(t, string(sessionID), "", nil)
+	if code != http.StatusOK {
+		t.Fatalf("after the window: %d", code)
+	}
+
+	eventually(t, "two ETX typed", func() bool {
+		return bytes.Equal(program.writtenSoFar(), []byte{0x03, 0x03})
+	})
+}
+
+// TestAnInterruptForAnUnknownSessionKeepsNothing: an id the host does not hold is refused before
+// any budget or record is made for it.
+func TestAnInterruptForAnUnknownSessionKeepsNothing(t *testing.T) {
+	t.Parallel()
+
+	rig := newTerminalRig(t, rigSetup{})
+
+	for _, id := range []string{
+		"0123456789abcdef0123456789abcdef", "fedcba9876543210fedcba9876543210",
+	} {
+		code, _ := rig.postInterrupt(t, id, "", nil)
+		if code != http.StatusNotFound {
+			t.Fatalf("code %d", code)
+		}
+	}
+
+	if kept := server.BudgetsKept(rig.terminals); kept != 0 {
+		t.Errorf("%d budgets kept for sessions that do not exist", kept)
 	}
 }
