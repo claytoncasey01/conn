@@ -48,6 +48,8 @@ type world struct {
 	session    *openwork.Found
 	// sessionsIn are the live sessions by folder; a folder not in it finds session.
 	sessionsIn map[string]*openwork.Found
+	// onReply runs as text is typed into a session, before it is taken; nil does nothing.
+	onReply func()
 }
 
 type worldOpts struct {
@@ -169,6 +171,10 @@ func (w *world) deps(opts worldOpts) openwork.Deps {
 		},
 		Reply: func(_ context.Context, sessionID, text string) openwork.Reply {
 			w.call("reply", sessionID, text)
+
+			if w.onReply != nil {
+				w.onReply()
+			}
 
 			return openwork.Reply{Code: 200, Body: js.NewObject()}
 		},

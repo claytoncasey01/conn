@@ -2,6 +2,7 @@ package openwork
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -116,7 +117,7 @@ func (w *Work) Cleanup(key, repo string) Reply {
 		return refusal
 	}
 
-	legs, said := siftLegs(asked, func(leg *Leg) (Reply, bool, bool) {
+	legs, said := siftLegs(leadLast(record, asked), func(leg *Leg) (Reply, bool, bool) {
 		return w.cleanupLegRefusal(record, leg)
 	})
 	if len(legs) == 0 {
@@ -161,6 +162,11 @@ func (w *Work) cleanupLegRefusal(record *Record, leg *Leg) (Reply, bool, bool) {
 		return conflict("another change to this run is in progress"), true, false
 	}
 
+	if open := openElsewhere(record, leg); open != nil {
+		return conflict("the run's session works in this worktree for " + open.Repo +
+			", whose PR is still open"), true, false
+	}
+
 	if w.deps.Dry {
 		return Reply{}, false, false
 	}
@@ -170,6 +176,61 @@ func (w *Work) cleanupLegRefusal(record *Record, leg *Leg) (Reply, bool, bool) {
 	}
 
 	return Reply{}, false, false
+}
+
+// leadLast are legs with the shared layout's lead moved to the end: its worktree is where the
+// run's session works for every leg, so it goes once the others have.
+func leadLast(record *Record, legs []*Leg) []*Leg {
+	if record.Layout == layoutSplit {
+		return legs
+	}
+
+	lead := record.lead()
+	out := slices.DeleteFunc(slices.Clone(legs), func(leg *Leg) bool { return leg == lead })
+
+	if len(out) == len(legs) {
+		return out
+	}
+
+	return append(out, lead)
+}
+
+// openElsewhere is a leg the shared session still works for while its PR is open (not merged or
+// closed), when leg is the shared layout's lead: its worktree is kept until then. nil for any
+// other leg.
+func openElsewhere(record *Record, leg *Leg) *Leg {
+	if record.Layout == layoutSplit {
+		return nil
+	}
+
+	if leg != record.lead() {
+		return nil
+	}
+
+	for _, other := range record.Repos[1:] {
+		if other.cleaned() {
+			continue
+		}
+
+		if other.PR == nil {
+			continue
+		}
+
+		if !prSettled(other.PR) {
+			return other
+		}
+	}
+
+	return nil
+}
+
+// prSettled is whether a PR merged or closed, as its last poll said.
+func prSettled(pull *PR) bool {
+	if pull.Status == nil {
+		return false
+	}
+
+	return finished(pull.Status.State)
 }
 
 // sessionIn is whether a live session works in a leg's worktree: one started in it, or the
@@ -234,12 +295,17 @@ func (w *Work) removeWorktrees(record *Record, legs []*Leg) Reply {
 	removed := 0
 	failed := []legRefusal{}
 
+	// Held for every leg until each is removed, so a second press cannot remove one twice.
+	release := w.hold(record.Key, legs)
+	defer release()
+
 	for _, leg := range legs {
-		release := w.hold(record.Key, []*Leg{leg})
+		// The lock was let go while an earlier leg was removed.
+		if leg.cleaned() {
+			continue
+		}
+
 		reply := w.removeWorktree(w.held(), record, leg)
-
-		release()
-
 		if reply.Code != http.StatusOK {
 			failed = append(failed, legRefusal{leg: leg, reply: reply, needsNothing: false})
 
@@ -250,6 +316,10 @@ func (w *Work) removeWorktrees(record *Record, legs []*Leg) Reply {
 	}
 
 	if removed == 0 {
+		if len(failed) == 0 {
+			return conflict(alreadyRemoved)
+		}
+
 		return refusedAll(record, failed)
 	}
 

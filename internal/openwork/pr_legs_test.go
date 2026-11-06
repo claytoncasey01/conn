@@ -174,18 +174,26 @@ func TestEachLegIsRefusedOnItsOwn(t *testing.T) {
 		name string
 		// gadgets are gadgets' own fields.
 		gadgets string
-		allow   bool
-		said    string
+		// offList is that gadgets leaves the list, noClone that its clone leaves Settings.
+		offList, noClone bool
+		said             string
 	}{
-		{"a protected branch", `{"branch":"main"}`, true, "acme/gadgets: refusing to push main"},
 		{
-			"a branch of another key", `{"branch":"proj-2-x"}`, true,
+			"a protected branch", `{"branch":"main"}`, false, false,
+			"acme/gadgets: refusing to push main",
+		},
+		{
+			"a branch of another key", `{"branch":"proj-2-x"}`, false, false,
 			"acme/gadgets: refusing to push proj-2-x",
 		},
-		{"a repository off the list", "", false, "acme/gadgets: acme/gadgets is not an allowed " +
-			"repository: add it in Settings."},
-		{"a repository with no clone", "", true, "acme/gadgets: No local clone of acme/gadgets: " +
-			"set a folder in Settings."},
+		{
+			"a repository off the list", "", true, false,
+			"acme/gadgets is not an allowed repository: add it in Settings.",
+		},
+		{
+			"a repository with no clone", "", false, true,
+			"No local clone of acme/gadgets: set a folder in Settings.",
+		},
 	}
 
 	for _, row := range rows {
@@ -194,11 +202,11 @@ func TestEachLegIsRefusedOnItsOwn(t *testing.T) {
 
 			made, folders := prLegsWorld(t, [2]string{"2\n", "2\n"}, "", "",
 				row.gadgets)
-			if !row.allow {
+			if row.offList {
 				allowOnly(made, folders)
 			}
 
-			if strings.Contains(row.name, "no clone") {
+			if row.noClone {
 				made.update("repos", `{"allow":["acme/*"],"clones":{"acme/widgets":`+
 					js.Stringify(folders.clones[0])+`},"cloneRoot":"/nowhere"}`)
 			}
@@ -267,14 +275,42 @@ func TestOpenPRForOneRepositoryOpensOnlyItsPR(t *testing.T) {
 
 	refusals := []struct{ body, message string }{
 		{`{"repo":"acme/gadgets"}`, "acme/gadgets already has a pull request"},
+		{`{"repo":"ACME/Gadgets"}`, "acme/gadgets already has a pull request"},
 		{`{"repo":"acme/other"}`, "PROJ-1 does not build in acme/other"},
 		{`{"repo":3}`, "repo must be a repository name"},
 	}
 
 	for _, refusal := range refusals {
-		reply, _ = made.work.Handle(route, body(t, refusal.body))
-		same(t, refusal.body, errorOf(reply), refusal.message)
+		t.Run(refusal.body, func(t *testing.T) {
+			t.Parallel()
+
+			reply, _ := made.work.Handle(route, body(t, refusal.body))
+			same(t, "refused", errorOf(reply), refusal.message)
+		})
 	}
+}
+
+func TestALegWhoseRepositoryLeavesTheListWhileAnotherPushesIsNeverPushed(t *testing.T) {
+	t.Parallel()
+
+	made, folders := prLegsWorld(t, [2]string{"2\n", "2\n"}, "")
+	answer := made.sh
+	made.sh = func(name string, args []string, dir string) (string, error) {
+		if args[0] == "push" {
+			if dir == folders.worktrees[0] {
+				allowOnly(made, folders)
+			}
+		}
+
+		return answer(name, args, dir)
+	}
+
+	same(t, "open", openAndSettle(made, "").Code, 200)
+	same(t, "gadgets not pushed", made.pushes(folders.worktrees[1]), 0)
+	same(t, "PRs", made.prURLs(), []string{widgetsPR, ""})
+	same(t, "error", *made.record("PROJ-1").Error, "acme/gadgets is not an allowed repository: "+
+		"add it in Settings. proj-1-a-ticket was not pushed: press OPEN PR again once that is "+
+		"fixed.")
 }
 
 // reviewSettings are twoClones' Atlassian settings moving the ticket to review as policy says.
@@ -484,6 +520,7 @@ func TestCleanupRemovesEachLegsWorktreeOnItsOwn(t *testing.T) {
 		{"one named", "merged", "merged", "acme/gadgets", 200, []bool{false, true}},
 		{"an open PR is left", "merged", "open", "", 200, []bool{true, false}},
 		{"the open one named", "merged", "open", "acme/gadgets", 409, []bool{false, false}},
+		{"named in another case", "merged", "merged", "ACME/Gadgets", 200, []bool{false, true}},
 	}
 
 	for _, row := range rows {
@@ -518,8 +555,8 @@ func TestCleanupRefusesALegOffTheListOrStillWorkedIn(t *testing.T) {
 	allowOnly(gone, folders)
 	same(t, "others go on", gone.work.Cleanup("PROJ-1", "").Code, 200)
 	same(t, "gone kept", gone.cleaned(), []bool{true, false})
-	same(t, "said", gone.hasLog("acme/gadgets: acme/gadgets is not an allowed repository: add "+
-		"it in Settings."), true)
+	same(t, "said", gone.hasLog("acme/gadgets is not an allowed repository: add it in Settings."),
+		true)
 
 	// In the shared layout the lead's session reaches every worktree.
 	shared, folders := cleanupWorld(t, "shared", "merged", "merged")
@@ -697,4 +734,122 @@ func TestAnOddTicketsDryLegsFailUntilEachIsFixed(t *testing.T) {
 	same(t, "one fixed", dryPoll(made, "PROJ-3"), []string{
 		failing, "open/pending/REVIEW_REQUIRED",
 	})
+}
+
+func TestASecondFixChecksWhileTheFirstIsTypingIsRefused(t *testing.T) {
+	t.Parallel()
+
+	made, folders := legsWorld(t, "split", `{"state":"pr_open","stage":"pr"}`,
+		failingPR("acme/widgets", "5", "Lint"), failingPR("acme/gadgets", "6", "Unit"))
+	made.setSessionIn(folders.worktrees[0], found("70"))
+	made.setSessionIn(folders.worktrees[1], found("71"))
+
+	var second *openwork.Reply
+
+	made.onReply = func() {
+		if second == nil {
+			reply, _ := made.work.FixChecks("PROJ-1", "")
+			second = &reply
+		}
+	}
+
+	reply, err := made.work.FixChecks("PROJ-1", "")
+	same(t, "first", []any{reply.Code, err}, []any{200, nil})
+	same(t, "second", []any{second.Code, strings.Contains(errorOf(*second),
+		"another change to this run is in progress")}, []any{409, true})
+	same(t, "typed once each", len(made.replies()), 2)
+}
+
+// linkedWorld is PROJ-1 with both PRs merged and both worktrees linked worktrees of their clones
+// as the fake git tells it; during the first removal, during runs.
+func linkedWorld(t *testing.T, layout string, during func(made *world)) (*world, legsRun) {
+	t.Helper()
+
+	made, folders := legsWorld(t, layout, `{"state":"pr_open","stage":"pr"}`,
+		settledPR("acme/widgets", "merged"), settledPR("acme/gadgets", "merged"))
+	removing := false
+	made.sh = func(_ string, args []string, dir string) (string, error) {
+		switch args[0] {
+		case "rev-parse":
+			clone := folders.clones[slices.Index(folders.worktrees, dir)]
+
+			return clone + "/.git/worktrees/w\n" + clone + "/.git\n", nil
+		case "worktree":
+			if args[1] == "list" {
+				return "worktree " + folders.worktrees[0] + "\nworktree " + folders.worktrees[1] +
+					"\n", nil
+			}
+
+			if !removing {
+				removing = true
+
+				during(made)
+			}
+		}
+
+		return "", nil
+	}
+
+	return made, folders
+}
+
+func TestASecondCleanupWhileTheFirstRemovesIsRefused(t *testing.T) {
+	t.Parallel()
+
+	var second openwork.Reply
+
+	made, _ := linkedWorld(t, "split", func(made *world) {
+		second = made.work.Cleanup("PROJ-1", "")
+	})
+
+	same(t, "first", made.work.Cleanup("PROJ-1", "").Code, 200)
+	same(t, "second", []any{second.Code, strings.Contains(errorOf(second),
+		"another change to this run is in progress")}, []any{409, true})
+	same(t, "removed once each", made.countPrefix("sh git worktree remove"), 2)
+	same(t, "cleaned", made.cleaned(), []bool{true, true})
+}
+
+func TestTheSharedLeadIsKeptWhileAnotherLegsPRIsOpen(t *testing.T) {
+	t.Parallel()
+
+	kept := "acme/widgets: the run's session works in this worktree for acme/gadgets, whose PR " +
+		"is still open"
+
+	for repo, want := range map[string]string{
+		"acme/widgets": kept, "": "acme/gadgets: the PR is still open; " + kept,
+	} {
+		made, _ := cleanupWorld(t, "shared", "merged", "open")
+		reply := made.work.Cleanup("PROJ-1", repo)
+		same(t, repo, []any{reply.Code, errorOf(reply)}, []any{409, want})
+		same(t, repo+" kept", made.cleaned(), []bool{false, false})
+	}
+
+	split, _ := cleanupWorld(t, "split", "merged", "open")
+	same(t, "split", split.work.Cleanup("PROJ-1", "acme/widgets").Code, 200)
+}
+
+func TestEveryLegIsCleanedUpBeforeTheSharedLead(t *testing.T) {
+	t.Parallel()
+
+	made, folders := cleanupWorld(t, "shared", "merged", "closed")
+	same(t, "cleanup", made.work.Cleanup("PROJ-1", "").Code, 200)
+
+	order := []string{}
+
+	for _, line := range made.record("PROJ-1").Log {
+		for index, worktree := range folders.worktrees {
+			if strings.Contains(line.Text, "Worktree "+worktree+" removed") {
+				order = append(order, []string{"widgets", "gadgets"}[index])
+			}
+		}
+	}
+
+	same(t, "order", order, []string{"gadgets", "widgets"})
+}
+
+func TestNoLegLeftToRefuseSaysEveryLegHasAPR(t *testing.T) {
+	t.Parallel()
+
+	same(t, "empty", openwork.RefusedAllOf(&openwork.Record{Key: "PROJ-1"}),
+		"every leg already has a pull request")
 }

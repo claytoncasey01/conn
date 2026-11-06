@@ -285,10 +285,14 @@ func (w *Work) hold(key string, legs []*Leg) func() {
 	}
 }
 
-// legSaid is a message about one leg: with its repository first when the run has several legs,
-// so a run of one says what it always said.
+// legSaid is a message about one leg: with its repository first when the run has several legs
+// and the message does not name it already, so a run of one says what it always said.
 func legSaid(record *Record, leg *Leg, message string) string {
 	if len(record.Repos) == 1 {
+		return message
+	}
+
+	if strings.Contains(message, leg.Repo) {
 		return message
 	}
 
@@ -337,10 +341,11 @@ func siftLegs(legs []*Leg, check legCheck) ([]*Leg, []legRefusal) {
 }
 
 // refusedAll is the answer when every leg asked for was refused: a single leg's own answer, as a
-// run of one always gave it, or every leg's reason in one, with the first one's code.
+// run of one always gave it, or every leg's reason in one, with the first one's code. With no
+// leg refused, none was left to ask: every one has its PR.
 func refusedAll(record *Record, refused []legRefusal) Reply {
 	if len(refused) == 0 {
-		panic("openwork: " + record.Key + " refused no leg, yet none went on")
+		return conflict("every leg already has a pull request")
 	}
 
 	first := refused[0]

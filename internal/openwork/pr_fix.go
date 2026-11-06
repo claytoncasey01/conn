@@ -57,6 +57,10 @@ func (w *Work) FixChecks(key, repo string) (Reply, error) {
 		return ok(), nil
 	}
 
+	// Held for every leg until each is asked, so a second press cannot type an instruction twice.
+	release := w.hold(key, legs)
+	defer release()
+
 	return w.askToFix(record, legs, sessions)
 }
 
@@ -154,6 +158,11 @@ func (w *Work) askToFix(record *Record, legs []*Leg, sessions map[*Leg]*Found,
 	failed := []legRefusal{}
 
 	for _, leg := range legs {
+		// The lock was let go while an earlier leg was asked: its checks may have gone green.
+		if _, quiet := fixQuiet(record.Key, record.State, leg); quiet {
+			continue
+		}
+
 		reply, err := w.askLegToFix(record, leg, sessions[leg])
 		if err != nil {
 			return Reply{}, err
@@ -169,6 +178,10 @@ func (w *Work) askToFix(record *Record, legs []*Leg, sessions map[*Leg]*Found,
 	}
 
 	if asked == 0 {
+		if len(failed) == 0 {
+			return conflict(notFailing), nil
+		}
+
 		return refusedAll(record, failed), nil
 	}
 
@@ -192,13 +205,9 @@ func (w *Work) askLegToFix(record *Record, leg *Leg, session *Found) (Reply, err
 		return Reply{}, fmt.Errorf("asking the session to fix the checks: %w", err)
 	}
 
-	// Held so a second click cannot queue the same instruction twice.
-	release := w.hold(record.Key, []*Leg{leg})
-
 	var reply Reply
 
 	w.held().outside(func() { reply = w.deps.Reply(w.ctx, session.ID, message) })
-	release()
 
 	if reply.Code != http.StatusOK {
 		return reply, nil

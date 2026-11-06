@@ -242,10 +242,31 @@ func (w *Work) skipEmpty(record *Record, counted, withCommits []legPush, failure
 	return failures
 }
 
+// pushNowRefusal is why a leg may not be pushed now, "" when it may: the checks made after a
+// push, and its clone in Settings.
+func (w *Work) pushNowRefusal(push legPush) string {
+	if refusal := w.prRefusal(push.repo); refusal != "" {
+		return refusal + "."
+	}
+
+	if reply, refused := w.cloneRefusal(push.leg); refused {
+		return errorText(reply)
+	}
+
+	return ""
+}
+
 // pushLeg pushes a leg's branch and opens its PR in repo, the repository OpenPR checked against
 // the allowlist (named to gh, never left to it).
 func (w *Work) pushLeg(step *task, record *Record, push legPush) error {
 	leg := push.leg
+
+	// An earlier leg's push can take minutes: Settings may have changed meanwhile, so the list
+	// and the clone are checked again right before this one.
+	if refusal := w.pushNowRefusal(push); refusal != "" {
+		return textError(refusal + " " + leg.Branch + " was not pushed: press OPEN PR again " +
+			"once that is fixed.")
+	}
 
 	w.log(record, logPR, legSaid(record, leg, "Pushing "+leg.Branch))
 
@@ -314,7 +335,8 @@ func (w *Work) createPR(step *task, record *Record, leg *Leg, repo, bodyFile str
 // reviewMove) says: "first" once any leg has a PR, "all" once every leg with commits has one,
 // "never" never; and only while no move was answered. opened are the legs with a PR,
 // withCommits the legs with commits or a PR, withPR those of them with a PR. A move that failed
-// is not one answered, so the next PR that opens tries again.
+// is not one answered, so the next PR that opens tries again. Every leg with a PR counts as one
+// with commits, so withPR is opened today; both are kept, as the run's contract names them.
 func reviewDue(policy string, opened, withCommits, withPR int, moved bool) bool {
 	if moved {
 		return false
@@ -390,6 +412,10 @@ func (w *Work) dryPR(step *task, record *Record, leg *Leg) {
 	step.outside(func() { w.deps.Sleep(w.ctx, dryPRWait) })
 
 	place := slices.Index(record.Repos, leg)
+	if place < 0 {
+		panic("openwork: the dry PR of " + record.Key + " is for a leg it does not have")
+	}
+
 	repo := "acme/widgets"
 
 	if place > 0 {
@@ -398,8 +424,7 @@ func (w *Work) dryPR(step *task, record *Record, leg *Leg) {
 		}
 	}
 
-	number := dryPRFirst + float64(int(ticketNumber(record.Key))%dryPRSpread+
-		max(place, 0)*dryPRLegStep)
+	number := dryPRFirst + float64(int(ticketNumber(record.Key))%dryPRSpread+place*dryPRLegStep)
 	leg.PR = &PR{
 		URL: "https://github.com/" + repo + "/pull/" + js.Number(number), Number: number,
 		Status: nil,

@@ -161,3 +161,6 @@ func ReviewDue(policy string, opened, withCommits, withPR int, moved bool) bool 
 
 // Merged is whether a run counts as merged.
 func Merged(record *Record) bool { return merged(record) }
+
+// RefusedAllOf is the refusal when every leg of record was refused, with none refused.
+func RefusedAllOf(record *Record) string { return errorText(refusedAll(record, nil)) }
