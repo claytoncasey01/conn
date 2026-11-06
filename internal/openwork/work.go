@@ -48,7 +48,7 @@ const (
 
 // Found is a live session that belongs to a run: by its name or its folder.
 type Found struct {
-	// ID is the session's id on the Sessions page: its pid, as text.
+	// ID is the session's id on the Sessions page: its pid, as text, or a hosted session's id.
 	ID     string
 	PID    float64
 	Status string

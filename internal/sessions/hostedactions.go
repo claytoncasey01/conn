@@ -15,7 +15,7 @@ import (
 // The actions on a hosted session. Each is reached by the id the host issued, before anything
 // looks at cmux: the route's id is looked up in the host's record, never matched against text.
 // What is typed goes through the host's one writer, after the screen check, and only while the
-// screen is still the one checked.
+// screen still passes it when the write's turn comes.
 
 const (
 	// hostedStopTimeout bounds a stop of a hosted session. It is above the host's own bound (its
@@ -129,7 +129,7 @@ func (l *Loop) replyHosted(ctx context.Context, sessionID pty.ID, text any) Repl
 
 	host := l.store.deps.Host
 
-	lines, generation, err := host.ScreenLines(sessionID, replyLines)
+	lines, _, err := host.ScreenLines(sessionID, replyLines)
 	if err != nil {
 		return hostedFailure(err)
 	}
@@ -138,7 +138,8 @@ func (l *Loop) replyHosted(ctx context.Context, sessionID pty.ID, text any) Repl
 		return *refusal
 	}
 
-	err = host.WriteIfShown(sessionID, generation, pasted(message))
+	// The box is checked again once the reply's turn to type comes.
+	err = host.WriteIfStill(sessionID, replyLines, emptyBox, pasted(message))
 	if err != nil {
 		return hostedFailure(err)
 	}
@@ -199,6 +200,22 @@ func (s *store) startSending(key string) *Reply {
 	return nil
 }
 
+// emptyBox is whether a screen shows an empty input box.
+func emptyBox(lines []string) bool { return untypable(ask.ScreenText(lines)) == nil }
+
+// promptStillShown is whether a screen still shows the prompt askID names, with the status
+// stamp the answer was checked with.
+func promptStillShown(stamp float64, askID string) func(lines []string) bool {
+	return func(lines []string) bool {
+		found := ask.Parse(ask.ScreenText(lines), stamp)
+		if found == nil {
+			return false
+		}
+
+		return found.ID == askID
+	}
+}
+
 // pasted is a message as a paste, then Enter.
 func pasted(message string) []byte { return []byte(pasteStart + message + pasteEnd + enterKey) }
 
@@ -221,7 +238,7 @@ func hostedFailure(err error) Reply {
 // answerHosted answers the prompt a hosted session's page showed, as Answer does: the screen is
 // read again from the host's model right before the key is pressed, and must still parse, with
 // the session's current status stamp, to that same prompt; the key is pressed only while the
-// screen is still the one read.
+// screen still shows that prompt when the write's turn comes.
 func (l *Loop) answerHosted(ctx context.Context, sessionID pty.ID, body AnswerBody) Reply {
 	ctx = context.WithoutCancel(ctx)
 
@@ -265,7 +282,7 @@ func (l *Loop) answerHosted(ctx context.Context, sessionID pty.ID, body AnswerBo
 func (l *Loop) pressHosted(ctx context.Context, plan sendPlan, body AnswerBody) Reply {
 	host := l.store.deps.Host
 
-	lines, generation, err := host.ScreenLines(plan.hosted, askLines)
+	lines, _, err := host.ScreenLines(plan.hosted, askLines)
 	if err != nil {
 		return hostedFailure(err)
 	}
@@ -285,7 +302,9 @@ func (l *Loop) pressHosted(ctx context.Context, plan sendPlan, body AnswerBody) 
 		keys = pasted(plan.message)
 	}
 
-	err = host.WriteIfShown(plan.hosted, generation, keys)
+	// The prompt is checked again once the key's turn to be typed comes.
+	err = host.WriteIfStill(plan.hosted, askLines, promptStillShown(plan.stamp, decided.askID),
+		keys)
 	if err != nil {
 		return hostedFailure(err)
 	}

@@ -33,13 +33,13 @@ const (
 // them.
 const ShutdownTimeout = 2 * time.Second
 
-// hostedStopTimeout bounds the stop of the hosted sessions at quit: above the host's grace for a
+// quitStopTimeout bounds the stop of the hosted sessions at quit: above the host's grace for a
 // polite stop (5 s), after which every session still running is killed at once.
-const hostedStopTimeout = 7 * time.Second
+const quitStopTimeout = 7 * time.Second
 
 // QuitTimeout is the most a stopping server takes to let its data folder go: its requests'
 // shutdown, then its hosted sessions' stop. Whatever waits for it to stop waits a little longer.
-const QuitTimeout = ShutdownTimeout + hostedStopTimeout
+const QuitTimeout = ShutdownTimeout + quitStopTimeout
 
 // The HTTP server's limits. writeTimeout is 0 on purpose: a page's live-update stream stays open
 // for as long as the page does, and a write deadline would cut it. readHeaderTimeout is the
@@ -169,9 +169,9 @@ func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Se
 	return running, nil
 }
 
-// stopHosted stops every hosted session, within hostedStopTimeout, and says what did not stop.
+// stopHosted stops every hosted session, within quitStopTimeout, and says what did not stop.
 func stopHosted(ctx context.Context, host *pty.Host, stderr io.Writer) {
-	ctx, cancel := context.WithTimeout(ctx, hostedStopTimeout)
+	ctx, cancel := context.WithTimeout(ctx, quitStopTimeout)
 	defer cancel()
 
 	err := host.StopAll(ctx)

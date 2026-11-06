@@ -85,9 +85,14 @@ func foundIn(live []sessions.LiveSession, name, cwd string) *openwork.Found {
 			continue
 		}
 
+		// A hosted session is named by its host's id, as on the Sessions page.
+		rowID := js.Number(session.PID)
+		if session.HostedID != "" {
+			rowID = session.HostedID
+		}
+
 		return &openwork.Found{
-			ID: js.Number(session.PID), PID: session.PID, Status: session.Shown,
-			SessionID: session.SessionID,
+			ID: rowID, PID: session.PID, Status: session.Shown, SessionID: session.SessionID,
 		}
 	}
 

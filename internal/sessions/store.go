@@ -137,6 +137,9 @@ type LiveSession struct {
 	Shown     string
 	SessionID string
 	PID       float64
+	// HostedID is the id its host issued for a session Conn hosts, "" for any other: the only
+	// id the routes and actions take for a hosted session.
+	HostedID string
 }
 
 type prEntry struct {
@@ -496,7 +499,7 @@ func (s *store) liveSessions() []LiveSession {
 		out = append(out, LiveSession{
 			Name: name, Cwd: reg.Cwd, Status: reg.status(),
 			Shown:     snapshot.ShownStatus(reg.status(), session.parts(), now),
-			SessionID: reg.SessionID, PID: reg.PID,
+			SessionID: reg.SessionID, PID: reg.PID, HostedID: string(session.hosted),
 		})
 	}
 

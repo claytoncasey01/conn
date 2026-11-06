@@ -926,50 +926,6 @@ func TestOneSendToAHostedSessionAtATime(t *testing.T) {
 	}
 }
 
-// A reply waiting for its turn to type is refused when the screen changes before the turn
-// comes: what it checked is no longer what the program shows.
-func TestAReplyIsRefusedWhenTheScreenChangesBeforeItTypes(t *testing.T) {
-	t.Parallel()
-
-	fake := newWorld(t)
-	hostedID, hostedProgram := fake.hostedSession(62, "k", "idle", "", idleBox, 1)
-	loop := start(t, fake)
-
-	rowOf(t, loop, hostedID, anyRow)
-
-	// A viewer's keystroke holds the program's input while the reply checks the screen.
-	hostedProgram.gate = make(chan struct{})
-	viewer := make(chan error, 1)
-
-	go func() { viewer <- fake.host.Write(pty.ID(hostedID), []byte("x")) }()
-
-	hostedProgram.waitWriting(t)
-
-	reply := make(chan sessions.Reply, 1)
-
-	go func() { reply <- loop.Reply(context.WithoutCancel(t.Context()), hostedID, "hello") }()
-
-	// The reply has read the empty box by now and waits for its turn; the screen then changes.
-	time.Sleep(testtime.Scaled(300 * time.Millisecond))
-	hostedProgram.show(t, draft)
-	waitScreen(t, fake.host, hostedID, "❯ half typed")
-	close(hostedProgram.gate)
-
-	err := <-viewer
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := <-reply
-	if got.Code != http.StatusConflict {
-		t.Errorf("the reply: %d %s", got.Code, body(got))
-	}
-
-	if typed := hostedProgram.typed(); typed != "x" {
-		t.Errorf("typed %q, want only the viewer's key", typed)
-	}
-}
-
 // waitScreen waits until the session's screen has a line want.
 func waitScreen(t *testing.T, host *pty.Host, hostedID, want string) {
 	t.Helper()
@@ -1050,50 +1006,129 @@ func TestAnswerToAHostedSessionWithNothingToAnswer(t *testing.T) {
 	}
 }
 
-// An answer waiting for its turn to press is refused when the screen changes before the turn
-// comes, even though it checked the prompt shown.
-func TestAnAnswerIsRefusedWhenTheScreenChangesBeforeItPresses(t *testing.T) {
-	t.Parallel()
+// whileTurnHeld holds the program's input with a viewer's keystroke, starts act, gives it time
+// to read the screen and wait for its turn, then draws screen, waits until line shows, and lets
+// the input go. It returns act's reply.
+func whileTurnHeld(t *testing.T, fake *world, hostedID string, held *program,
+	act func(context.Context) sessions.Reply, screen, line string,
+) sessions.Reply {
+	t.Helper()
 
-	fake := newWorld(t)
-	stamp := float64(time.Now().UnixMilli() - 5000)
-	hostedID, hostedProgram := fake.hostedSession(67, "p", "waiting", "permission prompt",
-		permissionScreen("ls"), stamp)
-	loop := start(t, fake)
-
-	askID, _ := askByID(t, loop, hostedID)["id"].(string)
-
-	// A viewer's keystroke holds the program's input while the answer checks the screen.
-	hostedProgram.gate = make(chan struct{})
+	held.gate = make(chan struct{})
 	viewer := make(chan error, 1)
 
 	go func() { viewer <- fake.host.Write(pty.ID(hostedID), []byte("x")) }()
 
-	hostedProgram.waitWriting(t)
+	held.waitWriting(t)
 
-	answer := make(chan sessions.Reply, 1)
+	acted := make(chan sessions.Reply, 1)
 
-	go func() {
-		answer <- loop.Answer(context.WithoutCancel(t.Context()), hostedID, pressOne(askID))
-	}()
+	go func() { acted <- act(context.WithoutCancel(t.Context())) }()
 
-	// The answer has read the prompt by now and waits for its turn; the screen then changes.
 	time.Sleep(testtime.Scaled(300 * time.Millisecond))
-	hostedProgram.show(t, permissionScreen("rm -rf build"))
-	waitScreen(t, fake.host, hostedID, " rm -rf build")
-	close(hostedProgram.gate)
+	held.show(t, screen)
+	waitScreen(t, fake.host, hostedID, line)
+	close(held.gate)
 
 	err := <-viewer
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got := <-answer
-	if got.Code != http.StatusConflict {
-		t.Errorf("the answer: %d %s", got.Code, body(got))
+	return <-acted
+}
+
+// A reply or an answer waiting for its turn behind a viewer's keystroke checks the screen again
+// when its turn comes: a screen that no longer shows what it checked (a draft, another prompt)
+// refuses it with nothing typed, and one that only redrew something else (Claude Code blinks the
+// mark above a dialog while it waits) does not.
+func TestASendChecksTheScreenAgainWhenItsTurnComes(t *testing.T) {
+	t.Parallel()
+
+	stamp := float64(time.Now().UnixMilli() - 5000)
+	blinked := strings.Replace(permissionScreen("ls"), "⏺", " ", 1)
+	tests := []struct {
+		name, status, waitingFor, before, after, line string
+		answer                                        bool
+		wantCode                                      int
+		wantTyped                                     string
+	}{
+		{
+			"a reply into a box now drafted", "idle", "", idleBox, draft, "❯ half typed", false,
+			http.StatusConflict, "x",
+		},
+		{
+			"a reply past a status line redrawn", "idle", "", idleBox,
+			strings.Replace(idleBox, "✻ done", "✻ done.", 1), "✻ done.", false, http.StatusOK,
+			"x\x1b[200~hello\x1b[201~\r",
+		},
+		{
+			"an answer to a prompt now replaced", "waiting", "permission prompt",
+			permissionScreen("ls"), permissionScreen("rm -rf build"), " rm -rf build", true,
+			http.StatusConflict, "x",
+		},
+		{
+			"an answer past a blink", "waiting", "permission prompt", permissionScreen("ls"),
+			blinked, "   Bash(ls)", true, http.StatusOK, "x1",
+		},
 	}
 
-	if typed := hostedProgram.typed(); typed != "x" {
-		t.Errorf("typed %q, want only the viewer's key", typed)
+	for index, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := newWorld(t)
+			hostedID, held := fake.hostedSession(70+index, "q", tt.status, tt.waitingFor,
+				tt.before, stamp)
+			loop := start(t, fake)
+
+			act := func(ctx context.Context) sessions.Reply {
+				return loop.Reply(ctx, hostedID, "hello")
+			}
+
+			rowOf(t, loop, hostedID, func(row detail) bool { return row.Status == tt.status })
+
+			if tt.answer {
+				askID, _ := askByID(t, loop, hostedID)["id"].(string)
+				act = func(ctx context.Context) sessions.Reply {
+					return loop.Answer(ctx, hostedID, pressOne(askID))
+				}
+			}
+
+			got := whileTurnHeld(t, fake, hostedID, held, act, tt.after, tt.line)
+			if got.Code != tt.wantCode {
+				t.Errorf("%d %s, want %d", got.Code, body(got), tt.wantCode)
+			}
+
+			if typed := held.typed(); typed != tt.wantTyped {
+				t.Errorf("typed %q, want %q", typed, tt.wantTyped)
+			}
+		})
+	}
+}
+
+// A hosted session that has registered is a live session for the modules, carrying the id its
+// host issued, so an action a module takes on it names it as the page does.
+func TestAHostedSessionIsLiveUnderItsIssuedID(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	hostedID, _ := fake.hostedSession(80, "r", "idle", "", idleBox, 1)
+	fake.cmuxSession(81, "w81", "idle", "", idleBox, 1)
+	loop := start(t, fake)
+
+	live := waitLive(t, loop, 2)
+	issued := map[float64]string{}
+
+	for _, session := range live {
+		issued[session.PID] = session.HostedID
+	}
+
+	if issued[80] != hostedID {
+		t.Errorf("the hosted session carries %q, want %q", issued[80], hostedID)
+	}
+
+	if issued[81] != "" {
+		t.Errorf("the cmux session carries a hosted id %q", issued[81])
 	}
 }

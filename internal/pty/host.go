@@ -156,12 +156,21 @@ func (h *Host) Write(sessionID ID, data []byte) error {
 	return h.write(sessionID, data, nil)
 }
 
-// WriteIfShown types data into the session's terminal only while its screen is still the one
-// read with generation (see ScreenLines): once this write's turn comes, a screen that has
-// changed since is ErrScreenChanged, with nothing typed. It is how a reply typed into what a
-// screen showed is checked against that screen as late as it can be. Otherwise it is Write.
-func (h *Host) WriteIfShown(sessionID ID, generation uint64, data []byte) error {
-	return h.write(sessionID, data, &generation)
+// WriteIfStill types data into the session's terminal only while its screen still shows what
+// the caller checked: once this write's turn comes, the bottom count lines of the screen (as
+// ScreenLines gives them) are handed to still, and if it answers false, the write is
+// ErrScreenChanged with nothing typed. still is the caller's own test of what matters (an empty
+// input box, the same prompt), not "nothing changed": a program redraws parts of its screen
+// that do not matter, such as a blinking mark, all the time. It runs inside the write's turn, so
+// no other input reaches the program between the check and the write. Otherwise it is Write.
+func (h *Host) WriteIfStill(
+	sessionID ID, count int, still func(lines []string) bool, data []byte,
+) error {
+	if still == nil {
+		panic("pty: WriteIfStill needs a check")
+	}
+
+	return h.write(sessionID, data, &screenCheck{count: count, still: still})
 }
 
 // Resize sets the session's terminal to columns by rows.
@@ -208,12 +217,12 @@ func (h *Host) ScreenLines(sessionID ID, count int) ([]string, uint64, error) {
 	return held.screen.Lines(count), held.screen.Generation(), nil
 }
 
-// generation is the session's screen's generation now.
-func (held *session) generation() uint64 {
+// lines is the bottom count lines of the session's screen now.
+func (held *session) lines(count int) []string {
 	held.screenMu.Lock()
 	defer held.screenMu.Unlock()
 
-	return held.screen.Generation()
+	return held.screen.Lines(count)
 }
 
 // Live is every session the host holds, running or ended, oldest Start first.
@@ -242,8 +251,14 @@ func (h *Host) Live() []Info {
 	return infos
 }
 
-// write is Write, and WriteIfShown when shown is set.
-func (h *Host) write(sessionID ID, data []byte, shown *uint64) error {
+// screenCheck is what WriteIfStill checks the screen with.
+type screenCheck struct {
+	count int
+	still func(lines []string) bool
+}
+
+// write is Write, and WriteIfStill when check is set.
+func (h *Host) write(sessionID ID, data []byte, check *screenCheck) error {
 	if len(data) > writeBytesMax {
 		return fmt.Errorf("%w: %d bytes, at most %d", ErrInputTooLarge, len(data), writeBytesMax)
 	}
@@ -257,12 +272,12 @@ func (h *Host) write(sessionID ID, data []byte, shown *uint64) error {
 		return nil
 	}
 
-	return h.typeInto(writing, data, shown)
+	return h.typeInto(writing, data, check)
 }
 
-// typeInto writes data to the session's program in its turn. With shown set, data is written
-// only if the screen's generation is still *shown once the turn is taken.
-func (h *Host) typeInto(writing *session, data []byte, shown *uint64) error {
+// typeInto writes data to the session's program in its turn. With check set, data is written
+// only if the screen passes it once the turn is taken.
+func (h *Host) typeInto(writing *session, data []byte, check *screenCheck) error {
 	// Writes take turns, and one waits at most writeWaitMax for its turn; the program's own
 	// Write is bounded too (writeTimeout for a terminal), so a Write ends within both.
 	turnWait := time.NewTimer(writeWaitMax)
@@ -276,8 +291,8 @@ func (h *Host) typeInto(writing *session, data []byte, shown *uint64) error {
 
 	defer func() { <-writing.writeTurn }()
 
-	if shown != nil {
-		if writing.generation() != *shown {
+	if check != nil {
+		if !check.still(writing.lines(check.count)) {
 			return ErrScreenChanged
 		}
 	}
