@@ -123,12 +123,13 @@ func eDefaultAnswer(args []string) string {
 func (r *eRig) deps() reviews.LaunchDeps {
 	return reviews.LaunchDeps{
 		Git: r.git,
-		Open: func(_ context.Context, name, cwd, command string) cmux.Opened {
+		Open: asCmux(func(_ context.Context, name, cwd, command string) cmux.Opened {
 			r.calls = append(r.calls, "open")
 			r.opens = append(r.opens, [3]string{name, cwd, command})
 
 			return r.opened
-		},
+		}),
+		Claude: "claude",
 		Write: func(path, content string, shared bool) error {
 			r.calls = append(r.calls, "write")
 			r.writes = append(r.writes, eWrite{path: path, text: content, shared: shared})
@@ -769,8 +770,8 @@ func TestELaunchPathWithASpaceAndAQuote(t *testing.T) {
 }
 
 // eShellWorktree is a worktree whose path a shell would split or expand unquoted, holding a
-// one-line prompt full of shell syntax, and the folder it is in.
-func eShellWorktree(t *testing.T) (string, string, string) {
+// one-line prompt full of shell syntax that no shell reads, and the folder it is in.
+func eShellWorktree(t *testing.T) (string, string) {
 	t.Helper()
 
 	folder := t.TempDir()
@@ -787,7 +788,7 @@ func eShellWorktree(t *testing.T) (string, string, string) {
 		t.Fatal(err)
 	}
 
-	return folder, worktree, prompt
+	return folder, worktree
 }
 
 // eShellArgs runs script with sh in dir and answers the lines printf printed.
@@ -807,16 +808,17 @@ func eShellArgs(t *testing.T, dir, script string) []string {
 	return lines[:len(lines)-1]
 }
 
-func eExpectedArgs(prompt string) []string {
+func eExpectedArgs() []string {
 	out := append([]string{"--disallowedTools"}, myprs.SelfDisallowed()...)
 
-	return append(out, "--name", "self-web-12", "--model", "sonnet", prompt)
+	return append(out, "--name", "self-web-12", "--model", "sonnet",
+		"Read .conn/prompt.md and follow it exactly.")
 }
 
 func TestELaunchCommandAsAShellRunsIt(t *testing.T) {
 	t.Parallel()
 
-	folder, worktree, prompt := eShellWorktree(t)
+	folder, worktree := eShellWorktree(t)
 	rig := eNewRig(nil)
 	eLaunchWith(rig, eOpts())
 
@@ -826,7 +828,7 @@ func TestELaunchCommandAsAShellRunsIt(t *testing.T) {
 	}
 
 	args := eShellArgs(t, worktree, "printf '%s\\n' "+strings.TrimPrefix(command, "claude "))
-	if !slices.Equal(args, eExpectedArgs(prompt)) {
+	if !slices.Equal(args, eExpectedArgs()) {
 		t.Errorf("args %q", args)
 	}
 
@@ -846,7 +848,7 @@ func TestELaunchCommandAsAShellRunsIt(t *testing.T) {
 
 	pasted := eShellArgs(t, folder,
 		strings.Replace(manual.ManualCommand, " && claude ", " && printf '%s\\n' ", 1))
-	if !slices.Equal(pasted, eExpectedArgs(prompt)) {
+	if !slices.Equal(pasted, eExpectedArgs()) {
 		t.Errorf("pasted %q", pasted)
 	}
 }

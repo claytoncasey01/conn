@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "/opt/claude/bin/claude",
+    "--name",
+    "pr-412-acme--widget-app",
+    "--model",
+    "sonnet",
+    "Read .conn/prompt.md and follow it exactly."
+  ],
+  "dir": "/data/conn/reviews/pr-412-acme--widget-app/widget-app",
+  "name": "pr-412-acme--widget-app"
+}

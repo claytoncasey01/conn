@@ -180,8 +180,8 @@ func TestDLaunchGoesOnWhenTheExcludeLookupFails(t *testing.T) {
 func TestDLaunchCmuxFailureGivesTheManualCommand(t *testing.T) {
 	t.Parallel()
 
-	manual := "cd '" + dWorktree + `' && claude --name pr-412-acme--widget-app --model sonnet ` +
-		`"$(cat .conn/prompt.md)"`
+	manual := "cd " + dWorktree + " && claude --name pr-412-acme--widget-app --model sonnet " +
+		"'Read .conn/prompt.md and follow it exactly.'"
 	rig := dNewRig()
 	rig.opened = cmux.Opened{OK: false, Error: "cmux not found", ManualCommand: manual}
 

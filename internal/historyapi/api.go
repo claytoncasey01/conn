@@ -20,6 +20,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/history"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/repos"
 )
 
@@ -157,7 +159,10 @@ type Deps struct {
 	LiveIDs func(ctx context.Context) map[string]bool
 	// Allow is the allowlist; nil shows every row.
 	Allow func() []string
-	Open  cmux.Opener
+	// Open starts a resumed session where the settings say sessions open.
+	Open launch.Opener
+	// Claude is the claude program as configured (CONN_CLAUDE): the resumed session's program.
+	Claude string
 	// Dry launches nothing (CONN_WORK_DRY).
 	Dry func() bool
 	Now func() time.Time
@@ -431,6 +436,12 @@ type resumed struct {
 	ManualCommand *string `json:"manualCommand,omitempty"`
 }
 
+// ResumeSpec is what resumes an archived session: claude and its resume arguments
+// (cmux.ResumeArgs), in the session's folder, under name.
+func ResumeSpec(claude string, args []string, folder, name string) pty.Spec {
+	return pty.Spec{Argv: append([]string{claude}, args...), Dir: folder, Env: nil, Name: name}
+}
+
 func (a *API) resume(ctx context.Context, sessionID string) (Reply, error) {
 	info, found, err := a.deps.DB.ResumeInfo(ctx, sessionID)
 	if err != nil {
@@ -446,13 +457,18 @@ func (a *API) resume(ctx context.Context, sessionID string) (Reply, error) {
 		name = &info.Name
 	}
 
-	command, err := cmux.ResumeCommand(sessionID, name)
+	args, err := cmux.ResumeArgs(sessionID, name)
 	if err != nil {
 		return Reply{}, fmt.Errorf("building the resume command: %w", err)
 	}
 
 	if a.deps.Dry() {
 		dry := true
+
+		command, err := cmux.ResumeCommand(sessionID, name)
+		if err != nil {
+			return Reply{}, fmt.Errorf("building the resume command: %w", err)
+		}
 
 		return Reply{Code: http.StatusOK, Body: resumed{
 			OK: true, Dry: &dry, Command: &command, Error: nil, ManualCommand: nil,
@@ -463,7 +479,8 @@ func (a *API) resume(ctx context.Context, sessionID string) (Reply, error) {
 	a.opening[sessionID] = true
 	a.mutex.Unlock()
 
-	opened := a.deps.Open(ctx, cmux.WorkspaceName(info.Name, sessionID), info.Cwd, command)
+	opened := a.deps.Open(ctx, ResumeSpec(a.deps.Claude, args, info.Cwd,
+		cmux.WorkspaceName(info.Name, sessionID)))
 
 	a.mutex.Lock()
 	delete(a.opening, sessionID)

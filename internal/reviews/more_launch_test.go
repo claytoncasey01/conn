@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/claytoncasey01/conn/internal/argv"
 	"github.com/claytoncasey01/conn/internal/cmux"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/reviews"
@@ -122,7 +123,7 @@ func (r *dLaunchRig) deps() reviews.LaunchDeps {
 	cfg := dConfig()
 
 	return reviews.LaunchDeps{
-		Git: r.git, Open: r.open, Write: r.write, Exists: r.exists,
+		Git: r.git, Open: asCmux(r.open), Claude: "claude", Write: r.write, Exists: r.exists,
 		Read:   func(path string) (string, error) { return r.files[path], nil },
 		Origin: func(string) string { return r.origin },
 		Names:  reviews.Names{Pattern: cfg.ReviewNamePattern},
@@ -225,7 +226,10 @@ func TestDLaunchFetchesAddsWritesThenOpens(t *testing.T) {
 
 	opened := dOpenCall{
 		name: dName, cwd: dWorktree,
-		command: `claude --name pr-412-acme--widget-app --model sonnet "$(cat .conn/prompt.md)"`,
+		command: argv.ShellLine([]string{
+			"claude", "--name", "pr-412-acme--widget-app", "--model", "sonnet",
+			"Read .conn/prompt.md and follow it exactly.",
+		}),
 	}
 	if !slices.Equal(rig.opens, []dOpenCall{opened}) {
 		t.Errorf("opens %+v", rig.opens)

@@ -22,9 +22,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/claytoncasey01/conn/internal/cmux"
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/repos"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
@@ -89,7 +89,10 @@ type Deps struct {
 	// FetchSprint reads the sprint; Transition moves a ticket.
 	FetchSprint func(ctx context.Context, hooks Hooks) (jira.Sprint, error)
 	Transition  func(ctx context.Context, key string, move jira.Move) (jira.Moved, error)
-	Open        cmux.Opener
+	// Open starts a session where the settings say sessions open.
+	Open launch.Opener
+	// Claude is the claude program as configured (CONN_CLAUDE): the build session's program.
+	Claude string
 	// Record tells the Settings cards how a Jira, Confluence or Slack run went: one short line
 	// of Conn's own, never text from those services.
 	Record func(name string, ok bool, detail string)

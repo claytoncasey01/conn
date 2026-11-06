@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/claytoncasey01/conn/internal/argv"
 	"github.com/claytoncasey01/conn/internal/claude"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/openwork"
@@ -132,17 +133,21 @@ func TestTheResearchOfARunInTwoRepositoriesReadsBothWorktrees(t *testing.T) {
 	same(t, "jira reaches", len(seen["jira"].AddDirs), 0)
 }
 
-// launchLine is the cmux call that starts a build session in worktree; reach are the other
-// worktrees it is given.
+// launchLine is the cmux call that starts a build session in worktree, its arguments as one
+// shell line; reach are the other worktrees it is given, each one --add-dir argument.
 func launchLine(worktree string, reach ...string) string {
-	more := strings.Builder{}
+	words := []string{
+		"claude", "--name", "PROJ-1", "--model", "sonnet",
+		"--append-system-prompt-file", ".conn/delegation.md",
+	}
 	for _, folder := range reach {
-		more.WriteString(" --add-dir '" + folder + "'")
+		words = append(words, "--add-dir", folder)
 	}
 
-	return "cmux PROJ-1 " + worktree + " claude --name PROJ-1 --model sonnet " +
-		"--append-system-prompt-file .conn/delegation.md" + more.String() + " --permission-mode " +
-		`acceptEdits "Read .conn/brief.md and follow it exactly."`
+	words = append(words, "--permission-mode", "acceptEdits",
+		"Read .conn/brief.md and follow it exactly.")
+
+	return "cmux PROJ-1 " + worktree + " " + argv.ShellLine(words)
 }
 
 // cmuxLines are the cmux calls so far.
@@ -223,7 +228,9 @@ func TestACmuxFailureLeavesTheCommandOnThatSessionOnly(t *testing.T) {
 
 	record := made.record("PROJ-1")
 	same(t, "first", record.Repos[0].ManualCommand, (*string)(nil))
-	same(t, "second", *record.Repos[1].ManualCommand, "cd '"+folders.worktrees[1]+"' && "+
+	same(t, "second", *record.Repos[1].ManualCommand, argv.ShellLine([]string{
+		"cd", folders.worktrees[1],
+	})+" && "+
 		strings.TrimPrefix(launchLine(folders.worktrees[1]), "cmux PROJ-1 "+
 			folders.worktrees[1]+" "))
 	same(t, "log", made.hasLog("Could not open a cmux workspace for acme/gadgets (cmux is not "+
@@ -444,9 +451,11 @@ func TestTheSharedSessionIsResumedReachingEveryWorktree(t *testing.T) {
 
 	made, worktrees := resumable(t, "shared")
 	same(t, "resume", made.work.Resume("PROJ-1", "").Code, 200)
-	same(t, "cmux", made.cmuxLines(), []string{"cmux PROJ-1 " + worktrees[0] + " claude --resume " +
-		sessionUUIDText + " --name PROJ-1 --model sonnet --add-dir '" + worktrees[1] + "' " +
-		"--permission-mode acceptEdits"})
+	same(t, "cmux", made.cmuxLines(), []string{"cmux PROJ-1 " + worktrees[0] + " " +
+		argv.ShellLine([]string{
+			"claude", "--resume", sessionUUIDText, "--name", "PROJ-1", "--model", "sonnet",
+			"--add-dir", worktrees[1], "--permission-mode", "acceptEdits",
+		})})
 }
 
 func TestTheResumeRouteTakesTheRepository(t *testing.T) {

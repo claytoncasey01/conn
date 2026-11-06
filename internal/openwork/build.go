@@ -8,7 +8,10 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/drysession"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
@@ -24,7 +27,7 @@ const (
 	connFolder     = ".conn"
 )
 
-// sessionUUID is Claude's session id shape: only that goes into a command.
+// sessionUUID is Claude's session id shape: only that goes into an argument.
 var sessionUUID = regexp.MustCompile(
 	`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`)
 
@@ -284,7 +287,7 @@ func (w *Work) launchBuild(step *task, record *Record) error {
 	record.Stage = stageBuild
 
 	if w.deps.Dry {
-		w.dryBuild(record)
+		w.dryBuild(step, record)
 
 		return nil
 	}
@@ -330,7 +333,7 @@ func (w *Work) launchBuild(step *task, record *Record) error {
 		}
 
 		markLaunched(record, slot)
-		w.openWorkspace(step, record, slot, launchCommand(record, slot), "opened")
+		w.openWorkspace(step, record, slot, LaunchSpec(w.deps.Claude, record, slot), "opened")
 	}
 
 	return nil
@@ -395,26 +398,64 @@ func legWorktrees(legs []*Leg) []string {
 	return worktrees
 }
 
-// launchCommand is the command that starts a slot's session for the first time.
-func launchCommand(record *Record, slot *Leg) string {
-	return "claude --name " + record.Key + " --model sonnet --append-system-prompt-file " +
-		".conn/delegation.md" + reachFlags(record, slot) + " --permission-mode acceptEdits " +
-		`"Read .conn/brief.md and follow it exactly."`
+// LaunchSpec is what starts a slot's session for the first time: claude in the slot's worktree,
+// named for the ticket, reaching the other legs' worktrees when it is the shared session, told to
+// read the brief. The ticket's title, description and answers are in the brief, never in an
+// argument; the key is a checked ticket key and each folder is one argument.
+func LaunchSpec(claude string, record *Record, slot *Leg) pty.Spec {
+	argv := []string{
+		claude, "--name", record.Key, "--model", "sonnet",
+		"--append-system-prompt-file", ".conn/delegation.md",
+	}
+	argv = append(argv, reachArgs(record, slot)...)
+	argv = append(argv, "--permission-mode", "acceptEdits",
+		"Read .conn/brief.md and follow it exactly.")
+
+	return pty.Spec{Argv: argv, Dir: slot.Worktree, Env: nil, Name: record.Key}
 }
 
-// dryBuild opens the dry run's sessions: each slot's is busy, and every leg has commits.
-func (w *Work) dryBuild(record *Record) {
+// dryBuild opens the dry run's sessions: each slot's is busy, and every leg has commits. Inside
+// Conn, each slot also gets the dry run's stand-in session on the host (openDry).
+func (w *Work) dryBuild(step *task, record *Record) {
 	status := "busy"
 
 	for _, leg := range record.Repos {
 		leg.Ahead, leg.Dirty = dryAhead, dryDirty
 	}
 
-	for _, slot := range w.sessionSlots(record) {
+	slots := w.sessionSlots(record)
+
+	for _, slot := range slots {
 		markLaunched(record, slot)
 		slot.Session = &Session{Name: record.Key, SessionID: nil, PID: nil, Status: &status}
 
 		w.log(record, logBuild, w.sessionNamed(record, slot)+" opened (dry run)")
+	}
+
+	// The record says every slot's session first, so no one sees half of them while the host
+	// is asked.
+	for _, slot := range slots {
+		w.openDry(step, record, slot)
+	}
+}
+
+// openDry starts the dry run's stand-in session for a slot inside Conn, when sessions open
+// there: a script in this process (drysession), in the slot's worktree, so the terminal can be
+// tried with nothing run. Set to open elsewhere, the dry run opens nothing, as before.
+func (w *Work) openDry(step *task, record *Record, slot *Leg) {
+	if w.deps.Settings().Sessions.Where != settings.WhereInside {
+		return
+	}
+
+	var opened launch.Opened
+
+	spec := drysession.Spec(slot.Worktree, record.Key)
+
+	step.outside(func() { opened = w.deps.Open(w.ctx, spec) })
+
+	if !opened.OK {
+		w.log(record, logError, w.sessionNamed(record, slot)+": could not open the dry run's "+
+			"session ("+opened.Error+")")
 	}
 }
 

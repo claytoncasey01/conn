@@ -6,7 +6,10 @@ import (
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/reviews"
+	"github.com/claytoncasey01/conn/internal/settings"
 )
 
 // A run's build sessions. Each sits in a slot: a leg that has a session, the lead in the shared
@@ -34,20 +37,20 @@ func (w *Work) isSlot(record *Record, leg *Leg) bool {
 // worktreesOf are every leg's worktree, in order.
 func worktreesOf(record *Record) []string { return legWorktrees(record.Repos) }
 
-// reachFlags are what a slot's claude command adds so its session reaches the other worktrees:
-// the shared session is given each other leg's still there with --add-dir. The paths are
-// single-quoted, one word whatever they hold; each flag sits before another flag, since
-// --add-dir takes every word up to the next one.
-func reachFlags(record *Record, slot *Leg) string {
+// reachArgs are what a slot's claude arguments add so its session reaches the other worktrees:
+// the shared session is given each other leg's still there with --add-dir, each folder one
+// argument. They sit before another option, since --add-dir takes every argument up to the next
+// one.
+func reachArgs(record *Record, slot *Leg) []string {
 	if record.Layout == layoutSplit {
-		return ""
+		return nil
 	}
 
 	if slot != record.lead() {
-		return ""
+		return nil
 	}
 
-	flags := strings.Builder{}
+	var args []string
 
 	for _, leg := range record.Repos[1:] {
 		// A worktree removed (cleaned up, or gone from the disk) is nothing to reach.
@@ -59,10 +62,10 @@ func reachFlags(record *Record, slot *Leg) string {
 			continue
 		}
 
-		flags.WriteString(" --add-dir '" + strings.ReplaceAll(leg.Worktree, "'", `'\''`) + "'")
+		args = append(args, "--add-dir", leg.Worktree)
 	}
 
-	return flags.String()
+	return args
 }
 
 // findSession is a slot's live session: in a run of one leg, by the ticket key or its folder, as
@@ -155,23 +158,18 @@ func markLaunched(record *Record, slot *Leg) {
 // slotKey keys what is kept per slot: the run and the slot's repository.
 func slotKey(record *Record, slot *Leg) string { return legKey(record.Key, slot.Repo) }
 
-// openWorkspace starts command in a new cmux workspace named after the ticket, in the slot's
-// worktree; when cmux fails, it leaves the command on the slot for the person to paste.
-func (w *Work) openWorkspace(step *task, record *Record, slot *Leg, command, verb string) {
-	var opened struct {
-		ok             bool
-		why, toCommand string
-	}
+// openWorkspace starts a slot's spec where the settings say sessions open, named after the
+// ticket, in the slot's worktree; when it does not start, it leaves the command on the slot for
+// the person to paste.
+func (w *Work) openWorkspace(step *task, record *Record, slot *Leg, spec pty.Spec, verb string) {
+	var opened launch.Opened
 
-	step.outside(func() {
-		result := w.deps.Open(w.ctx, record.Key, slot.Worktree, command)
-		opened.ok, opened.why, opened.toCommand = result.OK, result.Error, result.ManualCommand
-	})
+	step.outside(func() { opened = w.deps.Open(w.ctx, spec) })
 
-	if opened.ok {
+	if opened.OK {
 		slot.ManualCommand = nil
 
-		w.log(record, logBuild, w.sessionNamed(record, slot)+" "+verb+" in a new cmux workspace")
+		w.log(record, logBuild, w.sessionNamed(record, slot)+" "+verb+" "+opened.Place)
 
 		return
 	}
@@ -181,8 +179,16 @@ func (w *Work) openWorkspace(step *task, record *Record, slot *Leg, command, ver
 		where = " for " + slot.Repo
 	}
 
-	slot.ManualCommand = &opened.toCommand
-	w.log(record, logError, "Could not open a cmux workspace"+where+" ("+opened.why+"). Run "+
+	slot.ManualCommand = &opened.ManualCommand
+
+	if opened.Where == settings.WhereCommand {
+		w.log(record, logBuild, "Run the command shown"+where+" to start the session: "+
+			"sessions open as a command (Settings).")
+
+		return
+	}
+
+	w.log(record, logError, "Could not open "+opened.Tried+where+" ("+opened.Error+"). Run "+
 		"the command shown to start the session.")
 }
 
@@ -236,6 +242,7 @@ func (w *Work) Resume(key, repo string) Reply {
 	if w.deps.Dry {
 		for _, slot := range slots {
 			w.log(record, logBuild, w.sessionNamed(record, slot)+" resumed (dry run)")
+			w.openDry(w.held(), record, slot)
 		}
 
 		return ok()
@@ -324,7 +331,7 @@ func (w *Work) reopen(record *Record, slots []*Leg) Reply {
 		return conflict(strings.Join(said.all, "; "))
 	}
 
-	// Held across the cmux calls so a cleanup or a second resume cannot interleave with them.
+	// Held across the starts so a cleanup or a second resume cannot interleave with them.
 	release := w.hold(key, record.Repos)
 
 	opened := 0
@@ -366,8 +373,8 @@ func (w *Work) reopen(record *Record, slots []*Leg) Reply {
 func (w *Work) reopenSlot(record *Record, slot *Leg) error {
 	if launched(record, slot) {
 		w.resumedAt[slotKey(record, slot)] = w.now()
-		command, verb := resumeCommand(record, slot)
-		w.openWorkspace(w.held(), record, slot, command, verb)
+		spec, verb := ResumeSpec(w.deps.Claude, record, slot)
+		w.openWorkspace(w.held(), record, slot, spec, verb)
 
 		return nil
 	}
@@ -390,7 +397,7 @@ func (w *Work) launchFresh(record *Record, slot *Leg) error {
 
 	w.resumedAt[slotKey(record, slot)] = w.now()
 	markLaunched(record, slot)
-	w.openWorkspace(w.held(), record, slot, launchCommand(record, slot), "opened")
+	w.openWorkspace(w.held(), record, slot, LaunchSpec(w.deps.Claude, record, slot), "opened")
 
 	return nil
 }
@@ -431,21 +438,29 @@ func sessionText(id *string) string {
 	return *id
 }
 
-// resumeCommand is the command that reopens a slot's session, and what the log says it did. The
-// id comes from a file on disk: only a plain UUID is allowed into a shell command.
-func resumeCommand(record *Record, slot *Leg) (string, string) {
-	rule := ""
-	if exists(filepath.Join(slot.Worktree, connFolder, delegationFile)) {
-		rule = " --append-system-prompt-file .conn/delegation.md"
-	}
-
-	tail := " --name " + record.Key + " --model sonnet" + rule + reachFlags(record, slot) +
-		" --permission-mode acceptEdits"
+// ResumeSpec is what reopens a slot's session, and what the log says it did. The id comes from a
+// file on disk: only a plain UUID is passed to --resume, else the folder's last conversation is
+// continued.
+func ResumeSpec(claude string, record *Record, slot *Leg) (pty.Spec, string) {
+	argv := []string{claude}
+	verb := "reopened on its last conversation"
 
 	id := sessionText(slot.ClaudeSessionID)
 	if sessionUUID.MatchString(id) {
-		return "claude --resume " + id + tail, "resumed"
+		argv = append(argv, "--resume", id)
+		verb = "resumed"
+	} else {
+		argv = append(argv, "--continue")
 	}
 
-	return "claude --continue" + tail, "reopened on its last conversation"
+	argv = append(argv, "--name", record.Key, "--model", "sonnet")
+
+	if exists(filepath.Join(slot.Worktree, connFolder, delegationFile)) {
+		argv = append(argv, "--append-system-prompt-file", ".conn/delegation.md")
+	}
+
+	argv = append(argv, reachArgs(record, slot)...)
+	argv = append(argv, "--permission-mode", "acceptEdits")
+
+	return pty.Spec{Argv: argv, Dir: slot.Worktree, Env: nil, Name: record.Key}, verb
 }

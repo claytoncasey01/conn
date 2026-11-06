@@ -230,9 +230,10 @@ func launchFailed(why string) LaunchResult {
 	return LaunchResult{OK: false, Worktree: "", HeadSha: "", Error: why, ManualCommand: ""}
 }
 
-// launchPlan is what the checks give a launch: the prompt, the command and the worktree.
+// launchPlan is what the checks give a launch: the prompt, claude's arguments and the worktree.
 type launchPlan struct {
-	prompt, command, worktree string
+	prompt, worktree string
+	args             []string
 }
 
 // Launch opens a self-review: it refuses a bad repo, number, round, ref, name or model before
@@ -308,15 +309,15 @@ func (s Self) checks(opts LaunchOpts) (launchPlan, error) {
 		return launchPlan{}, errNotThisRound
 	}
 
-	command, err := reviews.ClaudeCommand(opts.Name, opts.Model, s.Pattern, SelfDisallowed())
+	args, err := reviews.ClaudeArgs(opts.Name, opts.Model, s.Pattern, SelfDisallowed())
 	if err != nil {
 		return launchPlan{}, fmt.Errorf("%w", err)
 	}
 
-	return s.place(opts, clone, command)
+	return s.place(opts, clone, args)
 }
 
-func (s Self) place(opts LaunchOpts, clone, command string) (launchPlan, error) {
+func (s Self) place(opts LaunchOpts, clone string, args []string) (launchPlan, error) {
 	switch clone {
 	case "", ".", "..":
 		return launchPlan{}, errNoRepoPath
@@ -343,7 +344,7 @@ func (s Self) place(opts LaunchOpts, clone, command string) (launchPlan, error) 
 		return launchPlan{}, err
 	}
 
-	return launchPlan{prompt: prompt, command: command, worktree: worktree}, nil
+	return launchPlan{prompt: prompt, args: args, worktree: worktree}, nil
 }
 
 // launchSteps are the git steps of one launch.
@@ -539,7 +540,7 @@ func (l launchSteps) settle(ctx context.Context, folder, behind bool) (string, s
 	return headSha, "", nil
 }
 
-// open writes the prompt and starts the workspace.
+// open writes the prompt and starts the session where the settings say.
 func (l launchSteps) open(ctx context.Context, plan launchPlan, headSha string) LaunchResult {
 	if !shaShape.MatchString(headSha) {
 		return launchFailed("could not read the commit " + l.worktree + " is at")
@@ -552,7 +553,8 @@ func (l launchSteps) open(ctx context.Context, plan launchPlan, headSha string) 
 
 	reviews.ExcludeConn(ctx, l.deps, l.worktree)
 
-	opened := l.deps.Open(ctx, l.opts.Name, l.worktree, plan.command)
+	opened := l.deps.Open(ctx, reviews.ReviewSpec(l.deps.Claude, plan.args, l.worktree,
+		l.opts.Name))
 	if !opened.OK {
 		return LaunchResult{
 			OK: false, Worktree: l.worktree, HeadSha: headSha, Error: opened.Error,

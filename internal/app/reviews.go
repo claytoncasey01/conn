@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/claude"
-	"github.com/claytoncasey01/conn/internal/cmux"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/gh"
 	"github.com/claytoncasey01/conn/internal/ghbudget"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/modules"
 	"github.com/claytoncasey01/conn/internal/origin"
 	"github.com/claytoncasey01/conn/internal/reviews"
@@ -82,12 +82,14 @@ type reviewsParts struct {
 	logger   *log.Logger
 	// myPrRepos are the repos of the My PRs rows.
 	myPrRepos func() []string
+	// open starts the review and self-review sessions where the settings say.
+	open launch.Opener
 }
 
 func millis(duration time.Duration) float64 { return float64(duration.Milliseconds()) }
 
-// newReviews is the Reviews tab over this machine: gh, the Slack helper runs, git, cmux and the
-// session list's last tick.
+// newReviews is the Reviews tab over this machine: gh, the Slack helper runs, git, the sessions
+// it opens and the session list's last tick.
 func newReviews(ctx context.Context, parts reviewsParts, live *sessions.Loop) *reviews.Reviews {
 	cfg := parts.cfg
 	names := reviews.Names{Pattern: cfg.ReviewNamePattern}
@@ -95,7 +97,7 @@ func newReviews(ctx context.Context, parts reviewsParts, live *sessions.Loop) *r
 		Model: cfg.ReviewScanModel, WindowDays: cfg.ReviewFirstWindowDays,
 		BudgetUSD: cfg.ReviewScanCostUSDMax, Timeout: cfg.ReviewScanTimeout,
 	}
-	launch := launchDeps(cfg, parts.reader, names)
+	launch := launchDeps(parts, names)
 
 	return reviews.New(ctx, reviews.Deps{
 		Gh: reviews.Gh{Exec: gh.GraphQL},
@@ -147,13 +149,15 @@ func newReviews(ctx context.Context, parts reviewsParts, live *sessions.Loop) *r
 }
 
 // launchDeps are the effects of launching a review: real git (no shell, stderr as the error),
-// cmux, and files that are private to the owner.
-func launchDeps(cfg config.Config, reader *origin.Reader, names reviews.Names) reviews.LaunchDeps {
+// the session started where the settings say, and files that are private to the owner.
+func launchDeps(parts reviewsParts, names reviews.Names) reviews.LaunchDeps {
+	cfg, reader := parts.cfg, parts.reader
+
 	return reviews.LaunchDeps{
 		Git: func(ctx context.Context, args []string, dir string) (string, error) {
 			return gitIn(ctx, args, dir, 0)
 		},
-		Open:  cmux.Open(cfg.CmuxBin),
+		Open: parts.open, Claude: cfg.ClaudeBin,
 		Write: reviews.WriteLaunchFile,
 		Exists: func(path string) bool {
 			_, err := os.Stat(path)

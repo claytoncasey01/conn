@@ -35,7 +35,7 @@ var errNotRegularFile = errors.New("not a regular file")
 func newMyPrs(ctx context.Context, parts reviewsParts, live *sessions.Loop) *myprs.MyPrs {
 	cfg := parts.cfg
 	self := myprs.Self{Pattern: cfg.SelfNamePattern, Prompt: cfg.SelfReviewPrompt}
-	launch := launchDeps(cfg, parts.reader, reviews.Names{Pattern: cfg.ReviewNamePattern})
+	launch := launchDeps(parts, reviews.Names{Pattern: cfg.ReviewNamePattern})
 	draft := myprs.DraftConfig{
 		Model: cfg.ReviewScanModel, BudgetUSD: cfg.ReviewScanCostUSDMax,
 		Timeout: cfg.ReviewScanTimeout,

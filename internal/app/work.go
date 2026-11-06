@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/claude"
-	"github.com/claytoncasey01/conn/internal/cmux"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/modules"
 	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/origin"
@@ -28,6 +28,8 @@ type workParts struct {
 	logger   *log.Logger
 	// myPrRepos are the repos of the My PRs rows.
 	myPrRepos func() []string
+	// open starts the build sessions where the settings say.
+	open launch.Opener
 }
 
 // cloneFoldersMax is the most folders the clone folder and ~/projects are read for when Open
@@ -35,8 +37,8 @@ type workParts struct {
 const cloneFoldersMax = 500
 
 // newWork is Open work over this machine: git and gh run without a shell, the Jira and
-// research helper runs, cmux, and the session list's last tick. It makes the runs folder, even
-// while Open work is off.
+// research helper runs, the sessions it opens, and the session list's last tick. It makes the
+// runs folder, even while Open work is off.
 func newWork(ctx context.Context, parts workParts, live *sessions.Loop) *openwork.Work {
 	cfg, store, runner := parts.cfg, parts.store, parts.runner
 
@@ -60,7 +62,7 @@ func newWork(ctx context.Context, parts workParts, live *sessions.Loop) *openwor
 				Settings: store.Get(), DataDir: cfg.DataDir, Run: runner.Run,
 			}, key, move)
 		},
-		Open: cmux.Open(cfg.CmuxBin), Record: parts.statuses.Record,
+		Open: parts.open, Claude: cfg.ClaudeBin, Record: parts.statuses.Record,
 		FindSession: findSession(live),
 		Reply: func(ctx context.Context, sessionID, text string) openwork.Reply {
 			reply := live.Reply(ctx, sessionID, text)

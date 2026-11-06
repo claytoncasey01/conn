@@ -18,6 +18,7 @@ import (
 
 	"github.com/claytoncasey01/conn"
 	"github.com/claytoncasey01/conn/internal/config"
+	"github.com/claytoncasey01/conn/internal/drysession"
 	"github.com/claytoncasey01/conn/internal/instance"
 	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/secret"
@@ -113,10 +114,12 @@ func Ended(url string, err error) *Server {
 // port(lookup), publishes {PID, URL, Secret} in the lock and serves until ctx ends, then shuts
 // down within ShutdownTimeout.
 // It returns instance.ErrHeld (wrapped) when another Conn holds the folder, and a PortTakenError
-// when another program holds the port. Its hosted sessions run on real terminals.
+// when another program holds the port. Its hosted sessions run on real terminals, but for the dry
+// run's stand-in sessions (drysession), which run nothing.
 func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Server, error) {
 	return StartWith(ctx, lookup, stderr, pty.NewHost(pty.Config{
-		Spawner: pty.Spawn, Limits: pty.DefaultLimits(), Answers: pty.Answers{}, TurnWaited: nil,
+		Spawner: drysession.Spawner(pty.Spawn), Limits: pty.DefaultLimits(),
+		Answers: pty.Answers{}, TurnWaited: nil,
 	}))
 }
 

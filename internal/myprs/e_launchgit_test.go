@@ -131,15 +131,16 @@ func (w *eGitWorld) deps() reviews.LaunchDeps {
 
 			return eRunGit(ctx, dir, args...)
 		},
-		Open: func(_ context.Context, name, _, _ string) cmux.Opened {
+		Open: asCmux(func(_ context.Context, name, _, _ string) cmux.Opened {
 			w.mu.Lock()
 			defer w.mu.Unlock()
 
 			w.opens = append(w.opens, name)
 
 			return cmux.Opened{OK: true, Error: "", ManualCommand: ""}
-		},
-		Write: reviews.WriteLaunchFile,
+		}),
+		Claude: "claude",
+		Write:  reviews.WriteLaunchFile,
 		Exists: func(path string) bool {
 			_, err := os.Stat(path)
 

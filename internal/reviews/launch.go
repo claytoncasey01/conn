@@ -1,9 +1,9 @@
 package reviews
 
 // Launching a review: a detached worktree at the PR's base branch, the prompt in a file, and a
-// cmux workspace running claude. Only an integer PR number, a validated branch name and the fixed
-// name and model ever reach a command. A PR title, an author or anything else from GitHub or
-// Slack is not an input of anything here.
+// session running claude where the settings say. Only an integer PR number, a validated branch
+// name and the fixed name and model ever reach an argument; the prompt is read from its file. A
+// PR title, an author or anything else from GitHub or Slack is not an input of anything here.
 
 import (
 	"context"
@@ -17,8 +17,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/claytoncasey01/conn/internal/cmux"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/repos"
 )
 
@@ -37,6 +38,11 @@ const (
 	folderMode = 0o777
 	// gitWorktree is git's worktree command.
 	gitWorktree = "worktree"
+	// claudeFixedArguments are the arguments of a review session besides its rules:
+	// --disallowedTools, --name and the name, --model and the model, and readPrompt.
+	claudeFixedArguments = 6
+	// readPrompt is a review session's first message: the prompt is in its file.
+	readPrompt = "Read .conn/prompt.md and follow it exactly."
 )
 
 var (
@@ -235,47 +241,42 @@ func (p Prompts) BuildPrompt(number int64, reReviewSha *string, repo string) (st
 	return first + "\n" + strings.Replace(p.ReReview, "{sha}", *reReviewSha, 1), nil
 }
 
-// shellWord is one shell word: single-quoted, a quote inside closed, escaped and reopened.
-func shellWord(word string) string {
-	return "'" + strings.ReplaceAll(word, "'", `'\''`) + "'"
-}
-
-// ClaudeCommand is the command a review workspace runs. The prompt is read from the file by the
-// shell, so no prompt text is ever in the command line. pattern is the name shape the session
+// ClaudeArgs are the arguments claude starts a review session with, after the program: the
+// rules it can never use, its name, its model, and the one instruction to read the prompt from
+// its file, each one argument, never a shell string. The prompt itself is only in the file, so no
+// text of it is ever in an argument or a command line. pattern is the name shape the session
 // kind allows. disallowed are permission rules the session can never use; the list is variadic,
 // so it goes first and --name ends it.
-func ClaudeCommand(name, model string, pattern *regexp.Regexp, disallowed []string) (
-	string, error,
+func ClaudeArgs(name, model string, pattern *regexp.Regexp, disallowed []string) (
+	[]string, error,
 ) {
 	if !pattern.MatchString(name) {
-		return "", errNotReviewName
+		return nil, errNotReviewName
 	}
 
 	if !isModel(model) {
-		return "", errNotModel
+		return nil, errNotModel
 	}
 
-	words := make([]string, 0, len(disallowed))
+	args := make([]string, 0, len(disallowed)+claudeFixedArguments)
+
+	if len(disallowed) > 0 {
+		args = append(args, "--disallowedTools")
+	}
 
 	for _, rule := range disallowed {
 		if rule == "" {
-			return "", errNotToolRule
+			return nil, errNotToolRule
 		}
 
 		if control.MatchString(rule) {
-			return "", errNotToolRule
+			return nil, errNotToolRule
 		}
 
-		words = append(words, shellWord(rule))
+		args = append(args, rule)
 	}
 
-	deny := ""
-	if len(words) > 0 {
-		deny = "--disallowedTools " + strings.Join(words, " ") + " "
-	}
-
-	return "claude " + deny + "--name " + name + " --model " + model +
-		` "$(cat .conn/prompt.md)"`, nil
+	return append(args, "--name", name, "--model", model, readPrompt), nil
 }
 
 // IsSafeRef is whether a branch name is safe as a git argument and in a path: it starts with a
@@ -368,8 +369,10 @@ type LaunchDeps struct {
 	// Git runs git without a shell; its error's message is git's stderr, so its first line is
 	// the reason.
 	Git func(ctx context.Context, args []string, dir string) (string, error)
-	// Open starts a command in a new cmux workspace.
-	Open cmux.Opener
+	// Open starts the review session where the settings say sessions open.
+	Open launch.Opener
+	// Claude is the claude program as configured (CONN_CLAUDE): the session's program.
+	Claude string
 	// Write writes a file (WriteLaunchFile).
 	Write func(path, content string, shared bool) error
 	// Exists is whether a path exists.
@@ -398,7 +401,7 @@ type LaunchOpts struct {
 }
 
 // LaunchResult is how a launch went: the worktree, or why not (with the command to paste when
-// only cmux failed).
+// only the start of the session failed, or the settings ask for the command).
 type LaunchResult struct {
 	OK            bool
 	Worktree      string
@@ -457,12 +460,12 @@ func jsLines(content string) string {
 
 // Open opens a review: it refuses a bad repo, number, ref, name, model or sha before any call;
 // fetches the base branch in the clone; puts the worktree on it detached (after pruning stale
-// worktree records); writes .conn/prompt.md; starts the workspace. A git or write failure gives
-// the first line of its message and opens nothing. A cmux failure leaves the worktree and
-// returns the command to paste. An existing folder is reused only when it is a worktree whose
-// origin is this repo.
+// worktree records); writes .conn/prompt.md; starts the session (ReviewSpec) where the settings
+// say. A git or write failure gives the first line of its message and opens nothing. A session
+// that did not start leaves the worktree and returns the command to paste. An existing folder is
+// reused only when it is a worktree whose origin is this repo.
 func Open(ctx context.Context, deps LaunchDeps, opts LaunchOpts) LaunchResult {
-	prompt, command, err := launchChecks(deps, opts)
+	prompt, args, err := launchChecks(deps, opts)
 	if err != nil {
 		return launchFailed(err.Error())
 	}
@@ -499,7 +502,7 @@ func Open(ctx context.Context, deps LaunchDeps, opts LaunchOpts) LaunchResult {
 
 	ExcludeConn(ctx, deps, worktree)
 
-	opened := deps.Open(ctx, opts.Name, worktree, command)
+	opened := deps.Open(ctx, ReviewSpec(deps.Claude, args, worktree, opts.Name))
 	if !opened.OK {
 		return LaunchResult{
 			OK: false, Worktree: "", Error: opened.Error, ManualCommand: opened.ManualCommand,
@@ -516,35 +519,44 @@ var (
 	errNoData    = errors.New("no data folder")
 )
 
-// launchChecks refuses what must never reach a command, and answers the prompt and the command.
-func launchChecks(deps LaunchDeps, opts LaunchOpts) (string, string, error) {
+// ReviewSpec is what a review session runs: the claude program, its arguments (ClaudeArgs), in
+// the worktree, under the review's name.
+func ReviewSpec(claude string, args []string, worktree, name string) pty.Spec {
+	return pty.Spec{
+		Argv: append([]string{claude}, args...), Dir: worktree, Env: nil, Name: name,
+	}
+}
+
+// launchChecks refuses what must never reach a command, and answers the prompt and claude's
+// arguments.
+func launchChecks(deps LaunchDeps, opts LaunchOpts) (string, []string, error) {
 	if !IsSafeRef(opts.BaseRef) {
-		return "", "", errUnsafeRef
+		return "", nil, errUnsafeRef
 	}
 
 	prompt, err := deps.Prompts.BuildPrompt(opts.Number, opts.ReReviewSha, opts.Repo)
 	if err != nil {
-		return "", "", err
+		return "", nil, err
 	}
 
-	command, err := ClaudeCommand(opts.Name, opts.Model, deps.Names.Pattern, nil)
+	args, err := ClaudeArgs(opts.Name, opts.Model, deps.Names.Pattern, nil)
 	if err != nil {
-		return "", "", err
+		return "", nil, err
 	}
 
 	if !deps.Names.IsReviewNameOf(opts.Name, opts.Repo, opts.Number) {
-		return "", "", errNotThisPR
+		return "", nil, errNotThisPR
 	}
 
 	if !absolutePath(opts.RepoPath) {
-		return "", "", errNoClone
+		return "", nil, errNoClone
 	}
 
 	if !strings.HasPrefix(opts.DataDir, "/") {
-		return "", "", errNoData
+		return "", nil, errNoData
 	}
 
-	return prompt, command, nil
+	return prompt, args, nil
 }
 
 func absolutePath(path string) bool {

@@ -11,12 +11,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/argv"
 	"github.com/claytoncasey01/conn/internal/claude"
-	"github.com/claytoncasey01/conn/internal/cmux"
+	"github.com/claytoncasey01/conn/internal/drysession"
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/origin"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/settings"
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
@@ -161,6 +164,7 @@ func (w *world) deps(opts worldOpts) openwork.Deps {
 		SeenRepos: func() []string { return opts.seen },
 		OriginOf:  reader.Of, Sh: w.fakeSh, Helper: w.fakeHelper,
 		FetchSprint: w.fakeFetch, Transition: w.fakeTransition, Open: w.fakeOpen,
+		Claude: "claude",
 		Record: func(name string, ok bool, detail string) {
 			w.call("record", name, ok, detail)
 		},
@@ -396,22 +400,37 @@ func (w *world) fakeFetch(ctx context.Context, hooks openwork.Hooks) (jira.Sprin
 	return jira.Sprint{}, fakeError("cancelled")
 }
 
-func (w *world) fakeOpen(_ context.Context, name, cwd, command string) cmux.Opened {
-	w.call("cmux", name, cwd, command)
+// fakeOpen opens sessions as cmux does, where the recorded runs opened them: it records the
+// session's name, folder and one shell line, and fails as cmux does when cmuxFails is set.
+func (w *world) fakeOpen(_ context.Context, spec pty.Spec) launch.Opened {
+	if spec.Argv[0] == drysession.Program {
+		w.call("dry-session", spec.Name, spec.Dir, argv.ShellLine(spec.Argv))
 
-	failing := w.cmuxFails
-	if w.cmuxFailsIn != "" {
-		failing = w.cmuxFailsIn == cwd
-	}
-
-	if failing {
-		return cmux.Opened{
-			OK: false, Error: "cmux is not running",
-			ManualCommand: "cd '" + cwd + "' && " + command,
+		return launch.Opened{
+			OK: true, Where: settings.WhereInside, HostedID: "0123456789abcdef0123456789abcdef",
+			Place: "inside Conn", Tried: "", Error: "", ManualCommand: "",
 		}
 	}
 
-	return cmux.Opened{OK: true, Error: "", ManualCommand: ""}
+	w.call("cmux", spec.Name, spec.Dir, argv.ShellLine(spec.Argv))
+
+	failing := w.cmuxFails
+	if w.cmuxFailsIn != "" {
+		failing = w.cmuxFailsIn == spec.Dir
+	}
+
+	if failing {
+		return launch.Opened{
+			OK: false, Where: settings.WhereTerminal, HostedID: "",
+			Place: "in a new cmux workspace", Tried: "a cmux workspace",
+			Error: "cmux is not running", ManualCommand: launch.PasteLine(spec),
+		}
+	}
+
+	return launch.Opened{
+		OK: true, Where: settings.WhereTerminal, HostedID: "", Place: "in a new cmux workspace",
+		Tried: "a cmux workspace", Error: "", ManualCommand: "",
+	}
 }
 
 // files are the run files, by name.

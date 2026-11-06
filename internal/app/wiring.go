@@ -86,6 +86,7 @@ func newHandler(
 ) *server.Server {
 	reader := origin.NewReader()
 	runner := claude.Runner{Bin: cfg.ClaudeBin}
+	opener := newOpener(cfg, store, host)
 	archived := openHistory(ctx, cfg, store, reader, logger.Writer())
 
 	// The snapshot hooks read Reviews and My PRs, which are made once the session list they
@@ -110,6 +111,7 @@ func newHandler(
 	workTab = newWork(ctx, workParts{
 		cfg: cfg, store: store, reader: reader, runner: runner, statuses: statuses,
 		logger: logger, myPrRepos: func() []string { return myPrsTab.Repos() },
+		open: opener,
 	}, live)
 
 	// My PRs and Reviews poll GitHub as the same account: they share its hourly budget and a
@@ -118,6 +120,7 @@ func newHandler(
 	parts := reviewsParts{
 		cfg: cfg, store: store, reader: reader, statuses: statuses, budget: ghbudget.New(),
 		runner: runner, logger: logger, myPrRepos: func() []string { return myPrsTab.Repos() },
+		open: opener,
 	}
 	reviewsTab = newReviews(ctx, parts, live)
 	myPrsTab = newMyPrs(ctx, parts, live)
@@ -134,7 +137,7 @@ func newHandler(
 
 	return &server.Server{
 		UI: bundle, Clients: live.Hub().Count, Settings: api, Logger: logger, Sessions: live,
-		History: archived.newAPI(cfg, store, liveIDs), HistoryOff: archived.offReason,
+		History: archived.newAPI(cfg, store, liveIDs, opener), HistoryOff: archived.offReason,
 		Reviews: reviewsTab, MyPrs: myPrsTab, Work: workTab,
 		Themes: library, Gallery: themesAPI, Provided: newProvided(cfg, logger),
 	}
