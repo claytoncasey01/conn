@@ -54,16 +54,11 @@ func (w *Work) Tick() {
 			continue
 		}
 
-		legs := gitLegs(record)
+		legs := w.gitDue(record)
 		if len(legs) == 0 {
 			continue
 		}
 
-		if w.now()-w.lastGit[key] < gitEveryMs {
-			continue
-		}
-
-		w.lastGit[key] = w.now()
 		w.followGit(record, legs)
 	}
 }
@@ -166,6 +161,26 @@ func gitLegs(record *Record) []*Leg {
 	}
 
 	return nil
+}
+
+// gitDue are the legs whose git is counted now, each at most every gitEveryMs; they are marked
+// counted.
+func (w *Work) gitDue(record *Record) []*Leg {
+	now := w.now()
+	due := []*Leg{}
+
+	for _, leg := range gitLegs(record) {
+		counted := legKey(record.Key, leg.Repo)
+		if now-w.lastGit[counted] < gitEveryMs {
+			continue
+		}
+
+		w.lastGit[counted] = now
+
+		due = append(due, leg)
+	}
+
+	return due
 }
 
 // followGit counts the legs' commits and changed files, gitLegsAtOnceMax legs at a time; a leg

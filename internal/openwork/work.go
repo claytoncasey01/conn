@@ -133,21 +133,26 @@ type state struct {
 	runs       *js.Map[*Record]
 	handles    map[string]map[*handle]bool
 	listHandle *handle
-	lastGit    map[string]float64
-	busyPR     map[string]bool
+	// lastGit is when each leg's git was last counted, and busyPR the legs with a change in
+	// progress, both by legKey.
+	lastGit map[string]float64
+	busyPR  map[string]bool
 	// running are runs whose pipeline is still going, even if it was interrupted: a second one
 	// on the same run would race the first.
 	running map[string]bool
-	// lastPoll, polling and pollError are the PR polls: when each run was last asked, which are
-	// in flight, and the last error logged per run (a repeating failure is reported once).
+	// lastPoll, polling and pollError are the PR polls, by legKey: when each leg's PR was last
+	// asked, which are in flight, and the last error logged per leg (a repeating failure is
+	// reported once).
 	lastPoll  map[string]float64
 	polling   map[string]bool
 	pollError map[string]string
 	// resumedAt is when a session was last opened in a slot, by slotKey: it takes a few seconds
 	// to appear.
 	resumedAt map[string]float64
-	dryPolls  map[string]int
-	dryFixed  map[string]bool
+	// dryPolls and dryFixed are each leg's dry PR walk, by legKey: its polls so far, and that FIX
+	// CHECKS was pressed for it.
+	dryPolls map[string]int
+	dryFixed map[string]bool
 }
 
 // New is Work over deps: it makes the runs folder and reads the runs and the cached list.

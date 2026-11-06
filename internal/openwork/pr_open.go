@@ -100,7 +100,7 @@ func prLegsAsked(record *Record, repo string) ([]*Leg, Reply, bool) {
 
 // openRefusal is why a leg's branch may not be pushed now: its PR is already being opened, the
 // branch or a base is not one this tool would push, GitHub is off, or its repository is off the
-// list.
+// list or has no clone.
 func (w *Work) openRefusal(key string, leg *Leg, repo string) (Reply, bool) {
 	if w.legBusy(key, leg) {
 		return conflict("a pull request is already being opened"), true
@@ -110,7 +110,30 @@ func (w *Work) openRefusal(key string, leg *Leg, repo string) (Reply, bool) {
 		return refusal, true
 	}
 
-	return w.repoRefusal(leg, repo)
+	if refusal, refused := w.repoRefusal(leg, repo); refused {
+		return refusal, true
+	}
+
+	return w.cloneRefusal(leg)
+}
+
+// cloneRefusal refuses a push from a leg whose repository has no clone in Settings now: the
+// clone is looked up again on every push, never taken from the record. A run from before
+// Settings, which recorded no repository, keeps its worktree's origin as its only check.
+func (w *Work) cloneRefusal(leg *Leg) (Reply, bool) {
+	if w.deps.Dry {
+		return Reply{}, false
+	}
+
+	if leg.Repo == "" {
+		return Reply{}, false
+	}
+
+	if _, problem := w.cloneOf(leg); problem != "" {
+		return conflict(problem), true
+	}
+
+	return Reply{}, false
 }
 
 // legPush is one leg OPEN PR pushes: its repository, checked against the allowlist, and the

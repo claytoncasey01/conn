@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/claytoncasey01/conn/internal/jira"
+	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/openwork"
 )
 
@@ -183,6 +184,8 @@ func TestEachLegIsRefusedOnItsOwn(t *testing.T) {
 		},
 		{"a repository off the list", "", false, "acme/gadgets: acme/gadgets is not an allowed " +
 			"repository: add it in Settings."},
+		{"a repository with no clone", "", true, "acme/gadgets: No local clone of acme/gadgets: " +
+			"set a folder in Settings."},
 	}
 
 	for _, row := range rows {
@@ -195,6 +198,11 @@ func TestEachLegIsRefusedOnItsOwn(t *testing.T) {
 				allowOnly(made, folders)
 			}
 
+			if strings.Contains(row.name, "no clone") {
+				made.update("repos", `{"allow":["acme/*"],"clones":{"acme/widgets":`+
+					js.Stringify(folders.clones[0])+`},"cloneRoot":"/nowhere"}`)
+			}
+
 			same(t, "open", openAndSettle(made, "").Code, 200)
 			same(t, "PRs", made.prURLs(), []string{widgetsPR, ""})
 			same(t, "gadgets not pushed", made.pushes(folders.worktrees[1]), 0)
@@ -204,6 +212,32 @@ func TestEachLegIsRefusedOnItsOwn(t *testing.T) {
 			same(t, "named", []any{reply.Code > 399, errorOf(reply)}, []any{true, row.said})
 		})
 	}
+}
+
+func TestALegWithNoSessionOfItsOwnGetsAPRBodyMadeFromItsCommits(t *testing.T) {
+	t.Parallel()
+
+	made, folders := prLegsWorld(t, [2]string{"2\n", "2\n"}, "")
+
+	// In the shared layout only the lead's worktree has .conn/: the brief is written there.
+	err := os.RemoveAll(filepath.Join(folders.worktrees[1], ".conn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	answer := made.sh
+	made.sh = func(name string, args []string, dir string) (string, error) {
+		if args[0] == "log" {
+			return "- Add the gadget", nil
+		}
+
+		return answer(name, args, dir)
+	}
+
+	same(t, "open", openAndSettle(made, "").Code, 200)
+	same(t, "PRs", made.prURLs(), []string{widgetsPR, gadgetsPR})
+	same(t, "body", strings.Contains(text(fileOrNil(filepath.Join(folders.worktrees[1], ".conn",
+		"pr-body.md"))), "- Add the gadget"), true)
 }
 
 func TestOpenPRRefusesWhenEveryLegIsRefused(t *testing.T) {

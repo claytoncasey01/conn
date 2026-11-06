@@ -158,10 +158,14 @@ func (w *Work) prBody(step *task, leg *Leg) (string, error) {
 		return bodyFile, nil
 	}
 
-	var (
-		subjects string
-		err      error
-	)
+	// A leg with no session of its own (shared layout, not the lead) has no brief, so no .conn/
+	// yet; the launch excluded it from git in every worktree.
+	err := os.MkdirAll(filepath.Dir(bodyFile), folderMode)
+	if err != nil {
+		return "", nodeError{err: err}
+	}
+
+	var subjects string
 
 	step.outside(func() {
 		subjects, err = w.sh("git", []string{
