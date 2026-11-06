@@ -37,8 +37,6 @@ const (
 	// sessions times their viewers, so it only refuses a flood of handshakes for ended sessions.
 	connectionsMax = 64
 
-	// handshakeTimeout bounds the writing of the handshake's answer.
-	handshakeTimeout = 5 * time.Second
 	// frameWriteTimeout bounds the writing of each frame: a viewer that takes longer is closed.
 	frameWriteTimeout = 5 * time.Second
 	// pingInterval is how often a viewer is pinged, and pingTimeout how long its answer may
@@ -52,6 +50,11 @@ const (
 	websocketVersion = "13"
 	keyBytes         = 16
 )
+
+// HandshakeTimeout is the terminal's handshake deadline: the route gives its answer this long to
+// be written, and Conn's HTTP server reads a request's headers, the handshake's included, within
+// it too.
+const HandshakeTimeout = 5 * time.Second
 
 // The route's refusals, in its own words.
 const (
@@ -99,7 +102,7 @@ func NewTerminals(ctx context.Context, host TerminalHost) *Terminals {
 	return &Terminals{
 		host: host,
 		times: terminalTimes{
-			handshakeTimeout:  handshakeTimeout,
+			handshakeTimeout:  HandshakeTimeout,
 			frameWriteTimeout: frameWriteTimeout,
 			pingInterval:      pingInterval,
 			pingTimeout:       pingTimeout,
@@ -245,7 +248,7 @@ func wellFormedHandshake(r *http.Request) bool {
 }
 
 // accept completes the handshake, or answers it with a refusal and returns nil. The answer must
-// be written within handshakeTimeout; taking the connection over clears that deadline, and any
+// be written within HandshakeTimeout; taking the connection over clears that deadline, and any
 // the HTTP server had set, so the terminal lives as long as its viewer.
 func (t *Terminals) accept(w http.ResponseWriter, r *http.Request) *websocket.Conn {
 	err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(t.times.handshakeTimeout))

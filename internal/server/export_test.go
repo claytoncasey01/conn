@@ -20,7 +20,6 @@ const (
 	FrameBytesMax      = frameBytesMax
 	InputBytesBurst    = inputBytesBurst
 	InputFramesBurst   = inputFramesBurst
-	HandshakeTimeout   = handshakeTimeout
 	ConnectionsMax     = connectionsMax
 )
 

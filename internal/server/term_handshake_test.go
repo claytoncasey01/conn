@@ -323,7 +323,7 @@ func (d *deadlineWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return d.conn, bufio.NewReadWriter(bufio.NewReader(d.conn), bufio.NewWriter(d.conn)), nil
 }
 
-// The handshake is bounded: the route gives the answer that switches protocols handshakeTimeout
+// The handshake is bounded: the route gives the answer that switches protocols HandshakeTimeout
 // to be written, before it takes the connection over (taking it over clears the deadline).
 func TestTheHandshakeHasADeadline(t *testing.T) {
 	t.Parallel()

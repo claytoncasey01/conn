@@ -33,9 +33,11 @@ const (
 const ShutdownTimeout = 2 * time.Second
 
 // The HTTP server's limits. writeTimeout is 0 on purpose: a page's live-update stream stays open
-// for as long as the page does, and a write deadline would cut it.
+// for as long as the page does, and a write deadline would cut it. readHeaderTimeout is the
+// terminal's handshake deadline, since a WebSocket handshake is a request: its headers come from
+// this machine, so they take far less.
 const (
-	readHeaderTimeout = 10 * time.Second
+	readHeaderTimeout = server.HandshakeTimeout
 	readTimeout       = 30 * time.Second
 	writeTimeout      = 0
 	idleTimeout       = 60 * time.Second
