@@ -466,6 +466,14 @@ func TestScreenFollowsFocusReports(t *testing.T) {
 		{"turned on", "\x1b[?1004h", true},
 		{"turned off", "\x1b[?1004h\x1b[?1004l", false},
 		{"reset", "\x1b[?1004h\x1bc", false},
+		{
+			"turned off as the 17th mode of a list", "\x1b[?1004h\x1b[?" +
+				strings.Repeat("1;", 16) + "1004l", false,
+		},
+		{
+			"a list too long to read", "\x1b[?1004h\x1b[?" + strings.Repeat("1;", 16) + "1h",
+			false,
+		},
 	}
 
 	for _, tt := range tests {

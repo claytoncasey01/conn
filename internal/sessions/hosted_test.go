@@ -1840,3 +1840,198 @@ func TestASecondPressOfAJustAnsweredPromptIsRefused(t *testing.T) {
 		t.Errorf("after a viewer's key the prompt just answered is shown as %q", again)
 	}
 }
+
+// Two identical dialogs back to back on one status stamp: the second, drawn after a frame with
+// no dialog, is shown locked under the first's answered id, a click on it is refused, and the
+// program gets one key. It is answered in the terminal (see keepAnswered).
+func TestAnIdenticalDialogOnTheSameStampStaysAnswered(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	stamp := float64(time.Now().UnixMilli() - 5000)
+	hostedID, held := fake.hostedSession(146, "c", "waiting", "permission prompt",
+		permissionScreen("ls"), stamp)
+	loop := start(t, fake)
+
+	answered, _ := askByID(t, loop, hostedID)["id"].(string)
+
+	first := loop.Answer(t.Context(), hostedID, pressOne(answered))
+	if body(first) != `{"ok":true}` {
+		t.Fatalf("the answer: %d %s", first.Code, body(first))
+	}
+
+	held.show(t, "✻ working")
+	held.show(t, permissionScreen("ls"))
+	time.Sleep(settledAfter)
+
+	shown, _ := askByID(t, loop, hostedID)["id"].(string)
+	if shown != answered {
+		t.Errorf("the second dialog is shown as %q, not locked as %q", shown, answered)
+	}
+
+	again := loop.Answer(t.Context(), hostedID, pressOne(shown))
+	if !strings.Contains(body(again), "just answered") {
+		t.Errorf("a click on the second dialog: %d %s", again.Code, body(again))
+	}
+
+	if typed := held.typed(); typed != "1" {
+		t.Errorf("typed %q, want one 1", typed)
+	}
+}
+
+// While the page's answer is being typed, a read of the prompt already shows it locked under
+// the id it is answered as, never under the count its own key moved.
+func TestAPromptBeingAnsweredIsShownLocked(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	stamp := float64(time.Now().UnixMilli() - 5000)
+	hostedID, held := fake.hostedSession(147, "d", "waiting", "permission prompt",
+		permissionScreen("ls"), stamp)
+	loop := start(t, fake)
+
+	answered, _ := askByID(t, loop, hostedID)["id"].(string)
+	release := held.holdWrites()
+	replied := make(chan sessions.Reply, 1)
+
+	go func() {
+		replied <- loop.Answer(context.WithoutCancel(t.Context()), hostedID, pressOne(answered))
+	}()
+
+	held.waitWriting(t)
+	loop.ReadAsks(t.Context())
+
+	shown := shownAsk(t, loop, hostedID)
+	if shown == nil {
+		t.Fatal("mid-answer the prompt is not shown")
+	}
+
+	if shown["id"] != answered {
+		t.Errorf("mid-answer the prompt is shown as %v, not locked as %q", shown["id"], answered)
+	}
+
+	release()
+
+	if got := <-replied; body(got) != `{"ok":true}` {
+		t.Errorf("the answer: %d %s", got.Code, body(got))
+	}
+}
+
+// An answer refused before anything was typed leaves the prompt unanswered: once what refused
+// it is over, the prompt can be answered.
+func TestAnAnswerThatTypedNothingLeavesThePromptOpen(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	stamp := float64(time.Now().UnixMilli() - 5000)
+	hostedID, held := fake.hostedSession(148, "e", "waiting", "permission prompt",
+		permissionScreen("ls"), stamp)
+	loop := start(t, fake)
+
+	shown, _ := askByID(t, loop, hostedID)["id"].(string)
+
+	held.background.Store(true)
+
+	refused := loop.Answer(t.Context(), hostedID, pressOne(shown))
+	if !strings.Contains(body(refused), "not in the foreground") {
+		t.Fatalf("the answer with another program in front: %d %s", refused.Code, body(refused))
+	}
+
+	held.background.Store(false)
+
+	again, _ := askByID(t, loop, hostedID)["id"].(string)
+
+	answered := loop.Answer(t.Context(), hostedID, pressOne(again))
+	if body(answered) != `{"ok":true}` {
+		t.Errorf("the answer once the program was in front: %d %s", answered.Code,
+			body(answered))
+	}
+
+	if typed := held.typed(); typed != "1" {
+		t.Errorf("typed %q, want one 1", typed)
+	}
+}
+
+// A text answer is locked like a choice: with the empty box drawn again on the same stamp, the
+// prompt is shown under the answered id, and a second text answer is refused as just answered.
+func TestASecondTextAnswerIsRefused(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	stamp := float64(time.Now().UnixMilli() - 5000)
+	hostedID, held := fake.hostedSession(149, "f", "waiting", "input needed", idleBox, stamp)
+	loop := start(t, fake)
+
+	shown := askByID(t, loop, hostedID)
+	if shown["kind"] != "text" {
+		t.Fatalf("the empty box asks %v, not text", shown["kind"])
+	}
+
+	answered, _ := shown["id"].(string)
+	text := func(askID string) sessions.AnswerBody {
+		return sessions.AnswerBody{
+			AskID: askID, Choice: nil, Text: "hi", HasChoice: false, HasText: true,
+		}
+	}
+
+	first := loop.Answer(t.Context(), hostedID, text(answered))
+	if body(first) != `{"ok":true}` {
+		t.Fatalf("the text answer: %d %s", first.Code, body(first))
+	}
+
+	held.show(t, idleBox)
+	time.Sleep(settledAfter)
+
+	if again, _ := askByID(t, loop, hostedID)["id"].(string); again != answered {
+		t.Errorf("the box drawn again is shown as %q, not locked as %q", again, answered)
+	}
+
+	second := loop.Answer(t.Context(), hostedID, text(answered))
+	if !strings.Contains(body(second), "just answered") {
+		t.Errorf("a second text answer: %d %s", second.Code, body(second))
+	}
+
+	if typed := held.typed(); typed != "\x1b[200~hi\x1b[201~\r" {
+		t.Errorf("typed %q, want the text and Enter once", typed)
+	}
+}
+
+// A text answer whose text was typed but whose Enter was not pressed keeps the prompt answered:
+// the text is in the box, so a click on the prompt as shown is refused, and nothing more is
+// typed.
+func TestATextAnswerLeftInTheBoxKeepsThePromptAnswered(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	stamp := float64(time.Now().UnixMilli() - 5000)
+	hostedID, held := fake.hostedSession(150, "g", "waiting", "input needed", idleBox, stamp)
+	// The program never shows the text: the reply's Enter waits, and is not pressed.
+	held.echo = idleBox
+	loop := start(t, fake)
+
+	answered, _ := askByID(t, loop, hostedID)["id"].(string)
+	text := sessions.AnswerBody{
+		AskID: answered, Choice: nil, Text: "hi", HasChoice: false, HasText: true,
+	}
+
+	first := loop.Answer(t.Context(), hostedID, text)
+	if body(first) != notSent {
+		t.Fatalf("the text answer: %d %s", first.Code, body(first))
+	}
+
+	shown, _ := askByID(t, loop, hostedID)["id"].(string)
+	if shown != answered {
+		t.Errorf("the prompt is shown as %q, not kept as %q", shown, answered)
+	}
+
+	text.AskID = shown
+
+	second := loop.Answer(t.Context(), hostedID, text)
+	if second.Code != http.StatusConflict {
+		t.Errorf("a second text answer: %d %s", second.Code, body(second))
+	}
+
+	if typed := held.typed(); typed != "\x1b[200~hi\x1b[201~" {
+		t.Errorf("typed %q, want the text once and no Enter", typed)
+	}
+}

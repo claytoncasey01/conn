@@ -201,9 +201,15 @@ func (s *store) samePrompt(plan sendPlan, shownAsk *ask.Ask, stamp float64, askI
 	session := plan.session
 
 	switch {
-	case s.sessions[plan.key] != session, session.reg.Status != regWaiting, stamp != plan.stamp:
+	case s.sessions[plan.key] != session:
 		return textMovedOn
-	case shownAsk == nil, shownAsk.ID != askID:
+	case session.reg.Status != regWaiting:
+		return textMovedOn
+	case stamp != plan.stamp:
+		return textMovedOn
+	case shownAsk == nil:
+		return textNotShown
+	case shownAsk.ID != askID:
 		return textNotShown
 	case s.justAnswered(plan.key, session, stamp, shownAsk.ID):
 		return "this prompt was just answered and the terminal has not moved on yet, " +
@@ -309,6 +315,14 @@ func (s *store) choiceSend(found *ask.Ask, body AnswerBody,
 func (s *store) answeredAt(plan sendPlan, askID string) {
 	s.answered[plan.key] = answeredPrompt{
 		sessionID: plan.session.reg.SessionID, stamp: statusStamp(plan.session.reg), id: askID,
+	}
+}
+
+// forgetAnswer drops the record of the prompt answered as askID, when nothing of the answer was
+// typed after all.
+func (s *store) forgetAnswer(plan sendPlan, askID string) {
+	if s.answered[plan.key].id == askID {
+		delete(s.answered, plan.key)
 	}
 }
 

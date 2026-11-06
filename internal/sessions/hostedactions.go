@@ -235,14 +235,22 @@ func (l *Loop) pressHosted(ctx context.Context, plan sendPlan, body AnswerBody) 
 		return *decided.refused
 	}
 
-	reply := l.typeAnswer(ctx, plan, decided, mark)
-	if reply.Code != http.StatusOK {
+	// The answer is recorded before it is typed, so a read while it is being typed already shows
+	// the prompt under the id it is answered as, locked (see keepAnswered).
+	_ = l.do(ctx, func(state *store) { state.answeredAt(plan, decided.askID) })
+
+	reply, typed := l.typeAnswer(ctx, plan, decided, mark)
+	if reply.Code == http.StatusOK {
 		return reply
 	}
 
-	_ = l.do(ctx, func(state *store) { state.answeredAt(plan, decided.askID) })
+	// A refusal that typed nothing leaves the prompt as it was; one that may have typed (the
+	// text is in the box, or a write ran out of time) keeps it answered.
+	if !typed {
+		_ = l.do(ctx, func(state *store) { state.forgetAnswer(plan, decided.askID) })
+	}
 
-	return done()
+	return reply
 }
 
 // hostedAnswerStart makes a hosted answer's checks on the loop, before the screen is read, and

@@ -254,6 +254,13 @@ func (s *Screen) privateModes(final byte) {
 	for index := range min(s.parser.parameterCount, parametersMax) {
 		s.privateMode(s.parser.parameters[index], set)
 	}
+
+	// The modes past parametersMax are not read, so whether the program turned focus reports
+	// on or off among them is not known: they count as off, so a viewer's reports count as
+	// input, the safe side.
+	if s.parser.parameterCount > parametersMax {
+		s.focusReports = false
+	}
 }
 
 func (s *Screen) privateMode(mode int, set bool) {

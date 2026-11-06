@@ -63,17 +63,18 @@ func (l *Loop) typeReply(ctx context.Context, sessionID pty.ID, message string) 
 		return *refusal
 	}
 
-	return l.typeMessage(ctx, typedInto{
-		sessionID: sessionID, mark: mark, count: replyLines,
-		still: emptyBox,
+	reply, _ := l.typeMessage(ctx, typedInto{
+		sessionID: sessionID, mark: mark, count: replyLines, still: emptyBox,
 	}, message)
+
+	return reply
 }
 
 // typeAnswer types what an answer decided: one key into the prompt it was decided from, or a
 // text into that prompt's box, then Enter.
 func (l *Loop) typeAnswer(
 	ctx context.Context, plan sendPlan, decided answerSend, mark pty.ScreenMark,
-) Reply {
+) (Reply, bool) {
 	still := promptStillShown(plan.stamp, plan.inputs, decided.askID)
 	if decided.text {
 		return l.typeMessage(ctx, typedInto{
@@ -85,11 +86,15 @@ func (l *Loop) typeAnswer(
 	_, err := l.store.deps.Host.WriteIfStill(plan.hosted, mark, askLines, still,
 		[]byte(decided.choice))
 	if err != nil {
-		return hostedFailure(err)
+		return hostedFailure(err), mayHaveTyped(err)
 	}
 
-	return done()
+	return done(), true
 }
+
+// mayHaveTyped is whether a refused write may have typed some of its input: one that ran out of
+// time in the program's Write. Every other refusal types nothing.
+func mayHaveTyped(err error) bool { return errors.Is(err, pty.ErrInputBlocked) }
 
 // typedInto is where a message is typed: the session, the screen read it was decided from, and
 // the check of count screen lines that read must still pass.
@@ -101,20 +106,21 @@ type typedInto struct {
 }
 
 // typeMessage types message while the screen read with into.mark still passes into.still, then
-// presses Enter once the screen shows it in the box.
-func (l *Loop) typeMessage(ctx context.Context, into typedInto, message string) Reply {
+// presses Enter once the screen shows it in the box. It also says whether anything may have
+// been typed.
+func (l *Loop) typeMessage(ctx context.Context, into typedInto, message string) (Reply, bool) {
 	keys, refused := messageKeys(message, into.mark.BracketedPaste)
 	if refused != nil {
-		return *refused
+		return *refused, false
 	}
 
 	typed, err := l.store.deps.Host.WriteIfStill(into.sessionID, into.mark, into.count,
 		into.still, keys)
 	if err != nil {
-		return hostedFailure(err)
+		return hostedFailure(err), mayHaveTyped(err)
 	}
 
-	return l.pressEnter(ctx, into.sessionID, typed, message)
+	return l.pressEnter(ctx, into.sessionID, typed, message), true
 }
 
 // messageKeys is what types message: as a paste where the program takes pastes, else as keys,
@@ -243,6 +249,12 @@ func baseID(askID string) string {
 // in this session on the same status stamp: the answer's own key, or any input after it, moves
 // the count but not the prompt, so the page stays on the answered id, which it holds locked, and
 // a second click on it is refused as just answered. Any other ask is found as it is.
+//
+// The rule has no time limit: it holds until the registry's status stamp moves or the session
+// changes. So an identical prompt drawn again on the same stamp (two identical dialogs queued
+// back to back, with no stamp between them) stays locked under the first's id and is answered in
+// the terminal. The host cannot tell it from the first still drawn, and unlocking it after a
+// while would let a second press through whenever Claude Code is slow to redraw.
 func (s *store) keepAnswered(pid string, session *Session, stamp float64,
 	found *ask.Ask,
 ) *ask.Ask {
