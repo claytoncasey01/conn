@@ -126,9 +126,10 @@ func leaveEveryWay(t *testing.T, served rig) {
 
 	_ = dial(t, served).CloseNow()
 
+	// The replay's end is read first, so the bad frame cannot race it; the read after the bad
+	// frame then ends with the server's close.
 	conn = dial(t, served)
-	_ = conn.Write(t.Context(), websocket.MessageText, []byte(`{"t":"exec"}`))
-	// The replay's end comes first; the read after it ends with the server's close.
+
 	_, replayed, err := conn.Read(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -137,6 +138,8 @@ func leaveEveryWay(t *testing.T, served rig) {
 	if string(replayed) != `{"t":"replay-end"}` {
 		t.Fatal("the replay of a program that printed nothing was not just its end")
 	}
+
+	_ = conn.Write(t.Context(), websocket.MessageText, []byte(`{"t":"exec"}`))
 
 	_, _, err = conn.Read(t.Context())
 	if err == nil {

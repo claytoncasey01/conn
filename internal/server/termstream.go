@@ -68,7 +68,7 @@ func (t *Terminals) run(
 	defer cancel()
 
 	open := &link{conn: conn, cancel: cancel, once: sync.Once{}}
-	queue := make(chan clientFrame, inputQueueFramesMax)
+	queue := make(chan []byte, inputQueueFramesMax)
 
 	var group sync.WaitGroup
 
@@ -107,6 +107,8 @@ func (t *Terminals) writeReplay(
 	defer cancel()
 
 	if !t.writeBinary(replayCtx, open, replay) {
+		// The bytes go back before the close, which may wait for a peer that does not answer.
+		replayWritten()
 		open.end(websocket.StatusTryAgainLater, reasonReplaySlow)
 
 		return false
@@ -213,12 +215,24 @@ func (t *Terminals) writeFrame(
 	return true
 }
 
-// readFrames reads the viewer's frames, checks each and queues it for the program, until the
-// peer goes or a frame ends the terminal. It never waits for the program, so the peer's pongs
-// are always read.
+// frameReader is the reading side of one terminal: where its input goes, and whether input is
+// being dropped because the queue filled.
+type frameReader struct {
+	sessionID pty.ID
+	queue     chan<- []byte
+	// dropping is set when a frame found the queue full: every input frame after it is
+	// dropped until the queue has emptied, so a burst loses its tail, never its middle.
+	dropping bool
+}
+
+// readFrames reads the viewer's frames, checks each, applies a resize and queues input for the
+// program, until the peer goes or a frame ends the terminal. It never waits for the program to
+// take input, so the peer's pongs are always read.
 func (t *Terminals) readFrames(
-	ctx context.Context, open *link, sessionID pty.ID, queue chan<- clientFrame,
+	ctx context.Context, open *link, sessionID pty.ID, queue chan<- []byte,
 ) {
+	reader := &frameReader{sessionID: sessionID, queue: queue, dropping: false}
+
 	for {
 		// The read limit is frameBytesMax: a longer frame closes the terminal (the library
 		// closes it as too big) without being read whole.
@@ -229,7 +243,7 @@ func (t *Terminals) readFrames(
 			return
 		}
 
-		code, reason, keep := t.takeFrame(sessionID, kind, data, queue)
+		code, reason, keep := t.takeFrame(reader, kind, data)
 		if !keep {
 			open.end(code, reason)
 
@@ -238,10 +252,12 @@ func (t *Terminals) readFrames(
 	}
 }
 
-// takeFrame checks one frame from the viewer and queues it for the program, and says how to
-// close the terminal if it may not go on.
+// takeFrame checks one frame from the viewer and acts on it, and says how to close the terminal
+// if it may not go on. A resize is applied here, at once and in full: it takes no turn with the
+// program's input, so a program not taking input never holds it up, and it is never dropped
+// with input. Input is queued for the program.
 func (t *Terminals) takeFrame(
-	sessionID pty.ID, kind websocket.MessageType, data []byte, queue chan<- clientFrame,
+	reader *frameReader, kind websocket.MessageType, data []byte,
 ) (websocket.StatusCode, string, bool) {
 	if kind != websocket.MessageText {
 		return websocket.StatusUnsupportedData, reasonTextOnly, false
@@ -252,30 +268,58 @@ func (t *Terminals) takeFrame(
 		return websocket.StatusPolicyViolation, reasonMalformed, false
 	}
 
-	if !t.budgets.spend(sessionID, frame.cost()) {
+	if !t.budgets.spend(reader.sessionID, frame.cost()) {
 		return websocket.StatusPolicyViolation, reasonInputRate, false
 	}
 
-	// A frame the queue has no room for is dropped, as input the program does not take is.
-	select {
-	case queue <- frame:
-	default:
-	}
+	switch frame.kind {
+	case frameResize:
+		return outcome(t.apply(reader.sessionID, frame))
+	case frameInput:
+		reader.queueInput(frame.data)
 
-	return 0, "", true
+		return 0, "", true
+	default:
+		panic("server: a parsed frame of no kind")
+	}
 }
 
-// typeFrames hands the queued frames to the host in order, until the terminal ends or the host's
-// answer ends it.
+// queueInput queues data for the program, or drops it, as input the program does not take is,
+// when the queue is full or is still emptying since it last was.
+func (reader *frameReader) queueInput(data []byte) {
+	if reader.dropping {
+		if len(reader.queue) > 0 {
+			return
+		}
+
+		reader.dropping = false
+	}
+
+	select {
+	case reader.queue <- data:
+	default:
+		reader.dropping = true
+	}
+}
+
+// typeFrames types the queued input in order, until the terminal ends or the host's answer
+// ends it. An ended terminal is looked at before each frame, so nothing more is typed once it
+// has ended.
 func (t *Terminals) typeFrames(
-	ctx context.Context, open *link, sessionID pty.ID, queue <-chan clientFrame,
+	ctx context.Context, open *link, sessionID pty.ID, queue <-chan []byte,
 ) {
 	for {
+		if ctx.Err() != nil {
+			return
+		}
+
 		select {
 		case <-ctx.Done():
 			return
-		case frame := <-queue:
-			err := t.apply(sessionID, frame)
+		case data := <-queue:
+			typed := clientFrame{kind: frameInput, data: data, columns: 0, rows: 0}
+
+			err := t.apply(sessionID, typed)
 			if errors.Is(err, pty.ErrInputBlocked) {
 				// The rest of what was queued would be typed after the gap; it goes too.
 				dropQueued(queue)
@@ -292,7 +336,7 @@ func (t *Terminals) typeFrames(
 }
 
 // dropQueued empties the queue without waiting; it holds at most inputQueueFramesMax frames.
-func dropQueued(queue <-chan clientFrame) {
+func dropQueued(queue <-chan []byte) {
 	for range inputQueueFramesMax {
 		select {
 		case <-queue:
