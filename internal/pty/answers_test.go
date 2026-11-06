@@ -11,16 +11,21 @@ import (
 	"github.com/claytoncasey01/conn/internal/pty"
 )
 
-// replyGrammar is every reply the fixed table can give: digits and fixed bytes only.
+// replyGrammar is every reply the fixed table can give: fixed bytes and hex digits only.
 const replyGrammar = `^(\x1b\[\?62;22c` +
-	`|\x1b\[[1-9][0-9]{0,3};[1-9][0-9]{0,3}R` +
 	`|\x1b\]11;rgb:[0-9a-f]{4}/[0-9a-f]{4}/[0-9a-f]{4}\x1b\\)$`
+
+// cursorPositionInOriginMode once made a cursor position reply with a negative row; no cursor
+// position query is answered now.
+const cursorPositionInOriginMode = "\x1b[1;1H\x1b7\x1b[10;20r\x1b[?6h\x1b8\x1b[6n"
+
+func replyPattern() *regexp.Regexp { return regexp.MustCompile(replyGrammar) }
 
 func TestScreenRecordsOnlyTheQueriesTheHostAnswers(t *testing.T) {
 	t.Parallel()
 
-	attributes := pty.Query{Kind: pty.QueryDeviceAttributes, Row: 0, Column: 0}
-	background := pty.Query{Kind: pty.QueryBackground, Row: 0, Column: 0}
+	attributes := pty.Query{Kind: pty.QueryDeviceAttributes}
+	background := pty.Query{Kind: pty.QueryBackground}
 
 	tests := []struct {
 		name  string
@@ -29,9 +34,6 @@ func TestScreenRecordsOnlyTheQueriesTheHostAnswers(t *testing.T) {
 	}{
 		{"device attributes", "\x1b[c", []pty.Query{attributes}},
 		{"device attributes with a zero", "\x1b[0c", []pty.Query{attributes}},
-		{"cursor position, where it was asked", "abc\x1b[6n\r\nmore", []pty.Query{
-			{Kind: pty.QueryCursorPosition, Row: 0, Column: 3},
-		}},
 		{"background, ended by BEL", "\x1b]11;?\a", []pty.Query{background}},
 		{"background, ended by ST", "\x1b]11;?\x1b\\", []pty.Query{background}},
 		{"in order", "\x1b]11;?\a\x1b[c", []pty.Query{background, attributes}},
@@ -44,6 +46,10 @@ func TestScreenRecordsOnlyTheQueriesTheHostAnswers(t *testing.T) {
 		{"terminal version", "\x1b[>0q", nil},
 		{"kitty keyboard flags", "\x1b[?u", nil},
 		{"device status", "\x1b[5n", nil},
+		// Claude Code never asks for the cursor position, and the reply's two numbers are the
+		// program's to choose: ESC [ 1 ; 5 R is also Ctrl+F3.
+		{"cursor position", "abc\x1b[6n", nil},
+		{"cursor position in origin mode", cursorPositionInOriginMode, nil},
 		{"extended cursor position", "\x1b[?6n", nil},
 		{"cursor position with more parameters", "\x1b[6;1n", nil},
 		{"title report", "\x1b[21t", nil},
@@ -98,7 +104,7 @@ func TestClaudeStartupAsksForDeviceAttributesOnly(t *testing.T) {
 	screen.Feed(data)
 
 	got := screen.Queries()
-	want := []pty.Query{{Kind: pty.QueryDeviceAttributes, Row: 0, Column: 0}}
+	want := []pty.Query{{Kind: pty.QueryDeviceAttributes}}
 
 	if len(got) != len(want) {
 		t.Fatalf("Queries = %+v, want %+v", got, want)
@@ -122,28 +128,23 @@ func TestRepliesComeFromTheFixedTable(t *testing.T) {
 	}{
 		{
 			"device attributes", themed,
-			pty.Query{Kind: pty.QueryDeviceAttributes, Row: 3, Column: 4},
+			pty.Query{Kind: pty.QueryDeviceAttributes},
 			"\x1b[?62;22c",
 		},
 		{
-			"cursor position is one-based", themed,
-			pty.Query{Kind: pty.QueryCursorPosition, Row: 4, Column: 9},
-			"\x1b[5;10R",
-		},
-		{
 			"the theme's background", themed,
-			pty.Query{Kind: pty.QueryBackground, Row: 0, Column: 0},
+			pty.Query{Kind: pty.QueryBackground},
 			"\x1b]11;rgb:1e1e/2f2f/3a3a\x1b\\",
 		},
 		{
 			"the default background",
 			pty.Answers{Background: pty.RGB{Red: 0, Green: 0, Blue: 0}},
-			pty.Query{Kind: pty.QueryBackground, Row: 0, Column: 0},
+			pty.Query{Kind: pty.QueryBackground},
 			"\x1b]11;rgb:0000/0000/0000\x1b\\",
 		},
 	}
 
-	grammar := regexp.MustCompile(replyGrammar)
+	grammar := replyPattern()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -170,7 +171,7 @@ func TestReplyPanicsOnAnUnknownQuery(t *testing.T) {
 		}
 	}()
 
-	pty.Reply(pty.Answers{}, pty.Query{Kind: pty.QueryKind(99), Row: 0, Column: 0})
+	pty.Reply(pty.Answers{}, pty.Query{Kind: pty.QueryKind(99)})
 }
 
 // fuzzSplit is where the fuzz seeds split a capture in two.
@@ -184,15 +185,15 @@ func TestNoReplyHoldsBytesFromTheOutput(t *testing.T) {
 
 	inputs := []string{
 		"\x1b]11;?" + marker + "\a\x1b[c",
-		marker + "\x1b[6n",
+		marker + "\x1b[6n\x1b[c",
 		"\x1b]0;" + marker + "\a\x1b[c\x1b]11;?\a",
 		"\x1b[" + marker + "c\x1b[6" + marker + "n\x1b[c",
 		"\x1bP$q" + marker + "\x1b\\\x1b[21t\x1b[c",
 		"\x1b]11;" + marker + "?\a\x1b]11;?\x1b\\",
-		strings.Repeat(marker, 30) + "\x1b[6n",
+		strings.Repeat(marker, 30) + "\x1b[6n\x1b]11;?\a",
 	}
 
-	grammar := regexp.MustCompile(replyGrammar)
+	grammar := replyPattern()
 
 	for _, input := range inputs {
 		t.Run(input, func(t *testing.T) {
@@ -248,6 +249,7 @@ func FuzzScreenFeed(f *testing.F) {
 	}
 
 	seeds := []string{
+		cursorPositionInOriginMode,
 		"\x1b[65535;65535H\x1b[65535b\x1b[65535@\x1b[65535L\x1b[65535S",
 		"\x1b[?1049h\x1b[2;1r\x1b[?6h\x1b[99B\x1bM\x1bD\x1b[?1049l",
 		"\x1b]11;?\a\x1b[c\x1b[6n\x1b]52;c;?\a\x1bP$qm\x1b\\",
@@ -259,7 +261,7 @@ func FuzzScreenFeed(f *testing.F) {
 		f.Add([]byte(seed), uint16(5), uint16(3), uint16(7))
 	}
 
-	grammar := regexp.MustCompile(replyGrammar)
+	grammar := replyPattern()
 
 	f.Fuzz(func(t *testing.T, data []byte, columns, rows, split uint16) {
 		size := pty.Size{Columns: columns%200 + 1, Rows: rows%60 + 1}

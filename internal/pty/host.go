@@ -191,18 +191,20 @@ func (h *Host) Resize(sessionID ID, columns, rows uint16) error {
 	return nil
 }
 
-// ScreenLines is the bottom count lines of the session's screen, as Screen.Lines gives them. An
-// ended session's last screen can still be read.
-func (h *Host) ScreenLines(sessionID ID, count int) ([]string, error) {
+// ScreenLines is the bottom count lines of the session's screen, as Screen.Lines gives them,
+// and the screen's generation when they were read: a later read with the same generation would
+// read the same lines, so a caller that checked a prompt can tell whether the screen has changed
+// since. An ended session's last screen can still be read.
+func (h *Host) ScreenLines(sessionID ID, count int) ([]string, uint64, error) {
 	held, err := h.find(sessionID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	held.screenMu.Lock()
 	defer held.screenMu.Unlock()
 
-	return held.screen.Lines(count), nil
+	return held.screen.Lines(count), held.screen.Generation(), nil
 }
 
 // Live is every session the host holds, running or ended, oldest Start first.

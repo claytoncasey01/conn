@@ -13,17 +13,16 @@ const (
 // The graphic renditions (SGR) the screen reads: concealment, and the colours whose parameters
 // it must step over so that a colour of 8 is not taken for concealment.
 const (
-	renditionReset        = 0
-	renditionConceal      = 8
-	renditionReveal       = 28
-	renditionForeground   = 38
-	renditionBackground   = 48
-	renditionUnderline    = 58
-	colourIndexed         = 5
-	colourIndexedLength   = 2
-	colourDirect          = 2
-	colourDirectLength    = 4
-	cursorPositionRequest = 6
+	renditionReset      = 0
+	renditionConceal    = 8
+	renditionReveal     = 28
+	renditionForeground = 38
+	renditionBackground = 48
+	renditionUnderline  = 58
+	colourIndexed       = 5
+	colourIndexedLength = 2
+	colourDirect        = 2
+	colourDirectLength  = 4
 )
 
 // parameter is the index'th parameter, or fallback when it is absent or 0.
@@ -259,14 +258,8 @@ func (s *Screen) privateMode(mode int, set bool) {
 	case modeAutowrap:
 		s.autowrap = set
 		s.cursor.wrapPending = false
-	case modeAlternate:
-		s.onAlternate = set
-	case modeAlternateClear:
-		if !set {
-			clearGrid(s.alternate)
-		}
-
-		s.onAlternate = set
+	case modeAlternate, modeAlternateClear:
+		s.show(set)
 	case modeSaveCursor:
 		s.saveOrRestore(set)
 	case modeAlternateSaveCursor:
@@ -288,21 +281,15 @@ func (s *Screen) saveOrRestore(save bool) {
 // back to the main screen and its saved cursor.
 func (s *Screen) alternateWithCursor(set bool) {
 	if !set {
-		s.onAlternate = false
+		s.show(false)
 		s.restoreCursor()
 
 		return
 	}
 
 	s.main.saved = s.cursor
-	clearGrid(s.alternate)
-	s.onAlternate = true
-}
-
-func clearGrid(cleared grid) {
-	for _, row := range cleared.rows {
-		clear(row)
-	}
+	s.clearGrid(&s.alternate)
+	s.show(true)
 }
 
 // graphicRendition reads SGR for concealment only.

@@ -102,6 +102,27 @@ func TestScreenLinesShowWhatWasDrawn(t *testing.T) {
 			[]string{"", "x"},
 		},
 		{"nothing drawn", 10, 2, "", []string{}},
+		// C1 controls, written as UTF-8, act as ESC and a byte, as in xterm.js.
+		{"a C1 CSI acts as ESC [", 10, 2, "A\u009b2JB", []string{" B"}},
+		{"a C1 ST ends device control", 10, 2, "\x1bPq\u009cTEXT", []string{"TEXT"}},
+		{"a C1 OSC and ST", 10, 2, "\u009d0;title\u009cx", []string{"x"}},
+		{"a C1 next line", 10, 3, "a\u0085b", []string{"a", "b"}},
+		// Leaving the alternate screen clears it, as xterm.js does.
+		{
+			"leaving mode 47 clears the alternate screen", 10, 2,
+			"\x1b[?47hgone\x1b[?47l\x1b[?47h",
+			[]string{},
+		},
+		{
+			"leaving mode 1047 clears the alternate screen", 10, 2,
+			"\x1b[?1047hgone\x1b[?1047l\x1b[?47h",
+			[]string{},
+		},
+		{
+			"leaving mode 1049 clears the alternate screen", 10, 2,
+			"\x1b[?1049hgone\x1b[?1049l\x1b[?47h",
+			[]string{},
+		},
 	}
 
 	for _, tt := range tests {
@@ -341,5 +362,62 @@ func TestScrollbackNeverReachesLines(t *testing.T) {
 	got := screen.Lines(80)
 	if !slices.Equal(got, []string{"frame"}) {
 		t.Errorf("Lines on the alternate screen = %q", got)
+	}
+}
+
+func TestScreenGenerationCountsChanges(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		before  string
+		input   string
+		changed bool
+	}{
+		{"nothing", "abc", "", false},
+		{"text", "", "abc", true},
+		{"the same text again", "abc", "\x1b[1;1Habc", false},
+		{"different text in the same place", "abc", "\x1b[1;1Habd", true},
+		{"a cursor move", "abc", "\x1b[5;5H\x1b[A\r", false},
+		{"a query", "abc", "\x1b[c\x1b]11;?\a", false},
+		{"a title", "abc", "\x1b]0;title\a", false},
+		{"erasing text", "abc", "\x1b[2J", true},
+		{"erasing a blank screen", "", "\x1b[2J\x1b[K", false},
+		{"to the alternate screen", "abc", "\x1b[?1049h", true},
+		{"scrolling", "abc", "\x1b[S", true},
+		{"a reset", "abc", "\x1bc", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			screen := newScreen(t, 20, 4)
+			screen.Feed([]byte(tt.before))
+
+			before := screen.Generation()
+			screen.Feed([]byte(tt.input))
+
+			changed := screen.Generation() != before
+			if changed != tt.changed {
+				t.Errorf("changed = %v, want %v", changed, tt.changed)
+			}
+		})
+	}
+}
+
+func TestScreenGenerationChangesOnResize(t *testing.T) {
+	t.Parallel()
+
+	screen := newScreen(t, 20, 4)
+	before := screen.Generation()
+
+	err := screen.Resize(pty.Size{Columns: 30, Rows: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if screen.Generation() == before {
+		t.Error("a resize did not change the generation")
 	}
 }

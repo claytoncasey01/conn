@@ -16,15 +16,24 @@ import (
 // as if it were on it. Memory is fixed by the size, at most cellsMax cells a screen, whatever
 // the output: every count, move and repeat in it is clamped to the screen.
 //
+// Cost: feeding allocates nothing (only NewScreen and Resize do), and no sequence costs more
+// than one line of cells plus one pass over the rows: each row knows whether anything is drawn
+// in it, so clearing a screen touches only the rows that hold text, scrolling moves rows rather
+// than cells, a repeat fills cells directly, and an edit repairs a split wide character only at
+// its two ends. On the largest screen, 1000 by 262, one chunk of output (readBufferBytes) of the
+// worst sequences costs at most about 6 ms; internal/pty/costtest holds every chunk to 20 ms.
+//
 // It reads what Claude Code and programs like it send: UTF-8 text, wide characters, the C0
-// controls, cursor addressing and movement, erasing, inserting and deleting characters and
-// lines, scrolling and scroll regions, saving the cursor, origin mode, autowrap, the alternate
-// screen, the DEC line-drawing character set and concealed text. Colours and other attributes
-// are not kept: only the text matters to the readers of Lines. Operating system commands, device
-// control and application strings are consumed and never drawn. Every sequence it does not
-// know is skipped whole. Known differences from xterm.js: no tab stops other than every eighth
-// column, no insert mode, no left and right margins, combining marks and joiners are dropped
-// rather than joined to the character before them, and the width table is a short one.
+// controls, C1 controls written as UTF-8 (each acts as ESC and a byte, as in xterm.js), cursor
+// addressing and movement, erasing, inserting and deleting characters and lines, scrolling and
+// scroll regions, saving the cursor, origin mode, autowrap, the alternate screen (cleared when the
+// program leaves it, as in xterm.js), the DEC line-drawing character set and concealed text.
+// Colours and other attributes are not kept: only the text matters to the readers of Lines.
+// Operating system commands, device control and application strings are consumed and never
+// drawn. Every sequence it does not know is skipped whole. Known differences from xterm.js: no tab
+// stops other than every eighth column, no insert mode, no left and right margins, combining marks
+// and joiners are dropped rather than joined to the character before them, and the width table is
+// a short one.
 type Screen struct {
 	// size is the screen's size; columns and rows are it as ints, set with it.
 	size    Size
@@ -46,17 +55,28 @@ type Screen struct {
 	parser      parser
 	// queries are the queries the host answers, oldest first, at most queriesPendingMax.
 	queries []Query
+	// generation counts the Feeds and Resizes that changed what is shown; changed says the Feed
+	// in progress has.
+	generation uint64
+	changed    bool
 	// The tables a screen reads, built once when it is made.
 	wide     []runeRange
 	graphics [graphicsCount]rune
 	answered []queryRow
 }
 
-// grid is one screen: rows of cells, each row a slice of one backing array, so scrolling moves
-// rows, not cells. A cell is the character drawn in it, cellEmpty or cellWideTail.
+// grid is one screen: its rows, and the cursor DECSC saved on it.
 type grid struct {
-	rows  [][]rune
+	rows  []line
 	saved cursorState
+}
+
+// line is one row of cells, a slice of the grid's one backing array, so scrolling moves rows, not
+// cells. A cell is the character drawn in it, cellEmpty or cellWideTail. written is false only
+// while every cell is empty, so clearing a blank row costs nothing.
+type line struct {
+	cells   []rune
+	written bool
 }
 
 // cursorState is where the cursor is and what is drawn with it: what DECSC saves.
@@ -95,6 +115,7 @@ func NewScreen(size Size) (*Screen, error) {
 		main: newGrid(columns, rows), alternate: newGrid(columns, rows), onAlternate: false,
 		cursor: cursorState{}, top: 0, bottom: rows - 1, autowrap: true, origin: false,
 		lastPrinted: cellEmpty, parser: parser{}, queries: make([]Query, 0, queriesPendingMax),
+		generation: 0, changed: false,
 		wide: wideRanges(), graphics: lineDrawing(), answered: answeredQueries(),
 	}
 
@@ -130,11 +151,11 @@ func checkSize(size Size) error {
 
 func newGrid(columns, rows int) grid {
 	cells := make([]rune, columns*rows)
-	lines := make([][]rune, rows)
+	lines := make([]line, rows)
 
 	for index := range lines {
 		start := index * columns
-		lines[index] = cells[start : start+columns : start+columns]
+		lines[index] = line{cells: cells[start : start+columns : start+columns], written: false}
 	}
 
 	return grid{rows: lines, saved: cursorState{}}
@@ -158,19 +179,7 @@ func (s *Screen) Lines(count int) []string {
 	builder.Grow(s.columns)
 
 	for _, row := range shown[first:] {
-		builder.Reset()
-
-		for _, cell := range row {
-			switch cell {
-			case cellWideTail:
-			case cellEmpty:
-				builder.WriteByte(' ')
-			default:
-				builder.WriteRune(cell)
-			}
-		}
-
-		lines = append(lines, strings.TrimRight(builder.String(), " "))
+		lines = append(lines, rowText(&builder, row))
 	}
 
 	end := len(lines)
@@ -185,11 +194,38 @@ func (s *Screen) Lines(count int) []string {
 	return lines[:end]
 }
 
+// rowText is one row as Lines gives it, built in builder.
+func rowText(builder *strings.Builder, row line) string {
+	if !row.written {
+		return ""
+	}
+
+	builder.Reset()
+
+	for _, cell := range row.cells {
+		switch cell {
+		case cellWideTail:
+		case cellEmpty:
+			builder.WriteByte(' ')
+		default:
+			builder.WriteRune(cell)
+		}
+	}
+
+	return strings.TrimRight(builder.String(), " ")
+}
+
 // Cursor is the cursor's row and column, from 0 at the top left.
 func (s *Screen) Cursor() (int, int) { return s.cursor.row, s.cursor.column }
 
 // Size is the screen's size.
 func (s *Screen) Size() Size { return s.size }
+
+// Generation counts the changes to what the screen shows: it goes up with every Feed that
+// changes a cell or which screen is shown, and with every Resize, and never otherwise. Moving
+// the cursor, a query or a title is no change. Two reads with the same generation read the same
+// lines.
+func (s *Screen) Generation() uint64 { return s.generation }
 
 // Queries takes the queries noted since the last call, oldest first.
 func (s *Screen) Queries() []Query {
@@ -215,35 +251,34 @@ func (s *Screen) Resize(size Size) error {
 	columns, rows := int(size.Columns), int(size.Rows)
 	shift := max(s.cursor.row-(rows-1), 0)
 
-	s.main = resized(s.main, columns, rows, shift)
-	s.alternate = resized(s.alternate, columns, rows, shift)
+	s.main = s.resized(s.main, columns, rows, shift)
+	s.alternate = s.resized(s.alternate, columns, rows, shift)
 	s.size, s.columns, s.rows = size, columns, rows
 	s.top, s.bottom = 0, rows-1
 	s.cursor = s.clamped(s.cursor, shift)
 	s.main.saved = s.clamped(s.main.saved, shift)
 	s.alternate.saved = s.clamped(s.alternate.saved, shift)
-
-	for _, row := range s.main.rows {
-		s.repairRow(row)
-	}
-
-	for _, row := range s.alternate.rows {
-		s.repairRow(row)
-	}
+	s.generation++
 
 	return nil
 }
 
-// resized is old at columns by rows, its rows from shift down.
-func resized(old grid, columns, rows, shift int) grid {
+// resized is old at columns by rows, its rows from shift down, a wide character cut in two at
+// the right edge blanked.
+func (s *Screen) resized(old grid, columns, rows, shift int) grid {
 	fresh := newGrid(columns, rows)
 	fresh.saved = old.saved
 
-	for index, row := range fresh.rows {
+	for index := range fresh.rows {
 		source := index + shift
-		if source < len(old.rows) {
-			copy(row, old.rows[source])
+		if source >= len(old.rows) {
+			continue
 		}
+
+		row := &fresh.rows[index]
+		copy(row.cells, old.rows[source].cells)
+		row.written = old.rows[source].written
+		s.repairAt(row.cells, columns)
 	}
 
 	return fresh
@@ -267,14 +302,32 @@ func (s *Screen) shown() *grid {
 	return &s.main
 }
 
-// reset is RIS: everything as a new screen has it, the queries still waiting kept.
+// reset is RIS: everything as a new screen has it, cleared in place, the queries still waiting
+// kept.
 func (s *Screen) reset() {
-	s.main = newGrid(s.columns, s.rows)
-	s.alternate = newGrid(s.columns, s.rows)
-	s.onAlternate = false
+	s.clearGrid(&s.main)
+	s.clearGrid(&s.alternate)
+	s.main.saved = cursorState{}
+	s.alternate.saved = cursorState{}
+	s.show(false)
 	s.cursor = cursorState{}
 	s.top, s.bottom = 0, s.rows-1
 	s.autowrap = true
 	s.origin = false
 	s.lastPrinted = cellEmpty
+}
+
+// show shows the alternate screen or the main one. Leaving the alternate screen clears it, as
+// xterm.js does.
+func (s *Screen) show(alternate bool) {
+	if s.onAlternate == alternate {
+		return
+	}
+
+	if !alternate {
+		s.clearGrid(&s.alternate)
+	}
+
+	s.onAlternate = alternate
+	s.changed = true
 }

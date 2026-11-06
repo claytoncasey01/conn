@@ -13,6 +13,7 @@ import (
 
 	"github.com/claytoncasey01/conn/internal/ask"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/pty"
 )
 
 // readScreenLines is how many lines the sessions code reads, as `cmux read-screen --lines 80`.
@@ -21,7 +22,7 @@ const readScreenLines = 80
 // drawnColumns is the width of the screen recorded screens are drawn on, and drawnWidthMax the
 // widest line drawn on it, every character counted as two cells.
 const (
-	drawnColumns  = 500
+	drawnColumns  = pty.ColumnsMax
 	drawnWidthMax = drawnColumns / 2
 )
 
@@ -129,47 +130,111 @@ func drawn(lines []string) []byte {
 	return []byte(stream.String())
 }
 
+// Why a recorded screen is not drawn and compared: a terminal cannot reproduce its text.
+const (
+	skipCarriageReturn = "a carriage return"
+	skipTab            = "a tab"
+	skipSeparator      = "a line or paragraph separator"
+	skipBidi           = "a bidirectional control"
+	skipOther          = "another control or a character drawn in no cell"
+	skipSize           = "more than 80 lines or a line too wide"
+)
+
+// skipReason is why text cannot be drawn exactly, or "" when it can.
+func skipReason(text string) string {
+	switch {
+	case strings.ContainsRune(text, '\r'):
+		return skipCarriageReturn
+	case strings.ContainsRune(text, '\t'):
+		return skipTab
+	case strings.ContainsFunc(text, separator):
+		return skipSeparator
+	case strings.ContainsFunc(text, bidiControl):
+		return skipBidi
+	case !drawable(text):
+		return skipOther
+	case !fits(strings.Split(text, "\n")):
+		return skipSize
+	}
+
+	return ""
+}
+
+func separator(char rune) bool { return unicode.In(char, unicode.Zl, unicode.Zp) }
+
+// bidiControl is one of the characters that reorder text (U+202A to U+202E, U+2066 to U+2069).
+func bidiControl(char rune) bool {
+	if char >= '\u202a' {
+		if char <= '\u202e' {
+			return true
+		}
+	}
+
+	if char >= '\u2066' {
+		return char <= '\u2069'
+	}
+
+	return false
+}
+
+// modelText is text drawn by a full-screen program and read back through the model, as the
+// sessions code reads a screen.
+func modelText(t *testing.T, text string) string {
+	t.Helper()
+
+	// A screen taller than the text shows it at the top with blank rows below, which Lines
+	// drops.
+	screen := newScreen(t, drawnColumns, readScreenLines)
+	screen.Feed(drawn(strings.Split(text, "\n")))
+
+	return ask.ScreenText(screen.Lines(readScreenLines))
+}
+
+// parsed is Parse's ask as a value to compare with a recording: nil when there is none.
+func parsed(screen string, stamp float64) any {
+	found := ask.Parse(screen, stamp)
+	if found == nil {
+		return nil
+	}
+
+	return found
+}
+
 // TestScreenReadsRecordedAsksAlike draws every recorded screen the way a full-screen program
 // would and reads it back through the model: Parse, Unread and PromptState read the same from
-// the model's lines as they did from the recorded text.
+// the model's lines as they did from the recorded text. A screen a terminal cannot draw exactly
+// is counted by why; one with bidirectional controls is drawn without them (the model draws
+// them in no cell) and must still parse to the same ask.
 func TestScreenReadsRecordedAsksAlike(t *testing.T) {
 	t.Parallel()
 
-	compared, skipped := 0, 0
+	compared, comparedWithoutBidi := 0, 0
+	skipped := map[string]int{}
 
 	for index, row := range recordedAsks(t) {
 		text, _ := field(row, "screen").(string)
 		stamp, _ := field(row, "stamp").(float64)
-		lines := strings.Split(text, "\n")
 
-		if !drawable(text) {
-			skipped++
+		reason := skipReason(text)
+		if reason == skipBidi {
+			if checkWithoutBidi(t, index, text, stamp, field(row, "parse")) {
+				comparedWithoutBidi++
+			}
+		}
+
+		if reason != "" {
+			skipped[reason]++
 
 			continue
 		}
 
-		if !fits(lines) {
-			skipped++
-
-			continue
-		}
-
-		// A screen taller than the text shows it at the top with blank rows below, which
-		// Lines drops.
-		screen := newScreen(t, drawnColumns, readScreenLines)
-		screen.Feed(drawn(lines))
-
-		modelled := ask.ScreenText(screen.Lines(readScreenLines))
+		modelled := modelText(t, text)
 		compared++
 
-		var parsed any
-		if found := ask.Parse(modelled, stamp); found != nil {
-			parsed = found
-		}
-
-		if !sameJSON(t, parsed, field(row, "parse")) {
+		if !sameJSON(t, parsed(modelled, stamp), field(row, "parse")) {
 			t.Errorf("case %d Parse\n got  %s\n want %s\n text %q\n model %q", index,
-				js.Marshal(parsed), js.Stringify(field(row, "parse")), text, modelled)
+				js.Marshal(parsed(modelled, stamp)), js.Stringify(field(row, "parse")), text,
+				modelled)
 		}
 
 		if !sameJSON(t, ask.Unread(modelled, stamp), field(row, "unread")) {
@@ -182,12 +247,42 @@ func TestScreenReadsRecordedAsksAlike(t *testing.T) {
 		}
 	}
 
-	if compared == 0 {
-		t.Fatal("no recorded screen was compared")
+	if compared < recordedComparedMin {
+		t.Fatalf("compared %d recorded screens, want at least %d", compared, recordedComparedMin)
 	}
 
-	t.Logf("compared %d recorded screens, skipped %d a terminal cannot draw exactly", compared,
-		skipped)
+	t.Logf("compared %d recorded screens, and %d without their bidirectional controls; "+
+		"not drawn as recorded, by reason: %v", compared, comparedWithoutBidi, skipped)
+}
+
+// recordedComparedMin is how many recorded screens must be compared, so a change that skips
+// more of them fails.
+const recordedComparedMin = 1393
+
+// checkWithoutBidi draws text without its bidirectional controls and checks it parses to the
+// recorded ask, saying whether it could be drawn to check.
+func checkWithoutBidi(t *testing.T, index int, text string, stamp float64, want any) bool {
+	t.Helper()
+
+	stripped := strings.Map(func(char rune) rune {
+		if bidiControl(char) {
+			return -1
+		}
+
+		return char
+	}, text)
+
+	if skipReason(stripped) != "" {
+		return false
+	}
+
+	modelled := modelText(t, stripped)
+	if !sameJSON(t, parsed(modelled, stamp), want) {
+		t.Errorf("case %d without its bidirectional controls, Parse\n got  %s\n want %s", index,
+			js.Marshal(parsed(modelled, stamp)), js.Stringify(want))
+	}
+
+	return true
 }
 
 // TestScreenReadsCapturedClaudePrompts feeds the bytes a real Claude Code wrote while it asked

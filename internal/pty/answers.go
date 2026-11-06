@@ -1,9 +1,6 @@
 package pty
 
-import (
-	"fmt"
-	"strconv"
-)
+import "fmt"
 
 // Who answers a program's terminal queries: the host, never the page. A session runs with no
 // viewer at all (started by Conn, or resumed at launch), so only the host is always there; up to
@@ -12,13 +9,15 @@ import (
 // the program's input. So the host answers each query once, as the output is read, and the
 // page's terminal answers nothing.
 //
-// What it answers is fixed, below. A reply is built from fixed bytes and numbers the host
-// computes (the cursor's row and column, the background's red, green and blue), never from text
-// in the program's output. Every other query, the terminal's version, the kitty keyboard flags,
-// title and window reports, setting and mode reports (DECRQSS, DECRQM), the clipboard (OSC 52)
-// and the other colours among them, gets no answer, as from a terminal that does not support it.
-// Device attributes are what Claude Code waits for: their answer tells it, at once, that the
-// queries it sent before them are not supported.
+// What it answers is fixed, below: device attributes and the background colour, nothing else. A
+// reply is fixed bytes and the background's red, green and blue as hex digits, never text from
+// the program's output. Every other query, the cursor position, the terminal's version, the
+// kitty keyboard flags, title and window reports, setting and mode reports (DECRQSS, DECRQM), the
+// clipboard (OSC 52) and the other colours among them, gets no answer, as from a terminal that
+// does not support it. Device attributes are what Claude Code waits for: their answer tells it,
+// at once, that the queries it sent before them are not supported. It never asks for the cursor
+// position (captured start-ups), and a cursor position reply is two numbers the program chooses
+// by where it puts the cursor, which can spell a key: ESC [ 1 ; 5 R is Ctrl+F3.
 
 const (
 	// queriesPendingMax bounds the queries a screen keeps between two Queries calls: the host
@@ -43,18 +42,13 @@ type QueryKind int
 const (
 	// QueryDeviceAttributes is primary device attributes (DA1, CSI c).
 	QueryDeviceAttributes QueryKind = iota + 1
-	// QueryCursorPosition is a cursor position report (CPR, CSI 6 n).
-	QueryCursorPosition
 	// QueryBackground is the background colour (OSC 11 ; ?).
 	QueryBackground
 )
 
-// Query is one query a program sent. Row and Column are where the cursor was when it asked, from
-// 0, for a cursor position report, and 0 for the others.
+// Query is one query a program sent.
 type Query struct {
-	Kind   QueryKind
-	Row    int
-	Column int
+	Kind QueryKind
 }
 
 // RGB is a colour, 0 to 255 a channel.
@@ -84,7 +78,6 @@ type queryRow struct {
 func answeredQueries() []queryRow {
 	return []queryRow{
 		{kind: QueryDeviceAttributes, final: 'c', parameter: 0, osc: ""},
-		{kind: QueryCursorPosition, final: 'n', parameter: cursorPositionRequest, osc: ""},
 		{kind: QueryBackground, final: 0, parameter: 0, osc: backgroundQuery},
 	}
 }
@@ -95,10 +88,6 @@ func Reply(answers Answers, query Query) []byte {
 	switch query.Kind {
 	case QueryDeviceAttributes:
 		return []byte(deviceAttributesReply)
-	case QueryCursorPosition:
-		reply := "\x1b[" + strconv.Itoa(query.Row+1) + ";" + strconv.Itoa(query.Column+1) + "R"
-
-		return []byte(reply)
 	case QueryBackground:
 		colour := answers.Background
 		reply := fmt.Sprintf("\x1b]11;rgb:%02x%02x/%02x%02x/%02x%02x"+stringTerminator,
@@ -159,23 +148,11 @@ func (s *Screen) oscDispatch() {
 	}
 }
 
-// note keeps a query of kind, with the cursor's position for a cursor position report (counted
-// from the region's top in origin mode), unless queriesPendingMax are already waiting.
+// note keeps a query of kind, unless queriesPendingMax are already waiting.
 func (s *Screen) note(kind QueryKind) {
 	if len(s.queries) == queriesPendingMax {
 		return
 	}
 
-	query := Query{Kind: kind, Row: 0, Column: 0}
-
-	if kind == QueryCursorPosition {
-		query.Row = s.cursor.row
-		if s.origin {
-			query.Row -= s.top
-		}
-
-		query.Column = s.cursor.column
-	}
-
-	s.queries = append(s.queries, query)
+	s.queries = append(s.queries, Query{Kind: kind})
 }

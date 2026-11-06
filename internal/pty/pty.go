@@ -39,10 +39,15 @@
 // multiplexer's or editor's (TMUX, STY, NVIM, ...: their control sockets), and a parent Claude Code
 // session's (CLAUDECODE, its session ids, messaging socket and token, bridge and host variables:
 // set when Conn itself runs inside Claude Code, they would make a hosted claude that session's
-// child and hand it that session's tokens). The person's own settings, ANTHROPIC_*,
+// child and hand it that session's tokens), and a parent's trust, permission, sandbox and
+// managed-policy handoffs (CLAUDE_CODE_IGNORE_PERSISTED_TRUST,
+// CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS, the relaunch variables, ...: a hosted
+// session makes its own and asks the person). The person's own settings, ANTHROPIC_*,
 // CLAUDE_CONFIG_DIR, CLAUDE_CODE_OAUTH_TOKEN and the provider switches among them, are kept. TERM
 // and COLORTERM are then set to the hosted terminal's own. To change what is dropped, edit the
-// tables in env.go: deniedNames, deniedPrefixes, and keptNames for an exception to a prefix.
+// tables in env.go, each of which lists its entries in its doc comment as well (a test keeps the
+// two the same): the groups of deniedNames, deniedPrefixes, and keptNames for an exception to a
+// prefix.
 //
 // Descriptors: every descriptor this package opens is close-on-exec, and so is every file and
 // socket Go's os and net packages open, so a program inherits only its terminal. A descriptor
@@ -57,12 +62,12 @@
 // app and no viewer. It keeps the live screen only, never the scrollback, and is bounded by the
 // terminal's size, at most cellsMax cells a screen.
 //
-// Terminal queries: the host, not a viewer, answers the few queries in its fixed table (device
-// attributes, the cursor position and the background colour, the last from Config.Answers), once
-// each, as the output is read; answers.go says why. Each reply is fixed bytes and numbers, never
-// text from the output. The reader queues replies, at most answersQueuedMax, dropping the rest,
-// and the session's answerer types them in turn with the viewers' input, so the reader never
-// waits for a program to read its input.
+// Terminal queries: the host, not a viewer, answers the two queries in its fixed table (device
+// attributes, and the background colour from Config.Answers), once each, as the output is read;
+// answers.go says why. Each reply is fixed bytes and hex digits, never text from the output. The
+// reader queues replies, at most answersQueuedMax, dropping the rest, and the session's
+// answerer types them in turn with the viewers' input, so the reader never waits for a program to
+// read its input.
 //
 // One platform limit: when a program on a terminal exits, macOS hangs the terminal up and throws
 // away whatever it printed that had not been read yet. The reader reads all the time, so this

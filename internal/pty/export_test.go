@@ -15,6 +15,7 @@ const (
 	RowsMax             = rowsMax
 	QueriesPendingMax   = queriesPendingMax
 	AnswersQueuedMax    = answersQueuedMax
+	CellsMax            = cellsMax
 )
 
 // DeniedNames and DeniedPrefixes are the deny tables, so a test can try every entry.

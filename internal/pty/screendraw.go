@@ -33,7 +33,12 @@ func (s *Screen) print(char rune) {
 	}
 
 	s.draw(char, width)
+	s.advance(width)
+}
 
+// advance moves the cursor past width cells just drawn, holding it on the last column with a
+// wrap pending when it reaches the end of the line.
+func (s *Screen) advance(width int) {
 	s.cursor.column += width
 	if s.cursor.column >= s.columns {
 		s.cursor.column = s.columns - 1
@@ -66,79 +71,110 @@ func (s *Screen) makeRoomForWide() {
 
 // draw puts char, width cells wide, at the cursor. Concealed text is drawn as blanks.
 func (s *Screen) draw(char rune, width int) {
-	row := s.shown().rows[s.cursor.row]
+	row := s.cursorLine()
 	column := s.cursor.column
 
 	if s.cursor.concealed {
 		for offset := range width {
-			put(row, column+offset, ' ')
+			s.put(row, column+offset, ' ')
 		}
 
 		return
 	}
 
-	put(row, column, char)
+	s.put(row, column, char)
 
 	if width == wideWidth {
-		put(row, column+1, cellWideTail)
+		s.put(row, column+1, cellWideTail)
 	}
 }
+
+// cursorLine is the row the cursor is on.
+func (s *Screen) cursorLine() *line { return &s.shown().rows[s.cursor.row] }
 
 // put sets one cell, blanking the other half of any wide character it cuts in two.
-func put(row []rune, column int, char rune) {
-	if row[column] == cellWideTail {
+func (s *Screen) put(row *line, column int, char rune) {
+	cells := row.cells
+	if cells[column] == char {
+		return
+	}
+
+	if cells[column] == cellWideTail {
 		if column > 0 {
-			row[column-1] = cellEmpty
+			cells[column-1] = cellEmpty
 		}
 	}
 
-	if column+1 < len(row) {
-		if row[column+1] == cellWideTail {
-			row[column+1] = cellEmpty
+	if column+1 < len(cells) {
+		if cells[column+1] == cellWideTail {
+			cells[column+1] = cellEmpty
 		}
 	}
 
-	row[column] = char
+	cells[column] = char
+	row.written = true
+	s.changed = true
 }
 
-// repairRow blanks each half of a wide character whose other half an edit removed.
-func (s *Screen) repairRow(row []rune) {
-	for column, cell := range row {
-		if cell == cellWideTail {
-			if !s.wideHead(row, column-1) {
-				row[column] = cellEmpty
+// fill sets the cells of row from start up to end to char, one cell wide, repairing a wide
+// character either end cut in two.
+func (s *Screen) fill(row *line, start, end int, char rune) {
+	if start >= end {
+		return
+	}
+
+	cells := row.cells
+	for column := start; column < end; column++ {
+		cells[column] = char
+	}
+
+	row.written = true
+	s.changed = true
+	s.repairAt(cells, start)
+	s.repairAt(cells, end)
+}
+
+// repairAt blanks a wide character the boundary before column cuts in two: a right half at
+// column whose left half is gone, or a left half before column whose right half is gone.
+func (s *Screen) repairAt(cells []rune, column int) {
+	if column < len(cells) {
+		if cells[column] == cellWideTail {
+			if !s.wideHead(cells, column-1) {
+				cells[column] = cellEmpty
 			}
-
-			continue
 		}
+	}
 
-		if s.width(cell) != wideWidth {
-			continue
-		}
+	if !s.wideHead(cells, column-1) {
+		return
+	}
 
-		if column+1 >= len(row) {
-			row[column] = cellEmpty
+	if column >= len(cells) {
+		cells[column-1] = cellEmpty
 
-			continue
-		}
+		return
+	}
 
-		if row[column+1] != cellWideTail {
-			row[column] = cellEmpty
-		}
+	if cells[column] != cellWideTail {
+		cells[column-1] = cellEmpty
 	}
 }
 
 // wideHead says whether the cell at column holds a wide character.
-func (s *Screen) wideHead(row []rune, column int) bool {
+func (s *Screen) wideHead(cells []rune, column int) bool {
 	if column < 0 {
 		return false
 	}
 
-	if row[column] == cellWideTail {
+	if column >= len(cells) {
 		return false
 	}
 
-	return s.width(row[column]) == wideWidth
+	if cells[column] == cellWideTail {
+		return false
+	}
+
+	return s.width(cells[column]) == wideWidth
 }
 
 // width is how many cells char takes: 0 for controls and characters drawn in no cell of their
@@ -237,31 +273,83 @@ func (s *Screen) scrollDown(count int) {
 }
 
 // rotateUp moves rows up count and blanks the count rows that come in at the bottom.
-func (s *Screen) rotateUp(rows [][]rune, count int) {
+func (s *Screen) rotateUp(rows []line, count int) {
 	count = min(count, len(rows))
+	if !s.anyWritten(rows) {
+		return
+	}
+
 	slices.Reverse(rows[:count])
 	slices.Reverse(rows[count:])
 	slices.Reverse(rows)
 
-	for _, row := range rows[len(rows)-count:] {
-		clear(row)
+	for index := len(rows) - count; index < len(rows); index++ {
+		s.clearLine(&rows[index])
 	}
+
+	s.changed = true
 }
 
 // rotateDown moves rows down count and blanks the count rows that come in at the top.
-func (s *Screen) rotateDown(rows [][]rune, count int) {
+func (s *Screen) rotateDown(rows []line, count int) {
 	count = min(count, len(rows))
+	if !s.anyWritten(rows) {
+		return
+	}
+
 	slices.Reverse(rows)
 	slices.Reverse(rows[:count])
 	slices.Reverse(rows[count:])
 
-	for _, row := range rows[:count] {
-		clear(row)
+	for index := range count {
+		s.clearLine(&rows[index])
 	}
+
+	s.changed = true
+}
+
+// anyWritten says whether any of rows holds text: moving blank rows changes nothing.
+func (s *Screen) anyWritten(rows []line) bool {
+	for _, row := range rows {
+		if row.written {
+			return true
+		}
+	}
+
+	return false
 }
 
 // eraseCells blanks the cells of row from start up to end.
-func (s *Screen) eraseCells(row []rune, start, end int) {
-	clear(row[start:end])
-	s.repairRow(row)
+func (s *Screen) eraseCells(row *line, start, end int) {
+	if !row.written {
+		return
+	}
+
+	if start >= end {
+		return
+	}
+
+	clear(row.cells[start:end])
+
+	s.changed = true
+	s.repairAt(row.cells, start)
+	s.repairAt(row.cells, end)
+}
+
+// clearLine blanks a whole row.
+func (s *Screen) clearLine(row *line) {
+	if !row.written {
+		return
+	}
+
+	clear(row.cells)
+	row.written = false
+	s.changed = true
+}
+
+// clearGrid blanks every row of a screen, in place.
+func (s *Screen) clearGrid(cleared *grid) {
+	for index := range cleared.rows {
+		s.clearLine(&cleared.rows[index])
+	}
 }

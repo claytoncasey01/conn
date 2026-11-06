@@ -204,3 +204,66 @@ func TestStartNeverPassesADeniedVariable(t *testing.T) {
 		t.Fatalf("the program got the variables %q", names)
 	}
 }
+
+// One row a variable that hands a parent session's trust, permissions, policy or relaunch to the
+// programs it runs, and the person's own settings beside them that stay.
+func TestChildEnvDropsAParentsHandoffs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		kept bool
+	}{
+		{"CLAUDE_CODE_IGNORE_PERSISTED_TRUST", false},
+		{"CLAUDE_CODE_RELAUNCH_HOME_TRUST", false},
+		{"CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS", false},
+		{"CLAUDE_CODE_DISABLE_INLINE_SHELL_RM_PROMPT", false},
+		{"CLAUDE_CODE_DISABLE_MOUNTED_DRIVE_RM_PROMPT", false},
+		{"CLAUDE_CODE_DISABLE_SUBSTITUTION_RM_PROMPT", false},
+		{"CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT", false},
+		{"CLAUDE_CODE_DISABLE_ULTRAREVIEW_TRUST_CHECK", false},
+		{"CLAUDE_CODE_MANAGED_SETTINGS_PATH", false},
+		{"CLAUDE_CODE_DISABLE_ADMIN_ENV_UNION", false},
+		{"CLAUDE_CODE_DISABLE_POLICY_SKILLS", false},
+		{"CLAUDE_CODE_SANDBOXED", false},
+		{"CLAUDE_RELAUNCH_SESSION_ADD_DIRS", false},
+		{"CLAUDE_CODE_RELAUNCH_RESUME_HINT_FLAGS", false},
+		{"CLAUDE_CODE_RELAUNCH_PROACTIVITY_LEVEL", false},
+		{"CLAUDE_PTY_HOST_EXEC", false},
+		{"CLAUDE_PTY_HOST_NO_STABLE_PATH", false},
+		{"CLAUDE_CODE_AGENT", false},
+		{"CLAUDE_CODE_REMOTE_TOOLS_HOST_ALLOWS_UNATTENDED", false},
+		{"CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST", false},
+		{"CLAUDE_CODE_AUTO_MODE_EXTERNAL_PERMISSIONS", false},
+		{"CLAUDE_CHROME_PERMISSION_MODE", false},
+		{"CLAUDE_BG_WORKSPACE_TRUSTED", false},
+		{"CLAUDE_BG_SESSION_PERMISSION_RULES", false},
+		{"CLAUDE_RUNNER_TRUST_CANONICAL_PREWARM", false},
+		{"CLAUDE_RUNNER_SKIP_GIT_VERIFY", false},
+		{"CLAUDE_CODE_EVAL_ALLOW_FLAG_OVERRIDES", false},
+		{"CLAUDE_CODE_TEST_ALLOW_REAL_NETWORK", false},
+		{"CLAUDE_TEST_SANDBOX", false},
+		{"CLAUDE_CODE_SPAWNED_BY_SERVER", false},
+		{"CLAUDE_PLUGIN_ROOT", false},
+		{"CLAUDE_CODE_WORKER_EPOCH", false},
+		{"CLAUDE_TRUSTED_DEVICE_TOKEN", true},
+		{"CLAUDE_AGENT", true},
+		{"CLAUDE_CODE_REMOTE_TOOLS_POLICY", true},
+		{"CLAUDE_CODE_REMOTE_TOOLS_SERVE", true},
+		{"CLAUDE_CODE_STRICT_INLINE_SHELL_RM_PROMPT", true},
+		{"CLAUDE_CODE_SKIP_BEDROCK_AUTH", true},
+		{"CLAUDE_CODE_SANDBOX_LEAVE_PARENT_FOLDERS_ALONE", true},
+		{"CLAUDE_CODE_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := slices.Contains(pty.ChildEnv([]string{tt.name + "=1"}), tt.name+"=1")
+			if got != tt.kept {
+				t.Errorf("kept = %v, want %v", got, tt.kept)
+			}
+		})
+	}
+}

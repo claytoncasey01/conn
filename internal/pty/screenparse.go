@@ -18,7 +18,12 @@ const (
 
 // The UTF-8 bytes that start or continue a character: continuation bytes are below
 // continuationEnd, and a character of more than one byte starts with leadingFirst to leadingLast.
+//
+// c1Finals are the bytes that follow ESC in the 7-bit form of each C1 control, U+0080 on, and
+// oscOtherByte stands in an OSC for a character beyond ASCII, which no query has.
 const (
+	c1Finals        = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_"
+	oscOtherByte    = 0xff
 	continuationEnd = 0xc0
 	leadingFirst    = 0xc2
 	leadingLast     = 0xf4
@@ -80,16 +85,70 @@ type parser struct {
 	oscOverflow bool
 }
 
-// Feed reads the program's output. It never fails and never writes anything back: bytes it does
-// not understand are skipped.
+// Feed reads the program's output. It never fails, never allocates and never writes anything
+// back: bytes it does not understand are skipped.
 func (s *Screen) Feed(data []byte) {
+	s.changed = false
+
 	for _, current := range data {
-		s.step(current)
+		s.decode(current)
+	}
+
+	if s.changed {
+		s.generation++
 	}
 }
 
-// step reads one byte.
-func (s *Screen) step(current byte) {
+// decode reads one byte of UTF-8, stepping the parser by each whole character. A character cut
+// short, or a byte that starts none, is a replacement character.
+func (s *Screen) decode(current byte) {
+	if s.parser.utf8Count > 0 {
+		if continuation(current) {
+			s.continueCharacter(current)
+
+			return
+		}
+
+		s.parser.utf8Count = 0
+		s.step(utf8.RuneError)
+	}
+
+	switch {
+	case current < utf8.RuneSelf:
+		s.stepASCII(current)
+	case leading(current):
+		s.parser.utf8[0] = current
+		s.parser.utf8Count = 1
+	default:
+		s.step(utf8.RuneError)
+	}
+}
+
+// step reads one character beyond ASCII. A C1 control (U+0080 to U+009F) acts as ESC and the
+// byte 0x40 below it, as xterm.js has it: U+009B is CSI, U+009D OSC, U+009C ST.
+func (s *Screen) step(char rune) {
+	if char < c1End {
+		s.stepASCII(controlEscape)
+		s.stepASCII(c1Finals[char-utf8.RuneSelf])
+
+		return
+	}
+
+	switch s.parser.state {
+	case stateGround:
+		s.print(char)
+	case stateCSI:
+		s.parser.ignoring = true
+	case stateOSC:
+		s.collectOSC(oscOtherByte)
+	case stateString:
+	case stateEscape, stateEscapeIntermediate:
+		s.parser.state = stateGround
+	}
+}
+
+// stepASCII reads one ASCII byte.
+func (s *Screen) stepASCII(current byte) {
 	switch s.parser.state {
 	case stateGround:
 		s.ground(current)
@@ -106,31 +165,13 @@ func (s *Screen) step(current byte) {
 	}
 }
 
-// ground reads text and C0 controls.
+// ground reads ASCII text and C0 controls.
 func (s *Screen) ground(current byte) {
-	if s.parser.utf8Count > 0 {
-		if continuation(current) {
-			s.continueCharacter(current)
-
-			return
-		}
-
-		// A character cut short by something else is a replacement character.
-		s.parser.utf8Count = 0
-		s.print(utf8.RuneError)
-	}
-
 	switch {
 	case current < ' ':
 		s.execute(current)
 	case current < asciiDelete:
 		s.print(rune(current))
-	case current == asciiDelete:
-	case leading(current):
-		s.parser.utf8[0] = current
-		s.parser.utf8Count = 1
-	default:
-		s.print(utf8.RuneError)
 	}
 }
 
@@ -146,7 +187,7 @@ func (s *Screen) continueCharacter(current byte) {
 
 	char, _ := utf8.DecodeRune(pending)
 	s.parser.utf8Count = 0
-	s.print(char)
+	s.step(char)
 }
 
 // continuation says whether a byte continues a UTF-8 character.
@@ -191,9 +232,8 @@ func (s *Screen) execute(control byte) {
 	}
 }
 
-// beginEscape starts an escape sequence, abandoning any character or sequence in progress.
+// beginEscape starts an escape sequence, abandoning any sequence in progress.
 func (s *Screen) beginEscape() {
-	s.parser.utf8Count = 0
 	s.parser.state = stateEscape
 	s.parser.escapeIntermediate = 0
 }
@@ -402,15 +442,20 @@ func (s *Screen) operatingSystemCommand(current byte) {
 	case controlCancel, controlSubstitute:
 		s.parser.state = stateGround
 	default:
-		if s.parser.oscCount == oscBytesMax {
-			s.parser.oscOverflow = true
-
-			return
-		}
-
-		s.parser.osc[s.parser.oscCount] = current
-		s.parser.oscCount++
+		s.collectOSC(current)
 	}
+}
+
+// collectOSC keeps a byte of an OSC, up to oscBytesMax.
+func (s *Screen) collectOSC(current byte) {
+	if s.parser.oscCount == oscBytesMax {
+		s.parser.oscOverflow = true
+
+		return
+	}
+
+	s.parser.osc[s.parser.oscCount] = current
+	s.parser.oscCount++
 }
 
 // ignoredString consumes a string sequence up to its end: ST, BEL, CAN or SUB.

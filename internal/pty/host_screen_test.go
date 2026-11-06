@@ -49,7 +49,7 @@ func waitLines(t *testing.T, host *pty.Host, sessionID pty.ID, want []string) {
 	for time.Now().Before(deadline) {
 		var err error
 
-		got, err = host.ScreenLines(sessionID, readScreenLines)
+		got, _, err = host.ScreenLines(sessionID, readScreenLines)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -74,7 +74,12 @@ func TestHostAnswersQueriesWithNoViewer(t *testing.T) {
 		want    string
 	}{
 		{"device attributes", pty.Answers{}, "\x1b[c", deviceAttributesReply},
-		{"cursor position", pty.Answers{}, "\r\nabc\x1b[6n", "\x1b[2;4R"},
+		{
+			"no cursor position, only what follows",
+			pty.Answers{},
+			"\r\nabc\x1b[6n\x1b[c",
+			deviceAttributesReply,
+		},
 		{
 			"the configured background",
 			pty.Answers{Background: pty.RGB{Red: 0xfa, Green: 0xfb, Blue: 0xfc}},
@@ -197,7 +202,7 @@ func TestScreenLinesRefuseAnUnknownSession(t *testing.T) {
 
 	host, _ := newFakeHost(t, pty.DefaultLimits())
 
-	_, err := host.ScreenLines(pty.ID("unknown"), readScreenLines)
+	_, _, err := host.ScreenLines(pty.ID("unknown"), readScreenLines)
 	if !errors.Is(err, pty.ErrNoSession) {
 		t.Errorf("ScreenLines = %v, want ErrNoSession", err)
 	}
@@ -221,4 +226,77 @@ func TestResizeRefusesMoreCellsThanTheScreenHolds(t *testing.T) {
 	if len(spawner.last(t).sizesSoFar()) != 0 {
 		t.Error("the refused size reached the program")
 	}
+}
+
+func TestScreenLinesCarryTheScreensGeneration(t *testing.T) {
+	t.Parallel()
+
+	host, spawner := newFakeHost(t, pty.DefaultLimits())
+
+	sessionID, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, before, err := host.ScreenLines(sessionID, readScreenLines)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	process := spawner.last(t)
+	process.feed(t, []byte("changed"))
+	waitLines(t, host, sessionID, []string{"changed"})
+
+	_, after, err := host.ScreenLines(sessionID, readScreenLines)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if after <= before {
+		t.Errorf("the generation went from %d to %d over a change", before, after)
+	}
+
+	// Moving the cursor and drawing the same text again change nothing.
+	process.feed(t, []byte("\x1b[1;1Hchanged\x1b[9;9H"))
+	process.feed(t, []byte("\x1b[c"))
+	waitWritten(t, process, deviceAttributesReply)
+
+	_, again, err := host.ScreenLines(sessionID, readScreenLines)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if again != after {
+		t.Errorf("the generation went from %d to %d with nothing changed", after, again)
+	}
+}
+
+// A resize the program's terminal refuses leaves the screen at the size it had.
+func TestAFailedResizeLeavesTheScreensSize(t *testing.T) {
+	t.Parallel()
+
+	spawner := &fakes{resizeErr: errFakeClosed}
+	host := pty.NewHost(pty.Config{
+		Spawner: spawner.spawn, Limits: pty.DefaultLimits(), Answers: pty.Answers{},
+	})
+
+	t.Cleanup(func() { _ = host.StopAll(context.WithoutCancel(t.Context())) })
+
+	sessionID, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = host.Resize(sessionID, 10, 3)
+	if !errors.Is(err, errFakeClosed) {
+		t.Fatalf("Resize = %v, want the terminal's error", err)
+	}
+
+	// At the default 80 by 24, the bottom right corner is row 24, column 80.
+	spawner.last(t).feed(t, []byte("\x1b[99;99Hx"))
+
+	want := make([]string, 24)
+	want[23] = strings.Repeat(" ", 79) + "x"
+
+	waitLines(t, host, sessionID, want)
 }
