@@ -147,14 +147,21 @@ func (p *terminalProcess) Terminate() error { return p.signalGroup(unix.SIGTERM)
 
 func (p *terminalProcess) Kill() error { return p.signalGroup(unix.SIGKILL) }
 
-// GroupAlive asks the kernel whether the program's group has a member a signal can reach.
-// ESRCH is no member; EPERM is members none of which may be signalled, which for a group of the
-// user's own processes means they are all exiting (macOS answers so for zombies). Any other
-// answer counts as alive, so a stop goes on to the kill.
-func (p *terminalProcess) GroupAlive() bool {
+// Group asks the kernel what is left of the program's group with a signal of 0. ESRCH is
+// nothing; EPERM is members none of which may be signalled (another user's or a setuid program,
+// or on macOS members that are all exiting); any other answer counts as a member a signal
+// reaches, so a stop goes on to the kill.
+func (p *terminalProcess) Group() GroupState {
 	err := unix.Kill(-p.groupID(), 0)
+	if errors.Is(err, unix.ESRCH) {
+		return GroupGone
+	}
 
-	return !beyondReach(err)
+	if errors.Is(err, unix.EPERM) {
+		return GroupUnreachable
+	}
+
+	return GroupRunning
 }
 
 // Wait waits for the program and returns its exit code: its exit status, 128 plus the signal that
@@ -191,7 +198,8 @@ func (p *terminalProcess) signalGroup(signal unix.Signal) error {
 }
 
 // beyondReach says whether a signal to a group failed because no member can get one: there is
-// none (ESRCH), or none may be signalled (EPERM), as when every member left is exiting.
+// none (ESRCH), or none may be signalled (EPERM). Neither is an error to the sender; the wait that
+// follows every signal tells the two apart, and never takes EPERM for gone.
 func beyondReach(err error) bool {
 	if errors.Is(err, unix.ESRCH) {
 		return true

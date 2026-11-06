@@ -8,7 +8,8 @@
 //
 // Every limit is fixed: at most sessionsMax programs run at once, each keeps scrollbackBytesMax of
 // scrollback, has at most viewersMax viewers, each with a queue of at most viewerQueueBytesMax
-// (counted in bytes, so a burst of small writes is one batch), and takes at most writeBytesMax of
+// (counted in bytes, so a burst of small writes is one batch; with the batch being handed over, a
+// viewer holds at most twice that), and takes at most writeBytesMax of
 // input per Write. Writes to one session take turns, each waiting at most writeWaitMax for its
 // turn. A viewer that falls behind is dropped, so the reader of a program's output never waits
 // for anyone. A viewer holds one of its session's viewersMax places until it is closed: close it
@@ -17,12 +18,17 @@
 //
 // Stopping: a stop signals the program's whole process group (the program is a session leader,
 // so the group's id is its pid): a polite SIGTERM, then SIGKILL if anything in the group is left
-// after the grace, or at once when the caller stops waiting. The same happens when a program exits
-// by itself, before its session is recorded as ended, so nothing it started outlives it. A
-// descendant that calls setsid or setpgid itself has left the group and is out of reach; Task 9
-// checks this against a real claude running a background command. StopAll (which returns an
-// error, unlike the plan's signature, so quitting can say what did not stop) refuses new Starts
-// and waits for those in flight.
+// after the grace, or at once when the caller stops waiting, then a wait of at most killWait for
+// the group to empty. The same happens when a program exits by itself, before its session is
+// recorded as ended, so nothing it started outlives it. A group whose members no signal may reach
+// (EPERM) is never taken for gone: if it is still there at the bound, the stop fails with
+// ErrGroupUnreachable, Info.StopError says so, and the session keeps its running slot and is
+// never forgotten while that is so. Once a group is known to be empty its number is never
+// signalled again, since a new program may have been given it. A descendant that calls setsid or
+// setpgid itself has left the group and is out of reach; Task 9 checks this against a real
+// claude running a background command. StopAll (which returns an error, unlike the plan's
+// signature, so quitting can say what did not stop) refuses new Starts and waits for those in
+// flight.
 //
 // Descriptors: every descriptor this package opens is close-on-exec, and so is every file and
 // socket Go's os and net packages open, so a program inherits only its terminal. A descriptor
@@ -120,6 +126,9 @@ var (
 	ErrInvalidSize = errors.New("terminal size out of range")
 	// ErrUnsupported is Spawn on a system without the pseudo-terminals it knows.
 	ErrUnsupported = errors.New("terminals are not supported on this system")
+	// ErrGroupUnreachable is a group that still had members no signal may reach killWait after
+	// the kill.
+	ErrGroupUnreachable = errors.New("the program's group is unreachable by signals")
 	// errTimedOut is a stop whose program did not end within killWait of being killed.
 	errTimedOut = errors.New("the program did not end after it was killed")
 )
@@ -151,6 +160,9 @@ type Info struct {
 	PID       int
 	StartedAt time.Time
 	ExitCode  *int
+	// StopError is set when the program's group could not be stopped: what failed, in Conn's own
+	// words, never the program's output. The session keeps its running slot while it is set.
+	StopError string
 }
 
 // Limits are a Host's limits. Each must be above zero and at most its default.
@@ -195,13 +207,28 @@ type Process interface {
 	Terminate() error
 	// Kill kills the program's group.
 	Kill() error
-	// GroupAlive says whether any process is left in the program's group.
-	GroupAlive() bool
+	// Group says whether anything is left in the program's group, and whether a signal reaches
+	// it.
+	Group() GroupState
 	// Wait waits for the program to exit and returns its exit code.
 	Wait() int
 	// Close closes the terminal.
 	Close() error
 }
+
+// GroupState is what is left of a program's process group.
+type GroupState int
+
+const (
+	// GroupGone is no member left (kill answers ESRCH).
+	GroupGone GroupState = iota
+	// GroupRunning is a member a signal reaches.
+	GroupRunning
+	// GroupUnreachable is members none of which a signal may reach (kill answers EPERM): another
+	// user's or a setuid program, or, on macOS only, members that are all exiting until init
+	// reaps them. It is never taken for gone.
+	GroupUnreachable
+)
 
 // Viewer is one viewer of a session: the scrollback when it joined, then the output after it, in
 // batches. Output closes once the session has ended and everything queued is handed over, when

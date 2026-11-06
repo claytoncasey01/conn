@@ -6,6 +6,7 @@ import (
 	"io"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,6 +34,21 @@ const (
 
 var errFakeClosed = errors.New("the fake terminal is closed")
 
+// killOutcome is what a fake's group looks like after it ends.
+type killOutcome int
+
+const (
+	// killClears leaves no member.
+	killClears killOutcome = iota
+	// killLeavesUnreachable leaves members no signal can reach, for good.
+	killLeavesUnreachable
+	// killLeavesUnreachableBriefly leaves them for unreachableLooks looks, then none.
+	killLeavesUnreachableBriefly
+)
+
+// unreachableLooks is how many looks a briefly unreachable group answers EPERM to.
+const unreachableLooks = 3
+
 // fakeProcess is a scripted program on a terminal: a test feeds its output, reads what was
 // written to it, and ends it.
 type fakeProcess struct {
@@ -43,6 +59,11 @@ type fakeProcess struct {
 	orphans bool
 	// writeGate, when set, holds every Write until the test sends on it or closes it.
 	writeGate chan struct{}
+	// afterKill is what the group looks like once it has ended: gone, or members no signal can
+	// reach (EPERM), for good or for unreachableAnswers more looks.
+	afterKill          killOutcome
+	unreachableAnswers atomic.Int32
+	reused             atomic.Bool
 
 	output    chan []byte
 	closed    chan struct{}
@@ -133,13 +154,28 @@ func (f *fakeProcess) Kill() error {
 	return nil
 }
 
-func (f *fakeProcess) GroupAlive() bool {
+func (f *fakeProcess) Group() pty.GroupState {
 	select {
 	case <-f.groupGone:
-		return false
 	default:
-		return true
+		return pty.GroupRunning
 	}
+
+	if f.reused.Load() {
+		return pty.GroupRunning
+	}
+
+	switch f.afterKill {
+	case killLeavesUnreachable:
+		return pty.GroupUnreachable
+	case killLeavesUnreachableBriefly:
+		if f.unreachableAnswers.Add(-1) >= 0 {
+			return pty.GroupUnreachable
+		}
+	case killClears:
+	}
+
+	return pty.GroupGone
 }
 
 func (f *fakeProcess) Wait() int {
@@ -156,6 +192,10 @@ func (f *fakeProcess) Close() error {
 
 	return nil
 }
+
+// reuse makes the group's number look taken again, as a new program that a reused pid made a
+// group leader would.
+func (f *fakeProcess) reuse() { f.reused.Store(true) }
 
 func (f *fakeProcess) record(signal string) {
 	f.mu.Lock()
@@ -239,6 +279,7 @@ type fakes struct {
 	ignoreTerminate bool
 	orphans         bool
 	writeGate       chan struct{}
+	afterKill       killOutcome
 	// pid, when set, is every process's id.
 	pid int
 	// spawning, when set, gets a value once a spawn has begun, and the spawn then waits for
@@ -276,6 +317,7 @@ func (f *fakes) spawn(spec pty.Spec) (pty.Process, error) {
 		ignoreTerminate: f.ignoreTerminate,
 		orphans:         f.orphans,
 		writeGate:       f.writeGate,
+		afterKill:       f.afterKill,
 		output:          make(chan []byte),
 		closed:          make(chan struct{}),
 		exited:          make(chan struct{}),
@@ -283,6 +325,8 @@ func (f *fakes) spawn(spec pty.Spec) (pty.Process, error) {
 	}
 	f.started = append(f.started, process)
 	f.specs = append(f.specs, spec)
+
+	process.unreachableAnswers.Store(unreachableLooks)
 
 	return process, nil
 }
@@ -355,7 +399,16 @@ func info(t *testing.T, host *pty.Host, sessionID pty.ID) (pty.Info, bool) {
 func waitEnded(t *testing.T, host *pty.Host, sessionID pty.ID) pty.Info {
 	t.Helper()
 
-	deadline := time.Now().Add(testtime.Scaled(waitLimit))
+	return waitEndedWithin(t, host, sessionID, waitLimit)
+}
+
+// waitEndedWithin is waitEnded for at most limit.
+func waitEndedWithin(
+	t *testing.T, host *pty.Host, sessionID pty.ID, limit time.Duration,
+) pty.Info {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(limit))
 
 	for time.Now().Before(deadline) {
 		entry, found := info(t, host, sessionID)

@@ -9,29 +9,30 @@ import (
 )
 
 var (
-	// errGraceOver is a polite stop that the program's group outlived.
-	errGraceOver = errors.New("the group outlived the polite stop")
+	// errGraceOver is a wait that the program's group outlived.
+	errGraceOver = errors.New("the group outlived the wait")
 	// errGaveUp is a stop whose caller stopped waiting.
 	errGaveUp = errors.New("the caller stopped waiting")
 )
 
 // Stop stops the session's program and everything in its process group: a polite stop, then, if
-// anything in the group is left after the grace, a kill. It returns once the session has ended,
-// or with ctx's error if ctx ends first, having sent the kill. Stopping a session that has ended
-// does nothing: its group was stopped before it was recorded as ended.
+// anything in the group is left after the grace, a kill, then a wait for the group to empty. It
+// returns once the session has ended, or with ctx's error if ctx ends first, having sent the
+// kill. A session whose group is known to be empty is not signalled again: its number may belong
+// to a new program by now.
 func (h *Host) Stop(ctx context.Context, sessionID ID) error {
 	stopping, err := h.find(sessionID)
 	if err != nil {
 		return err
 	}
 
-	return stopSession(ctx, stopping, h.limits.StopGrace)
+	return h.stopSession(ctx, stopping)
 }
 
 // StopAll refuses every Start from now on, waits for the Starts already spawning (for at most
-// ctx), then stops every running session at once and waits for them all. It is what quitting
-// Conn does. It returns every problem, joined. (The plan had it return nothing; quitting can now
-// say what did not stop.)
+// ctx), then stops every session whose group is not known to be empty, all at once, and waits
+// for them. It is what quitting Conn does. It returns every problem, joined. (The plan had it
+// return nothing; quitting can now say what did not stop.)
 func (h *Host) StopAll(ctx context.Context) error {
 	var problems []error
 
@@ -45,9 +46,9 @@ func (h *Host) StopAll(ctx context.Context) error {
 		problemsMu sync.Mutex
 	)
 
-	for _, stopping := range h.runningSessions() {
+	for _, stopping := range h.unstoppedSessions() {
 		group.Go(func() {
-			err := stopSession(ctx, stopping, h.limits.StopGrace)
+			err := h.stopSession(ctx, stopping)
 			if err != nil {
 				problemsMu.Lock()
 				defer problemsMu.Unlock()
@@ -79,53 +80,54 @@ func (h *Host) closeStarts(ctx context.Context) error {
 	}
 }
 
-// runningSessions is every session that has not ended.
-func (h *Host) runningSessions() []*session {
+// unstoppedSessions is every session whose group is not known to be empty.
+func (h *Host) unstoppedSessions() []*session {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	var running []*session
+	var unstopped []*session
 
 	for _, held := range h.sessions {
-		if held.exitCode == nil {
-			running = append(running, held)
+		if !held.groupStopped {
+			unstopped = append(unstopped, held)
 		}
 	}
 
-	return running
+	return unstopped
 }
 
 // stopSession is Stop for one session.
-func stopSession(ctx context.Context, stopping *session, grace time.Duration) error {
-	select {
-	case <-stopping.ended:
+func (h *Host) stopSession(ctx context.Context, stopping *session) error {
+	if h.isGroupStopped(stopping) {
 		return nil
-	default:
 	}
 
-	err := stopGroup(ctx.Done(), stopping.process, grace)
+	err := stopGroup(ctx.Done(), stopping.process, h.limits.StopGrace)
 	if errors.Is(err, errGaveUp) {
 		err = errors.Join(err, ctx.Err())
 	}
 
 	if err != nil {
-		return fmt.Errorf("stopping session %q: %w", stopping.name, err)
+		return fmt.Errorf("stopping session %s: %w", stopping.sessionID, err)
 	}
+
+	h.groupEmptied(stopping)
 
 	return waitEnded(ctx, stopping)
 }
 
 // stopGroup stops whatever is in the program's group: a polite stop, then a kill if anything is
-// left after grace, or as soon as giveUp delivers. Each signal is sent only while the group has a
-// member, so the group's number is still its own and cannot have been given to another process.
+// left after grace, or as soon as giveUp delivers, then a wait of at most killWait for the group
+// to empty. A signal is sent only while the group has a member, so its number is still its own.
+// A group with members no signal reaches is waited through, never taken for gone.
 func stopGroup(giveUp <-chan struct{}, process Process, grace time.Duration) error {
-	if !process.GroupAlive() {
+	if process.Group() == GroupGone {
 		return nil
 	}
 
 	err := process.Terminate()
 	if err != nil {
-		return errors.Join(err, killGroup(process))
+		return errors.Join(err, killGroup(giveUp, process))
 	}
 
 	err = waitGroupGone(giveUp, process, grace)
@@ -134,16 +136,17 @@ func stopGroup(giveUp <-chan struct{}, process Process, grace time.Duration) err
 	case err == nil:
 		return nil
 	case errors.Is(err, errGraceOver):
-		return killGroup(process)
+		return killGroup(giveUp, process)
 	default:
 		// The caller gave up waiting; it does not give up the kill.
-		return errors.Join(err, killGroup(process))
+		return errors.Join(err, killGroup(nil, process))
 	}
 }
 
-// killGroup kills the program's group if it has a member left.
-func killGroup(process Process) error {
-	if !process.GroupAlive() {
+// killGroup kills the program's group if anything is left in it, and waits at most killWait for
+// it to empty.
+func killGroup(giveUp <-chan struct{}, process Process) error {
+	if process.Group() == GroupGone {
 		return nil
 	}
 
@@ -152,18 +155,28 @@ func killGroup(process Process) error {
 		return fmt.Errorf("killing the program's group: %w", err)
 	}
 
-	return nil
+	err = waitGroupGone(giveUp, process, killWait)
+	if !errors.Is(err, errGraceOver) {
+		return err
+	}
+
+	if process.Group() == GroupUnreachable {
+		return ErrGroupUnreachable
+	}
+
+	return errTimedOut
 }
 
-// waitGroupGone waits until no process is left in the program's group, for at most grace.
-func waitGroupGone(giveUp <-chan struct{}, process Process, grace time.Duration) error {
-	deadline := time.NewTimer(grace)
+// waitGroupGone waits until nothing is left in the program's group, for at most limit. Members
+// no signal reaches count as left.
+func waitGroupGone(giveUp <-chan struct{}, process Process, limit time.Duration) error {
+	deadline := time.NewTimer(limit)
 	defer deadline.Stop()
 
 	poll := time.NewTicker(stopPoll)
 	defer poll.Stop()
 
-	for process.GroupAlive() {
+	for process.Group() != GroupGone {
 		select {
 		case <-giveUp:
 			return errGaveUp
@@ -185,8 +198,8 @@ func waitEnded(ctx context.Context, stopping *session) error {
 	case <-stopping.ended:
 		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("waiting for session %q to end: %w", stopping.name, ctx.Err())
+		return fmt.Errorf("waiting for session %s to end: %w", stopping.sessionID, ctx.Err())
 	case <-deadline.C:
-		return fmt.Errorf("stopping session %q: %w", stopping.name, errTimedOut)
+		return fmt.Errorf("stopping session %s: %w", stopping.sessionID, errTimedOut)
 	}
 }

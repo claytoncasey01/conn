@@ -8,6 +8,7 @@ const (
 	ReadBufferBytes     = readBufferBytes
 	ViewerQueueBytesMax = viewerQueueBytesMax
 	WriteWaitMax        = writeWaitMax
+	KillWait            = killWait
 	WriteBytesMax       = writeBytesMax
 	EndedMax            = endedMax
 	ColumnsMax          = columnsMax

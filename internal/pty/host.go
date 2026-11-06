@@ -47,6 +47,14 @@ type session struct {
 	exitCode   *int
 	scrollback ring
 	viewers    []*viewer
+	// groupStopped is set once the program's group is known to be empty; from then on its
+	// number is never signalled, since a new program may have been given it.
+	groupStopped bool
+	// stopError is why the group could not be stopped, while that is so.
+	stopError string
+	// retired is set once the session has given back its running slot and joined h.ended:
+	// when its program has ended and its group is known to be empty.
+	retired bool
 }
 
 // NewHost is a Host over config. A Config without a Spawner, or with a limit out of range, is a
@@ -212,7 +220,7 @@ func (h *Host) Live() []Info {
 
 		infos = append(infos, Info{
 			ID: held.sessionID, Name: held.name, Dir: held.dir, PID: held.pid,
-			StartedAt: held.startedAt, ExitCode: exitCode,
+			StartedAt: held.startedAt, ExitCode: exitCode, StopError: held.stopError,
 		})
 	}
 
@@ -280,6 +288,7 @@ func (h *Host) admit(sessionID ID, spec Spec, process Process) error {
 		sessionID: sessionID, name: spec.Name, dir: spec.Dir, pid: pid, startedAt: time.Now(),
 		process: process, ended: make(chan struct{}), writeTurn: make(chan struct{}, 1),
 		exitCode: nil, scrollback: newRing(h.limits.ScrollbackBytesMax), viewers: nil,
+		groupStopped: false, stopError: "", retired: false,
 	}
 
 	h.mu.Lock()

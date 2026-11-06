@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,7 +204,7 @@ func TestALeaderThatExitsLeavesNoGroupBehind(t *testing.T) {
 			process.finish(0)
 
 			entry := waitEnded(t, host, sessionID)
-			if process.GroupAlive() {
+			if process.Group() != pty.GroupGone {
 				t.Fatal("the session ended with its group still alive")
 			}
 
@@ -301,5 +302,152 @@ func TestStopAllGivesUpOnAStartInFlightWhenItsContextEnds(t *testing.T) {
 	err := host.StopAll(ctx)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("StopAll = %v, want context.DeadlineExceeded", err)
+	}
+}
+
+// unreachableWait bounds the wait for a session whose group stays unreachable: the grace, then
+// killWait after the kill, then the usual margin.
+const unreachableWait = testGrace + pty.KillWait + waitLimit
+
+// A group whose members no signal can reach (EPERM: another user's, or setuid) is not taken for
+// gone: the stop waits through it for at most killWait, and a group still unreachable then is
+// reported, recorded on the session, and keeps the session (and its running slot) from being
+// forgotten.
+func TestAGroupNoSignalReachesIsNotTakenForGone(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		afterKill killOutcome
+		wantErr   error
+	}{
+		{"unreachable then gone", killLeavesUnreachableBriefly, nil},
+		{"unreachable for good", killLeavesUnreachable, pty.ErrGroupUnreachable},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			limits := pty.DefaultLimits()
+			limits.StopGrace = testGrace
+			limits.SessionsMax = 1
+			spawner := &fakes{ignoreTerminate: true, afterKill: tt.afterKill}
+			host := pty.NewHost(pty.Config{Spawner: spawner.spawn, Limits: limits})
+
+			sessionID, err := host.Start(t.Context(), testSpec(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			err = host.Stop(t.Context(), sessionID)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Stop = %v, want %v", err, tt.wantErr)
+			}
+
+			assertGroupOutcome(t, host, sessionID, tt.wantErr)
+		})
+	}
+}
+
+// assertGroupOutcome checks what a session whose group was unreachable left behind.
+func assertGroupOutcome(t *testing.T, host *pty.Host, sessionID pty.ID, wantErr error) {
+	t.Helper()
+
+	entry := waitEndedWithin(t, host, sessionID, unreachableWait)
+
+	_, err := host.Start(t.Context(), testSpec(t))
+
+	if wantErr == nil {
+		if entry.StopError != "" {
+			t.Fatalf("StopError = %q, want none", entry.StopError)
+		}
+
+		if err != nil {
+			t.Fatalf("Start after a stopped group = %v, want a session", err)
+		}
+
+		return
+	}
+
+	if !strings.Contains(entry.StopError, "unreachable") {
+		t.Fatalf("StopError = %q, want it to say the group is unreachable", entry.StopError)
+	}
+
+	if !errors.Is(err, pty.ErrSessionsFull) {
+		t.Fatalf("Start beside an unreachable group = %v, want ErrSessionsFull", err)
+	}
+}
+
+// A program whose leftover group no signal reaches is recorded as such when it exits by itself,
+// and its session is never forgotten while that is so.
+func TestAnUnreachableGroupKeepsItsSession(t *testing.T) {
+	t.Parallel()
+
+	limits := pty.DefaultLimits()
+	limits.StopGrace = testGrace
+	spawner := &fakes{ignoreTerminate: true, orphans: true, afterKill: killLeavesUnreachable}
+	host := pty.NewHost(pty.Config{Spawner: spawner.spawn, Limits: limits})
+
+	stuck, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	spawner.last(t).finish(0)
+
+	entry := waitEndedWithin(t, host, stuck, unreachableWait)
+	if entry.StopError == "" {
+		t.Fatal("the session ended with an unreachable group and no StopError")
+	}
+
+	spawner.afterKill = killClears
+	spawner.orphans = false
+
+	for range pty.EndedMax + 1 {
+		sessionID, err := host.Start(t.Context(), testSpec(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		spawner.last(t).finish(0)
+		waitEnded(t, host, sessionID)
+	}
+
+	_, found := info(t, host, stuck)
+	if !found {
+		t.Fatal("a session whose group is still unreachable was forgotten")
+	}
+}
+
+// Once a session's group is known to be empty, nothing signals its number again: a new program
+// may have been given it.
+func TestAStoppedGroupIsNeverSignalledAgain(t *testing.T) {
+	t.Parallel()
+
+	host, spawner := newFakeHost(t, pty.DefaultLimits())
+
+	sessionID, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	process := spawner.last(t)
+	process.finish(0)
+	waitEnded(t, host, sessionID)
+	process.reuse()
+
+	err = host.Stop(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("Stop = %v, want nil", err)
+	}
+
+	err = host.StopAll(t.Context())
+	if err != nil {
+		t.Fatalf("StopAll = %v, want nil", err)
+	}
+
+	if len(process.signalsSoFar()) != 0 {
+		t.Fatalf("a reused group number got %v", process.signalsSoFar())
 	}
 }
