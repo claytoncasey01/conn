@@ -69,10 +69,15 @@ func (h *Host) StopIfStill(
 	return h.stopSession(ctx, stopping)
 }
 
-// terminateUnlessStopped sends the polite stop, unless the group is known to be empty (its
-// number may belong to a new program by now).
+// terminateUnlessStopped sends the polite stop, unless the group is known to be empty or has no
+// member now (its number may belong to a new program by then), as stopGroup does. stopSession,
+// after the turn, sends its own polite stop as well; a second SIGTERM is harmless.
 func (h *Host) terminateUnlessStopped(stopping *session) error {
 	if h.isGroupStopped(stopping) {
+		return nil
+	}
+
+	if stopping.process.Group() == GroupGone {
 		return nil
 	}
 
