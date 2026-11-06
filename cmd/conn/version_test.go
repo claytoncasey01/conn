@@ -17,7 +17,7 @@ func TestVersionCommand(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
 			code := realMain([]string{arg}, func(string) (string, bool) { return "", false },
-				&stdout, &stderr)
+				&stdout, false, &stderr)
 			if code != exitOK {
 				t.Errorf("exit = %d, want %d", code, exitOK)
 			}

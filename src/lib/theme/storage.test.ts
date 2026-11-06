@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { CSS_HREF, DEFAULT_ID, FALLBACK_ID, FONTS_HREF, KEYS, readCache, readChoice, readPin, removeCache, withPin, writeCache, writeChoice } from './storage.ts'
+import { CSS_HREF, DEFAULT_ID, FALLBACK_ID, FONTS_HREF, KEYS, readCache, SHEET_CHARS_MAX, readChoice, readPin, removeCache, withPin, writeCache, writeChoice } from './storage.ts'
 import type { CacheEntry, Choice } from './storage.ts'
 
 const fake = (init: Record<string, string> = {}) => {
@@ -9,7 +9,7 @@ const fake = (init: Record<string, string> = {}) => {
 }
 const boom = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('quota') } }
 const defaults: Choice = { id: DEFAULT_ID, mode: 'system', accent: null, variant: null, effects: 'auto' }
-const entry: CacheEntry = { css: '[data-theme="x"]{--bg:#000;}', attrs: { motion: 'calm', led: 'circle', glass: 'off' }, only: null, cssUrl: null, fontsUrl: null }
+const entry: CacheEntry = { css: '[data-theme="x"]{--bg:#000;}', attrs: { motion: 'calm', led: 'circle', glass: 'off' }, only: null, cssUrl: null, sheet: null, fontsUrl: null }
 const SHA = 'a'.repeat(64)
 const CSS = `/api/themes/x/theme.css?v=${SHA}`
 const FONTS = 'https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap'
@@ -95,12 +95,22 @@ test('readCache rejects corrupt JSON and every wrong shape', () => {
   assert.deepEqual(bad({ ...entry, only: 'dark' }), { ...entry, only: 'dark' })
 })
 
-test('readCache keeps a valid stylesheet and fonts href, and an entry written before they existed reads as null for both', () => {
+test('readCache keeps a valid stylesheet with its address and a fonts href, and an entry written before they existed reads as null', () => {
   const s = fake()
-  writeCache(s, 'x', { ...entry, cssUrl: CSS, fontsUrl: FONTS })
-  assert.deepEqual(readCache(s, 'x'), { ...entry, cssUrl: CSS, fontsUrl: FONTS })
+  writeCache(s, 'x', { ...entry, cssUrl: CSS, sheet: 'a{}', fontsUrl: FONTS })
+  assert.deepEqual(readCache(s, 'x'), { ...entry, cssUrl: CSS, sheet: 'a{}', fontsUrl: FONTS })
   const old = fake({ [KEYS.css('x')]: JSON.stringify({ css: entry.css, attrs: entry.attrs, only: null }) })
   assert.deepEqual(readCache(old, 'x'), entry)
+  // an address cached before the text was kept (the stylesheet used to be a link) is dropped: it needs the secret now
+  const linked = fake({ [KEYS.css('x')]: JSON.stringify({ ...entry, cssUrl: CSS }) })
+  assert.deepEqual(readCache(linked, 'x'), entry)
+})
+
+test('readCache keeps a stylesheet only as a string up to the limit, beside its address', () => {
+  const got = (over: object) => readCache(fake({ [KEYS.css('x')]: JSON.stringify({ ...entry, ...over }) }), 'x')
+  for (const bad of [5, {}, ['a{}'], true, 'a'.repeat(SHEET_CHARS_MAX + 1)]) assert.deepEqual(got({ cssUrl: CSS, sheet: bad }), entry, String(bad).slice(0, 20))
+  assert.deepEqual(got({ sheet: 'a{}' }), entry, 'no address')
+  assert.deepEqual(got({ cssUrl: CSS, sheet: 'a'.repeat(SHEET_CHARS_MAX) }), { ...entry, cssUrl: CSS, sheet: 'a'.repeat(SHEET_CHARS_MAX) })
 })
 
 test('readCache drops a hostile or malformed href but keeps the tokens (today\'s behavior for those fields)', () => {
@@ -111,7 +121,7 @@ test('readCache drops a hostile or malformed href but keeps the tokens (today\'s
     `/api/themes/x/theme.css?v=${'a'.repeat(63)}`, `${CSS}&x=1`, `${CSS}\n`, `/api/themes/x/theme.css?v=${SHA}#`, `/api/themes/x/other.css?v=${SHA}`,
     `/api/themes/x/y/theme.css?v=${SHA}`, 5, {}, [CSS], `/api/themes/${'a'.repeat(5000)}/theme.css?v=${SHA}`,
   ]
-  for (const h of hostileCss) assert.deepEqual(got({ cssUrl: h }), entry, String(h).slice(0, 60))
+  for (const h of hostileCss) assert.deepEqual(got({ cssUrl: h, sheet: 'a{}' }), entry, String(h).slice(0, 60))
   const hostileFonts = [
     'https://evil.com/css2?family=A:wght@400&display=swap', 'http://fonts.googleapis.com/css2?family=A:wght@400&display=swap',
     'https://fonts.googleapis.com.evil.com/css2?family=A:wght@400&display=swap', 'https://fonts.googleapis.com/css2?family=A:wght@400&display=swap&x=<',
@@ -120,10 +130,10 @@ test('readCache drops a hostile or malformed href but keeps the tokens (today\'s
   ]
   for (const h of hostileFonts) assert.deepEqual(got({ fontsUrl: h }), entry, String(h).slice(0, 60))
   // a well-formed href for ANOTHER theme's stylesheet is as bad as a malformed one
-  assert.deepEqual(got({ cssUrl: `/api/themes/y/theme.css?v=${SHA}` }), entry)
+  assert.deepEqual(got({ cssUrl: `/api/themes/y/theme.css?v=${SHA}`, sheet: 'a{}' }), entry)
   // each field stands alone: a bad one never takes the good one down with it
-  assert.deepEqual(got({ cssUrl: '//evil.com/x.css', fontsUrl: FONTS }), { ...entry, fontsUrl: FONTS })
-  assert.deepEqual(got({ cssUrl: CSS, fontsUrl: 'javascript:1' }), { ...entry, cssUrl: CSS })
+  assert.deepEqual(got({ cssUrl: '//evil.com/x.css', sheet: 'a{}', fontsUrl: FONTS }), { ...entry, fontsUrl: FONTS })
+  assert.deepEqual(got({ cssUrl: CSS, sheet: 'a{}', fontsUrl: 'javascript:1' }), { ...entry, cssUrl: CSS, sheet: 'a{}' })
 })
 
 test('CSS_HREF and FONTS_HREF are anchored, and the fonts pattern takes what fontsHref builds for every allowed name', () => {

@@ -42,7 +42,7 @@ func TestTheThemeCommand(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
 			code := realMain(tt.args, lookupFrom(map[string]string{"CONN_DATA": t.TempDir()}),
-				&stdout, &stderr)
+				&stdout, false, &stderr)
 			if code != tt.code {
 				t.Errorf("code = %d, want %d: %s", code, tt.code, stderr.String())
 			}

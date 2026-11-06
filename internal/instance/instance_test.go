@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/instance"
+	"github.com/claytoncasey01/conn/internal/secret"
 )
 
 func TestOneConnPerDataFolder(t *testing.T) {
@@ -160,5 +161,89 @@ func TestAcquireRidesOutALockHeldForAMoment(t *testing.T) {
 	err = <-released
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTheSecretGoesThroughTheLockFile(t *testing.T) {
+	t.Parallel()
+
+	folder := t.TempDir()
+	lock := acquire(t, folder)
+
+	defer func() { _ = lock.Release() }()
+
+	made, err := secret.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = lock.Publish(instance.Holder{PID: 42, URL: "http://127.0.0.1:7777", Secret: made})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	holder, _ := running(t, folder)
+	if !holder.Secret.Matches(made.String()) {
+		t.Fatal("the secret read back is not the one published")
+	}
+
+	if holder.URL != "http://127.0.0.1:7777" {
+		t.Fatalf("URL = %q", holder.URL)
+	}
+}
+
+// A lock file left looser by something else (an older build, a copy) is made private again
+// before the secret is written into it.
+func TestALooseLockFileIsMadePrivate(t *testing.T) {
+	t.Parallel()
+
+	folder := t.TempDir()
+	path := filepath.Join(folder, instance.FileName)
+
+	err := os.WriteFile(path, nil, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Chmod(path, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lock := acquire(t, folder)
+
+	defer func() { _ = lock.Release() }()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %o, want 600", info.Mode().Perm())
+	}
+}
+
+func TestALockFileWithABadSecretHasNoHolder(t *testing.T) {
+	t.Parallel()
+
+	folder := t.TempDir()
+	lock := acquire(t, folder)
+
+	defer func() { _ = lock.Release() }()
+
+	err := os.WriteFile(filepath.Join(folder, instance.FileName),
+		[]byte(`{"pid":42,"url":"http://127.0.0.1:7777","secret":"short"}`), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	holder, held := running(t, folder)
+	if !held {
+		t.Fatal("Running = false while the folder is held")
+	}
+
+	if holder != (instance.Holder{}) {
+		t.Fatalf("holder = %+v, want zero", holder)
 	}
 }

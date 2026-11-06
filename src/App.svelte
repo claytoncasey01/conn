@@ -34,6 +34,10 @@
   })
 </script>
 
+{#if live.locked}
+  <div role="alert" style="padding: 8px 32px; background: color-mix(in oklch, var(--bad) 10%, transparent); border-bottom: 1px var(--border-style) color-mix(in oklch, var(--bad) 35%, transparent); font-size: 11px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--bad) 55%, var(--bright))">This page has no key for this Conn. Open the address <code>conn serve</code> printed, or the app's window.</div>
+{/if}
+
 <!-- Each page kind has its own branch, so moving between a live session and an archived one remounts the page -->
 {#if route.page === 'sessions'}
   <Sessions />

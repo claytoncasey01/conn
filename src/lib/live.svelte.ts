@@ -1,3 +1,5 @@
+import { api } from './api.ts'
+import { startStream } from './stream.ts'
 import { onSnapshot } from './notify.svelte.ts'
 import { answerBody, parseAnswer, parseOk, type AnswerResult } from './ask.ts'
 import { parseEntryAction, type EntryActionResult } from './entryAction.ts'
@@ -5,21 +7,28 @@ import { fetchEntry as readEntry } from './entry.ts'
 import { repoBody } from './runLegs.ts'
 import type { AgentDetail, HistoryEntry, HistoryList, ResearchModel, RunLayout, SessionDetail, Snapshot, WorkList } from './types.ts'
 
-/** The whole picture, pushed by the server over SSE. `now` ticks each second for runtimes. */
-export const live = $state({ snap: null as Snapshot | null, connected: false, now: Date.now() })
+/**
+ * The whole picture, pushed by the server over its event stream (stream.ts). `now` ticks each second for runtimes. `locked`:
+ * the server refused the stream for want of this launch's secret (the page was opened without one, or the server restarted).
+ */
+export const live = $state({ snap: null as Snapshot | null, connected: false, locked: false, now: Date.now() })
 
 let started = false
 export function startLive() {
   if (started) return
   started = true
-  const es = new EventSource('/api/events')
-  es.onopen = () => (live.connected = true)
-  es.onerror = () => (live.connected = false)
-  es.onmessage = e => {
-    live.snap = JSON.parse(e.data)
-    onSnapshot(live.snap!)
-    live.connected = true
-  }
+  startStream('/api/events', {
+    onState: connected => {
+      live.connected = connected
+      if (connected) live.locked = false
+    },
+    onRefused: () => (live.locked = true),
+    onData: data => {
+      live.snap = JSON.parse(data)
+      onSnapshot(live.snap!)
+      live.connected = true
+    },
+  })
   setInterval(() => (live.now = Date.now()), 1000)
 }
 
@@ -27,13 +36,13 @@ export const sessionById = (id: string): SessionDetail | undefined => live.snap?
 
 /** One agent's tool calls: fetched on demand, refetched whenever the snapshot moves. */
 export async function fetchAgent(sessionId: string, agentId: string): Promise<AgentDetail | null> {
-  const r = await fetch(`/api/sessions/${sessionId}/agents/${agentId}`)
+  const r = await api(`/api/sessions/${sessionId}/agents/${agentId}`)
   return r.ok ? r.json() : null
 }
 
 /** SIGTERM one session. `busy` in the reply means it was working and needs `force`. */
 export async function stopSession(sessionId: string, force: boolean): Promise<{ ok: boolean; busy?: boolean; error?: string }> {
-  const r = await fetch(`/api/sessions/${sessionId}/stop`, {
+  const r = await api(`/api/sessions/${sessionId}/stop`, {
     method: 'POST',
     headers: { 'x-conn': '1', 'content-type': 'application/json' },
     body: JSON.stringify({ force }),
@@ -45,7 +54,7 @@ export async function stopSession(sessionId: string, force: boolean): Promise<{ 
 /** Type a message into the session's own terminal (cmux). The server refuses anything it cannot send safely. */
 export async function replySession(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const r = await fetch(`/api/sessions/${sessionId}/reply`, {
+    const r = await api(`/api/sessions/${sessionId}/reply`, {
       method: 'POST',
       headers: { 'x-conn': '1', 'content-type': 'application/json' },
       body: JSON.stringify({ text }),
@@ -60,7 +69,7 @@ export async function replySession(sessionId: string, text: string): Promise<{ o
 /** Answer the prompt on a session's screen with an option key. `askId` names the prompt that was shown; the server refuses (409) when the screen has moved on. Never retried here. */
 export async function answerSession(sessionId: string, askId: string, choice: string): Promise<AnswerResult> {
   try {
-    const r = await fetch(`/api/sessions/${sessionId}/answer`, {
+    const r = await api(`/api/sessions/${sessionId}/answer`, {
       method: 'POST',
       headers: { 'x-conn': '1', 'content-type': 'application/json' },
       body: JSON.stringify(answerBody(askId, choice)),
@@ -75,7 +84,7 @@ export async function answerSession(sessionId: string, askId: string, choice: st
 /** Make the session's cmux workspace the active one. */
 export async function openTerminal(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const r = await fetch(`/api/sessions/${sessionId}/terminal`, { method: 'POST', headers: { 'x-conn': '1' } })
+    const r = await api(`/api/sessions/${sessionId}/terminal`, { method: 'POST', headers: { 'x-conn': '1' } })
     return parseOk(r.status, await r.json().catch(() => null))
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'request failed' }
@@ -98,7 +107,7 @@ export async function fetchWork(): Promise<void> {
   if (work.loading) return
   work.loading = true
   try {
-    const r = await fetch('/api/work')
+    const r = await api('/api/work')
     if (r.ok) work.list = await r.json()
     else {
       const j = await r.json().catch(() => ({}))
@@ -120,7 +129,7 @@ function failWork(error: string) {
 
 async function post(path: string, body: object): Promise<ActionResult> {
   try {
-    const r = await fetch(path, {
+    const r = await api(path, {
       method: 'POST',
       headers: { 'x-conn': '1', 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -154,7 +163,7 @@ export const resumeRun = (key: string, repo?: string) => post(`/api/runs/${key}/
 /** One page of the archive for a query string from historyQueryString; null when the request fails. */
 export async function fetchHistory(qs: string): Promise<HistoryList | null> {
   try {
-    const r = await fetch(`/api/history${qs ? `?${qs}` : ''}`)
+    const r = await api(`/api/history${qs ? `?${qs}` : ''}`)
     return r.ok ? ((await r.json()) as HistoryList) : null
   } catch {
     return null
@@ -171,7 +180,7 @@ export async function fetchEntry(uuid: string): Promise<HistoryEntry | null> {
 // would take for success. These read the body.
 async function postEntry(path: string, body: object): Promise<EntryActionResult> {
   try {
-    const r = await fetch(path, {
+    const r = await api(path, {
       method: 'POST',
       headers: { 'x-conn': '1', 'content-type': 'application/json' },
       body: JSON.stringify(body),

@@ -1,5 +1,6 @@
 // The Settings requests: typed wrappers over /api/settings. Not post() in live.svelte.ts: the page needs the server's own words
 // when a save is refused (a 400 names the entry), so every wrapper answers a result and never throws.
+import { api } from './api.ts'
 import { parseOk } from './ask.ts'
 import { parseBaseBranch, repoName, REVIEW_MOVES, SESSION_LAYOUTS } from './settingsModel.ts'
 import type { AtlassianSettings, ModuleState, ModuleStatus, ReposSettings, ReviewMove, SessionLayout, SlackSettings } from './settingsModel.ts'
@@ -158,7 +159,7 @@ export function parseView(body: unknown): SettingsView | null {
 /** GET /api/settings: the settings, whether conn is in setup, the repos it has seen, where their clones are. Makes no GitHub call. */
 export async function getSettings(): Promise<Result<{ view: SettingsView }>> {
   try {
-    const r = await fetch('/api/settings')
+    const r = await api('/api/settings')
     const body = await r.json().catch(() => null)
     if (r.status === 404) return { ok: false, error: 'This server has no settings yet. Restart it from the current version.' }
     if (!r.ok) return { ok: false, error: isObj(body) && isStr(body.error) && body.error ? body.error : `HTTP ${r.status}` }
@@ -172,7 +173,7 @@ export async function getSettings(): Promise<Result<{ view: SettingsView }>> {
 /** PUT one section, whole. A refusal is the server's message (it names the bad entry); the page keeps its draft. */
 export async function putSection(section: SettingsSection, body: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const r = await fetch(`/api/settings/${section}`, {
+    const r = await api(`/api/settings/${section}`, {
       method: 'PUT',
       headers: { 'x-conn': '1', 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -187,7 +188,7 @@ export async function putSection(section: SettingsSection, body: unknown): Promi
 /** `failed` names owners GitHub could not list while the rest could. */
 export async function browseGithub(): Promise<Result<{ owners: Owner[]; failed: string[] }>> {
   try {
-    const r = await fetch('/api/settings/browse', { method: 'POST', headers: { 'x-conn': '1' } })
+    const r = await api('/api/settings/browse', { method: 'POST', headers: { 'x-conn': '1' } })
     const body = await r.json().catch(() => null)
     if (!r.ok) return { ok: false, error: isObj(body) && isStr(body.error) && body.error ? body.error : `HTTP ${r.status}` }
     if (!isObj(body) || !Array.isArray(body.owners)) return { ok: false, error: 'The GitHub list could not be read.' }
@@ -206,7 +207,7 @@ export async function browseGithub(): Promise<Result<{ owners: Owner[]; failed: 
 /** CHECK: one probe of one module, run by this press and no other way. The server answers the module's new status; a refusal (the module is off) is its words. */
 export async function checkModule(name: ModuleName): Promise<Result<{ status: ModuleStatus }>> {
   try {
-    const r = await fetch(`/api/settings/check/${name}`, { method: 'POST', headers: { 'x-conn': '1' } })
+    const r = await api(`/api/settings/check/${name}`, { method: 'POST', headers: { 'x-conn': '1' } })
     const body = await r.json().catch(() => null)
     if (!r.ok) return { ok: false, error: isObj(body) && isStr(body.error) && body.error ? body.error : `HTTP ${r.status}` }
     if (!isObj(body) || !isObj(body.status) || !STATES.includes(body.status.state)) return { ok: false, error: 'The check answer could not be read.' }

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/server"
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/testtime"
@@ -54,8 +55,8 @@ func TestEventsStreamOutlivesTheReadTimeout(t *testing.T) {
 	go loop.Run(ctx)
 
 	handler := &server.Server{
-		UI: bundle(), Clients: loop.Hub().Count, Settings: nil, Themes: nil, Gallery: nil,
-		Logger: nil, Sessions: loop,
+		UI: bundle(), Secret: testKey(t), Clients: loop.Hub().Count, Settings: nil, Themes: nil,
+		Gallery: nil, Logger: nil, Sessions: loop,
 	}
 	test := httptest.NewUnstartedServer(handler)
 	test.Config.ReadTimeout = testtime.Scaled(200 * time.Millisecond)
@@ -68,6 +69,8 @@ func TestEventsStreamOutlivesTheReadTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	request.Header.Set(secret.Header, testKey(t).Authorization())
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
@@ -134,8 +137,8 @@ func TestSessionRoutes(t *testing.T) {
 	go loop.Run(t.Context())
 
 	handler := &server.Server{
-		UI: bundle(), Clients: loop.Hub().Count, Settings: nil, Themes: nil, Gallery: nil,
-		Logger: nil, Sessions: loop,
+		UI: bundle(), Secret: testKey(t), Clients: loop.Hub().Count, Settings: nil, Themes: nil,
+		Gallery: nil, Logger: nil, Sessions: loop,
 	}
 
 	notFound := `{"error":"not found"}`
@@ -155,6 +158,8 @@ func TestSessionRoutes(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequestWithContext(t.Context(), tt.method, tt.target, nil)
 		request.Host = "127.0.0.1"
+		request.Header.Set(secret.Header, testKey(t).Authorization())
+		request.Header.Set(secret.Header, testKey(t).Authorization())
 		handler.ServeHTTP(recorder, request)
 
 		if recorder.Code != tt.status {
@@ -169,6 +174,7 @@ func TestSessionRoutes(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/snapshot", nil)
 	request.Host = "127.0.0.1"
+	request.Header.Set(secret.Header, testKey(t).Authorization())
 	handler.ServeHTTP(recorder, request)
 
 	if !strings.HasPrefix(recorder.Body.String(), `{"at":`) {
@@ -191,8 +197,8 @@ func TestActionRoutesAreGuarded(t *testing.T) {
 	go loop.Run(t.Context())
 
 	handler := &server.Server{
-		UI: bundle(), Clients: loop.Hub().Count, Settings: nil, Themes: nil, Gallery: nil,
-		Logger: nil, Sessions: loop,
+		UI: bundle(), Secret: testKey(t), Clients: loop.Hub().Count, Settings: nil, Themes: nil,
+		Gallery: nil, Logger: nil, Sessions: loop,
 	}
 
 	forbidden := `{"error":"forbidden"}`
@@ -230,6 +236,8 @@ func TestActionRoutesAreGuarded(t *testing.T) {
 		request := httptest.NewRequestWithContext(t.Context(), tt.method, tt.target,
 			strings.NewReader(tt.body))
 		request.Host = "127.0.0.1"
+		request.Header.Set(secret.Header, testKey(t).Authorization())
+		request.Header.Set(secret.Header, testKey(t).Authorization())
 
 		if tt.header {
 			request.Header.Set("X-Conn", "1")

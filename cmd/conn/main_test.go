@@ -4,12 +4,17 @@ import (
 	"bytes"
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/config"
+	"github.com/claytoncasey01/conn/internal/desk"
+	"github.com/claytoncasey01/conn/internal/instance"
+	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
@@ -65,7 +70,7 @@ func TestRealMainExitCodes(t *testing.T) {
 
 			var stdout, stderr bytes.Buffer
 
-			got := realMain(tt.args, lookupFrom(nil), &stdout, &stderr)
+			got := realMain(tt.args, lookupFrom(nil), &stdout, false, &stderr)
 			if got != tt.want {
 				t.Errorf("exit %d, want %d", got, tt.want)
 			}
@@ -93,24 +98,18 @@ func TestServeAnswersUntilStopped(t *testing.T) {
 	}
 	exited := make(chan int, 1)
 
-	go func() { exited <- serve(ctx, lookupFrom(env), &stdout, &stderr) }()
+	go func() { exited <- serve(ctx, lookupFrom(env), &stdout, true, &stderr) }()
 
-	address := waitForAddress(t, &stdout)
+	page := waitForPage(t, &stdout)
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address+"/api/health", nil)
-	if err != nil {
-		t.Fatal(err)
+	status := statusWith(ctx, t, page.address+"/api/health", secret.Secret{})
+	if status != http.StatusUnauthorized {
+		t.Fatalf("health status without the secret %d, want 401", status)
 	}
 
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_ = response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("health status %d", response.StatusCode)
+	status = statusWith(ctx, t, page.address+"/api/health", page.key)
+	if status != http.StatusOK {
+		t.Fatalf("health status with the secret %d", status)
 	}
 
 	cancel()
@@ -120,12 +119,115 @@ func TestServeAnswersUntilStopped(t *testing.T) {
 	}
 }
 
+// statusWith is the status of a GET of url, carrying key when it is not zero.
+func statusWith(ctx context.Context, t *testing.T, url string, key secret.Secret) int {
+	t.Helper()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !key.IsZero() {
+		request.Header.Set(secret.Header, key.Authorization())
+	}
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = response.Body.Close()
+
+	return response.StatusCode
+}
+
+// TestServeShowsTheSecretOnlyToATerminal: on a terminal serve prints the page's address with the
+// secret in its fragment; anywhere else (a pipe, a file, a log) it prints the address alone and
+// names the lock file the secret is in.
+func TestServeShowsTheSecretOnlyToATerminal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		terminal bool
+	}{
+		{"a terminal", true},
+		{"a pipe or a file", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(t.Context())
+
+			var stdout, stderr syncBuffer
+
+			dataDir := t.TempDir()
+			env := map[string]string{
+				"CONN_PORT": "0", "CONN_DIST": t.TempDir(), "CONN_DATA": dataDir,
+			}
+			exited := make(chan int, 1)
+
+			go func() { exited <- serve(ctx, lookupFrom(env), &stdout, tt.terminal, &stderr) }()
+
+			address := waitForAddress(t, &stdout)
+
+			holder, _, err := instance.Running(dataDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			cancel()
+			<-exited
+
+			checkShown(t, stdout.String(), stderr.String(), tt.terminal,
+				shown{address: address, key: holder.Secret, dataDir: dataDir})
+		})
+	}
+}
+
+// shown is what serve was to say: where it listens, its secret and its data folder.
+type shown struct {
+	address string
+	key     secret.Secret
+	dataDir string
+}
+
+// checkShown fails the test unless out is what serve says on a terminal or elsewhere, and
+// errors never holds the secret.
+func checkShown(t *testing.T, out, errors string, terminal bool, want shown) {
+	t.Helper()
+
+	address, _, _ := strings.Cut(want.address, "/#")
+
+	expected := "conn listening on " + desk.PageURL(address, want.key) + "\n"
+	if !terminal {
+		expected = "conn listening on " + address + "\n" + lockLine(address, want.dataDir)
+	}
+
+	if out != expected {
+		t.Errorf("stdout %q, want %q", out, expected)
+	}
+
+	if strings.Contains(errors, want.key.String()) {
+		t.Error("stderr holds the secret")
+	}
+}
+
+// lockLine is the line that says where the secret is when it is not printed.
+func lockLine(address, dataDir string) string {
+	return "conn: open " + address + "/#k=<secret>, with the \"secret\" in " +
+		dataDir + "/" + instance.FileName + "\n"
+}
+
 func TestServeRefusesABadPort(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
 
-	code := serve(t.Context(), lookupFrom(map[string]string{"CONN_PORT": "x"}), &stdout, &stderr)
+	code := serve(t.Context(), lookupFrom(map[string]string{"CONN_PORT": "x"}), &stdout, false,
+		&stderr)
 	if code != exitError {
 		t.Fatalf("exit %d", code)
 	}
@@ -135,7 +237,7 @@ func TestServeRefusesABadPort(t *testing.T) {
 	}
 }
 
-// waitForAddress reads the "conn listening on" line serve prints.
+// waitForAddress reads the address on the "conn listening on" line serve prints.
 func waitForAddress(t *testing.T, stdout *syncBuffer) string {
 	t.Helper()
 
@@ -143,9 +245,11 @@ func waitForAddress(t *testing.T, stdout *syncBuffer) string {
 
 	deadline := time.Now().Add(testtime.Scaled(5 * time.Second))
 	for time.Now().Before(deadline) {
-		address, found := strings.CutPrefix(stdout.String(), prefix)
+		rest, found := strings.CutPrefix(stdout.String(), prefix)
 		if found {
-			return strings.TrimSpace(address)
+			line, _, _ := strings.Cut(rest, "\n")
+
+			return strings.TrimSpace(line)
 		}
 
 		time.Sleep(10 * time.Millisecond)
@@ -154,4 +258,67 @@ func waitForAddress(t *testing.T, stdout *syncBuffer) string {
 	t.Fatal("the server never said where it listens")
 
 	return ""
+}
+
+// served is a running serve's address and the secret its page carries.
+type served struct {
+	address string
+	key     secret.Secret
+}
+
+// waitForPage reads the page address serve prints on a terminal: the address, and the secret in
+// its fragment.
+func waitForPage(t *testing.T, stdout *syncBuffer) served {
+	t.Helper()
+
+	address, text, found := strings.Cut(waitForAddress(t, stdout), "/#k=")
+	if !found {
+		t.Fatal("the page address has no secret")
+	}
+
+	key, err := secret.Parse(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return served{address: address, key: key}
+}
+
+// TestTerminal: a pipe and a file are not a terminal, so the secret is not printed to them.
+func TestTerminal(t *testing.T) {
+	t.Parallel()
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		_ = reader.Close()
+		_ = writer.Close()
+	})
+
+	file, err := os.Create(filepath.Join(t.TempDir(), "out.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = file.Close() })
+
+	tests := []struct {
+		name string
+		file *os.File
+	}{
+		{"a pipe", writer},
+		{"a file", file},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if terminal(tt.file) {
+				t.Errorf("%s is taken for a terminal", tt.name)
+			}
+		})
+	}
 }

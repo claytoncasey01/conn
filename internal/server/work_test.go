@@ -73,8 +73,10 @@ func newWorkRig(t *testing.T, current string) workRig {
 
 	return workRig{
 		reviewsRig: reviewsRig{
-			handler: &server.Server{UI: bundle(), Clients: func() int { return 0 }, Work: work},
-			tab:     nil, data: data,
+			handler: &server.Server{
+				UI: bundle(), Secret: testKey(t), Clients: func() int { return 0 }, Work: work,
+			},
+			tab: nil, data: data,
 		},
 		store: store, work: work, data: data, clone: clone,
 	}

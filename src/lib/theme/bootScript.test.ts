@@ -1,17 +1,18 @@
-// The boot script is plain text in index.html, so it is run here against fakes, as the browser would at first paint.
+// The boot script is a plain file (public/boot.js) that index.html loads before the app, so it is run here against fakes, as
+// the browser would at first paint.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import vm from 'node:vm'
-import { CSS_HREF, DEFAULT_ID, FONTS_HREF, KEYS } from './storage.ts'
+import { CSS_HREF, DEFAULT_ID, FONTS_HREF, KEYS, SHEET_CHARS_MAX } from './storage.ts'
 import { cacheEntryOf } from './apply.ts'
 import { LOOK_RULES } from './lookCss.ts'
 import { resolveTheme } from './resolve.ts'
 import type { ThemeManifest } from './types.ts'
 
 const html = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8')
-const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
-const code = inline[0]?.[1] ?? ''
+const code = readFileSync(new URL('../../../public/boot.js', import.meta.url), 'utf8')
+const BOOT_TAG = '<script src="/boot.js"></script>'
 
 type FakeEl = { tag: string; id: string; textContent: string; rel?: string; href?: string; media?: string; onload?: () => void }
 type Fake = { attrs: Record<string, string>; styles: FakeEl[]; links: FakeEl[]; reads: string[]; writes: number }
@@ -42,12 +43,14 @@ const cacheOf = (over: object = {}) =>
   JSON.stringify({ css, attrs: { motion: 'power', led: 'square', glass: 'on' }, only: null, ...over })
 const choiceOf = (over: object = {}) => JSON.stringify({ id: 'matrix', mode: 'system', accent: null, variant: null, effects: 'auto', ...over })
 
-test('there is exactly one inline script, plain and short', () => {
-  assert.equal(inline.length, 1)
-  assert.ok(code.trim().split('\n').length < 40, 'under 40 lines')
+test('index.html has no inline script: the boot script is a plain file, short, loaded before the app script', () => {
+  assert.equal([...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>/g)].length, 0, 'no inline script (the Content-Security-Policy allows none)')
+  assert.equal(html.split(BOOT_TAG).length, 2, 'loaded once, as a classic script that runs before the body goes on')
+  const lines = code.trim().split('\n').filter((l) => !l.startsWith('//'))
+  assert.ok(lines.length < 40, 'under 40 lines')
   assert.ok(!code.includes('`'), 'no template literals')
   assert.ok(!/\bfetch\b|XMLHttpRequest|innerHTML|setItem|=>|\blet\b|\bconst\b/.test(code), 'ES5, no network, no writes, no innerHTML')
-  assert.ok(html.indexOf(inline[0]![0]) < html.indexOf('/src/main.ts'), 'runs before the app script')
+  assert.ok(html.indexOf(BOOT_TAG) < html.indexOf('/src/main.ts'), 'runs before the app script')
 })
 
 const SHA = 'a'.repeat(64)
@@ -55,25 +58,34 @@ const cssHref = (id = 'matrix', v = SHA) => `/api/themes/${id}/theme.css?v=${v}`
 const fontsHref = 'https://fonts.googleapis.com/css2?family=Share+Tech+Mono:wght@400&display=swap'
 const stored = (over: object, id = 'matrix') => ({ [KEYS.choice]: choiceOf({ id }), [KEYS.css(id)]: cacheOf(over) })
 
-test("the script's link patterns are the ones the modules use, so a cache entry the app reads is one the script accepts", () => {
+test("the script's patterns and limit are the ones the modules use, so a cache entry the app reads is one the script accepts", () => {
   assert.ok(code.includes(String(CSS_HREF)), String(CSS_HREF))
   assert.ok(code.includes(String(FONTS_HREF)), String(FONTS_HREF))
+  assert.ok(code.includes(`e.sheet.length <= ${SHEET_CHARS_MAX}`), 'SHEET_CHARS_MAX')
 })
 
-test('a cached stylesheet href is injected once as a stylesheet link, after the token style and the fonts link', () => {
-  const r = run(stored({ cssUrl: cssHref(), fontsUrl: fontsHref }))
-  const css = r.links.find((l) => l.id === 'conn-theme-css')
-  assert.equal(r.links.filter((l) => l.id === 'conn-theme-css').length, 1)
-  assert.equal(css?.rel, 'stylesheet')
-  assert.equal(css?.href, cssHref())
-  assert.deepEqual(r.links.map((l) => l.id), ['conn-theme-fonts', 'conn-theme-css'], 'the app appends them in this order')
-  assert.equal(r.styles.length, 1)
+const SHEET = '.ring{border:1px solid transparent}'
+const sheetOf = (r: Fake) => r.styles.filter((s) => s.id === 'conn-theme-css')
+
+test('a cached stylesheet is painted once as its text in a style element, after the token style; nothing is linked for it', () => {
+  const r = run(stored({ cssUrl: cssHref(), sheet: SHEET, fontsUrl: fontsHref }))
+  assert.deepEqual(r.styles.map((s) => s.id), ['conn-theme', 'conn-theme-css'], 'the app appends them in this order')
+  assert.equal(sheetOf(r)[0]?.textContent, SHEET)
+  assert.deepEqual(r.links.map((l) => l.id), ['conn-theme-fonts'], 'the stylesheet is an /api route, which a link cannot ask for')
 })
 
-test('the script is at the top of the body, so its links land after the build\'s stylesheet in the head', () => {
-  assert.ok(html.indexOf('<body>') < html.indexOf(inline[0]![0]), 'in the body')
-  assert.ok(html.indexOf(inline[0]![0]) < html.indexOf('<div id="app">'), 'before the app root')
-  assert.ok(html.indexOf('</head>') < html.indexOf(inline[0]![0]))
+test('a stylesheet is painted only beside its address, as a string, and up to the limit', () => {
+  assert.equal(sheetOf(run(stored({ sheet: SHEET }))).length, 0, 'no address')
+  assert.equal(sheetOf(run(stored({ cssUrl: cssHref() }))).length, 0, 'an entry from before the text was kept')
+  for (const bad of [5, null, {}, [SHEET], true]) assert.equal(sheetOf(run(stored({ cssUrl: cssHref(), sheet: bad }))).length, 0, String(bad))
+  assert.equal(sheetOf(run(stored({ cssUrl: cssHref(), sheet: 'a'.repeat(SHEET_CHARS_MAX) }))).length, 1, 'at the limit')
+  assert.equal(sheetOf(run(stored({ cssUrl: cssHref(), sheet: 'a'.repeat(SHEET_CHARS_MAX + 1) }))).length, 0, 'over it')
+})
+
+test('the script is at the top of the body, so what it adds lands after the build\'s stylesheet in the head', () => {
+  assert.ok(html.indexOf('<body>') < html.indexOf(BOOT_TAG), 'in the body')
+  assert.ok(html.indexOf(BOOT_TAG) < html.indexOf('<div id="app">'), 'before the app root')
+  assert.ok(html.indexOf('</head>') < html.indexOf(BOOT_TAG))
 })
 
 test('a cached fonts href is injected as a stylesheet link that does not block first paint, and applies once it loads', () => {
@@ -101,9 +113,9 @@ test('hostile or malformed hrefs inject nothing, and the tokens still paint', ()
     `/api/themes/matrix/theme.css?v=${SHA}`.replace('/api', '/xapi'), cssHref('x'.repeat(5000)), '', 5, null, {}, [cssHref()], true,
   ]
   for (const h of hostile) {
-    const r = run(stored({ cssUrl: h }))
+    const r = run(stored({ cssUrl: h, sheet: SHEET }))
     assert.equal(r.links.length, 0, String(h).slice(0, 70))
-    assert.equal(r.styles.length, 1, 'tokens still paint')
+    assert.equal(r.styles.length, 1, 'tokens still paint, and only they')
   }
   const hostileFonts = [
     'https://evil.com/css2?family=Share+Tech+Mono:wght@400&display=swap', 'http://fonts.googleapis.com/css2?family=A:wght@400&display=swap',
@@ -117,16 +129,18 @@ test('hostile or malformed hrefs inject nothing, and the tokens still paint', ()
   for (const h of hostileFonts) assert.equal(run(stored({ fontsUrl: h })).links.length, 0, String(h).slice(0, 70))
 })
 
-test('each link stands alone: a bad one does not stop the good one', () => {
-  assert.deepEqual(run(stored({ cssUrl: '//evil.com/x.css', fontsUrl: fontsHref })).links.map((l) => l.id), ['conn-theme-fonts'])
-  assert.deepEqual(run(stored({ cssUrl: cssHref(), fontsUrl: 'javascript:1' })).links.map((l) => l.id), ['conn-theme-css'])
+test('each part stands alone: a bad one does not stop the good one', () => {
+  const badSheet = run(stored({ cssUrl: '//evil.com/x.css', sheet: SHEET, fontsUrl: fontsHref }))
+  assert.deepEqual([badSheet.links.map((l) => l.id), sheetOf(badSheet).length], [['conn-theme-fonts'], 0])
+  const badFonts = run(stored({ cssUrl: cssHref(), sheet: SHEET, fontsUrl: 'javascript:1' }))
+  assert.deepEqual([badFonts.links.length, sheetOf(badFonts).length], [0, 1])
 })
 
-test("another theme's stylesheet href is never injected: the path id must be the id being painted", () => {
-  assert.equal(run(stored({ cssUrl: cssHref('neon') })).links.length, 0)
+test("another theme's stylesheet is never painted: the path id must be the id being painted", () => {
+  assert.equal(sheetOf(run(stored({ cssUrl: cssHref('neon'), sheet: SHEET }))).length, 0)
   // and ?theme= pins which cache entry is read, so its own id is the one that counts
-  const r = run({ [KEYS.choice]: choiceOf({ id: 'default' }), [KEYS.css('matrix')]: cacheOf({ cssUrl: cssHref('matrix') }) }, { search: '?theme=matrix' })
-  assert.deepEqual(r.links.map((l) => l.href), [cssHref('matrix')])
+  const r = run({ [KEYS.choice]: choiceOf({ id: 'default' }), [KEYS.css('matrix')]: cacheOf({ cssUrl: cssHref('matrix'), sheet: SHEET }) }, { search: '?theme=matrix' })
+  assert.deepEqual(sheetOf(r).map((s) => s.textContent), [SHEET])
 })
 
 test('no cache, an old-shape cache entry (no hrefs), or a corrupt one injects no link', () => {
@@ -136,9 +150,9 @@ test('no cache, an old-shape cache entry (no hrefs), or a corrupt one injects no
   const noFields = JSON.stringify({ css, attrs: { motion: 'power', led: 'square', glass: 'on' }, only: null })
   const r = run({ [KEYS.choice]: choiceOf(), [KEYS.css('matrix')]: noFields })
   assert.deepEqual([r.links.length, r.styles.length], [0, 1])
-  // a corrupt entry paints nothing, so it injects no link even with a valid href inside it
-  assert.equal(run(stored({ css: 9, cssUrl: cssHref() })).links.length, 0)
-  assert.equal(run(stored({ attrs: null, cssUrl: cssHref() })).links.length, 0)
+  // a corrupt entry paints nothing, so it paints no stylesheet even with a valid one inside it
+  assert.equal(run(stored({ css: 9, cssUrl: cssHref(), sheet: SHEET })).styles.length, 0)
+  assert.equal(run(stored({ attrs: null, cssUrl: cssHref(), sheet: SHEET })).styles.length, 0)
 })
 
 test('a theme whose entry caches no link gets none', () => {
@@ -268,7 +282,7 @@ test('a cold start paints the cached look: the real cache entry for Matrix carri
   const def = read('default')
   const matrix = read('matrix')
   const r = resolveTheme({ list: [{ id: 'matrix', source: 'builtin', hasCss: false, cssSha256: null, manifest: matrix }], choice: JSON.parse(choiceOf()), systemDark: true, accepted: {}, fallback: def })
-  const entry = cacheEntryOf(r)
+  const entry = cacheEntryOf(r, null)
   const painted = run({ [KEYS.choice]: choiceOf(), [KEYS.css('matrix')]: JSON.stringify(entry) }).styles.map((s) => s.textContent).join('')
   for (const decl of ['--look-gutter:1;', '--look-head-blur:blur(14px);', '--look-fill:color-mix(in oklch, var(--panel) 55%, transparent);', '--look-fwd:"→";', '--look-bullet:"❯";', '--look-body:var(--font-mono), monospace;'])
     assert.ok(painted.includes(decl), decl)

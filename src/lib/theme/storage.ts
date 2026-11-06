@@ -11,15 +11,21 @@ export type Reader = Pick<Storage, 'getItem'>
 export type Store = Pick<Storage, 'getItem' | 'setItem'>
 
 // What the boot script needs to paint the last applied look; `only` is the theme's single mode, null for two.
-// The two hrefs are the links the app had applied (null: none): the stylesheet only for a theme whose CSS the app already
-// served with consent (or a built-in's), the fonts only the allow-listed Google Fonts form fontsHref builds.
+// `sheet` is the theme's own stylesheet the app had applied, and `cssUrl` the address it was read from (both null: none):
+// only for a theme whose CSS the app already served with consent (or a built-in's). The stylesheet is an /api route, which
+// needs the secret's header, so the page reads it with a request and applies its text, and the boot script, which makes no
+// request, paints the text kept here. `fontsUrl` is a link, only of the allow-listed Google Fonts form fontsHref builds.
 export type CacheEntry = {
   css: string
   attrs: { motion: string; led: string; glass: string }
   only: Mode | null
   cssUrl: string | null
+  sheet: string | null
   fontsUrl: string | null
 }
+
+/** The most characters a theme's own stylesheet may hold to be applied or kept: the server's limit on theme.css (256 KiB) */
+export const SHEET_CHARS_MAX = 262144
 export type Choice = {
   id: string
   mode: ModeSetting
@@ -88,10 +94,14 @@ export function readCache(s: Reader | null, id: string): CacheEntry | null {
   const okAttr = (k: keyof typeof ATTRS) => typeof a[k] === 'string' && ATTRS[k].includes(a[k] as string)
   if (!okAttr('motion') || !okAttr('led') || !okAttr('glass')) return null
   if (e.only !== null && e.only !== 'light' && e.only !== 'dark') return null
-  // each href stands alone: a bad one is dropped, the tokens still paint. The stylesheet must also be this theme's own.
-  const cssUrl = typeof e.cssUrl === 'string' && e.cssUrl.startsWith(`/api/themes/${id}/`) && CSS_HREF.test(e.cssUrl) ? e.cssUrl : null
+  // each part stands alone: a bad one is dropped, the tokens still paint. The stylesheet must also be this theme's own, and
+  // its text and address come together or not at all.
+  const urlOk = typeof e.cssUrl === 'string' && e.cssUrl.startsWith(`/api/themes/${id}/`) && CSS_HREF.test(e.cssUrl)
+  const sheetOk = urlOk && typeof e.sheet === 'string' && e.sheet.length <= SHEET_CHARS_MAX
+  const cssUrl = sheetOk ? (e.cssUrl as string) : null
+  const sheet = sheetOk ? (e.sheet as string) : null
   const fontsUrl = typeof e.fontsUrl === 'string' && FONTS_HREF.test(e.fontsUrl) ? e.fontsUrl : null
-  return { css: e.css, attrs: { motion: a.motion as string, led: a.led as string, glass: a.glass as string }, only: e.only, cssUrl, fontsUrl }
+  return { css: e.css, attrs: { motion: a.motion as string, led: a.led as string, glass: a.glass as string }, only: e.only, cssUrl, sheet, fontsUrl }
 }
 
 export function writeCache(s: Store | null, id: string, e: CacheEntry): void {

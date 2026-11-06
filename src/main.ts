@@ -1,3 +1,5 @@
+// first: takes the secret out of the address's fragment before the router reads the fragment as a route
+import './lib/keyBoot.ts'
 import './app.css'
 import { mount } from 'svelte'
 import App from './App.svelte'

@@ -38,7 +38,9 @@ async function boot(init: Record<string, string>, list: ThemeEntry[] | 'fail', d
   g.location = { search }
   g.window = { addEventListener: (t: string, f: () => void) => void (env.listeners[t] ??= []).push(f) }
   g.matchMedia = () => Object.assign(env.mq, { addEventListener: (_: string, f: () => void) => void mqls.push(f) })
-  g.fetch = async () => {
+  g.fetch = async (url: string) => {
+    // a theme's own stylesheet answers its text: the address, so a test can tell which one was applied
+    if (url.includes('/theme.css?v=')) return { ok: true, status: 200, text: async () => sheetText(url) }
     env.fetches++
     if (list === 'fail') throw new Error('offline')
     return { ok: true, status: 200, json: async () => list }
@@ -47,6 +49,7 @@ async function boot(init: Record<string, string>, list: ThemeEntry[] | 'fail', d
   return { mod, env }
 }
 const settle = () => new Promise((r) => setTimeout(r, 0))
+const sheetText = (url: string) => `/* ${url} */`
 const saved = (env: Env) => JSON.parse(env.ls.get(KEYS.choice) ?? 'null') as Choice
 
 afterEach(() => {
@@ -151,10 +154,13 @@ test('(g) a user theme with CSS is not applied until acceptCss; a built-in with 
   assert.equal(mod.theme.choice.id, 'mine')
   assert.equal(saved(env).id, 'mine')
   assert.equal(env.doc.attrs['data-theme'], 'mine')
-  assert.equal(env.doc.el('conn-theme-css')?.href, '/api/themes/mine/theme.css?v=h1')
-  // nothing was cached for it while it waited, and now that its CSS is applied with consent the cache holds the link beside the tokens
+  // the stylesheet is read through the API, then applied as text, and cached beside the tokens now that it has consent
+  await settle()
+  assert.equal(env.doc.el('conn-theme-css')?.textContent, sheetText('/api/themes/mine/theme.css?v=h1'))
+  assert.equal(env.doc.el('conn-theme-css')?.href, undefined, 'never a link: it is an /api route')
   const cached = JSON.parse(env.ls.get(KEYS.css('mine')) ?? 'null')
   assert.equal(cached.cssUrl, '/api/themes/mine/theme.css?v=h1')
+  assert.equal(cached.sheet, sheetText('/api/themes/mine/theme.css?v=h1'))
   assert.ok(!cached.css.includes('theme.css'), 'the token stylesheet is the generated one, never the theme.css text')
   mod.selectTheme('neonish')
   assert.equal(mod.theme.choice.id, 'neonish')
@@ -245,49 +251,52 @@ test('(I1) a pin cannot bypass consent: a pinned user theme with unaccepted CSS 
   assert.equal(JSON.parse(env.ls.get(KEYS.css('mine')) ?? 'null').cssUrl, null, 'and no stylesheet link is cached for the next cold start')
 })
 
-test('a link the boot script made is adopted once the list arrives, and a changed theme version updates it', async () => {
+test('the stylesheet the boot script painted is adopted once the list arrives, and a changed theme version replaces its text', async () => {
   const sha = 'a'.repeat(64)
   const href = (v: string) => `/api/themes/neonish/theme.css?v=${v}`
   const neonish = (v: string) => entry({ ...matrix, id: 'neonish' }, 'builtin', v)
-  const { mod, env } = await boot({ [KEYS.choice]: choiceOf({ id: 'neonish' }) }, [entry(def), neonish(sha)])
-  const booted = env.doc.createElement('link')
+  const cache = { css: '[data-theme="neonish"]{}', attrs: { motion: 'power', led: 'square', glass: 'on' }, only: 'dark', cssUrl: href(sha), sheet: 'cached{}', fontsUrl: null }
+  const init = { [KEYS.choice]: choiceOf({ id: 'neonish' }), [KEYS.css('neonish')]: JSON.stringify(cache) }
+  const { mod, env } = await boot(init, [entry(def), neonish(sha)])
+  const booted = env.doc.createElement('style')
   booted.id = 'conn-theme-css'
-  booted.href = href(sha)
+  booted.textContent = 'cached{}'
   env.doc.head.appendChild(booted)
-  const writes = env.doc.hrefWrites(booted)
   mod.initTheme()
   await settle()
   assert.equal(env.doc.order().filter((i) => i === 'conn-theme-css').length, 1)
   assert.equal(env.doc.el('conn-theme-css'), booted)
-  assert.equal(env.doc.hrefWrites(booted), writes, 'adopted, not reloaded')
+  assert.equal(booted.textContent, 'cached{}', 'adopted from the cache, not read again')
   assert.equal(JSON.parse(env.ls.get(KEYS.css('neonish')) ?? 'null').cssUrl, href(sha))
-  // the theme's CSS changed on the server: the next list read points the same link at the new version
+  // the theme's CSS changed on the server: the next list read reads the new version and puts its text in the same element
   const next = 'c'.repeat(64)
   const body = [entry(def), neonish(next)]
-  g.fetch = async () => ({ ok: true, status: 200, json: async () => body })
+  g.fetch = async (url: string) => (url.includes('/theme.css?v=') ? { ok: true, status: 200, text: async () => sheetText(url) } : { ok: true, status: 200, json: async () => body })
   await mod.refreshThemes()
-  assert.equal(env.doc.el('conn-theme-css'), booted)
-  assert.equal(booted.href, href(next))
-  assert.equal(JSON.parse(env.ls.get(KEYS.css('neonish')) ?? 'null').cssUrl, href(next))
+  await settle()
+  assert.equal(env.doc.el('conn-theme-css')?.textContent, sheetText(href(next)))
+  const cached = JSON.parse(env.ls.get(KEYS.css('neonish')) ?? 'null')
+  assert.deepEqual([cached.cssUrl, cached.sheet], [href(next), sheetText(href(next))])
 })
 
-test('a user theme whose CSS changed after it was accepted loses its cached link at the next list read', async () => {
+test('a user theme whose CSS changed after it was accepted loses its cached stylesheet at the next list read', async () => {
   const old = 'a'.repeat(64)
   const user = (v: string) => entry({ ...matrix, id: 'mine' }, 'user', v)
   const init = {
     [KEYS.choice]: choiceOf({ id: 'mine' }),
     [KEYS.cssOk]: JSON.stringify({ mine: old }),
-    [KEYS.css('mine')]: JSON.stringify({ css: '[data-theme="mine"]{}', attrs: { motion: 'power', led: 'square', glass: 'on' }, only: 'dark', cssUrl: `/api/themes/mine/theme.css?v=${old}`, fontsUrl: null }),
+    [KEYS.css('mine')]: JSON.stringify({ css: '[data-theme="mine"]{}', attrs: { motion: 'power', led: 'square', glass: 'on' }, only: 'dark', cssUrl: `/api/themes/mine/theme.css?v=${old}`, sheet: 'old{}', fontsUrl: null }),
   }
   const { mod, env } = await boot(init, [entry(def), user('b'.repeat(64))])
-  const booted = env.doc.createElement('link')
+  const booted = env.doc.createElement('style')
   booted.id = 'conn-theme-css'
-  booted.href = `/api/themes/mine/theme.css?v=${old}`
+  booted.textContent = 'old{}'
   env.doc.head.appendChild(booted)
   mod.initTheme()
   await settle()
-  assert.equal(env.doc.el('conn-theme-css'), undefined, 'the stale link is removed')
-  assert.equal(JSON.parse(env.ls.get(KEYS.css('mine')) ?? 'null').cssUrl, null)
+  assert.equal(env.doc.el('conn-theme-css'), undefined, 'the stale stylesheet is removed')
+  const cached = JSON.parse(env.ls.get(KEYS.css('mine')) ?? 'null')
+  assert.deepEqual([cached.cssUrl, cached.sheet], [null, null])
 })
 
 test('(I1) an explicit choice drops the pin and persists normally', async () => {

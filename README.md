@@ -38,7 +38,7 @@ Run it again to update. If `~/.local/bin` is not on your `PATH`, the script says
 conn serve
 ```
 
-It listens on http://127.0.0.1:7777: open that address in your browser. `conn version` prints the release you have. How releases are made is in [releasing](docs/releasing.md).
+It listens on http://127.0.0.1:7777 and prints the page's address with a secret after `#k=` (made anew at each start): open that address in your browser. The page keeps the secret for the tab and removes it from the address bar. When `conn serve`'s output is not a terminal (a pipe, a file, a log), it prints the address without the secret and names the lock file the secret is in; add `#k=` and the lock file's `secret` to the address. `conn version` prints the release you have. How releases are made is in [releasing](docs/releasing.md).
 
 ### The app
 
@@ -74,11 +74,11 @@ cd conn
 make serve
 ```
 
-`make serve` builds the UI and the `conn` binary (`bin/conn`, with the UI built in), then runs `conn serve`, which listens on http://127.0.0.1:7777. Open that address in your browser. Ctrl-C stops it.
+`make serve` builds the UI and the `conn` binary (`bin/conn`, with the UI built in), then runs `conn serve`, which listens on http://127.0.0.1:7777. Open the address it prints, which carries the secret. Ctrl-C stops it.
 
 The docs run the command as `conn`: put the checkout's `bin/` on your `PATH`, or copy `bin/conn` to a folder that is on it, or type `bin/conn` from the checkout.
 
-One Conn runs per data folder. A second `conn serve` on the same folder prints the address of the one already running and exits, and `conn stop` stops it. A port that another program holds is an error that says so: set `CONN_PORT` to a free one.
+One Conn runs per data folder. A second `conn serve` on the same folder prints the address of the one already running (with its secret, on a terminal) and exits, and `conn stop` stops it. A port that another program holds is an error that says so: set `CONN_PORT` to a free one.
 
 On first start every page except Themes sends you to Settings. Choose the repositories Conn may read, as patterns such as `acme/widgets` or `acme/*`. Nothing is fetched until you do. The allowlist limits what Conn reads, not what a Claude Code session can reach on its own. See [settings](docs/settings.md).
 
@@ -86,10 +86,10 @@ On first start every page except Themes sends you to Settings. Choose the reposi
 
 - **Network.** The server makes one kind of web request of its own: the theme gallery reads `raw.githubusercontent.com` with plain GETs that carry no credentials. `CONN_THEME_INDEX=off` turns it off. The macOS app makes one more: about 10 seconds after it has finished starting, and then daily, a `HEAD` request to `github.com` for the address of the latest release, to learn whether a newer one exists, and only when one does, a second `HEAD` request to learn whether that release's app is attached yet, so it never offers a release the install command cannot deliver. They send no version of Conn and nothing of yours, read only the status and the redirect and no body, and GitHub sees the address they came from and the client name `conn-app`. `CONN_UPDATE_CHECK=off` turns it off. GitHub goes through your `gh`. Slack, Jira and Confluence go through short headless `claude -p` runs that use your claude.ai connectors. Those runs cost tokens, and each is capped in cost and time. There is no telemetry.
 - **Fonts.** Themes name Google Fonts families, and the page loads the active theme's from `fonts.googleapis.com`, so your browser contacts Google. The glyph font for Matrix's rain is bundled.
-- **Files.** Conn keeps everything it saves in one folder, `~/.config/conn` (`$XDG_CONFIG_HOME/conn` when that is set to an absolute path; `CONN_DATA` changes it): the History archive, `settings.json`, `reviews.json`, `myprs.json` and `conn.lock`, which names the server running on the folder. It also holds copies of the agents and skills Conn provides (`agents/`, `skills/`); the agents are linked into `~/.claude/agents` when the server starts, and a skill is linked into `~/.claude/skills` only when you press INSTALL on the Settings page. See [Agents and skills](docs/settings.md#agents-and-skills). Conn creates the folder private to you (mode 0700). A `~/.conn` folder from an earlier version is not read or moved: Conn starts fresh in the new folder, and the old one can be deleted or copied over by hand. `history.db` holds the text of your prompts and results, so treat it like `~/.claude`.
+- **Files.** Conn keeps everything it saves in one folder, `~/.config/conn` (`$XDG_CONFIG_HOME/conn` when that is set to an absolute path; `CONN_DATA` changes it): the History archive, `settings.json`, `reviews.json`, `myprs.json` and `conn.lock`, which names the server running on the folder and holds its secret (mode 0600). It also holds copies of the agents and skills Conn provides (`agents/`, `skills/`); the agents are linked into `~/.claude/agents` when the server starts, and a skill is linked into `~/.claude/skills` only when you press INSTALL on the Settings page. See [Agents and skills](docs/settings.md#agents-and-skills). Conn creates the folder private to you (mode 0700). A `~/.conn` folder from an earlier version is not read or moved: Conn starts fresh in the new folder, and the old one can be deleted or copied over by hand. `history.db` holds the text of your prompts and results, so treat it like `~/.claude`.
 - **Your shell.** The app runs your login shell once, when it starts, to read the environment that `claude`, `gh` and `git` need. It keeps that environment in memory and never logs it or writes it down. `conn serve` does not do this.
 - **Git.** Review and self-review sessions work in their own git worktrees, never in your working copy. Each page's doc lists everything Conn writes and calls for that feature.
-- **Writes.** Every request that changes something needs the `x-conn: 1` header, and a request is refused unless its `Host` is a loopback name and its `Origin`, when it has one, is a page served here.
+- **The API.** Every `/api` request needs the secret this launch of Conn made (256 random bits, in an `Authorization: Bearer` header), a `Host` that is a loopback name, and no `Origin` or exactly the server's own; every request that changes something also needs the `x-conn: 1` header. The page itself and its files need none. The page carries a Content-Security-Policy: scripts only from Conn itself, no inline script, requests only to Conn, and never in a frame.
 
 Review and self-review sessions are ordinary Claude Code sessions running as you, with your own settings and `gh` login. Their prompts and deny lists narrow what they do, and they do not make it impossible for a session to act on GitHub. The limits are described in [my PRs](docs/my-prs.md).
 
@@ -128,7 +128,7 @@ Building the app needs a Mac, the Xcode command line tools and cgo. Run `bun run
 
 [AGENTS.md](AGENTS.md) has the rules for writing Go here, for people and coding agents alike.
 
-`make dev` has its own data folder, so it never shares `history.db` or `reviews.json` with the dashboard on :7777. To work without real accounts, set `CONN_MYPRS_DRY=1`, `CONN_REVIEWS_DRY=1` or `CONN_WORK_DRY=1`. They fake My PRs, Reviews and Open work with invented data and make no GitHub, Slack or Jira call. See [dry runs](docs/settings.md).
+`make dev` prints the UI's address with the API's secret each time the API starts; the secret is new at each restart, so open the new address. It has its own data folder, so it never shares `history.db` or `reviews.json` with the dashboard on :7777. To work without real accounts, set `CONN_MYPRS_DRY=1`, `CONN_REVIEWS_DRY=1` or `CONN_WORK_DRY=1`. They fake My PRs, Reviews and Open work with invented data and make no GitHub, Slack or Jira call. See [dry runs](docs/settings.md).
 
 Layout:
 

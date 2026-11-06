@@ -1,4 +1,5 @@
 // Reading one History entry and its agents from the server. Pure apart from the fetch it is given, so it can be tested.
+import { api } from './api.ts'
 import { isAgentId, isHistoryId } from './routes.ts'
 import type { AgentDetail, HistoryEntry } from './types.ts'
 
@@ -11,7 +12,7 @@ export type EntryResult =
 type Fetch = (url: string) => Promise<Response>
 
 /** GET /api/history/:uuid. An id of the wrong shape never reaches the request. */
-export async function fetchEntry(uuid: string, f: Fetch = fetch): Promise<EntryResult> {
+export async function fetchEntry(uuid: string, f: Fetch = api): Promise<EntryResult> {
   if (!isHistoryId(uuid)) return { kind: 'missing' }
   try {
     const r = await f(`/api/history/${encodeURIComponent(uuid)}`)
@@ -29,7 +30,7 @@ export async function fetchEntry(uuid: string, f: Fetch = fetch): Promise<EntryR
 }
 
 /** GET /api/history/:uuid/agents/:aid. null when there is no such agent; throws when the request itself fails. */
-export async function fetchEntryAgent(uuid: string, aid: string, f: Fetch = fetch): Promise<AgentDetail | null> {
+export async function fetchEntryAgent(uuid: string, aid: string, f: Fetch = api): Promise<AgentDetail | null> {
   if (!isHistoryId(uuid) || !isAgentId(aid)) return null
   const r = await f(`/api/history/${encodeURIComponent(uuid)}/agents/${encodeURIComponent(aid)}`)
   if (r.status === 404 || r.status === 400) return null

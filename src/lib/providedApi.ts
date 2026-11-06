@@ -1,5 +1,6 @@
 // The agents and skills conn provides: typed wrappers over /api/provided. Not post() in live.svelte.ts: the page needs the server's
 // own words when an install is refused (a file of the user's is in the way), so every wrapper answers a result and never throws.
+import { api, type ApiInit } from './api.ts'
 
 /** What is at the place a link goes: nothing, a link of conn's, or anything else (never replaced). */
 export type ProvidedState = 'notInstalled' | 'installed' | 'conflict'
@@ -54,9 +55,9 @@ export function parseProvidedResult(status: number, body: unknown): ProvidedResu
   return { ok: false, error: typeof error === 'string' && error ? error : `HTTP ${status}` }
 }
 
-async function call(path: string, init: RequestInit): Promise<ProvidedResult> {
+async function call(path: string, init: ApiInit): Promise<ProvidedResult> {
   try {
-    const r = await fetch(path, init)
+    const r = await api(path, init)
     return parseProvidedResult(r.status, await r.json().catch(() => null))
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'request failed' }

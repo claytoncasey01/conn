@@ -19,6 +19,7 @@ import (
 	"github.com/claytoncasey01/conn"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/instance"
+	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/server"
 )
 
@@ -64,8 +65,10 @@ func (e PortTakenError) Unwrap() error { return e.err }
 
 // Server is a Conn serving on a data folder, started by Start.
 type Server struct {
-	// URL is where it answers: http://127.0.0.1:PORT.
+	// URL is where it answers: http://127.0.0.1:PORT. It never holds the secret.
 	URL string
+	// Secret is what its API asks for, made for this launch.
+	Secret secret.Secret
 
 	done chan struct{}
 	err  error
@@ -91,11 +94,12 @@ func Ended(url string, err error) *Server {
 	done := make(chan struct{})
 	close(done)
 
-	return &Server{URL: url, done: done, err: err}
+	return &Server{URL: url, Secret: secret.Secret{}, done: done, err: err}
 }
 
-// Start takes the data folder's lock, loads settings, listens on port(lookup), publishes
-// {PID, URL} in the lock and serves until ctx ends, then shuts down within ShutdownTimeout.
+// Start takes the data folder's lock, loads settings, makes this launch's secret, listens on
+// port(lookup), publishes {PID, URL, Secret} in the lock and serves until ctx ends, then shuts
+// down within ShutdownTimeout.
 // It returns instance.ErrHeld (wrapped) when another Conn holds the folder, and a PortTakenError
 // when another program holds the port.
 func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Server, error) {
@@ -105,6 +109,11 @@ func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Se
 	}
 
 	cfg := config.FromEnv(lookup)
+
+	key, err := secret.New()
+	if err != nil {
+		return nil, fmt.Errorf("starting conn: %w", err)
+	}
 
 	held, err := instance.Acquire(cfg.DataDir)
 	if err != nil {
@@ -121,7 +130,7 @@ func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Se
 		_ = held.Release()
 	}
 
-	listener, address, err := listenAndPublish(ctx, held, portNumber)
+	listener, address, err := listenAndPublish(ctx, held, portNumber, key)
 	if err != nil {
 		release()
 
@@ -129,8 +138,9 @@ func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Se
 	}
 
 	serveCtx, cancel := context.WithCancel(ctx)
-	running := &Server{URL: address, done: make(chan struct{}), err: nil}
+	running := &Server{URL: address, Secret: key, done: make(chan struct{}), err: nil}
 	handler := newHandler(serveCtx, cfg, store, logger, ui(lookup))
+	handler.Secret = key
 
 	go running.serve(serveCtx, newHTTPServer(handler), listener, func() {
 		cancel()
@@ -140,9 +150,10 @@ func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Se
 	return running, nil
 }
 
-// listenAndPublish opens the port and writes where it answers into the lock.
+// listenAndPublish opens the port and writes where it answers, and the secret it asks for, into
+// the lock.
 func listenAndPublish(
-	ctx context.Context, held *instance.Lock, portNumber int,
+	ctx context.Context, held *instance.Lock, portNumber int, key secret.Secret,
 ) (net.Listener, string, error) {
 	listener, err := listen(ctx, portNumber)
 	if err != nil {
@@ -151,7 +162,7 @@ func listenAndPublish(
 
 	address := "http://" + listener.Addr().String()
 
-	err = held.Publish(instance.Holder{PID: os.Getpid(), URL: address})
+	err = held.Publish(instance.Holder{PID: os.Getpid(), URL: address, Secret: key})
 	if err != nil {
 		_ = listener.Close()
 

@@ -39,7 +39,7 @@ func themeRig(t *testing.T) *rig {
 
 	return &rig{
 		handler: &server.Server{
-			UI: bundle(), Clients: nil, Settings: nil, Logger: quiet,
+			UI: bundle(), Secret: testKey(t), Clients: nil, Settings: nil, Logger: quiet,
 			Themes:  themes.New(builtin, themes.Disk(user), quiet),
 			Gallery: gallery.NewAPI(library, "", now),
 		},

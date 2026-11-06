@@ -15,6 +15,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/app"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/instance"
+	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
@@ -70,6 +71,45 @@ func checkAnswersAndPublishes(t *testing.T, env map[string]string) {
 
 	if holder.URL != server.URL {
 		t.Errorf("lock url = %q, want %q", holder.URL, server.URL)
+	}
+
+	checkTheSecretIsAskedFor(t, server, holder)
+}
+
+// checkTheSecretIsAskedFor checks that the API answers only with the secret the server published
+// in the lock file.
+func checkTheSecretIsAskedFor(t *testing.T, server *app.Server, holder instance.Holder) {
+	t.Helper()
+
+	if server.Secret.IsZero() {
+		t.Fatal("the server has no secret")
+	}
+
+	if !holder.Secret.Matches(server.Secret.String()) {
+		t.Fatal("the lock file holds another secret")
+	}
+
+	if status := statusOf(t, server.URL+"/api/health"); status != http.StatusUnauthorized {
+		t.Errorf("GET /api/health without the secret = %d, want 401", status)
+	}
+
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		server.URL+"/api/health", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request.Header.Set(secret.Header, holder.Secret.Authorization())
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		t.Errorf("GET /api/health with the secret = %d, want 200", response.StatusCode)
 	}
 }
 

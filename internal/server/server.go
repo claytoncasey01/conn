@@ -19,6 +19,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/provided"
 	"github.com/claytoncasey01/conn/internal/reviews"
+	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settingsapi"
 	"github.com/claytoncasey01/conn/internal/themes"
@@ -74,6 +75,8 @@ type Server struct {
 	Work *openwork.Work
 	// Logger is told about a request that failed.
 	Logger *log.Logger
+	// Secret is what every /api request must carry (see gate.go). The zero Secret refuses all.
+	Secret secret.Secret
 }
 
 type errorBody struct {
@@ -85,18 +88,15 @@ type healthBody struct {
 	Clients int  `json:"clients"`
 }
 
-// ServeHTTP refuses a request from anywhere but this machine, then answers the API or serves
-// the page bundle.
+// ServeHTTP refuses a request from anywhere but this machine, answers the API to a request the
+// gate lets through, and serves the page bundle.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !local(r) {
-		sendJSON(w, http.StatusForbidden, errorBody{Error: textForbidden})
+	s.serve(w, r, s.dispatch)
+}
 
-		return
-	}
-
-	// Routes match the path as sent, not decoded, as a browser's URL.pathname does.
-	urlPath := r.URL.EscapedPath()
-
+// dispatch answers a request under /api that the gate let through. A path no API owns gets the
+// page shell, as any other path does.
+func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, urlPath string) {
 	if urlPath == "/api/health" {
 		sendJSON(w, http.StatusOK, healthBody{OK: true, Clients: s.clients()})
 

@@ -27,8 +27,10 @@ func newMyPrsRig(t *testing.T) reviewsRig {
 	})
 
 	return reviewsRig{
-		handler: &server.Server{UI: bundle(), Clients: func() int { return 0 }, MyPrs: tab},
-		tab:     nil, data: t.TempDir(),
+		handler: &server.Server{
+			UI: bundle(), Secret: testKey(t), Clients: func() int { return 0 }, MyPrs: tab,
+		},
+		tab: nil, data: t.TempDir(),
 	}
 }
 

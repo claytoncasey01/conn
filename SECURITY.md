@@ -36,9 +36,20 @@ the app is attached yet. It installs nothing, sends no version of Conn and nothi
 
 These are in scope, because Conn promises them:
 
-- **The local server.** A page on another site, or another user of the machine, making Conn read
-  or change something. Every write needs the `x-conn: 1` header, and a request is refused unless
-  its `Host` is a loopback name and its `Origin`, when it has one, is a page served here.
+- **The local server.** A page on another site or port, a rebound host name, or another user of
+  the machine, making Conn read or change something. Every `/api` route, reads and the event
+  stream included, is behind one gate: the `Host` must be a loopback name, the `Origin` must be
+  absent or exactly the server's own (`http://` and the `Host`), and the request must carry this
+  launch's secret in `Authorization: Bearer`. The secret is 256 bits from `crypto/rand`, made at
+  each start, compared in constant time, and kept in memory and in the data folder's `conn.lock`
+  (mode 0600), so another user who can reach the port cannot read it. It is never in a query
+  string, a cookie, a log line, an error, a command line or a child's environment. The app hands
+  it to its window in the address's fragment, which is never sent to a server; `conn serve`
+  prints it only to a terminal. The page keeps it in `sessionStorage` and removes it from the
+  address bar. Every write also needs the `x-conn: 1` header. The page and its files need no
+  secret: they hold nothing of yours. The page's Content-Security-Policy allows scripts only from
+  Conn (no inline script), requests only to Conn, and no framing. A request that gets past the
+  gate without the secret, or a way to read the secret without being your user, is in scope.
 - **Session control.** Typing a reply or answering a permission prompt in a session you did not
   choose, or an answer sent after the prompt changed.
 - **Paths and links.** Reading or writing outside the data folder, a clone, a worktree or a
@@ -57,7 +68,8 @@ These are not, because they are how Conn works or need access an attacker would 
 - What a Claude Code session started by Conn does with your own permissions. Review and
   self-review sessions are ordinary sessions running as you, and their prompts and deny lists
   narrow what they do without making anything impossible. The README says so.
-- Someone who already runs code as your user, or can already read your home folder.
+- Someone who already runs code as your user, or can already read your home folder. Such a
+  process can read the secret from `conn.lock`, and could run `claude` itself anyway.
 - Exposing the port beyond `127.0.0.1` yourself, with a proxy or a tunnel.
 - A theme of yours that you wrote, or a `theme.css` that you approved when asked.
 - Weaknesses in `gh`, `git`, `claude`, cmux or GitHub, Slack and Atlassian themselves.

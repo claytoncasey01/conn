@@ -14,6 +14,7 @@ import (
 
 	"github.com/claytoncasey01/conn/internal/app"
 	"github.com/claytoncasey01/conn/internal/instance"
+	"github.com/claytoncasey01/conn/internal/secret"
 )
 
 const (
@@ -82,10 +83,12 @@ type Deps struct {
 	Start func(ctx context.Context) (*app.Server, error)
 	// Holder is the Conn holding the data folder (instance.Running).
 	Holder func() (instance.Holder, bool, error)
-	// Probe is one cheap GET of a route the server has. Nil means the server answered.
-	Probe func(ctx context.Context, url string) error
-	// Open loads url in the window.
-	Open func(url string)
+	// Probe is one cheap GET of a route the server at url has, with its secret. Nil means the
+	// server answered.
+	Probe func(ctx context.Context, url string, key secret.Secret) error
+	// Open loads page in the window: the server's address with its secret in the fragment
+	// (PageURL).
+	Open func(page string)
 	// Fail shows message in a native dialog: the window cannot go on.
 	Fail func(message string)
 	// After is a channel that fires once d has passed (time.After), so a test never sleeps.
@@ -103,8 +106,9 @@ const (
 	restarted
 )
 
-// session is the state of one Run: its Deps, the address it showed last, how many times it has
-// started over since a Conn last answered a probe, and why the server of the latest pass ended.
+// session is the state of one Run: its Deps, the address it showed last (never with its secret,
+// because it goes into a message), how many times it has started over since a Conn last answered
+// a probe, and why the server of the latest pass ended.
 type session struct {
 	deps           Deps
 	lastURL        string
@@ -194,7 +198,7 @@ func (s *session) pass(ctx context.Context) (result, error) {
 	case ownAction:
 		return s.own(ctx)
 	case attachAction:
-		return s.attach(ctx, holder.URL)
+		return s.attach(ctx, holder.URL, holder.Secret)
 	case waitForAddressAction:
 		return s.waitForAddress(ctx)
 	}
@@ -213,7 +217,7 @@ func (s *session) own(ctx context.Context) (result, error) {
 	}
 
 	s.lastURL = server.URL
-	s.deps.Open(server.URL)
+	s.deps.Open(PageURL(server.URL, server.Secret))
 
 	select {
 	case <-ctx.Done():
@@ -244,11 +248,12 @@ func (s *session) startFailed(err error) (result, error) {
 	return finished, s.failWith("Conn could not start", err)
 }
 
-// attach shows the Conn at url and asks it every probeEvery whether it is there, until ctx ends
-// or probeFailuresMax questions in a row go unanswered. It never stops that Conn.
-func (s *session) attach(ctx context.Context, url string) (result, error) {
+// attach shows the Conn at url, with the secret it published, and asks it every probeEvery
+// whether it is there, until ctx ends or probeFailuresMax questions in a row go unanswered. It
+// never stops that Conn.
+func (s *session) attach(ctx context.Context, url string, key secret.Secret) (result, error) {
 	s.lastURL = url
-	s.deps.Open(url)
+	s.deps.Open(PageURL(url, key))
 
 	failures := 0
 
@@ -263,7 +268,7 @@ func (s *session) attach(ctx context.Context, url string) (result, error) {
 			return finished, nil
 		}
 
-		if s.probe(ctx, url) == nil {
+		if s.probe(ctx, url, key) == nil {
 			failures = 0
 			s.restartsInARow = 0
 
@@ -281,11 +286,24 @@ func (s *session) attach(ctx context.Context, url string) (result, error) {
 }
 
 // probe is one question to the server, with a time limit.
-func (s *session) probe(ctx context.Context, url string) error {
+func (s *session) probe(ctx context.Context, url string, key secret.Secret) error {
 	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
 	defer cancel()
 
-	return s.deps.Probe(probeCtx, url)
+	return s.deps.Probe(probeCtx, url, key)
+}
+
+// PageURL is the page of the server at url with key in its fragment, which the page takes and
+// removes from the address bar: a fragment is never sent to a server, so the secret stays out of
+// every request line and every log of one. A zero key (a Conn from before the secret, which asks
+// for none) gives url as it is. The result holds the secret: it is opened, never printed or put
+// in a message.
+func PageURL(url string, key secret.Secret) string {
+	if key.IsZero() {
+		return url
+	}
+
+	return url + "/#k=" + key.String()
 }
 
 // waitForAddress waits up to addressWaitMax for the Conn that holds the folder to say where it

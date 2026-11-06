@@ -12,11 +12,15 @@ export type Dom = {
   setAttr(name: string, v: string): void
   style(css: string | null): void
   link(id: string, href: string | null): void
+  /** The theme's own stylesheet, as text in a style element last in the head; null removes it */
+  sheet(css: string | null): void
 }
 
 export const IDS = { style: 'conn-theme', fallback: 'conn-theme-fallback', fonts: 'conn-theme-fonts', css: 'conn-theme-css' }
 
-export function applyResolved(dom: Dom, r: Resolved): void {
+// `sheet` is the text read from r.cssUrl, or null while it has not been read: the theme's own stylesheet is an /api route,
+// which a link cannot ask for with the secret, so the page reads it with a request and applies the text.
+export function applyResolved(dom: Dom, r: Resolved, sheet: string | null): void {
   dom.setAttr('data-theme', r.entry.id)
   dom.setAttr('data-mode', r.mode)
   dom.setAttr('data-motion', r.attrs.motion)
@@ -24,19 +28,24 @@ export function applyResolved(dom: Dom, r: Resolved): void {
   dom.setAttr('data-glass', r.attrs.glass)
   dom.style(r.css)
   dom.link(IDS.fonts, fontsHref(r.fonts))
-  dom.link(IDS.css, r.cssUrl)
+  dom.sheet(r.cssUrl === null ? null : sheet)
 }
 
-// What the boot script paints before the app loads: the generated token stylesheet and the two links the app applied.
-// The boot script runs before the consent check, so consent is settled here: r.cssUrl is null for a user theme whose CSS
-// is not accepted (that exact hash) and for any gallery theme, so such a link is never cached and never injected.
-export const cacheEntryOf = (r: Resolved): CacheEntry => ({
-  css: r.css,
-  attrs: r.attrs,
-  only: r.only,
-  cssUrl: r.cssUrl,
-  fontsUrl: fontsHref(r.fonts),
-})
+// What the boot script paints before the app loads: the generated token stylesheet, the fonts link and the theme's own
+// stylesheet the app applied. The boot script runs before the consent check, so consent is settled here: r.cssUrl is null
+// for a user theme whose CSS is not accepted (that exact hash) and for any gallery theme, so such a stylesheet is never
+// cached and never painted.
+export function cacheEntryOf(r: Resolved, sheet: string | null): CacheEntry {
+  const kept = r.cssUrl !== null && sheet !== null
+  return {
+    css: r.css,
+    attrs: r.attrs,
+    only: r.only,
+    cssUrl: kept ? r.cssUrl : null,
+    sheet: kept ? sheet : null,
+    fontsUrl: fontsHref(r.fonts),
+  }
+}
 
 /**
  * A theme that was deleted, edited invalid or renamed falls back to Default (FALLBACK_ID), and its cached
@@ -102,21 +111,6 @@ export type Doc = {
 
 export function domFor(doc: Doc): Dom {
   const hrefs = new Map<string, string>()
-  // Neon's rules beat the calm base at equal specificity by coming later, so the theme's stylesheet must be the last one. The boot
-  // script's link is, in the built page; where the app's CSS is added after it (dev), an equal link goes last and takes over the id
-  // once it has loaded, so the early one serves until then. Dropped if the href changed or the link went away in the meantime.
-  const lastly = (cur: El, href: string) => {
-    const next = doc.createElement('link')
-    next.rel = 'stylesheet'
-    next.href = href
-    next.onload = () => {
-      if (doc.getElementById(IDS.css) === cur && hrefs.get(IDS.css) === href) {
-        cur.remove()
-        next.id = IDS.css
-      } else next.remove()
-    }
-    doc.head.appendChild(next)
-  }
   return {
     setAttr: (name, v) => doc.documentElement.setAttribute(name, v),
     style(css) {
@@ -137,9 +131,7 @@ export function domFor(doc: Doc): Dom {
       }
       // the boot script may have made this link already: the same href is adopted, not written again (a write reloads the sheet)
       if (cur && (hrefs.get(id) === href || cur.getAttribute?.('href') === href)) {
-        const adopted = hrefs.get(id) !== href
         hrefs.set(id, href)
-        if (adopted && id === IDS.css && doc.head.lastElementChild && doc.head.lastElementChild !== cur) lastly(cur, href)
         return
       }
       const el = cur ?? doc.createElement('link')
@@ -150,6 +142,17 @@ export function domFor(doc: Doc): Dom {
       }
       el.href = href
       hrefs.set(id, href)
+    },
+    // The theme's own rules beat the calm base at equal specificity by coming later, so its style element is kept last in
+    // the head: the boot script's is, in the built page, and where the app's CSS is added after it (dev) it is moved to the
+    // end. The same text is not written again.
+    sheet(css) {
+      const cur = doc.getElementById(IDS.css)
+      if (css === null) return cur?.remove()
+      const el = cur ?? doc.createElement('style')
+      if (!cur) el.id = IDS.css
+      if (el.textContent !== css) el.textContent = css
+      if (doc.head.lastElementChild !== el) doc.head.appendChild(el)
     },
   }
 }
