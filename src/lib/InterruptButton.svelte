@@ -1,7 +1,7 @@
 <script lang="ts">
   // Interrupt: sends Ctrl-C to a hosted program (interrupt.ts), from a press only. Says what happened, briefly. Once Ctrl-C
-  // is sent it rests for the server's repeat window, so a second press cannot look like it did anything.
-  import { INTERRUPT_HELP, INTERRUPT_REPEAT_MS, interruptSession } from './interrupt.ts'
+  // is sent it rests for the server's repeat window, so a second press cannot look like it did anything; the note that says so goes when the window does.
+  import { INTERRUPT_HELP, INTERRUPT_REPEAT_MS, INTERRUPT_SENT, interruptSession } from './interrupt.ts'
 
   let { id, compact = false }: { id: string; compact?: boolean } = $props()
 
@@ -19,7 +19,7 @@
     if (r.ok) {
       step = 'sent'
       resting = true
-      restTimer = setTimeout(() => (resting = false), INTERRUPT_REPEAT_MS)
+      restTimer = setTimeout(() => ((resting = false), (step = 'idle')), INTERRUPT_REPEAT_MS)
     } else {
       error = r.error
       step = 'error'
@@ -33,7 +33,7 @@
 <span style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap">
   <button type="button" class="cap" onclick={press} title={INTERRUPT_HELP} aria-label="Interrupt: {INTERRUPT_HELP}" aria-busy={step === 'working'} disabled={resting} style="{btn} min-height: {compact ? '28px' : '44px'}; {resting ? 'cursor: default; opacity: 0.5' : ''}">Interrupt</button>
   {#if step === 'sent'}
-    <span role="status" style="font-size: 11px; color: var(--mu)">Ctrl-C sent</span>
+    <span role="status" style="font-size: 11px; color: var(--mu)">{INTERRUPT_SENT}</span>
   {:else if step === 'error'}
     <span role="alert" style="font-size: 11px; color: color-mix(in oklab, var(--bad) 55%, var(--bright))">{error}</span>
   {/if}

@@ -14,6 +14,9 @@ export const INTERRUPT_HELP = `Sends Ctrl-C to the program. A second press withi
 /** A closed panel offers it: its keys have no way in. A live one has its own Ctrl-C, and an ended program has nothing to stop. */
 export const interruptOffered = (view: { phase: Phase }): boolean => view.phase === 'closed'
 
+/** What the page says once Ctrl-C is sent, while the button rests. */
+export const INTERRUPT_SENT = `Ctrl-C sent. Another press within ${INTERRUPT_REPEAT_MS / 1000} seconds is not sent`
+
 /** A Sessions card offers it for a hosted program still running: one that ended has nothing to interrupt. */
 export const interruptOnRow = (row: { hosted?: boolean; exitCode?: number }): boolean => row.hosted === true && row.exitCode === undefined
 

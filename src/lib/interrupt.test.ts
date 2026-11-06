@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { afterEach, test } from 'node:test'
-import { INTERRUPT_HELP, INTERRUPT_REPEAT_MS, interruptOffered, interruptOnRow, interruptSession } from './interrupt.ts'
+import { INTERRUPT_HELP, INTERRUPT_REPEAT_MS, INTERRUPT_SENT, interruptOffered, interruptOnRow, interruptSession } from './interrupt.ts'
 
 const realFetch = globalThis.fetch
 afterEach(() => {
@@ -73,9 +73,15 @@ test('an id the host does not issue sends nothing', async () => {
   assert.equal(called, false)
 })
 
+test('once sent, the words on the page say a second press soon after is not sent', () => {
+  assert.equal(INTERRUPT_SENT, 'Ctrl-C sent. Another press within 3 seconds is not sent')
+  const button = readFileSync(new URL('./InterruptButton.svelte', import.meta.url), 'utf8')
+  assert.match(button, /\{#if step === 'sent'\}\s*<span role="status"[^>]*>\{INTERRUPT_SENT\}<\/span>/)
+})
+
 test('the button rests for the window after Ctrl-C was sent', () => {
   const button = readFileSync(new URL('./InterruptButton.svelte', import.meta.url), 'utf8')
-  assert.match(button, /setTimeout\([^\n]*INTERRUPT_REPEAT_MS\)/)
+  assert.match(button, /setTimeout\([^\n]*resting = false[^\n]*step = 'idle'[^\n]*INTERRUPT_REPEAT_MS\)/)
   assert.match(button, /disabled=\{resting\}/)
 })
 
