@@ -3,6 +3,7 @@ package sessions
 import (
 	"context"
 	"fmt"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,12 +30,41 @@ func Procs() (string, error) {
 	return result.Stdout, result.Err
 }
 
-// Env is `ps eww -p <pid>`: the process with its environment.
+// Env is a process's environment as `ps eww` prints it after the command line, without the
+// command line: what a command line holds (a prompt, a ticket's text) is never read as its
+// environment.
 func Env(pid float64) (string, error) {
-	result := run.Cmd(context.Background(), "ps", []string{"eww", "-p", js.Number(pid)},
-		run.Opts{Dir: "", Timeout: envTimeout, OutputBytesMax: envBytes, Stdin: "", Env: nil})
+	opts := run.Opts{Dir: "", Timeout: envTimeout, OutputBytesMax: envBytes, Stdin: "", Env: nil}
 
-	return result.Stdout, result.Err
+	command := run.Cmd(context.Background(), "ps",
+		[]string{"-ww", "-o", "command=", "-p", js.Number(pid)}, opts)
+	if command.Err != nil {
+		return "", command.Err
+	}
+
+	withEnvironment := run.Cmd(context.Background(), "ps",
+		[]string{"eww", "-o", "command=", "-p", js.Number(pid)}, opts)
+	if withEnvironment.Err != nil {
+		return "", withEnvironment.Err
+	}
+
+	return environmentPart(withEnvironment.Stdout, command.Stdout), nil
+}
+
+// environmentPart is what `ps eww -o command=` printed after the command line `ps -o command=`
+// printed, or "" when the two do not start alike (the process changed between them).
+func environmentPart(withEnvironment, command string) string {
+	command = strings.TrimRight(command, "\n")
+	if command == "" {
+		return ""
+	}
+
+	environment, found := strings.CutPrefix(withEnvironment, command)
+	if !found {
+		return ""
+	}
+
+	return environment
 }
 
 // PRView runs gh in a folder and gives what it printed.

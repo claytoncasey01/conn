@@ -19,6 +19,9 @@ import (
 
 var errNotFound = errors.New("no pull requests found")
 
+// parkedMax bounds the parked writes a test world keeps; more are not kept.
+const parkedMax = 16
+
 // world is a fake machine: a home with ~/.claude, a process table, environments and gh.
 type world struct {
 	t       *testing.T
@@ -42,6 +45,8 @@ type world struct {
 	// spawning is the process id the next hosted program gets.
 	spawning int
 	programs map[int]*program
+	// parked is told of each hosted write that waits for its turn.
+	parked chan pty.ID
 }
 
 // fakeRun is an Open work run in its worktrees, the first its lead's.
@@ -66,7 +71,7 @@ func newWorld(t *testing.T) *world {
 		envs: map[float64]string{}, allowed: map[string]bool{"acme/widgets": true},
 		repos: map[string]string{}, ups: map[string]string{}, prs: map[string]string{},
 		mutex: sync.Mutex{}, asked: nil, term: newTerminal(), envAsked: nil, host: nil,
-		spawning: 0, programs: map[int]*program{},
+		spawning: 0, programs: map[int]*program{}, parked: make(chan pty.ID, parkedMax),
 	}
 }
 

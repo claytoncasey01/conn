@@ -421,3 +421,34 @@ func TestScreenGenerationChangesOnResize(t *testing.T) {
 		t.Error("a resize did not change the generation")
 	}
 }
+
+// The screen follows the program's bracketed paste mode (2004): on, off, together with other
+// modes, and off again after a reset.
+func TestScreenFollowsBracketedPaste(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, output string
+		want         bool
+	}{
+		{"a new screen", "", false},
+		{"turned on", "\x1b[?2004h", true},
+		{"turned on with another mode", "\x1b[?25;2004h", true},
+		{"turned off", "\x1b[?2004h\x1b[?2004l", false},
+		{"reset", "\x1b[?2004h\x1bc", false},
+		{"another mode only", "\x1b[?1049h", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			screen := newScreen(t, 80, 24)
+			screen.Feed([]byte(tt.output))
+
+			if got := screen.BracketedPaste(); got != tt.want {
+				t.Errorf("BracketedPaste = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

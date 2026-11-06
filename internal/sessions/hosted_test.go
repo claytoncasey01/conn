@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +19,19 @@ import (
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
+
+// endShownWithin bounds the wait for an ended session's row, unscaled: it must stay below the 5 s
+// a snapshot is reused while its version stands.
+const endShownWithin = 4 * time.Second
+
+// questionPicker is Claude Code asking a question, its last row selected between two rules.
+func questionPicker() string {
+	return strings.Join([]string{
+		rule, " ☐ Color", "", "Red or blue?", "", "  1. Red", "     Pick red", "  2. Blue",
+		"     Pick blue", "  3. Type something.", rule, "❯ 4. Chat about this", "",
+		"Enter to select · ↑/↓ to navigate · Esc to cancel",
+	}, "\n")
+}
 
 // programExitCode is what a hosted fake program exits with once it is stopped.
 const programExitCode = 143
@@ -33,9 +47,16 @@ type program struct {
 	exited    chan struct{}
 	exitOnce  sync.Once
 
-	// gate, when set, holds every Write until it is closed; writing is told of each held one.
-	gate    chan struct{}
+	// gate, when set (holdWrites), holds every Write until it is closed; writing is told of a
+	// held one.
+	gate    atomic.Pointer[chan struct{}]
 	writing chan struct{}
+	// echo is the screen drawn once a message is typed, as Claude Code draws it in its box,
+	// echoDelay after it is typed.
+	echo      string
+	echoDelay time.Duration
+	// background, when set, says a program this one started has the terminal.
+	background atomic.Bool
 
 	mutex   sync.Mutex
 	written []byte
@@ -52,19 +73,44 @@ func (p *program) Read(buffer []byte) (int, error) {
 }
 
 func (p *program) Write(data []byte) (int, error) {
-	if p.gate != nil {
-		p.writing <- struct{}{}
+	if gate := p.gate.Load(); gate != nil {
+		select {
+		case p.writing <- struct{}{}:
+		default:
+		}
 
-		<-p.gate
+		<-*gate
 	}
 
 	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
 	p.written = append(p.written, data...)
+	p.mutex.Unlock()
+
+	if typedMessage(data) {
+		go func() {
+			time.Sleep(p.echoDelay)
+			p.draw(p.echo)
+		}()
+	}
 
 	return len(data), nil
 }
+
+// typedMessage is whether data is a message typed in, not a key, Enter or a query's answer.
+func typedMessage(data []byte) bool {
+	text := string(data)
+	if strings.HasPrefix(text, "\x1b[200~") {
+		return true
+	}
+
+	if len(text) < 2 {
+		return false
+	}
+
+	return !strings.HasPrefix(text, "\x1b")
+}
+
+func (p *program) Foreground() (bool, error) { return !p.background.Load(), nil }
 
 func (p *program) Resize(pty.Size) error { return nil }
 
@@ -105,6 +151,14 @@ func (p *program) signal(name string) error {
 	return nil
 }
 
+// draw clears the screen and draws screen, unless the terminal is closed first.
+func (p *program) draw(screen string) {
+	select {
+	case p.output <- []byte("\x1b[2J\x1b[H" + strings.ReplaceAll(screen, "\n", "\r\n")):
+	case <-p.closed:
+	}
+}
+
 func (p *program) typed() string {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -117,6 +171,14 @@ func (p *program) stops() []string {
 	defer p.mutex.Unlock()
 
 	return slices.Clone(p.signals)
+}
+
+// holdWrites holds every Write from now on until the function it returns is called.
+func (p *program) holdWrites() func() {
+	gate := make(chan struct{})
+	p.gate.Store(&gate)
+
+	return func() { close(gate) }
 }
 
 // waitWriting waits until a Write is held at the gate.
@@ -151,8 +213,9 @@ func (w *world) spawn(pty.Spec) (pty.Process, error) {
 	started := &program{
 		pid: w.spawning, output: make(chan []byte), closed: make(chan struct{}),
 		closeOnce: sync.Once{}, exited: make(chan struct{}), exitOnce: sync.Once{},
-		gate: nil, writing: make(chan struct{}, 1), mutex: sync.Mutex{}, written: nil,
-		signals: nil,
+		gate: atomic.Pointer[chan struct{}]{}, writing: make(chan struct{}, 1), echo: draft,
+		echoDelay: 0, background: atomic.Bool{},
+		mutex: sync.Mutex{}, written: nil, signals: nil,
 	}
 	w.programs[w.spawning] = started
 
@@ -167,8 +230,15 @@ func (w *world) hostedSession(pid int, name, status, waitingFor, screen string,
 	w.t.Helper()
 
 	if w.host == nil {
+		parked := w.parked
 		w.host = pty.NewHost(pty.Config{
 			Spawner: w.spawn, Limits: pty.DefaultLimits(), Answers: pty.Answers{},
+			TurnWaited: func(sessionID pty.ID) {
+				select {
+				case parked <- sessionID:
+				default:
+				}
+			},
 		})
 		host := w.host
 
@@ -189,7 +259,8 @@ func (w *world) hostedSession(pid int, name, status, waitingFor, screen string,
 	}
 
 	started := w.programs[pid]
-	started.show(w.t, screen)
+	// Claude Code asks for bracketed pastes.
+	started.show(w.t, "\x1b[?2004h"+screen)
 
 	if status != "" {
 		w.procs = append(w.procs, strconv.Itoa(pid)+" 1 claude")
@@ -219,16 +290,16 @@ func (w *world) envRead(pid float64) bool {
 func rowOf(t *testing.T, loop *sessions.Loop, rowID string, ready func(detail) bool) detail {
 	t.Helper()
 
-	return rowWithin(t, loop, rowID, ready, 5*time.Second)
+	return rowWithin(t, loop, rowID, ready, testtime.Scaled(5*time.Second))
 }
 
-// rowWithin is rowOf waiting at most limit.
+// rowWithin is rowOf waiting at most limit, which is not scaled.
 func rowWithin(t *testing.T, loop *sessions.Loop, rowID string, ready func(detail) bool,
 	limit time.Duration,
 ) detail {
 	t.Helper()
 
-	deadline := time.Now().Add(testtime.Scaled(limit))
+	deadline := time.Now().Add(limit)
 
 	for time.Now().Before(deadline) {
 		got, _ := read(t, loop)
@@ -342,9 +413,10 @@ func TestAHostedSessionThatEndsCanNoLongerBeRepliedTo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Well within the 5 s a snapshot is reused while its version stands: the end moves it.
+	// Well within the 5 s a snapshot is reused while its version stands, whatever the test time
+	// scale, so it is the end that moved the version.
 	row := rowWithin(t, loop, hostedID, func(row detail) bool { return row.ExitCode != nil },
-		2*time.Second)
+		endShownWithin)
 	if row.CanReply {
 		t.Error("an ended hosted session can still be replied to")
 	}
@@ -903,7 +975,7 @@ func TestOneSendToAHostedSessionAtATime(t *testing.T) {
 
 	rowOf(t, loop, hostedID, anyRow)
 
-	hostedProgram.gate = make(chan struct{})
+	release := hostedProgram.holdWrites()
 	first := make(chan sessions.Reply, 1)
 
 	go func() { first <- loop.Reply(context.WithoutCancel(t.Context()), hostedID, "one") }()
@@ -915,7 +987,7 @@ func TestOneSendToAHostedSessionAtATime(t *testing.T) {
 		t.Errorf("the second send: %d %s", second.Code, body(second))
 	}
 
-	close(hostedProgram.gate)
+	release()
 
 	if got := <-first; body(got) != `{"ok":true}` {
 		t.Errorf("the first send: %d %s", got.Code, body(got))
@@ -1006,18 +1078,26 @@ func TestAnswerToAHostedSessionWithNothingToAnswer(t *testing.T) {
 	}
 }
 
-// whileTurnHeld holds the program's input with a viewer's keystroke, starts act, gives it time
-// to read the screen and wait for its turn, then draws screen, waits until line shows, and lets
-// the input go. It returns act's reply.
+// deviceAttributes is what the host answers a program that asks for its terminal's device
+// attributes.
+const deviceAttributes = "\x1b[?62;22c"
+
+// whileTurnHeld holds the program's input with the host's answer to its query for the
+// terminal's device attributes (an answer, not input, so what act reads stays good), starts
+// act, waits until act is parked behind the answer, then draws screen, waits until line shows,
+// and lets the input go. It returns act's reply.
 func whileTurnHeld(t *testing.T, fake *world, hostedID string, held *program,
 	act func(context.Context) sessions.Reply, screen, line string,
 ) sessions.Reply {
 	t.Helper()
 
-	held.gate = make(chan struct{})
-	viewer := make(chan error, 1)
+	release := held.holdWrites()
 
-	go func() { viewer <- fake.host.Write(pty.ID(hostedID), []byte("x")) }()
+	select {
+	case held.output <- []byte("\x1b[c"):
+	case <-time.After(testtime.Scaled(5 * time.Second)):
+		t.Fatal("the host did not read the program's query")
+	}
 
 	held.waitWriting(t)
 
@@ -1025,23 +1105,23 @@ func whileTurnHeld(t *testing.T, fake *world, hostedID string, held *program,
 
 	go func() { acted <- act(context.WithoutCancel(t.Context())) }()
 
-	time.Sleep(testtime.Scaled(300 * time.Millisecond))
+	select {
+	case <-fake.parked:
+	case <-time.After(testtime.Scaled(5 * time.Second)):
+		t.Fatal("the action never waited for its turn")
+	}
+
 	held.show(t, screen)
 	waitScreen(t, fake.host, hostedID, line)
-	close(held.gate)
-
-	err := <-viewer
-	if err != nil {
-		t.Fatal(err)
-	}
+	release()
 
 	return <-acted
 }
 
-// A reply or an answer waiting for its turn behind a viewer's keystroke checks the screen again
-// when its turn comes: a screen that no longer shows what it checked (a draft, another prompt)
-// refuses it with nothing typed, and one that only redrew something else (Claude Code blinks the
-// mark above a dialog while it waits) does not.
+// A reply or an answer waiting for its turn checks the screen again when its turn comes: a
+// screen that no longer shows what it checked (a draft, another prompt) refuses it with nothing
+// typed, and one that only redrew something else (Claude Code blinks the mark above a dialog
+// while it waits) does not.
 func TestASendChecksTheScreenAgainWhenItsTurnComes(t *testing.T) {
 	t.Parallel()
 
@@ -1055,21 +1135,21 @@ func TestASendChecksTheScreenAgainWhenItsTurnComes(t *testing.T) {
 	}{
 		{
 			"a reply into a box now drafted", "idle", "", idleBox, draft, "❯ half typed", false,
-			http.StatusConflict, "x",
+			http.StatusConflict, deviceAttributes,
 		},
 		{
 			"a reply past a status line redrawn", "idle", "", idleBox,
 			strings.Replace(idleBox, "✻ done", "✻ done.", 1), "✻ done.", false, http.StatusOK,
-			"x\x1b[200~hello\x1b[201~\r",
+			deviceAttributes + "\x1b[200~hello\x1b[201~\r",
 		},
 		{
 			"an answer to a prompt now replaced", "waiting", "permission prompt",
 			permissionScreen("ls"), permissionScreen("rm -rf build"), " rm -rf build", true,
-			http.StatusConflict, "x",
+			http.StatusConflict, deviceAttributes,
 		},
 		{
 			"an answer past a blink", "waiting", "permission prompt", permissionScreen("ls"),
-			blinked, "   Bash(ls)", true, http.StatusOK, "x1",
+			blinked, "   Bash(ls)", true, http.StatusOK, deviceAttributes + "1",
 		},
 	}
 
@@ -1130,5 +1210,302 @@ func TestAHostedSessionIsLiveUnderItsIssuedID(t *testing.T) {
 
 	if issued[81] != "" {
 		t.Errorf("the cmux session carries a hosted id %q", issued[81])
+	}
+}
+
+// Input another viewer typed, which the program has taken but not drawn yet, refuses a click or
+// a reply made on the screen as it still looks: an Allow pressed after a viewer's 3, a reply
+// after a viewer's ! (Claude Code's shell mode), and a click on a prompt a viewer has just
+// answered while an identical one is drawn again.
+func TestOtherInputRefusesASendOnTheScreenBeforeIt(t *testing.T) {
+	t.Parallel()
+
+	stamp := float64(time.Now().UnixMilli() - 5000)
+	tests := []struct {
+		name, status, waitingFor, screen, key string
+		answer, redrawn                       bool
+	}{
+		{
+			"an answer after a viewer's key", "waiting", "permission prompt",
+			permissionScreen("ls"), "3", true, false,
+		},
+		{"a reply after a viewer's !", "idle", "", idleBox, "!", false, false},
+		{
+			"an answer after a viewer answered and the same prompt came again", "waiting",
+			"permission prompt", permissionScreen("ls"), "1", true, true,
+		},
+	}
+
+	for index, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := newWorld(t)
+			hostedID, held := fake.hostedSession(100+index, "s", tt.status, tt.waitingFor,
+				tt.screen, stamp)
+			loop := start(t, fake)
+
+			rowOf(t, loop, hostedID, func(row detail) bool { return row.Status == tt.status })
+
+			askID := ""
+			if tt.answer {
+				askID, _ = askByID(t, loop, hostedID)["id"].(string)
+			}
+
+			err := fake.host.Write(pty.ID(hostedID), []byte(tt.key))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if tt.redrawn {
+				held.show(t, tt.screen)
+			}
+
+			got := loop.Reply(t.Context(), hostedID, "rm -rf build")
+			if tt.answer {
+				got = loop.Answer(t.Context(), hostedID, pressOne(askID))
+			}
+
+			want := `{"error":"something else was typed into the session's terminal just now, ` +
+				`so nothing was sent","ask":null}`
+			if body(got) != want {
+				t.Errorf("%d %s", got.Code, body(got))
+			}
+
+			if typed := held.typed(); typed != tt.key {
+				t.Errorf("typed %q, want only the viewer's %q", typed, tt.key)
+			}
+		})
+	}
+}
+
+// A reply is typed as the terminal takes it: as keys where the program has not asked for
+// bracketed pastes (a message of several lines is then refused), never while a program the
+// session started has the terminal, and Enter only once the message shows in the box with no
+// dialog.
+func TestAReplyIsTypedAsTheTerminalTakesIt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, text, echo string
+		pasteOff         bool
+		background       bool
+		want, wantTyped  string
+	}{
+		{
+			"one line, no bracketed paste", "hello", draft, true, false, `{"ok":true}`,
+			"hello\r",
+		},
+		{
+			"several lines, no bracketed paste", "hello\nthere", draft, true, false,
+			`{"error":"the session's terminal does not take pastes, so a message of several ` +
+				`lines was not sent"}`, "",
+		},
+		{
+			"another program has the terminal", "hello", draft, false, true,
+			`{"error":"the session is not in the foreground of its terminal (suspended or ` +
+				`exiting), so nothing was sent","ask":null}`, "",
+		},
+		{
+			// A picker's last row between rules reads like a box with text in it: Enter on it
+			// would pick it.
+			"a question picker that looks like a box", "hello", questionPicker(), false, false,
+			`{"error":"the message is in the session's input box but was not sent, because ` +
+				`its screen changed; send it from its terminal"}`, "\x1b[200~hello\x1b[201~",
+		},
+		{
+			"a dialog instead of the message", "hello", permissionScreen("ls"), false, false,
+			`{"error":"the message is in the session's input box but was not sent, because ` +
+				`its screen changed; send it from its terminal"}`, "\x1b[200~hello\x1b[201~",
+		},
+	}
+
+	for index, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := newWorld(t)
+			hostedID, held := fake.hostedSession(110+index, "u", "idle", "", idleBox, 1)
+			held.echo = tt.echo
+			held.background.Store(tt.background)
+
+			if tt.pasteOff {
+				held.show(t, "\x1b[?2004l"+idleBox)
+			}
+
+			loop := start(t, fake)
+			rowOf(t, loop, hostedID, anyRow)
+
+			got := loop.Reply(t.Context(), hostedID, tt.text)
+			if body(got) != tt.want {
+				t.Errorf("%d %s", got.Code, body(got))
+			}
+
+			if typed := held.typed(); typed != tt.wantTyped {
+				t.Errorf("typed %q, want %q", typed, tt.wantTyped)
+			}
+		})
+	}
+}
+
+// A person's claude started by a hosted session (a nested run, or a wrapper's child) is never a
+// cmux session, even when Conn runs under cmux and its environment names a cmux surface: its
+// environment is not read, and it cannot be replied to through cmux.
+func TestWhatAHostedSessionStartedIsNeverACmuxSession(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	fake.cmuxSession(50, "w50", "idle", "", idleBox, 1)
+	fake.hostedSession(120, "v", "idle", "", idleBox, 1)
+	fake.procs[len(fake.procs)-1] = "120 600 claude"
+	fake.procs = append(fake.procs, "121 120 claude")
+	fake.envs[121] = "CMUX_WORKSPACE_ID=" + uuid("w50") + " CMUX_SURFACE_ID=" + uuid(surfaceOf(50))
+	fake.register("121.json", map[string]any{
+		"pid": 121, "sessionId": "s-121", "cwd": fake.folder("nested", ""), "name": "n121",
+		"status": "idle",
+	})
+
+	loop := start(t, fake)
+
+	row := rowOf(t, loop, "121", anyRow)
+	if row.CanReply {
+		t.Error("a claude a hosted session started has a cmux terminal")
+	}
+
+	if fake.envRead(121) {
+		t.Error("its environment was read")
+	}
+
+	if !rowOf(t, loop, "50", anyRow).CanReply {
+		t.Error("the cmux session lost its terminal")
+	}
+}
+
+// An ended hosted session's last row is kept only while the host keeps the session: once the
+// host forgets it, so does the session list.
+func TestAForgottenHostedSessionsLastRowIsDropped(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	first, _ := fake.hostedSession(130, "first", "idle", "", idleBox, 1)
+	loop := start(t, fake)
+
+	rowOf(t, loop, first, func(row detail) bool { return row.Name == "n130" })
+
+	err := fake.host.Stop(t.Context(), pty.ID(first))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.Contains(sessions.KeptRows(t.Context(), loop), first) {
+		t.Fatal("the ended session's row was not kept")
+	}
+
+	// The host keeps 12 ended sessions: 12 more ending make it forget the first.
+	var group sync.WaitGroup
+
+	for index := range 12 {
+		later, _ := fake.hostedSession(131+index, "later", "", "", idleBox, 1)
+
+		group.Go(func() { _ = fake.host.Stop(context.WithoutCancel(t.Context()), pty.ID(later)) })
+	}
+
+	group.Wait()
+
+	deadline := time.Now().Add(testtime.Scaled(5 * time.Second))
+	for time.Now().Before(deadline) {
+		if !slices.Contains(sessions.KeptRows(t.Context(), loop), first) {
+			return
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Error("the row of a session the host forgot is still kept")
+}
+
+// An Enter waiting for its turn is not pressed when the screen turns, before its turn, into a
+// question picker whose selected row reads like a box with text in it: Enter would pick it.
+func TestAnEnterIsCheckedAgainWhenItsTurnComes(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	hostedID, held := fake.hostedSession(140, "w", "idle", "", idleBox, 1)
+	loop := start(t, fake)
+
+	rowOf(t, loop, hostedID, anyRow)
+
+	replied := make(chan sessions.Reply, 1)
+
+	go func() { replied <- loop.Reply(context.WithoutCancel(t.Context()), hostedID, "hello") }()
+
+	waitTyped(t, held, "\x1b[200~hello\x1b[201~")
+
+	// The host's answer to a query holds the program's input before the reply's Enter.
+	release := held.holdWrites()
+
+	select {
+	case held.output <- []byte("\x1b[c"):
+	case <-time.After(testtime.Scaled(5 * time.Second)):
+		t.Fatal("the host did not read the program's query")
+	}
+
+	held.waitWriting(t)
+
+	select {
+	case <-fake.parked:
+	case <-time.After(testtime.Scaled(5 * time.Second)):
+		t.Fatal("the Enter never waited for its turn")
+	}
+
+	held.show(t, questionPicker())
+	waitScreen(t, fake.host, hostedID, "❯ 4. Chat about this")
+	release()
+
+	got := <-replied
+	if got.Code != http.StatusConflict {
+		t.Errorf("%d %s", got.Code, body(got))
+	}
+
+	if typed := held.typed(); strings.HasSuffix(typed, "\r") {
+		t.Errorf("Enter was pressed: %q", typed)
+	}
+}
+
+// waitTyped waits until the program has been sent want.
+func waitTyped(t *testing.T, held *program, want string) {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(5 * time.Second))
+	for time.Now().Before(deadline) {
+		if held.typed() == want {
+			return
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Fatalf("the program was sent %q, want %q", held.typed(), want)
+}
+
+// A message the program draws in its box only after the settle window is still sent: Enter
+// waits for the box to show it.
+func TestAMessageDrawnLateIsStillSent(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	hostedID, held := fake.hostedSession(141, "x", "idle", "", idleBox, 1)
+	held.echoDelay = 600 * time.Millisecond
+	loop := start(t, fake)
+
+	rowOf(t, loop, hostedID, anyRow)
+
+	got := loop.Reply(t.Context(), hostedID, "hello")
+	if body(got) != `{"ok":true}` {
+		t.Errorf("%d %s", got.Code, body(got))
+	}
+
+	if typed := held.typed(); typed != "\x1b[200~hello\x1b[201~\r" {
+		t.Errorf("typed %q", typed)
 	}
 }

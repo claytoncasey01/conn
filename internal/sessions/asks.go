@@ -145,7 +145,7 @@ func (s *store) dueReads(now float64) []dueRead {
 			continue
 		}
 
-		target := session.cmuxTarget(s.procs, s.deps.Env)
+		target := s.cmuxOf(session)
 		if target == nil {
 			continue
 		}
@@ -387,7 +387,7 @@ func (s *store) askFor(pid string, session *Session, found *ask.Ask, shared *boo
 
 	if shared == nil {
 		sharing := false
-		if target := session.cmuxTarget(s.procs, s.deps.Env); target != nil {
+		if target := s.cmuxOf(session); target != nil {
 			sharing = s.sharesWorkspace(pid, target.Workspace, true)
 		}
 
@@ -446,7 +446,7 @@ func (s *store) sharesWorkspace(pid, workspace string, lookup bool) bool {
 		target := session.cmux
 
 		if lookup {
-			target = session.cmuxTarget(s.procs, s.deps.Env)
+			target = s.cmuxOf(session)
 		} else if !session.looked {
 			return true
 		}

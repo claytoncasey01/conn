@@ -68,6 +68,8 @@ type fakeProcess struct {
 	afterKill          killOutcome
 	unreachableAnswers atomic.Int32
 	reused             atomic.Bool
+	// background, when set, says another group has the terminal.
+	background atomic.Bool
 
 	output    chan []byte
 	closed    chan struct{}
@@ -200,6 +202,8 @@ func (f *fakeProcess) Close() error {
 
 	return nil
 }
+
+func (f *fakeProcess) Foreground() (bool, error) { return !f.background.Load(), nil }
 
 // reuse makes the group's number look taken again, as a new program that a reused pid made a
 // group leader would.

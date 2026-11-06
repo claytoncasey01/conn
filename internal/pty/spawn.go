@@ -179,6 +179,32 @@ func (p *terminalProcess) Close() error {
 	return nil
 }
 
+// Foreground says whether the terminal's foreground process group is the program's own.
+func (p *terminalProcess) Foreground() (bool, error) {
+	raw, err := p.hostSide.SyscallConn()
+	if err != nil {
+		return false, fmt.Errorf("reaching the terminal: %w", err)
+	}
+
+	var (
+		group    int
+		ioctlErr error
+	)
+
+	err = raw.Control(func(descriptor uintptr) {
+		group, ioctlErr = unix.IoctlGetInt(int(descriptor), unix.TIOCGPGRP)
+	})
+	if err != nil {
+		return false, fmt.Errorf("reaching the terminal: %w", err)
+	}
+
+	if ioctlErr != nil {
+		return false, fmt.Errorf("reading the foreground group: %w", ioctlErr)
+	}
+
+	return group == p.groupID(), nil
+}
+
 // signalGroup sends signal to every process in the program's group. A group that is already
 // gone is not an error.
 func (p *terminalProcess) signalGroup(signal unix.Signal) error {

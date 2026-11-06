@@ -8,6 +8,9 @@ const (
 	modeAlternateClear      = 1047
 	modeSaveCursor          = 1048
 	modeAlternateSaveCursor = 1049
+	// modeBracketedPaste is the program asking for pastes bracketed, so a line break in one is
+	// not Enter.
+	modeBracketedPaste = 2004
 )
 
 // The graphic renditions (SGR) the screen reads: concealment, and the colours whose parameters
@@ -264,6 +267,8 @@ func (s *Screen) privateMode(mode int, set bool) {
 		s.saveOrRestore(set)
 	case modeAlternateSaveCursor:
 		s.alternateWithCursor(set)
+	case modeBracketedPaste:
+		s.bracketedPaste = set
 	}
 }
 

@@ -99,7 +99,7 @@ func (s *store) answerTarget(pid string, session *Session, message string) (send
 		return refuse(conflictAsk(textNotWaiting, nil))
 	}
 
-	target := session.cmuxTarget(s.procs, s.deps.Env)
+	target := s.cmuxOf(session)
 	if target == nil {
 		return refuse(failure(http.StatusConflict, "this session is not running in a cmux "+
 			"workspace, so there is no terminal to answer in"))

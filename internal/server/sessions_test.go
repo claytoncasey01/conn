@@ -260,6 +260,12 @@ func TestActionRoutesAreGuarded(t *testing.T) {
 			http.StatusNotFound, `{"error":"no such live session"}`,
 		},
 		{http.MethodPost, "/api/sessions/abc/terminal", "{}", true, http.StatusOK, shell},
+		// The stop route takes the same ids, and nothing else.
+		{http.MethodPost, "/api/sessions/abc/stop", "{}", true, http.StatusOK, shell},
+		{
+			http.MethodPost, "/api/sessions/0123456789abcdef0123456789abcde/stop", "{}", true,
+			http.StatusOK, shell,
+		},
 	}
 
 	for _, tt := range tests {

@@ -252,8 +252,9 @@ func TestScreenLinesCarryTheScreensGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if after <= before {
-		t.Errorf("the generation went from %d to %d over a change", before, after)
+	if after.Generation <= before.Generation {
+		t.Errorf("the generation went from %d to %d over a change", before.Generation,
+			after.Generation)
 	}
 
 	// Moving the cursor and drawing the same text again change nothing.
@@ -266,8 +267,9 @@ func TestScreenLinesCarryTheScreensGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if again != after {
-		t.Errorf("the generation went from %d to %d with nothing changed", after, again)
+	if again.Generation != after.Generation {
+		t.Errorf("the generation went from %d to %d with nothing changed", after.Generation,
+			again.Generation)
 	}
 }
 

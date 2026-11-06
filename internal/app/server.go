@@ -112,8 +112,18 @@ func Ended(url string, err error) *Server {
 // port(lookup), publishes {PID, URL, Secret} in the lock and serves until ctx ends, then shuts
 // down within ShutdownTimeout.
 // It returns instance.ErrHeld (wrapped) when another Conn holds the folder, and a PortTakenError
-// when another program holds the port.
+// when another program holds the port. Its hosted sessions run on real terminals.
 func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Server, error) {
+	return StartWith(ctx, lookup, stderr, pty.NewHost(pty.Config{
+		Spawner: pty.Spawn, Limits: pty.DefaultLimits(), Answers: pty.Answers{}, TurnWaited: nil,
+	}))
+}
+
+// StartWith is Start with host running the hosted sessions: the server serves their terminals
+// and stops every one of them when it stops, before it lets the data folder go.
+func StartWith(
+	ctx context.Context, lookup config.LookupFunc, stderr io.Writer, host *pty.Host,
+) (*Server, error) {
 	portNumber, err := port(lookup)
 	if err != nil {
 		return nil, err
@@ -150,17 +160,17 @@ func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Se
 
 	serveCtx, cancel := context.WithCancel(ctx)
 	running := &Server{URL: address, Secret: key, done: make(chan struct{}), err: nil}
-	host := pty.NewHost(pty.Config{
-		Spawner: pty.Spawn, Limits: pty.DefaultLimits(), Answers: pty.Answers{},
-	})
 	handler := newHandler(serveCtx, cfg, store, logger, ui(lookup), host)
 	handler.Secret = key
-	// The terminals close when serveCtx ends, which is before the sessions are stopped.
-	handler.Terminals = server.NewTerminals(serveCtx, host)
+	// The terminals have a context of their own, ended by the quit below rather than with ctx,
+	// so the quit alone orders their closing and the sessions' stop.
+	terminalsCtx, stopTerminals := context.WithCancel(context.WithoutCancel(ctx))
+	handler.Terminals = server.NewTerminals(terminalsCtx, host)
 
 	go running.serve(serveCtx, newHTTPServer(handler), listener, func() {
 		// The terminals close first, as going away, so none sees its program stopped or races
 		// a reconnect against the stop; then the sessions stop; then the folder is let go.
+		stopTerminals()
 		cancel()
 		stopHosted(context.WithoutCancel(ctx), host, stderr)
 		release()

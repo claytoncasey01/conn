@@ -274,7 +274,7 @@ func readMeta(path string) transcript.AgentMeta {
 
 // underCmux is whether the cmux app itself is up the process tree: the process runs in one of
 // its terminals.
-func underCmux(pid float64, procs map[float64]Proc) bool {
+func underCmux(pid float64, procs map[float64]Proc, hosted map[float64]pty.ID) bool {
 	seen := map[float64]bool{}
 
 	for proc, found := procs[pid]; found; proc, found = procs[proc.PPID] {
@@ -286,10 +286,21 @@ func underCmux(pid float64, procs map[float64]Proc) bool {
 			return true
 		}
 
+		// What a hosted session started runs on Conn's terminal, whatever Conn runs under.
+		if _, isHosted := hosted[proc.PPID]; isHosted {
+			return false
+		}
+
 		seen[proc.PPID] = true
 	}
 
 	return false
+}
+
+// cmuxOf is a session's cmux surface (see cmuxTarget), read with this machine's processes and
+// the host's running sessions.
+func (s *store) cmuxOf(session *Session) *Target {
+	return session.cmuxTarget(s.procs, s.deps.Env, s.hosts.byPID)
 }
 
 // cmuxTarget is the exact cmux surface this CLI was started in, from its own environment.
@@ -299,7 +310,7 @@ func underCmux(pid float64, procs map[float64]Proc) bool {
 // no terminal of its own, so the cmux app must also be one of its ancestors. Looked up once;
 // env reads `ps eww -p <pid>`.
 func (s *Session) cmuxTarget(
-	procs map[float64]Proc, env func(pid float64) (string, error),
+	procs map[float64]Proc, env func(pid float64) (string, error), hosted map[float64]pty.ID,
 ) *Target {
 	// A hosted session runs on Conn's own terminal: its environment is never read.
 	if s.hosted != "" {
@@ -316,7 +327,7 @@ func (s *Session) cmuxTarget(
 
 	s.looked = true
 
-	if !underCmux(s.reg.PID, procs) {
+	if !underCmux(s.reg.PID, procs, hosted) {
 		return nil
 	}
 

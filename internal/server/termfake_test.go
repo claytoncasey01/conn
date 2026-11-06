@@ -141,6 +141,8 @@ func (f *fakeProgram) Kill() error {
 	return nil
 }
 
+func (f *fakeProgram) Foreground() (bool, error) { return true, nil }
+
 func (f *fakeProgram) Group() pty.GroupState {
 	select {
 	case <-f.exited:

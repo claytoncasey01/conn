@@ -214,7 +214,7 @@ func (s *store) replyStart(pid string, text any) (sendPlan, *Reply) {
 		return sendPlan{}, refused
 	}
 
-	target := session.cmuxTarget(s.procs, s.deps.Env)
+	target := s.cmuxOf(session)
 	if target == nil {
 		refused := failure(http.StatusConflict, "this session is not running in a cmux "+
 			"workspace, so there is no terminal to type into")

@@ -167,7 +167,7 @@ func (l *Loop) OpenTerminal(ctx context.Context, pid string) Reply {
 			return
 		}
 
-		target = session.cmuxTarget(state.procs, state.deps.Env)
+		target = state.cmuxOf(session)
 		if target == nil {
 			reply = failure(http.StatusConflict, "this session is not running in a cmux "+
 				"workspace, so there is no terminal to open")
@@ -199,7 +199,7 @@ func (l *Loop) InputState(ctx context.Context, pid string) string {
 			return
 		}
 
-		target := session.cmuxTarget(state.procs, state.deps.Env)
+		target := state.cmuxOf(session)
 		if target == nil {
 			return
 		}
@@ -300,7 +300,7 @@ func (s *store) closeStart(pid string) (sendPlan, Reply, bool) {
 		return sendPlan{}, failure(http.StatusNotFound, textNoSession), false
 	}
 
-	target := session.cmuxTarget(s.procs, s.deps.Env)
+	target := s.cmuxOf(session)
 	if target == nil {
 		return sendPlan{}, failure(http.StatusConflict, "this session is not running in a cmux "+
 			"workspace, so there is nothing to close"), false

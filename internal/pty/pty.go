@@ -117,6 +117,9 @@ const (
 	writeBytesMax = 64 << 10
 	// writeWaitMax bounds how long a Write waits for an earlier Write to the same session.
 	writeWaitMax = 5 * time.Second
+	// foreignWriteSettle is how long after input a screen read is not taken as showing what the
+	// input did: a program takes some time to draw it (tens of milliseconds for Claude Code).
+	foreignWriteSettle = 250 * time.Millisecond
 	// endedMax is how many ended sessions are kept for their exit code and scrollback.
 	endedMax = sessionsMax
 	// idBytes is the randomness in an ID: 128 bits.
@@ -165,6 +168,13 @@ var (
 	ErrInputBlocked = errors.New("the program is not taking input")
 	// ErrScreenChanged is a WriteIfStill whose session's screen no longer passed its check.
 	ErrScreenChanged = errors.New("the screen changed since it was read")
+	// ErrOtherInput is a WriteIfStill after other input reached the session since its screen
+	// was read, or shortly before: the program may not have drawn what that input did yet.
+	ErrOtherInput = errors.New("other input reached the session since its screen was read")
+	// ErrNotForeground is a WriteIfStill while a program the session's program started has its
+	// terminal.
+	ErrNotForeground = errors.New("the session's program is not in the foreground of its " +
+		"terminal")
 	// ErrInvalidSize is a Resize to a size out of range.
 	ErrInvalidSize = errors.New("terminal size out of range")
 	// ErrUnsupported is Spawn on a system without the pseudo-terminals it knows.
@@ -231,6 +241,9 @@ type Config struct {
 	Spawner Spawner
 	Limits  Limits
 	Answers Answers
+	// TurnWaited, when set, is told each time a write has to wait for its turn because another
+	// is in the program: a test uses it to know a write is parked. Nil in Conn.
+	TurnWaited func(sessionID ID)
 }
 
 // Spawner starts a Spec's program on a terminal of its own. Spawn is the real one.
@@ -254,6 +267,9 @@ type Process interface {
 	// Group says whether anything is left in the program's group, and whether a signal reaches
 	// it.
 	Group() GroupState
+	// Foreground says whether the program's own process group is its terminal's foreground
+	// group: false while a program it started has the terminal (an editor, a pager).
+	Foreground() (bool, error)
 	// Wait waits for the program to exit and returns its exit code.
 	Wait() int
 	// Close closes the terminal.

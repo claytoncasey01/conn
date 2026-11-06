@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -27,6 +28,10 @@ import (
 const (
 	helperFds  = "fds"
 	helperPerm = "perm"
+	// helperJob starts helperReady as a job in a process group of its own and gives it the
+	// terminal, as a shell with job control does for a foreground job.
+	helperJob   = "job"
+	helperReady = "ready"
 )
 
 // descriptorsScanMax is how many descriptors the helper looks at.
@@ -54,7 +59,33 @@ func TestHelperProcess(t *testing.T) {
 		printTerminalPermissions()
 	}
 
+	if mode == helperJob {
+		runForegroundJob()
+	}
+
+	if mode == helperReady {
+		_, _ = fmt.Fprintln(os.Stdout, "ready")
+	}
+
 	_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+
+	os.Exit(0)
+}
+
+// runForegroundJob runs this program as helperReady in a new process group that has the terminal
+// (stdin), and ends with it.
+func runForegroundJob() {
+	executable, err := os.Executable()
+	if err != nil {
+		os.Exit(1)
+	}
+
+	job := exec.CommandContext(context.Background(), executable, "-test.run=^TestHelperProcess$",
+		"--", helperReady)
+	job.Stdin, job.Stdout, job.Stderr = os.Stdin, os.Stdout, os.Stderr
+	job.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Foreground: true, Ctty: 0}
+
+	_ = job.Run()
 
 	os.Exit(0)
 }
@@ -576,4 +607,57 @@ func helperArgs(t *testing.T, mode string) []string {
 	}
 
 	return []string{executable, "-test.run=^TestHelperProcess$", "--", mode}
+}
+
+// A write that checks the screen is refused while a program the session's program started has
+// the terminal (bash with job control gives its foreground job the terminal), and goes on to the
+// screen check while the session's own program has it.
+func TestRealCheckedWriteNeedsTheProgramInTheForeground(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		argv    []string
+		wantErr error
+	}{
+		{"the program itself", shell("echo ready; read line"), pty.ErrScreenChanged},
+		{"a job it started", nil, pty.ErrNotForeground},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			argv := tt.argv
+			if argv == nil {
+				argv = helperArgs(t, helperJob)
+			}
+
+			host := newRealHost(t)
+			sessionID := startReal(t, host, argv, []string{"PATH=/usr/bin:/bin"})
+			waitForOutput(t, host, sessionID, regexp.MustCompile("ready"))
+
+			// The check never passes, so nothing is typed: the answer says which check refused.
+			never := func([]string) bool { return false }
+			deadline := time.Now().Add(testtime.Scaled(waitLimit))
+
+			var err error
+
+			for time.Now().Before(deadline) {
+				_, mark, readErr := host.ScreenLines(sessionID, readScreenLines)
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+
+				err = host.WriteIfStill(sessionID, mark, readScreenLines, never, []byte("\n"))
+				if errors.Is(err, tt.wantErr) {
+					return
+				}
+
+				time.Sleep(waitPoll)
+			}
+
+			t.Fatalf("WriteIfStill = %v, want %v", err, tt.wantErr)
+		})
+	}
 }

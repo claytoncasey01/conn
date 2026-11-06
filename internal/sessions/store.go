@@ -57,7 +57,7 @@ type Deps struct {
 	Kinds   KindRules
 	// Procs is `ps -A -o pid=,ppid=,comm=`.
 	Procs func() (string, error)
-	// Env is `ps eww -p <pid>`: a process's environment.
+	// Env is a process's environment, without its command line (see Env).
 	Env func(pid float64) (string, error)
 	// PRView runs `gh pr view` in a folder and gives its stdout.
 	PRView func(ctx context.Context, cwd string, args []string) ([]byte, error)
@@ -749,7 +749,7 @@ func (s *store) build(ctx context.Context, now float64) Snapshot {
 		}
 
 		details = append(details, s.detail(ctx, session, now, keys, rowFacts{
-			id: key, canReply: session.cmuxTarget(s.procs, s.deps.Env) != nil,
+			id: key, canReply: s.cmuxOf(session) != nil,
 			ask: s.askOf(key, session), hosted: false, exitCode: nil,
 		}))
 	}

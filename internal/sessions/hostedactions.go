@@ -2,7 +2,6 @@ package sessions
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"regexp"
 	"time"
@@ -22,17 +21,6 @@ const (
 	// grace, then its wait after the kill), so it never cuts a stop short; it is there so a stop
 	// whose page has gone still ends.
 	hostedStopTimeout = 15 * time.Second
-
-	// pasteStart and pasteEnd bracket a reply as a paste, as the terminal does for a paste, so a
-	// line break in it is part of the message and not Enter; enterKey then sends it. Claude
-	// Code turns bracketed paste on, and takes the paste and the Enter in one write.
-	pasteStart = "\x1b[200~"
-	pasteEnd   = "\x1b[201~"
-	enterKey   = "\r"
-
-	textScreenChanged = "the screen changed while this was being sent, so nothing was sent"
-	textNotTaking     = "the session did not take the input in time; check its terminal for " +
-		"what reached it"
 )
 
 // c1Chars are the C1 controls, which a reply to a hosted session never types either: a program
@@ -127,24 +115,7 @@ func (l *Loop) replyHosted(ctx context.Context, sessionID pty.ID, text any) Repl
 
 	defer l.finishSend(ctx, string(sessionID))
 
-	host := l.store.deps.Host
-
-	lines, _, err := host.ScreenLines(sessionID, replyLines)
-	if err != nil {
-		return hostedFailure(err)
-	}
-
-	if refusal := untypable(ask.ScreenText(lines)); refusal != nil {
-		return *refusal
-	}
-
-	// The box is checked again once the reply's turn to type comes.
-	err = host.WriteIfStill(sessionID, replyLines, emptyBox, pasted(message))
-	if err != nil {
-		return hostedFailure(err)
-	}
-
-	return done()
+	return l.typeReply(sessionID, message)
 }
 
 // hostedReplyStart makes a hosted reply's checks on the loop and marks the session as sending.
@@ -200,41 +171,6 @@ func (s *store) startSending(key string) *Reply {
 	return nil
 }
 
-// emptyBox is whether a screen shows an empty input box.
-func emptyBox(lines []string) bool { return untypable(ask.ScreenText(lines)) == nil }
-
-// promptStillShown is whether a screen still shows the prompt askID names, with the status
-// stamp the answer was checked with.
-func promptStillShown(stamp float64, askID string) func(lines []string) bool {
-	return func(lines []string) bool {
-		found := ask.Parse(ask.ScreenText(lines), stamp)
-		if found == nil {
-			return false
-		}
-
-		return found.ID == askID
-	}
-}
-
-// pasted is a message as a paste, then Enter.
-func pasted(message string) []byte { return []byte(pasteStart + message + pasteEnd + enterKey) }
-
-// hostedFailure is the answer to a read or a write the host refused. Nothing in it is the
-// screen or the input.
-func hostedFailure(err error) Reply {
-	switch {
-	case errors.Is(err, pty.ErrScreenChanged):
-		return conflictAsk(textScreenChanged, nil)
-	case errors.Is(err, pty.ErrEnded), errors.Is(err, pty.ErrNoSession):
-		return conflictAsk(textEnded, nil)
-	case errors.Is(err, pty.ErrInputBlocked):
-		return failure(http.StatusBadGateway, textNotTaking)
-	}
-
-	return failure(http.StatusInternalServerError, "could not type into the session: "+
-		err.Error())
-}
-
 // answerHosted answers the prompt a hosted session's page showed, as Answer does: the screen is
 // read again from the host's model right before the key is pressed, and must still parse, with
 // the session's current status stamp, to that same prompt; the key is pressed only while the
@@ -282,7 +218,7 @@ func (l *Loop) answerHosted(ctx context.Context, sessionID pty.ID, body AnswerBo
 func (l *Loop) pressHosted(ctx context.Context, plan sendPlan, body AnswerBody) Reply {
 	host := l.store.deps.Host
 
-	lines, _, err := host.ScreenLines(plan.hosted, askLines)
+	lines, mark, err := host.ScreenLines(plan.hosted, askLines)
 	if err != nil {
 		return hostedFailure(err)
 	}
@@ -297,16 +233,9 @@ func (l *Loop) pressHosted(ctx context.Context, plan sendPlan, body AnswerBody) 
 		return *decided.refused
 	}
 
-	keys := []byte(decided.choice)
-	if decided.text {
-		keys = pasted(plan.message)
-	}
-
-	// The prompt is checked again once the key's turn to be typed comes.
-	err = host.WriteIfStill(plan.hosted, askLines, promptStillShown(plan.stamp, decided.askID),
-		keys)
-	if err != nil {
-		return hostedFailure(err)
+	reply := l.typeAnswer(plan, decided, mark)
+	if reply.Code != http.StatusOK {
+		return reply
 	}
 
 	_ = l.do(ctx, func(state *store) { state.answeredAt(plan, decided.askID) })
