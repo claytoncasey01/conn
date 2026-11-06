@@ -217,7 +217,9 @@ const (
 	// legsMax is the most repositories one run builds in.
 	legsMax = 6
 	// layoutShared is one build session for every leg, in the first leg's worktree.
-	layoutShared = "shared"
+	layoutShared = settings.LayoutShared
+	// layoutSplit is one build session per leg, each in its own worktree.
+	layoutSplit = settings.LayoutSplit
 )
 
 // Record is a run as it is kept on disk: the run the page shows plus what only the server needs.
@@ -299,8 +301,13 @@ func (r *Record) lead() *Leg {
 	return r.Repos[0]
 }
 
-// legFor is the run's leg in repo, in any case.
+// legFor is the run's leg in repo, in any case. No repository names no leg, not even one from
+// before Settings that recorded none.
 func (r *Record) legFor(repo string) (*Leg, bool) {
+	if repo == "" {
+		return nil, false
+	}
+
 	for _, leg := range r.Repos {
 		if js.Lower(leg.Repo) == js.Lower(repo) {
 			return leg, true
@@ -386,7 +393,7 @@ func decodeRecord(data []byte, object *js.Object) (*Record, bool) {
 		record.Layout = layoutShared
 	}
 
-	if record.Layout == "" {
+	if _, present := object.Get("layout"); !present {
 		record.Layout = layoutShared
 	}
 
@@ -394,8 +401,15 @@ func decodeRecord(data []byte, object *js.Object) (*Record, bool) {
 }
 
 // usable is whether every code path can use the record: a null agent, question or leg, no leg,
-// or more legs than a run may have are a record none could.
+// more legs than a run may have, or a layout that is neither shared nor split are a record none
+// could.
 func usable(record *Record) bool {
+	switch record.Layout {
+	case layoutShared, layoutSplit:
+	default:
+		return false
+	}
+
 	if slices.Contains(record.Agents, nil) {
 		return false
 	}

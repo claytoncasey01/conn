@@ -67,12 +67,11 @@
   const agentsDone = $derived(run ? run.agents.filter(a => a.state === 'done').length : 0)
 
   const stages = $derived.by(() => {
-    if (!run) return []
+    if (!run || !lead) return []
     const at = STAGES.indexOf(run.stage)
     const deadLabel = run.state.toUpperCase()
     const mk = (i: number, name: string, kind: keyof typeof K, state: string, note: string) => ({ i, name, state, note, ...K[kind] })
-    const leg = run.repos[0]
-    const ses = leg.session
+    const ses = lead.session
     const out = []
 
     out.push(
@@ -92,7 +91,7 @@
             ? mk(1, '2 ASK', 'dead', deadLabel, `${answered}${open} left for you`)
             : mk(1, '2 ASK', 'todo', 'QUEUED', 'only what the sources could not answer')
     )
-    const work = ses ? `${leg.ahead} commits · ${leg.dirty} changed files` : ''
+    const work = ses ? `${lead.ahead} commits · ${lead.dirty} changed files` : ''
     out.push(
       at > 2
         ? mk(2, '3 BUILD', 'done', 'DONE', work || 'session finished')
@@ -104,7 +103,7 @@
     )
     out.push(
       run.state === 'pr_open'
-        ? mk(3, '4 PR', 'done', pr ? pr.state.toUpperCase() : 'OPEN', leg.pr ? `PR #${leg.pr.number}${pr ? ` · ${prSummary(pr)}` : ''}` : 'PR open')
+        ? mk(3, '4 PR', 'done', pr ? pr.state.toUpperCase() : 'OPEN', lead.pr ? `PR #${lead.pr.number}${pr ? ` · ${prSummary(pr)}` : ''}` : 'PR open')
         : at === 3 && dead
           ? mk(3, '4 PR', 'dead', deadLabel, run.error ?? '')
           : mk(3, '4 PR', 'todo', 'QUEUED', 'Jira moves to its review status when it opens')
@@ -133,12 +132,12 @@
   })
 
   const prWarning = $derived.by(() => {
-    const leg = run?.repos[0]
-    const s = leg?.session
-    if (!leg || !s) return ''
+    if (!lead) return ''
+    const s = lead.session
+    if (!s) return ''
     const w: string[] = []
     if (s.status !== 'idle') w.push(s.status === 'waiting' ? 'The session is waiting on a prompt.' : 'The session is still working.')
-    if (leg.dirty > 0) w.push(`${leg.dirty} changed file${leg.dirty === 1 ? ' is' : 's are'} not committed and will not be in the PR.`)
+    if (lead.dirty > 0) w.push(`${lead.dirty} changed file${lead.dirty === 1 ? ' is' : 's are'} not committed and will not be in the PR.`)
     return w.length ? ` ${w.join(' ')}` : ''
   })
 
@@ -236,7 +235,7 @@
         <div style="font-size: 12px; color: var(--mu)">Open work reads your Jira sprint, so it needs the Atlassian module on and at least one Jira project key.</div>
         <a href={href.settings()} style="color: color-mix(in oklab, var(--ac) 60%, var(--bright)); text-decoration: none; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571)"><span class="cap">Open Settings <span class="g-go" aria-hidden="true"></span></span></a>
       </div>
-    {:else if !run}
+    {:else if !run || !lead}
       <div role="status" style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 56px 20px; border: 1px dashed color-mix(in oklch, var(--edge) 25%, transparent); border-radius: calc(var(--radius) * 1.5); background: color-mix(in oklch, var(--panel) 60%, transparent); text-align: center">
         <div class="hud" style="font-weight: 700; font-size: 22px; letter-spacing: calc(var(--tracking) * 0.5714); color: color-mix(in oklab, var(--tx) 50%, var(--bright))">No run for <span data-content>{key}</span></div>
         <div style="font-size: 12px; color: var(--mu)">It was never started here, or the server has no record of it.</div>
@@ -251,15 +250,15 @@
         <a href={href.work()} style="color: var(--mu); text-decoration: none; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571); padding: 6px 0"><span class="cap"><span class="g-go-back" aria-hidden="true"></span> Open work</span></a>
         <span data-content class="hud" style="font-weight: 700; font-size: 26px; letter-spacing: calc(var(--tracking) * 0.3571); color: color-mix(in oklab, var(--ac) 60%, var(--bright)); text-shadow: 0 0 14px color-mix(in oklch, var(--ac) calc(50% * var(--glow)), transparent)">{run.key}</span>
         <span data-content class="hud" style="flex: 1 1 320px; font-weight: 600; font-size: 20px; color: var(--bright)">{run.title}</span>
-        {#if run.repos[0].pr}
-          <a href={run.repos[0].pr.url} target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: var(--radius); border: 1px var(--border-style) color-mix(in oklch, var(--ok) 45%, transparent); background: color-mix(in oklch, var(--ok) 8%, transparent); color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571)"><span class="led" style="width: 8px; height: 8px; background: var(--ok); box-shadow: 0 0 10px color-mix(in oklch, var(--ok) calc(100% * var(--glow)), transparent)"></span>PR #{run.repos[0].pr.number} <span class="g-go" aria-hidden="true"></span></a>
+        {#if lead.pr}
+          <a href={lead.pr.url} target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: var(--radius); border: 1px var(--border-style) color-mix(in oklch, var(--ok) 45%, transparent); background: color-mix(in oklch, var(--ok) 8%, transparent); color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571)"><span class="led" style="width: 8px; height: 8px; background: var(--ok); box-shadow: 0 0 10px color-mix(in oklch, var(--ok) calc(100% * var(--glow)), transparent)"></span>PR #{lead.pr.number} <span class="g-go" aria-hidden="true"></span></a>
         {/if}
         {#if sessionId}
           <a href={href.overview(sessionId)} style="display: flex; align-items: center; gap: 8px; min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: var(--radius); border: 1px var(--border-style) color-mix(in oklch, var(--role-lead) 40%, transparent); background: color-mix(in oklch, var(--role-lead) 8%, transparent); color: color-mix(in oklab, var(--role-lead) 65%, var(--bright)); text-decoration: none; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571)"><span class="led" style="width: 8px; height: 8px; background: var(--role-lead); box-shadow: 0 0 10px color-mix(in oklch, var(--role-lead) calc(100% * var(--glow)), transparent)"></span>SESSION {run.key} <span class="g-go" aria-hidden="true"></span></a>
         {/if}
       </div>
       <div style="display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center; font-size: 12px; color: var(--mu)">
-        <span style="word-break: break-all"><span style="color: var(--ac)">⎇ </span>{run.repos[0].branch} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">←</span> origin/{run.repos[0].base} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">· PR into</span> {run.repos[0].prBase}</span>
+        <span style="word-break: break-all"><span style="color: var(--ac)">⎇ </span>{lead.branch} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">←</span> origin/{lead.base} <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">· PR into</span> {lead.prBase}</span>
         <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">·</span>
         <span>research agents on {researchModel(run.model)}</span>
         <span style="color: color-mix(in oklab, var(--mu) 75%, var(--panel))">·</span>
@@ -280,8 +279,8 @@
         <div role="alert" in:bootIn={{ skip: skip() }} out:bootOut style="padding: 12px 16px; border: 1px var(--border-style) color-mix(in oklch, var(--bad) 40%, transparent); border-radius: var(--radius); background: color-mix(in oklch, var(--bad) 10%, transparent); color: color-mix(in oklab, var(--bad) 55%, var(--bright)); font-size: 12px; line-height: 1.5; word-break: break-word">{run.error}</div>
       {/if}
 
-      {#if run.repos[0].manualCommand}
-        {@const cmd = run.repos[0].manualCommand}
+      {#if lead.manualCommand}
+        {@const cmd = lead.manualCommand}
         <div in:bootIn={{ skip: skip() }} out:bootOut style="display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent); border-radius: var(--radius); background: color-mix(in oklch, var(--edge) 6%, transparent)">
           <div style="font-size: 10px; letter-spacing: calc(var(--tracking) * 1.1429); color: color-mix(in oklab, var(--mu) 85%, var(--panel))" class="cap">Session not opened · run this in a terminal</div>
           <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
@@ -294,14 +293,14 @@
       {#if resumable}
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px">
           <span style="font-size: 12px; color: var(--mu)">No session for {run.key} is running.</span>
-          <ConfirmAction label="RESUME SESSION" confirmText="Opens a new cmux workspace in {run.repos[0].worktree} and continues {run.repos[0].claudeSessionId ? 'the same conversation' : 'the last conversation in that folder'}." confirmLabel="RESUME" tone="cyan" run={() => resumeRun(key)} />
+          <ConfirmAction label="RESUME SESSION" confirmText="Opens a new cmux workspace in {lead.worktree} and continues {lead.claudeSessionId ? 'the same conversation' : 'the last conversation in that folder'}." confirmLabel="RESUME" tone="cyan" run={() => resumeRun(key)} />
         </div>
       {/if}
 
       {#if active || run.state === 'failed' || run.state === 'interrupted'}
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px">
-          {#if run.state === 'building' && run.repos[0].session && run.repos[0].ahead > 0}
-            <ConfirmAction label="OPEN PR" confirmText="Pushes {run.repos[0].branch} and opens a PR into {run.repos[0].prBase}. Jira moves to its review status, if it has one.{prWarning}" confirmLabel="OPEN PR" tone="green" run={() => openPr(key)} />
+          {#if run.state === 'building' && lead.session && lead.ahead > 0}
+            <ConfirmAction label="OPEN PR" confirmText="Pushes {lead.branch} and opens a PR into {lead.prBase}. Jira moves to its review status, if it has one.{prWarning}" confirmLabel="OPEN PR" tone="green" run={() => openPr(key)} />
           {/if}
           {#if run.state === 'failed' || run.state === 'interrupted'}
             <ConfirmAction label="RETRY" confirmText="Retry {run.key}?" confirmLabel="RETRY" tone="cyan" run={() => retryRun(key)} />
@@ -314,12 +313,12 @@
     </section>
 
     <!-- the open pull request -->
-    {#if run.state === 'pr_open' && run.repos[0].pr}
+    {#if run.state === 'pr_open' && lead.pr}
       {@const cl = pr ? CHECK_LOOK[pr.checks.state] : null}
       <section aria-label="Pull request" in:bootIn={{ skip: skip() }} out:bootOut style="display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; border: 1px var(--border-style) {pr?.state === 'merged' ? 'color-mix(in oklch, var(--role-advisor) 45%, transparent)' : pr?.checks.state === 'failing' ? 'color-mix(in oklch, var(--bad) 45%, transparent)' : 'color-mix(in oklch, var(--ok) 30%, transparent)'}; border-radius: calc(var(--radius) * 1.5); background: color-mix(in oklch, var(--panel) 70%, transparent)">
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px">
           <span class="hud cap" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--mu) 85%, var(--panel))">Pull request //</span>
-          <a href={run.repos[0].pr.url} target="_blank" rel="noopener noreferrer" style="color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none; font-size: 13px">PR #{run.repos[0].pr.number} ↗</a>
+          <a href={lead.pr.url} target="_blank" rel="noopener noreferrer" style="color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none; font-size: 13px">PR #{lead.pr.number} ↗</a>
           {#if pr}
             <span style="padding: 4px 9px; border-radius: calc(var(--radius) * 0.75); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent); color: var(--tx); font-size: 11px; letter-spacing: calc(var(--tracking) * 0.7143)">{pr.state.toUpperCase()}</span>
             {#if !prDone && cl}
@@ -350,10 +349,10 @@
                 <ConfirmAction label="MOVE TICKET" confirmText="Moves {run.key} from {run.jiraStatus} to “{jiraValue}”." confirmLabel="MOVE" tone="cyan" run={() => moveJira(key, jiraValue)} />
               {/if}
             {/if}
-            {#if run.repos[0].cleaned}
-              <span style="font-size: 12px; color: var(--ok)">Worktree removed · branch {run.repos[0].branch} stays</span>
+            {#if lead.cleaned}
+              <span style="font-size: 12px; color: var(--ok)">Worktree removed · branch {lead.branch} stays</span>
             {:else}
-              <ConfirmAction label="REMOVE WORKTREE" confirmText="Removes {run.repos[0].worktree}. Refused if the session is still running or files are uncommitted. The branch stays." confirmLabel="REMOVE" tone="red" run={() => cleanupRun(key)} />
+              <ConfirmAction label="REMOVE WORKTREE" confirmText="Removes {lead.worktree}. Refused if the session is still running or files are uncommitted. The branch stays." confirmLabel="REMOVE" tone="red" run={() => cleanupRun(key)} />
             {/if}
           </div>
         {/if}
@@ -370,7 +369,7 @@
             <span style="font-size: 10px; letter-spacing: calc(var(--tracking) * 0.8571); color: {s.color}; text-align: right">{s.state}</span>
           </div>
           <div style="font-size: 11px; line-height: 1.5; color: var(--mu); margin-top: 6px; word-break: break-word">
-            {#if s.i === 3 && run.repos[0].pr}<a href={run.repos[0].pr.url} target="_blank" rel="noopener noreferrer" style="color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none"><span>{s.note} <span class="g-go" aria-hidden="true"></span></span></a>{:else}{s.note}{/if}
+            {#if s.i === 3 && lead.pr}<a href={lead.pr.url} target="_blank" rel="noopener noreferrer" style="color: color-mix(in oklab, var(--ok) 50%, var(--bright)); text-decoration: none"><span>{s.note} <span class="g-go" aria-hidden="true"></span></span></a>{:else}{s.note}{/if}
           </div>
         </div>
       {/each}

@@ -140,15 +140,21 @@ func TestARunWithoutAUsableLegIsNotRead(t *testing.T) {
 	six := strings.TrimSuffix(strings.Repeat(leg+",", 6), ",")
 
 	rows := []struct {
-		name, repos string
-		read        bool
+		name, repos, layout string
+		read                bool
 	}{
-		{"one leg", `[` + leg + `]`, true},
-		{"six legs", `[` + six + `]`, true},
-		{"no legs", `[]`, false},
-		{"a null leg", `[` + leg + `,null]`, false},
-		{"seven legs", `[` + seven + `]`, false},
-		{"not a list", `{}`, false},
+		{"one leg", `[` + leg + `]`, `,"layout":"shared"`, true},
+		{"six legs", `[` + six + `]`, `,"layout":"shared"`, true},
+		{"no legs", `[]`, `,"layout":"shared"`, false},
+		{"a null leg", `[` + leg + `,null]`, `,"layout":"shared"`, false},
+		{"seven legs", `[` + seven + `]`, `,"layout":"shared"`, false},
+		{"not a list", `{}`, `,"layout":"shared"`, false},
+		{"split", `[` + leg + `]`, `,"layout":"split"`, true},
+		{"no layout", `[` + leg + `]`, ``, true},
+		{"an unknown layout", `[` + leg + `]`, `,"layout":"sideways"`, false},
+		{"another case", `[` + leg + `]`, `,"layout":"Split"`, false},
+		{"an empty layout", `[` + leg + `]`, `,"layout":""`, false},
+		{"a layout that is not text", `[` + leg + `]`, `,"layout":1`, false},
 	}
 
 	for _, row := range rows {
@@ -160,9 +166,10 @@ func TestARunWithoutAUsableLegIsNotRead(t *testing.T) {
 				`"model":"haiku","state":"failed","stage":"pr","startedAt":1,"updatedAt":1,`+
 				`"jiraStatus":"Doing","agents":[],"answered":[],"questions":[],"log":[],`+
 				`"error":null,"brief":"","desc":"","ticketStatus":"Doing","repos":`+row.repos+
-				`,"layout":"shared"}`)
+				row.layout+`}`)
 
-			same(t, strconv.Quote(row.repos), len(openwork.LoadedKeys(runsDir)) == 1, row.read)
+			read := len(openwork.LoadedKeys(runsDir)) == 1
+			same(t, strconv.Quote(row.repos+row.layout), read, row.read)
 		})
 	}
 }
@@ -178,7 +185,7 @@ func TestLegForFindsARunsRepositoryInAnyCase(t *testing.T) {
 	}
 
 	record, ok := openwork.DecodeRecord([]byte(`{"key":"PROJ-1","repos":[` + leg("acme/widgets") +
-		`,` + leg("acme/gadgets") + `],"layout":"split"}`))
+		`,` + leg("acme/gadgets") + `,` + leg("") + `],"layout":"split"}`))
 	same(t, "read", ok, true)
 
 	rows := []struct {
@@ -189,7 +196,7 @@ func TestLegForFindsARunsRepositoryInAnyCase(t *testing.T) {
 		{"the second", "acme/gadgets", "/w/acme/gadgets", true},
 		{"another case", "Acme/Gadgets", "/w/acme/gadgets", true},
 		{"none", "acme/other", "", false},
-		{"nothing", "", "", false},
+		{"nothing, with a leg from before Settings", "", "", false},
 	}
 
 	for _, row := range rows {
