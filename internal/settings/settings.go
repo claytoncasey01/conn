@@ -9,6 +9,7 @@ package settings
 import (
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
 )
@@ -135,10 +136,10 @@ type Jira struct {
 	SessionLayout string            `json:"sessionLayout"`
 }
 
-// BaseFor is the base branch configured for repo: its own entry, else the one for every
+// BaseFor is the base branch configured for repo (any case): its own entry, else the one for every
 // repository, else nil (the clone's default branch decides). The result is a copy.
 func (j Jira) BaseFor(repo string) *string {
-	own, found := j.BaseBranches[repo]
+	own, found := j.BaseBranches[strings.ToLower(repo)]
 	if found {
 		return &own
 	}

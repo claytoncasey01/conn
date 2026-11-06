@@ -1,6 +1,7 @@
 package settings_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/claytoncasey01/conn/internal/js"
@@ -43,6 +44,7 @@ func TestBaseForPrefersTheRepositoryThenTheGlobalBranchThenNothing(t *testing.T)
 		want *string
 	}{
 		{"repository entry wins", both, "acme/api", &release},
+		{"repository entry wins in any case", both, "Acme/Api", &release},
 		{"global when the repository has none", both, "acme/web", &develop},
 		{"global with no map", settings.Jira{BaseBranch: &develop}, "acme/web", &develop},
 		{
@@ -199,6 +201,72 @@ func TestTooManyBaseBranchesKeepsTheFirstOnes(t *testing.T) {
 
 	if len(loaded.Dropped) != 1 {
 		t.Errorf("dropped = %v", loaded.Dropped)
+	}
+}
+
+func TestAPutOverTheBaseBranchesCapIsRefusedNotTruncated(t *testing.T) {
+	t.Parallel()
+
+	object := js.NewObject()
+	for index := range settings.BaseBranchesMax + 1 {
+		object.Set("acme/r"+js.Stringify(float64(index)), "main")
+	}
+
+	jira := js.NewObject()
+	jira.Set("baseBranches", object)
+
+	section := js.NewObject()
+	section.Set("enabled", true)
+	section.Set("jira", jira)
+
+	checked := settings.ValidateSection("atlassian", section)
+	if checked.OK {
+		t.Fatalf("accepted: %s", js.Stringify(checked))
+	}
+
+	want := "atlassian.jira.baseBranches holds 101 entries: only the first 100 are read"
+	if checked.Error != want {
+		t.Fatalf("\n got  %s\n want %s", checked.Error, want)
+	}
+}
+
+func TestAnExplicitNullChoiceResetsToTheDefaultAndARepeatedSpellingKeepsTheFirst(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			"null reviewMove resets, not keeps",
+			`{"enabled":true,"jira":{"reviewMove":null}}`, `"reviewMove":"all"`,
+		},
+		{
+			"null sessionLayout resets, not keeps",
+			`{"enabled":true,"jira":{"sessionLayout":null}}`, `"sessionLayout":"shared"`,
+		},
+		{
+			"the first spelling of a repository wins",
+			`{"enabled":true,"jira":{"baseBranches":{"Acme/API":"develop","acme/api":"main"}}}`,
+			`"baseBranches":{"acme/api":"develop"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store, _ := newStore(t)
+			mustUpdate(t, store, "repos", `{"allow":["acme/*"]}`)
+			mustUpdate(t, store, "atlassian", `{"enabled":true,"jira":{"reviewMove":"never",`+
+				`"sessionLayout":"split","baseBranches":{"acme/db":"trunk"}}}`)
+			mustUpdate(t, store, "atlassian", tt.body)
+
+			got := js.Stringify(store.Get().Atlassian.Jira)
+			if !strings.Contains(got, tt.want) {
+				t.Fatalf("got %s, want it to hold %s", got, tt.want)
+			}
+		})
 	}
 }
 
