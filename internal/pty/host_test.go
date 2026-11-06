@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/pty"
+	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
 // errSpawnFailed is a spawner that cannot start the program.
@@ -392,27 +393,77 @@ func TestASlowViewerIsDroppedAndTheReaderGoesOn(t *testing.T) {
 	}
 	defer fast.Close()
 
-	chunksCount := pty.ViewerQueueChunks + 8
-	for index := range chunksCount {
-		chunk := []byte{byte(index)}
+	// Twice the queue, in the largest chunks a read makes.
+	chunk := bytes.Repeat([]byte{'x'}, pty.ReadBufferBytes)
+	total := 2 * pty.ViewerQueueBytesMax
+
+	for sent := 0; sent < total; sent += len(chunk) {
 		process.feed(t, chunk)
 
-		got := receive(t, fast.Output)
+		got := receiveBytes(t, fast.Output, len(chunk))
 		if !bytes.Equal(got, chunk) {
-			t.Fatalf("the fast viewer got %v, want %v", got, chunk)
+			t.Fatalf("the fast viewer got %d bytes, want %d", len(got), len(chunk))
 		}
 	}
 
 	queued := drainUntilClosed(t, slow.Output)
-	if len(queued) > pty.ViewerQueueChunks {
-		t.Fatalf("the slow viewer was queued %d chunks, more than %d",
-			len(queued), pty.ViewerQueueChunks)
+	if len(queued) > pty.ViewerQueueBytesMax {
+		t.Fatalf("the slow viewer was handed %d bytes, more than its queue of %d",
+			len(queued), pty.ViewerQueueBytesMax)
 	}
 
 	entry, _ := info(t, host, sessionID)
 	if entry.ExitCode != nil {
 		t.Fatal("dropping a viewer ended the session")
 	}
+}
+
+// A viewer's queue is counted in bytes: many small writes, like a burst of echoed keystrokes,
+// do not fill it.
+func TestABurstOfSmallOutputKeepsAViewer(t *testing.T) {
+	t.Parallel()
+
+	host, spawner := newFakeHost(t, pty.DefaultLimits())
+
+	sessionID, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	process := spawner.last(t)
+
+	viewer, err := host.Subscribe(sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer viewer.Close()
+
+	const echoes = 4096
+
+	want := make([]byte, 0, echoes)
+
+	for index := range echoes {
+		echo := []byte{byte('a' + index%26)}
+		want = append(want, echo...)
+		process.feed(t, echo)
+	}
+
+	got := receiveBytes(t, viewer.Output, len(want))
+	if !bytes.Equal(got, want) {
+		t.Fatalf("the viewer got %d bytes of the burst, want all %d in order", len(got), len(want))
+	}
+}
+
+// receiveBytes reads output until it has count bytes.
+func receiveBytes(t *testing.T, output <-chan []byte, count int) []byte {
+	t.Helper()
+
+	got := make([]byte, 0, count)
+	for len(got) < count {
+		got = append(got, receive(t, output)...)
+	}
+
+	return got
 }
 
 func TestSubscribeRefusesPastViewersMax(t *testing.T) {
@@ -511,6 +562,67 @@ func TestWriteReachesTheProgram(t *testing.T) {
 	if string(got) != "yes\r" {
 		t.Fatalf("the program got %q, want %q", got, "yes\r")
 	}
+}
+
+// Writes to one session take turns, and one that cannot get its turn in time gives up.
+func TestWritesToASessionTakeTurns(t *testing.T) {
+	t.Parallel()
+
+	spawner := &fakes{writeGate: make(chan struct{})}
+	host := pty.NewHost(pty.Config{Spawner: spawner.spawn, Limits: pty.DefaultLimits()})
+
+	sessionID, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := make(chan error, 1)
+
+	go func() { first <- host.Write(sessionID, []byte("a")) }()
+
+	waitWriting(t, spawner.last(t))
+
+	began := time.Now()
+
+	err = host.Write(sessionID, []byte("b"))
+	if !errors.Is(err, pty.ErrInputBlocked) {
+		t.Fatalf("a Write behind a stuck one = %v, want ErrInputBlocked", err)
+	}
+
+	waited := time.Since(began)
+	if waited > pty.WriteWaitMax+testGrace {
+		t.Fatalf("the Write waited %v, more than %v", waited, pty.WriteWaitMax)
+	}
+
+	close(spawner.writeGate)
+
+	err = <-first
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if spawner.last(t).mostWritersAtOnce() != 1 {
+		t.Fatal("two Writes reached the program at once")
+	}
+
+	_ = host.StopAll(context.WithoutCancel(t.Context()))
+}
+
+// waitWriting waits until a Write is inside the program.
+func waitWriting(t *testing.T, process *fakeProcess) {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(waitLimit))
+
+	for time.Now().Before(deadline) {
+		if process.mostWritersAtOnce() > 0 {
+			return
+		}
+
+		time.Sleep(waitPoll)
+	}
+
+	t.Fatal("the Write never reached the program")
 }
 
 func TestWriteRefusesMoreThanAFrame(t *testing.T) {

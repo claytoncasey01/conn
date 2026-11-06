@@ -38,18 +38,27 @@ var errFakeClosed = errors.New("the fake terminal is closed")
 type fakeProcess struct {
 	pid             int
 	ignoreTerminate bool
+	// orphans keeps the program's group alive after it exits by itself, as a child it started
+	// that ignores the hang-up would.
+	orphans bool
+	// writeGate, when set, holds every Write until the test sends on it or closes it.
+	writeGate chan struct{}
 
 	output    chan []byte
 	closed    chan struct{}
 	closeOnce sync.Once
 	exited    chan struct{}
 	exitOnce  sync.Once
+	groupGone chan struct{}
+	groupOnce sync.Once
 
-	mu       sync.Mutex
-	written  []byte
-	sizes    []pty.Size
-	signals  []string
-	exitCode int
+	mu          sync.Mutex
+	written     []byte
+	sizes       []pty.Size
+	signals     []string
+	exitCode    int
+	writing     int
+	writingMost int
 }
 
 func (f *fakeProcess) Read(buffer []byte) (int, error) {
@@ -77,8 +86,18 @@ func (f *fakeProcess) Write(data []byte) (int, error) {
 	}
 
 	f.mu.Lock()
+	f.writing++
+	f.writingMost = max(f.writingMost, f.writing)
+	f.mu.Unlock()
+
+	if f.writeGate != nil {
+		<-f.writeGate
+	}
+
+	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.writing--
 	f.written = append(f.written, data...)
 
 	return len(data), nil
@@ -99,6 +118,7 @@ func (f *fakeProcess) Terminate() error {
 	f.record(signalTerminate)
 
 	if !f.ignoreTerminate {
+		f.endGroup()
 		f.exit(fakeTerminatedCode)
 	}
 
@@ -107,6 +127,7 @@ func (f *fakeProcess) Terminate() error {
 
 func (f *fakeProcess) Kill() error {
 	f.record(signalKill)
+	f.endGroup()
 	f.exit(fakeKilledCode)
 
 	return nil
@@ -114,7 +135,7 @@ func (f *fakeProcess) Kill() error {
 
 func (f *fakeProcess) GroupAlive() bool {
 	select {
-	case <-f.exited:
+	case <-f.groupGone:
 		return false
 	default:
 		return true
@@ -153,10 +174,28 @@ func (f *fakeProcess) exit(code int) {
 	})
 }
 
-// finish ends the program with code after its output so far.
+// endGroup ends every process left in the program's group.
+func (f *fakeProcess) endGroup() {
+	f.groupOnce.Do(func() { close(f.groupGone) })
+}
+
+// finish ends the program with code after its output so far. Its group ends with it, unless the
+// fake orphans. As in a real group, the group is gone before the program's exit can be seen.
 func (f *fakeProcess) finish(code int) {
+	if !f.orphans {
+		f.endGroup()
+	}
+
 	f.exit(code)
 	close(f.output)
+}
+
+// mostWritersAtOnce is how many Writes were ever in the program at the same time.
+func (f *fakeProcess) mostWritersAtOnce() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.writingMost
 }
 
 func (f *fakeProcess) writtenSoFar() []byte {
@@ -198,7 +237,15 @@ func (f *fakeProcess) feed(t *testing.T, chunk []byte) {
 // fakes is a Spawner that starts fakeProcesses and keeps them for the test.
 type fakes struct {
 	ignoreTerminate bool
-	err             error
+	orphans         bool
+	writeGate       chan struct{}
+	// pid, when set, is every process's id.
+	pid int
+	// spawning, when set, gets a value once a spawn has begun, and the spawn then waits for
+	// release to be closed.
+	spawning chan struct{}
+	release  chan struct{}
+	err      error
 
 	mu      sync.Mutex
 	started []*fakeProcess
@@ -210,15 +257,29 @@ func (f *fakes) spawn(spec pty.Spec) (pty.Process, error) {
 		return nil, f.err
 	}
 
+	if f.spawning != nil {
+		f.spawning <- struct{}{}
+
+		<-f.release
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	pid := f.pid
+	if pid == 0 {
+		pid = len(f.started) + 1000
+	}
+
 	process := &fakeProcess{
-		pid:             len(f.started) + 1000,
+		pid:             pid,
 		ignoreTerminate: f.ignoreTerminate,
+		orphans:         f.orphans,
+		writeGate:       f.writeGate,
 		output:          make(chan []byte),
 		closed:          make(chan struct{}),
 		exited:          make(chan struct{}),
+		groupGone:       make(chan struct{}),
 	}
 	f.started = append(f.started, process)
 	f.specs = append(f.specs, spec)

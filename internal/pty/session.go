@@ -1,7 +1,6 @@
 package pty
 
 import (
-	"bytes"
 	"slices"
 	"time"
 )
@@ -17,7 +16,7 @@ func (h *Host) readOutput(reading *session, readDone chan<- struct{}) {
 	for {
 		count, err := reading.process.Read(buffer)
 		if count > 0 {
-			h.publish(reading, bytes.Clone(buffer[:count]))
+			h.publish(reading, buffer[:count])
 		}
 
 		if err != nil {
@@ -26,8 +25,8 @@ func (h *Host) readOutput(reading *session, readDone chan<- struct{}) {
 	}
 }
 
-// publish adds chunk to the scrollback and to every viewer's queue, dropping each viewer whose
-// queue is full.
+// publish copies chunk into the scrollback and into every viewer's queue, dropping each viewer
+// whose queue it would take past viewerQueueBytesMax.
 func (h *Host) publish(target *session, chunk []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -37,22 +36,31 @@ func (h *Host) publish(target *session, chunk []byte) {
 	kept := target.viewers[:0]
 
 	for _, watching := range target.viewers {
-		select {
-		case watching.output <- chunk:
-			kept = append(kept, watching)
-		default:
-			close(watching.output)
+		if len(watching.pending)+len(chunk) > viewerQueueBytesMax {
+			watching.stop()
+
+			continue
 		}
+
+		watching.pending = append(watching.pending, chunk...)
+		watching.wake()
+		kept = append(kept, watching)
 	}
 
 	clear(target.viewers[len(kept):])
 	target.viewers = kept
 }
 
-// awaitEnd is a session's waiter: it waits for the program to exit, lets the reader drain what is
-// left for at most outputDrainTimeout, closes the terminal so the reader ends, and records the end.
+// awaitEnd is a session's waiter. Once the program has exited it stops whatever is left of its
+// process group (a polite stop, then a kill after the grace), so a session is never recorded as
+// ended while anything it started runs on. It then lets the reader drain for at most
+// outputDrainTimeout, closes the terminal so the reader ends, and records the end.
 func (h *Host) awaitEnd(waiting *session, readDone <-chan struct{}) {
 	code := waiting.process.Wait()
+
+	// The waiter never gives up on the group (a nil channel never delivers). A group that cannot
+	// be signalled has no one left to signal it: the end is recorded anyway.
+	_ = stopGroup(nil, waiting.process, h.limits.StopGrace)
 
 	drain := time.NewTimer(outputDrainTimeout)
 	select {
@@ -70,8 +78,9 @@ func (h *Host) awaitEnd(waiting *session, readDone <-chan struct{}) {
 	h.finish(waiting, code)
 }
 
-// finish records that a session ended with code, closes its viewers, frees its running slot and
-// forgets the oldest ended session past endedMax.
+// finish records that a session ended with code, ends its viewers once they have been handed
+// what was queued for them, frees its running slot and forgets the oldest ended session past
+// endedMax.
 func (h *Host) finish(ending *session, code int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -79,7 +88,8 @@ func (h *Host) finish(ending *session, code int) {
 	ending.exitCode = &code
 
 	for _, watching := range ending.viewers {
-		close(watching.output)
+		watching.ending = true
+		watching.wake()
 	}
 
 	ending.viewers = nil
@@ -94,53 +104,4 @@ func (h *Host) finish(ending *session, code int) {
 	}
 
 	close(ending.ended)
-}
-
-// Subscribe adds a viewer to the session. A session that has ended gives its scrollback and an
-// Output that is already closed.
-func (h *Host) Subscribe(sessionID ID) (Viewer, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	watched, found := h.sessions[sessionID]
-	if !found {
-		return Viewer{}, ErrNoSession
-	}
-
-	if watched.exitCode != nil {
-		output := make(chan []byte)
-		close(output)
-
-		return Viewer{Replay: watched.scrollback.contents(), Output: output, close: nil}, nil
-	}
-
-	if len(watched.viewers) >= h.limits.ViewersMax {
-		return Viewer{}, ErrViewersFull
-	}
-
-	// The replay and the registration happen under one lock, so no output is lost or doubled
-	// between them.
-	added := &viewer{output: make(chan []byte, viewerQueueChunks)}
-	watched.viewers = append(watched.viewers, added)
-
-	return Viewer{
-		Replay: watched.scrollback.contents(),
-		Output: added.output,
-		close:  func() { h.unsubscribe(watched, added) },
-	}, nil
-}
-
-// unsubscribe removes a viewer and closes its queue, unless it is already gone.
-func (h *Host) unsubscribe(watched *session, leaving *viewer) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	index := slices.Index(watched.viewers, leaving)
-	if index < 0 {
-		return
-	}
-
-	close(leaving.output)
-
-	watched.viewers = slices.Delete(watched.viewers, index, index+1)
 }

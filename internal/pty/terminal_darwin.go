@@ -29,7 +29,14 @@ func openTerminal() (*os.File, *os.File, error) {
 		return nil, nil, err
 	}
 
-	return openChildSide(hostDescriptor, path)
+	childDescriptor, err := openChildPath(path)
+	if err != nil {
+		_ = unix.Close(hostDescriptor)
+
+		return nil, nil, err
+	}
+
+	return finishTerminal(hostDescriptor, childDescriptor, path)
 }
 
 // unlockTerminal grants and unlocks the program's side of the terminal and returns its path, as

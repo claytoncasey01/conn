@@ -7,13 +7,30 @@
 // Nothing here chooses a program: the Spec comes from Conn's own code, never from a client.
 //
 // Every limit is fixed: at most sessionsMax programs run at once, each keeps scrollbackBytesMax of
-// scrollback, has at most viewersMax viewers, each with a queue of at most viewerQueueBytesMax,
-// and takes at most writeBytesMax of input per Write. A viewer that falls behind is dropped, so
-// the reader of a program's output never waits for anyone. Ended sessions are kept, for their
-// exit code and scrollback, up to endedMax; the oldest is forgotten first.
+// scrollback, has at most viewersMax viewers, each with a queue of at most viewerQueueBytesMax
+// (counted in bytes, so a burst of small writes is one batch), and takes at most writeBytesMax of
+// input per Write. Writes to one session take turns, each waiting at most writeWaitMax for its
+// turn. A viewer that falls behind is dropped, so the reader of a program's output never waits
+// for anyone. A viewer holds one of its session's viewersMax places until it is closed: close it
+// when its client disconnects. Ended sessions are kept, for their exit code and scrollback, up to
+// endedMax; the oldest is forgotten first.
+//
+// Stopping: a stop signals the program's whole process group (the program is a session leader,
+// so the group's id is its pid): a polite SIGTERM, then SIGKILL if anything in the group is left
+// after the grace, or at once when the caller stops waiting. The same happens when a program exits
+// by itself, before its session is recorded as ended, so nothing it started outlives it. A
+// descendant that calls setsid or setpgid itself has left the group and is out of reach; Task 9
+// checks this against a real claude running a background command. StopAll (which returns an
+// error, unlike the plan's signature, so quitting can say what did not stop) refuses new Starts
+// and waits for those in flight.
+//
+// Descriptors: every descriptor this package opens is close-on-exec, and so is every file and
+// socket Go's os and net packages open, so a program inherits only its terminal. A descriptor
+// made by cgo or by a raw syscall without O_CLOEXEC is not covered; Conn makes none.
 //
 // Terminal content is never logged and never written to disk: the scrollback is memory only, and
-// no error this package returns holds input or output bytes.
+// no error this package returns holds input or output bytes. The program's side of each terminal
+// is mode 0600, so no other user can write to it.
 //
 // One platform limit: when a program on a terminal exits, macOS hangs the terminal up and throws
 // away whatever it printed that had not been read yet. The reader reads all the time, so this
@@ -24,8 +41,11 @@
 // cannot block; every call that can block (the spawner, and the Process's Read, Write, Resize,
 // signals, Wait and Close) is made without it. Each session owns two goroutines: its reader, which
 // copies the program's output into the scrollback and the viewers' queues, and its waiter, which
-// waits for the program to exit, lets the reader drain for at most outputDrainTimeout, closes the
-// terminal (which ends the reader) and records the end. Both end when the session ends.
+// waits for the program to exit, stops what is left of its group, lets the reader drain for at
+// most outputDrainTimeout, closes the terminal (which ends the reader) and records the end. Both
+// end when the session ends. Each viewer owns one more, its pump, which hands its queue to Output
+// and ends when the viewer is closed or dropped, or once the session has ended and the queue is
+// handed over.
 package pty
 
 import (
@@ -50,13 +70,13 @@ const (
 	// readBufferBytes is the most one read of a program's output takes, so the most one chunk a
 	// viewer receives holds.
 	readBufferBytes = 32 << 10
-	// viewerQueueBytesMax bounds the output queued for one viewer; a viewer whose queue is full
-	// is dropped.
+	// viewerQueueBytesMax bounds the output queued for one viewer, counted in bytes; a viewer
+	// that output would take past it is dropped.
 	viewerQueueBytesMax = 1 << 20
-	// viewerQueueChunks is viewerQueueBytesMax in chunks: a chunk is at most readBufferBytes.
-	viewerQueueChunks = viewerQueueBytesMax / readBufferBytes
 	// writeBytesMax is the most input one Write takes.
 	writeBytesMax = 64 << 10
+	// writeWaitMax bounds how long a Write waits for an earlier Write to the same session.
+	writeWaitMax = 5 * time.Second
 	// endedMax is how many ended sessions are kept for their exit code and scrollback.
 	endedMax = sessionsMax
 	// idBytes is the randomness in an ID: 128 bits.
@@ -93,6 +113,9 @@ var (
 	ErrInvalidSpec = errors.New("invalid session spec")
 	// ErrInputTooLarge is a Write of more than writeBytesMax.
 	ErrInputTooLarge = errors.New("too much input at once")
+	// ErrInputBlocked is a Write that waited writeWaitMax behind another: the program is not
+	// reading its input.
+	ErrInputBlocked = errors.New("the program is not taking input")
 	// ErrInvalidSize is a Resize to a size out of range.
 	ErrInvalidSize = errors.New("terminal size out of range")
 	// ErrUnsupported is Spawn on a system without the pseudo-terminals it knows.
@@ -180,9 +203,11 @@ type Process interface {
 	Close() error
 }
 
-// Viewer is one viewer of a session: the scrollback when it joined, then the output after it.
-// Output closes when the session ends, when Close is called, or when the viewer falls so far
-// behind that its queue is full. A chunk is shared by every viewer: read it, never change it.
+// Viewer is one viewer of a session: the scrollback when it joined, then the output after it, in
+// batches. Output closes once the session has ended and everything queued is handed over, when
+// Close is called, or when the viewer falls viewerQueueBytesMax behind. Each batch is the
+// viewer's own. Close every Viewer: until then it holds one of the session's viewersMax places
+// (an ended session's viewer holds none) and its goroutine.
 type Viewer struct {
 	Replay []byte
 	Output <-chan []byte

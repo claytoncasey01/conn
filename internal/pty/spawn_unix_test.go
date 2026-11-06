@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,8 +22,12 @@ import (
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
-// helperFds is the helper mode that prints every descriptor above stderr that is a terminal.
-const helperFds = "fds"
+// Helper modes: helperFds prints how many descriptors above stderr are terminals; helperPerm
+// prints the permissions of the terminal the helper has as stdin.
+const (
+	helperFds  = "fds"
+	helperPerm = "perm"
+)
 
 // descriptorsScanMax is how many descriptors the helper looks at.
 const descriptorsScanMax = 1024
@@ -42,6 +48,10 @@ func TestHelperProcess(t *testing.T) {
 
 	if mode == helperFds {
 		printTerminalDescriptors()
+	}
+
+	if mode == helperPerm {
+		printTerminalPermissions()
 	}
 
 	_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
@@ -83,6 +93,20 @@ func printTerminalDescriptors() {
 	}
 
 	_, _ = fmt.Fprintf(os.Stdout, "terminal descriptors: %d\n", count)
+}
+
+// printTerminalPermissions prints the permission bits of stdin, the program's terminal.
+func printTerminalPermissions() {
+	var status unix.Stat_t
+
+	err := unix.Fstat(0, &status)
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stdout, "terminal permissions: unknown")
+
+		return
+	}
+
+	_, _ = fmt.Fprintf(os.Stdout, "terminal permissions: %04o\n", status.Mode&0o7777)
 }
 
 // newRealHost is a Host over the real spawner, skipping the test where it is unsupported.
@@ -216,7 +240,7 @@ func TestRealOutputAndInputPassThroughTheTerminal(t *testing.T) {
 
 	output := outputThrough(t, host, sessionID)
 	if !strings.Contains(output, "got hello") {
-		t.Fatalf("the program printed %q, want it to have read the input", output)
+		t.Fatal("the program did not print the input it read")
 	}
 }
 
@@ -228,7 +252,7 @@ func TestRealResizeIsSeenByTheProgram(t *testing.T) {
 
 	first := waitForOutput(t, host, sessionID, regexp.MustCompile(`(\d+) (\d+)`))
 	if first[0] != "24 80" {
-		t.Fatalf("the first size was %q, want %q", first[0], "24 80")
+		t.Fatal("the first size the program saw was not 24 rows by 80 columns")
 	}
 
 	err := host.Resize(sessionID, 132, 43)
@@ -243,7 +267,7 @@ func TestRealResizeIsSeenByTheProgram(t *testing.T) {
 
 	output := outputThrough(t, host, sessionID)
 	if !strings.Contains(output, "43 132") {
-		t.Fatalf("the program printed %q, want the new size 43 132", output)
+		t.Fatal("the program did not see the new size of 43 rows by 132 columns")
 	}
 }
 
@@ -264,11 +288,11 @@ func TestRealEnvironmentHoldsNothingOfConnOrCmux(t *testing.T) {
 	for line := range strings.SplitSeq(output, "\r\n") {
 		name, _, _ := strings.Cut(line, "=")
 		if strings.HasPrefix(strings.ToUpper(name), "CONN_") {
-			t.Errorf("the child's environment holds %q", line)
+			t.Errorf("the child's environment holds a variable named %q", name)
 		}
 
 		if strings.HasPrefix(strings.ToUpper(name), "CMUX_") {
-			t.Errorf("the child's environment holds %q", line)
+			t.Errorf("the child's environment holds a variable named %q", name)
 		}
 	}
 
@@ -385,6 +409,66 @@ func TestRealDescriptorsAreCloseOnExec(t *testing.T) {
 	}
 }
 
+// The terminal's program side is its owner's alone, as after mesg n: no other user may write to
+// it.
+func TestRealTerminalIsTheOwnersOnly(t *testing.T) {
+	t.Parallel()
+
+	host := newRealHost(t)
+	sessionID := startReal(t, host, helperArgs(t, helperPerm), nil)
+
+	permissions := regexp.MustCompile(`terminal permissions: ([0-7]{4})`)
+
+	match := waitForOutput(t, host, sessionID, permissions)
+	if match[1] != "0600" {
+		t.Fatalf("the terminal's permissions are %s, want 0600", match[1])
+	}
+}
+
+// A program that is not Go, with no runtime of its own, holds no more than stdin, stdout and
+// stderr: ls lists /dev/fd in the session exactly as it does when os/exec starts it with nothing
+// but those three (ls opens one or two of its own to read the folder).
+func TestRealNonGoChildHoldsOnlyItsTerminal(t *testing.T) {
+	t.Parallel()
+
+	baseline, err := exec.CommandContext(t.Context(), "/bin/ls", "-1", "/dev/fd").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	host := newRealHost(t)
+	sessionID := startReal(t, host, untilRead("/bin/ls -1 /dev/fd"), nil)
+
+	output := outputThrough(t, host, sessionID)
+	listing, _, _ := strings.Cut(output, endMarker)
+
+	got := strings.Fields(listing)
+
+	want := strings.Fields(string(baseline))
+	if !slices.Equal(got, want) {
+		// Counts only: what a program printed is never copied into the test log.
+		t.Fatalf("ls in the session listed %d descriptors, want the %d it lists with stdio alone",
+			len(got), len(want))
+	}
+}
+
+// A leader that exits by itself does not leave its group behind: when the session has ended,
+// a grandchild that ignores the hang-up and the polite stop is gone too.
+func TestRealGroupOfALeaderThatExitsIsGone(t *testing.T) {
+	t.Parallel()
+
+	host := newRealHost(t)
+	sessionID := startReal(t, host,
+		shell("trap '' HUP TERM; (trap '' HUP TERM; exec /bin/sleep 30) & exit 0"), nil)
+
+	entry := waitEnded(t, host, sessionID)
+
+	// The leader called setsid, so its group is numbered by its pid, and a number is not reused
+	// while a group holds it. The killed grandchild may be a zombie for a moment, until init
+	// reaps it.
+	waitGone(t, -entry.PID)
+}
+
 func TestRealStopKillsTheWholeGroup(t *testing.T) {
 	t.Parallel()
 
@@ -445,8 +529,8 @@ func grandchildPIDs(t *testing.T, host *pty.Host, sessionID pty.ID) []int {
 	return pids
 }
 
-// waitGone waits until no process has pid. A killed grandchild is reaped by init, so it may be a
-// zombie for a moment.
+// waitGone waits until no process has pid (or, negative, no process is in the group -pid). A
+// killed grandchild is reaped by init, so it may be a zombie for a moment.
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
 

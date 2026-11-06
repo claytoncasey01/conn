@@ -20,8 +20,13 @@ type Host struct {
 	ended []ID
 	// running counts the programs started and not ended, and the Starts still spawning.
 	running int
+	// starting counts the Starts still spawning or being admitted.
+	starting int
 	// closed is set by StopAll: no Start succeeds after it.
 	closed bool
+	// startsDone is closed once closed is set and starting is zero: StopAll waits on it.
+	startsDone       chan struct{}
+	startsDoneClosed bool
 }
 
 // session is one program on its terminal. The fields above mu's are set once, before the session
@@ -33,17 +38,15 @@ type session struct {
 	pid       int
 	startedAt time.Time
 	process   Process
-	// ended is closed once the program has exited, its output is read and its viewers closed.
+	// ended is closed once the program has exited, its group is stopped, its output is read and
+	// its viewers told.
 	ended chan struct{}
+	// writeTurn holds one value while a Write is in the program, so Writes take turns.
+	writeTurn chan struct{}
 
 	exitCode   *int
 	scrollback ring
 	viewers    []*viewer
-}
-
-// viewer is one Viewer's queue.
-type viewer struct {
-	output chan []byte
 }
 
 // NewHost is a Host over config. A Config without a Spawner, or with a limit out of range, is a
@@ -63,7 +66,11 @@ func NewHost(config Config) *Host {
 		order:    nil,
 		ended:    nil,
 		running:  0,
+		starting: 0,
 		closed:   false,
+
+		startsDone:       make(chan struct{}),
+		startsDoneClosed: false,
 	}
 }
 
@@ -125,7 +132,7 @@ func (h *Host) Write(sessionID ID, data []byte) error {
 		return fmt.Errorf("%w: %d bytes, at most %d", ErrInputTooLarge, len(data), writeBytesMax)
 	}
 
-	process, err := h.runningProcess(sessionID)
+	writing, err := h.runningSession(sessionID)
 	if err != nil {
 		return err
 	}
@@ -134,7 +141,20 @@ func (h *Host) Write(sessionID ID, data []byte) error {
 		return nil
 	}
 
-	_, err = process.Write(data)
+	// Writes take turns, and one waits at most writeWaitMax for its turn; the program's own
+	// Write is bounded too (writeTimeout for a terminal), so a Write ends within both.
+	turnWait := time.NewTimer(writeWaitMax)
+	defer turnWait.Stop()
+
+	select {
+	case writing.writeTurn <- struct{}{}:
+	case <-turnWait.C:
+		return ErrInputBlocked
+	}
+
+	defer func() { <-writing.writeTurn }()
+
+	_, err = writing.process.Write(data)
 	if err != nil {
 		return fmt.Errorf("typing into a session: %w", err)
 	}
@@ -160,12 +180,12 @@ func (h *Host) Resize(sessionID ID, columns, rows uint16) error {
 		return fmt.Errorf("%w: %d rows, at most %d", ErrInvalidSize, rows, rowsMax)
 	}
 
-	process, err := h.runningProcess(sessionID)
+	resizing, err := h.runningSession(sessionID)
 	if err != nil {
 		return err
 	}
 
-	err = process.Resize(Size{Columns: columns, Rows: rows})
+	err = resizing.process.Resize(Size{Columns: columns, Rows: rows})
 	if err != nil {
 		return fmt.Errorf("resizing a session: %w", err)
 	}
@@ -213,6 +233,7 @@ func (h *Host) reserve() error {
 	}
 
 	h.running++
+	h.starting++
 
 	return nil
 }
@@ -223,24 +244,50 @@ func (h *Host) release() {
 	defer h.mu.Unlock()
 
 	h.running--
+	h.starting--
+	h.signalStartsDone()
+}
+
+// signalStartsDone closes startsDone once StopAll has begun and no Start is in flight. The
+// caller holds h.mu.
+func (h *Host) signalStartsDone() {
+	if !h.closed {
+		return
+	}
+
+	if h.starting > 0 {
+		return
+	}
+
+	if h.startsDoneClosed {
+		return
+	}
+
+	h.startsDoneClosed = true
+	close(h.startsDone)
 }
 
 // admit makes process a session and starts its goroutines. A program that started while StopAll
-// ran is killed at once instead, since nothing would stop it later.
+// ran is killed at once instead, since nothing would stop it later; StopAll waits for that.
 func (h *Host) admit(sessionID ID, spec Spec, process Process) error {
+	pid := process.PID()
+	if pid <= 1 {
+		// A signal to the group -pid would reach every process the user may signal.
+		panic(fmt.Sprintf("pty: a spawner returned process id %d", pid))
+	}
+
 	started := &session{
-		sessionID: sessionID, name: spec.Name, dir: spec.Dir, pid: process.PID(),
-		startedAt: time.Now(),
-		process:   process, ended: make(chan struct{}),
+		sessionID: sessionID, name: spec.Name, dir: spec.Dir, pid: pid, startedAt: time.Now(),
+		process: process, ended: make(chan struct{}), writeTurn: make(chan struct{}, 1),
 		exitCode: nil, scrollback: newRing(h.limits.ScrollbackBytesMax), viewers: nil,
 	}
 
 	h.mu.Lock()
 
 	if h.closed {
-		h.running--
 		h.mu.Unlock()
 		abandon(process)
+		h.release()
 
 		return ErrClosed
 	}
@@ -253,6 +300,7 @@ func (h *Host) admit(sessionID ID, spec Spec, process Process) error {
 
 	h.sessions[sessionID] = started
 	h.order = append(h.order, sessionID)
+	h.starting--
 	h.mu.Unlock()
 
 	readDone := make(chan struct{})
@@ -284,8 +332,8 @@ func (h *Host) find(sessionID ID) (*session, error) {
 	return found, nil
 }
 
-// runningProcess is the session's program while it has not ended.
-func (h *Host) runningProcess(sessionID ID) (Process, error) {
+// runningSession is the session while it has not ended.
+func (h *Host) runningSession(sessionID ID) (*session, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -298,5 +346,5 @@ func (h *Host) runningProcess(sessionID ID) (Process, error) {
 		return nil, ErrEnded
 	}
 
-	return found.process, nil
+	return found, nil
 }

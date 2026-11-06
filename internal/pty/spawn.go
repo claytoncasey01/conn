@@ -28,6 +28,8 @@ const (
 	// hostOpenAttemptsMax bounds the tries at opening /dev/ptmx, and openRetryPause spaces them.
 	hostOpenAttemptsMax = 8
 	openRetryPause      = time.Millisecond
+	// childMode is the program side's permissions: read and write for its owner only.
+	childMode = 0o600
 )
 
 // terminalProcess is a program on one of the system's pseudo-terminals. hostSide is the side
@@ -145,12 +147,14 @@ func (p *terminalProcess) Terminate() error { return p.signalGroup(unix.SIGTERM)
 
 func (p *terminalProcess) Kill() error { return p.signalGroup(unix.SIGKILL) }
 
-// GroupAlive asks the kernel whether the program's group has a member left. Only "no such
-// process" means it has none; any other answer counts as alive, so a stop goes on to the kill.
+// GroupAlive asks the kernel whether the program's group has a member a signal can reach.
+// ESRCH is no member; EPERM is members none of which may be signalled, which for a group of the
+// user's own processes means they are all exiting (macOS answers so for zombies). Any other
+// answer counts as alive, so a stop goes on to the kill.
 func (p *terminalProcess) GroupAlive() bool {
-	err := unix.Kill(-p.PID(), 0)
+	err := unix.Kill(-p.groupID(), 0)
 
-	return !errors.Is(err, unix.ESRCH)
+	return !beyondReach(err)
 }
 
 // Wait waits for the program and returns its exit code: its exit status, 128 plus the signal that
@@ -174,8 +178,8 @@ func (p *terminalProcess) Close() error {
 // signalGroup sends signal to every process in the program's group. A group that is already
 // gone is not an error.
 func (p *terminalProcess) signalGroup(signal unix.Signal) error {
-	err := unix.Kill(-p.PID(), signal)
-	if errors.Is(err, unix.ESRCH) {
+	err := unix.Kill(-p.groupID(), signal)
+	if beyondReach(err) {
 		return nil
 	}
 
@@ -184,6 +188,28 @@ func (p *terminalProcess) signalGroup(signal unix.Signal) error {
 	}
 
 	return nil
+}
+
+// beyondReach says whether a signal to a group failed because no member can get one: there is
+// none (ESRCH), or none may be signalled (EPERM), as when every member left is exiting.
+func beyondReach(err error) bool {
+	if errors.Is(err, unix.ESRCH) {
+		return true
+	}
+
+	return errors.Is(err, unix.EPERM)
+}
+
+// groupID is the program's process group id, which Setsid made its pid. An id of 1 or less is a
+// mistake in the code: kill(-1) reaches every process the user may signal, kill(0) Conn's own
+// group.
+func (p *terminalProcess) groupID() int {
+	pid := p.PID()
+	if pid <= 1 {
+		panic(fmt.Sprintf("pty: a process group id of %d", pid))
+	}
+
+	return pid
 }
 
 // exitCode is a finished program's exit code, as a shell reports it.
@@ -228,24 +254,32 @@ func setSize(hostSide *os.File, size Size) error {
 	return nil
 }
 
-// openChildSide opens the program's side of the terminal whose host side is hostDescriptor and
-// whose program side the kernel named path, and makes both files. Both are close-on-exec; the
-// host side is non-blocking, so the runtime's poller can bound its writes and Close can end a
-// pending read.
-func openChildSide(hostDescriptor int, path string) (*os.File, *os.File, error) {
-	childDescriptor, err := unix.Open(path, unix.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
+// openChildPath opens the program's side of a terminal by the path the kernel gave it,
+// close-on-exec and not as Conn's controlling terminal.
+func openChildPath(path string) (int, error) {
+	descriptor, err := unix.Open(path, unix.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
 	if err != nil {
-		_ = unix.Close(hostDescriptor)
-
-		return nil, nil, fmt.Errorf("opening the program's side of the terminal: %w", err)
+		return 0, fmt.Errorf("opening the program's side of the terminal: %w", err)
 	}
 
-	err = unix.SetNonblock(hostDescriptor, true)
+	return descriptor, nil
+}
+
+// finishTerminal makes the two sides of a new terminal into files. The program's side becomes
+// its owner's alone (mode 0600, as after mesg n), so no other user can write to the program's
+// screen; the host side becomes non-blocking, so the runtime's poller can bound its writes and
+// Close can end a pending read. On failure it closes both.
+func finishTerminal(hostDescriptor, childDescriptor int, path string) (*os.File, *os.File, error) {
+	err := unix.Fchmod(childDescriptor, childMode)
+	if err == nil {
+		err = unix.SetNonblock(hostDescriptor, true)
+	}
+
 	if err != nil {
 		_ = unix.Close(childDescriptor)
 		_ = unix.Close(hostDescriptor)
 
-		return nil, nil, fmt.Errorf("making the terminal non-blocking: %w", err)
+		return nil, nil, fmt.Errorf("preparing the terminal: %w", err)
 	}
 
 	hostSide := os.NewFile(uintptr(hostDescriptor), hostPath)

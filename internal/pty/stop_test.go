@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -103,9 +104,10 @@ func TestStopGivesUpWhenItsContextEnds(t *testing.T) {
 		t.Fatalf("Stop = %v, want context.DeadlineExceeded", err)
 	}
 
+	// A stop that gives up still kills what it asked to stop.
 	got := spawner.last(t).signalsSoFar()
-	if !slices.Equal(got, []string{signalTerminate}) {
-		t.Fatalf("signals = %v, want only the polite stop", got)
+	if !slices.Equal(got, []string{signalTerminate, signalKill}) {
+		t.Fatalf("signals = %v, want the polite stop, then a kill", got)
 	}
 }
 
@@ -168,5 +170,136 @@ func TestStopAllStopsEverySessionAndRefusesNewOnes(t *testing.T) {
 	_, err = host.Start(t.Context(), testSpec(t))
 	if !errors.Is(err, pty.ErrClosed) {
 		t.Fatalf("Start after StopAll = %v, want ErrClosed", err)
+	}
+}
+
+func TestALeaderThatExitsLeavesNoGroupBehind(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		ignoreTerminate bool
+		wantSignals     []string
+	}{
+		{"the group obeys the polite stop", false, []string{signalTerminate}},
+		{"the group ignores it and is killed", true, []string{signalTerminate, signalKill}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			limits := pty.DefaultLimits()
+			limits.StopGrace = testGrace
+			spawner := &fakes{ignoreTerminate: tt.ignoreTerminate, orphans: true}
+			host := pty.NewHost(pty.Config{Spawner: spawner.spawn, Limits: limits})
+
+			sessionID, err := host.Start(t.Context(), testSpec(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			process := spawner.last(t)
+			process.finish(0)
+
+			entry := waitEnded(t, host, sessionID)
+			if process.GroupAlive() {
+				t.Fatal("the session ended with its group still alive")
+			}
+
+			got := process.signalsSoFar()
+			if !slices.Equal(got, tt.wantSignals) {
+				t.Fatalf("signals = %v, want %v", got, tt.wantSignals)
+			}
+
+			if *entry.ExitCode != 0 {
+				t.Fatalf("ExitCode = %d, want the leader's own 0", *entry.ExitCode)
+			}
+		})
+	}
+}
+
+func TestAProcessIDOfOneOrLessIsABug(t *testing.T) {
+	t.Parallel()
+
+	for _, pid := range []int{-1, 1} {
+		t.Run(strconv.Itoa(pid), func(t *testing.T) {
+			t.Parallel()
+
+			spawner := &fakes{pid: pid}
+			host := pty.NewHost(pty.Config{Spawner: spawner.spawn, Limits: pty.DefaultLimits()})
+
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("a process id of %d was accepted", pid)
+				}
+			}()
+
+			_, _ = host.Start(t.Context(), testSpec(t))
+		})
+	}
+}
+
+func TestStopAllWaitsForAStartInFlight(t *testing.T) {
+	t.Parallel()
+
+	spawner := &fakes{spawning: make(chan struct{}, 1), release: make(chan struct{})}
+	host := pty.NewHost(pty.Config{Spawner: spawner.spawn, Limits: pty.DefaultLimits()})
+
+	started := make(chan error, 1)
+
+	go func() {
+		_, err := host.Start(t.Context(), testSpec(t))
+		started <- err
+	}()
+
+	<-spawner.spawning
+
+	stopped := make(chan error, 1)
+
+	go func() { stopped <- host.StopAll(t.Context()) }()
+
+	select {
+	case err := <-stopped:
+		t.Fatalf("StopAll returned (%v) while a Start was spawning", err)
+	case <-time.After(testGrace):
+	}
+
+	close(spawner.release)
+
+	err := <-started
+	if !errors.Is(err, pty.ErrClosed) {
+		t.Fatalf("the Start in flight = %v, want ErrClosed", err)
+	}
+
+	err = <-stopped
+	if err != nil {
+		t.Fatalf("StopAll = %v, want nil", err)
+	}
+
+	got := spawner.last(t).signalsSoFar()
+	if !slices.Equal(got, []string{signalKill}) {
+		t.Fatalf("the program started during StopAll got %v, want a kill", got)
+	}
+}
+
+func TestStopAllGivesUpOnAStartInFlightWhenItsContextEnds(t *testing.T) {
+	t.Parallel()
+
+	spawner := &fakes{spawning: make(chan struct{}, 1), release: make(chan struct{})}
+	host := pty.NewHost(pty.Config{Spawner: spawner.spawn, Limits: pty.DefaultLimits()})
+
+	t.Cleanup(func() { close(spawner.release) })
+
+	go func() { _, _ = host.Start(context.WithoutCancel(t.Context()), testSpec(t)) }()
+
+	<-spawner.spawning
+
+	ctx, cancel := context.WithTimeout(t.Context(), testGrace)
+	defer cancel()
+
+	err := host.StopAll(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("StopAll = %v, want context.DeadlineExceeded", err)
 	}
 }
