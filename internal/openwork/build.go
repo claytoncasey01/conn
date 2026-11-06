@@ -409,12 +409,15 @@ func legWorktrees(legs []*Leg) []string {
 // read the brief. The ticket's title, description and answers are in the brief, never in an
 // argument; the key is a checked ticket key and each folder is one argument.
 func LaunchSpec(claude string, record *Record, slot *Leg) pty.Spec {
-	// -- ends the options: nothing after it is read as one, whatever a later change puts there.
 	argv := slices.Concat([]string{
 		claude, "--name", record.Key, "--model", "sonnet",
 		"--append-system-prompt-file", ".conn/delegation.md",
 	}, reachArgs(record, slot), []string{
-		"--permission-mode", "acceptEdits", "--", "Read .conn/brief.md and follow it exactly.",
+		"--permission-mode", "acceptEdits",
+		// -- ends the options: nothing after it is read as one, whatever a later change puts
+		// there.
+		"--",
+		"Read .conn/brief.md and follow it exactly.",
 	})
 
 	return pty.Spec{Argv: argv, Dir: slot.Worktree, Env: nil, Name: record.Key}

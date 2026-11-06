@@ -200,8 +200,8 @@ func TestInsideSaysWhyTheHostRefused(t *testing.T) {
 	}
 }
 
-// TestInATerminalCmuxGetsTheOneShellLine: with no terminal command of the person's own, cmux
-// opens a workspace named for the session, in its folder, running ShellLine(argv), as it did.
+// TestInATerminalCmuxGetsTheOneShellLine: set to open sessions in a terminal, cmux opens a
+// workspace named for the session, in its folder, running ShellLine(argv), as it did.
 func TestInATerminalCmuxGetsTheOneShellLine(t *testing.T) {
 	t.Parallel()
 
