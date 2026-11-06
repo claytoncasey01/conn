@@ -10,12 +10,14 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/launch"
@@ -319,7 +321,19 @@ func WriteLaunchFile(path, content string, shared bool) error {
 		return asIs(os.WriteFile(path, []byte(content), sharedFileMode))
 	}
 
-	// A link is removed, never followed; a folder is left for the write to fail on.
+	// The folder came from the repository's own files when it was there already: a link there
+	// would take the file elsewhere.
+	err = CheckOwnFolder(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+
+	return writeNewPrivate(path, content)
+}
+
+// writeNewPrivate writes a new file at path, 0600: whatever was at the path is removed first, so a
+// link is never followed; a folder is left for the write to fail on.
+func writeNewPrivate(path, content string) error {
 	info, err := os.Lstat(path)
 	if err == nil {
 		if !info.IsDir() {
@@ -350,6 +364,35 @@ func WriteLaunchFile(path, content string, shared bool) error {
 	}
 
 	return asIs(os.Chmod(path, privateFileMode))
+}
+
+// CheckOwnFolder refuses folder unless it is a real folder (not a link to one) that the person
+// running Conn owns: a repository can commit .conn as a link, and Conn's own files written there
+// would land wherever it points.
+func CheckOwnFolder(folder string) error {
+	info, err := os.Lstat(folder)
+	if err != nil {
+		return asIs(err)
+	}
+
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return fmt.Errorf("%w: %s is a link", ErrNotOwnFolder, folder)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("%w: %s is not a folder", ErrNotOwnFolder, folder)
+	}
+
+	owner, read := info.Sys().(*syscall.Stat_t)
+	if !read {
+		return fmt.Errorf("%w: the owner of %s cannot be read", ErrNotOwnFolder, folder)
+	}
+
+	if int(owner.Uid) != os.Getuid() {
+		return fmt.Errorf("%w: %s belongs to another user", ErrNotOwnFolder, folder)
+	}
+
+	return nil
 }
 
 // FirstLine is the first line of an error that is not blank, trimmed and cut; "git failed" when
@@ -519,6 +562,10 @@ func Open(ctx context.Context, deps LaunchDeps, opts LaunchOpts) LaunchResult {
 
 	return LaunchResult{OK: true, Worktree: worktree, Error: "", ManualCommand: ""}
 }
+
+// ErrNotOwnFolder is a folder Conn's own files are not written into: a link, not a folder, or
+// another user's. Remove it, then try again.
+var ErrNotOwnFolder = errors.New("not a folder of your own; remove it, then try again")
 
 var (
 	errUnsafeRef = errors.New("not a safe branch name")

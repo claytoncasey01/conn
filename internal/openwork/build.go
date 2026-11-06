@@ -470,17 +470,15 @@ func briefFor(record *Record, slot *Leg) *Leg {
 	return nil
 }
 
+// writeBrief writes a slot's .conn/brief.md (for leg, or the whole run) and .conn/delegation.md,
+// private, through reviews.WriteLaunchFile: only into a .conn folder of the person's own (not a
+// link a repository committed), and never through a link at either file.
 func writeBrief(record *Record, slot, leg *Leg) error {
 	folder := filepath.Join(slot.Worktree, connFolder)
 
-	err := os.MkdirAll(folder, folderMode)
+	err := reviews.WriteLaunchFile(filepath.Join(folder, briefFile), BriefText(record, leg), false)
 	if err == nil {
-		err = os.WriteFile(filepath.Join(folder, briefFile), []byte(BriefText(record, leg)),
-			fileMode)
-	}
-
-	if err == nil {
-		err = os.WriteFile(filepath.Join(folder, delegationFile), []byte(Delegation), fileMode)
+		err = reviews.WriteLaunchFile(filepath.Join(folder, delegationFile), Delegation, false)
 	}
 
 	if err != nil {

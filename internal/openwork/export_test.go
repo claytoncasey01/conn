@@ -195,3 +195,6 @@ func LegRules(record *Record) *js.Object {
 
 	return out
 }
+
+// WriteBrief is writeBrief for a slot's own leg.
+func WriteBrief(record *Record, slot *Leg) error { return writeBrief(record, slot, slot) }
