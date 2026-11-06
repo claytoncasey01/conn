@@ -68,7 +68,7 @@ func TestALegacyRunInARepositoryOffTheListRunsNothing(t *testing.T) {
 	})
 
 	for _, reply := range []openwork.Reply{
-		made.work.Answer("PROJ-2", body(t, `{"q1":"a"}`)), made.work.Resume("PROJ-3"),
+		made.work.Answer("PROJ-2", body(t, `{"q1":"a"}`)), made.work.Resume("PROJ-3", ""),
 	} {
 		same(t, "code", reply.Code, 409)
 
@@ -85,7 +85,7 @@ func TestALegacyRunInARepositoryOffTheListRunsNothing(t *testing.T) {
 	made.update("repos", `{"allow":["other/*","acme/*"],"clones":{"other/gadgets":`+
 		js.Stringify(gadgets)+`},"cloneRoot":null}`)
 
-	reply := made.work.Resume("PROJ-3")
+	reply := made.work.Resume("PROJ-3", "")
 	same(t, "moved", reply.Code, 409)
 
 	if !strings.Contains(errorOf(reply), "No local clone of acme/widgets") {

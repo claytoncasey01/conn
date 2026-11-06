@@ -92,7 +92,14 @@ func (w *Work) handlers() map[string]func(key string, body *js.Object) Reply {
 			return w.MoveTicket(key, field(body, "status"))
 		},
 		ActionCleanup: func(key string, _ *js.Object) Reply { return w.Cleanup(key) },
-		ActionResume:  func(key string, _ *js.Object) Reply { return w.Resume(key) },
-		ActionRetry:   func(key string, _ *js.Object) Reply { return w.Retry(key) },
+		ActionResume: func(key string, body *js.Object) Reply {
+			repo, named := resumeRepo(body)
+			if !named {
+				return badRequest(repoNotName)
+			}
+
+			return w.Resume(key, repo)
+		},
+		ActionRetry: func(key string, _ *js.Object) Reply { return w.Retry(key) },
 	}
 }

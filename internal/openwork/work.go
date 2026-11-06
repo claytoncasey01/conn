@@ -93,8 +93,8 @@ type Deps struct {
 	// Record tells the Settings cards how a Jira, Confluence or Slack run went: one short line
 	// of Conn's own, never text from those services.
 	Record func(name string, ok bool, detail string)
-	// FindSession is the live session named name or in cwd, nil when there is none. It must not
-	// wait on the session list.
+	// FindSession is the live session named name or in cwd, nil when there is none; a name of ""
+	// finds by cwd alone. It must not wait on the session list.
 	FindSession func(name, cwd string) *Found
 	// Reply types text into a live session.
 	Reply func(ctx context.Context, sessionID, text string) Reply

@@ -653,7 +653,7 @@ func TestResumeOpensNoSessionForARepositoryOffTheList(t *testing.T) {
 		settings: workSettings(clone, ""),
 		runs:     []any{runOf("acme/gadgets")},
 	})
-	reply := moved.work.Resume("PROJ-1")
+	reply := moved.work.Resume("PROJ-1", "")
 	same(t, "moved", reply.Code, 409)
 
 	if !strings.Contains(errorOf(reply), "No local clone of acme/gadgets") {
@@ -664,7 +664,7 @@ func TestResumeOpensNoSessionForARepositoryOffTheList(t *testing.T) {
 		settings: workSettings(clone, ""),
 		runs:     []any{runOf("acme/widgets")},
 	})
-	same(t, "fine", fine.work.Resume("PROJ-1").Code, 200)
+	same(t, "fine", fine.work.Resume("PROJ-1", "").Code, 200)
 
 	if !fine.has("cmux PROJ-1 " + worktree + " claude --resume " + sessionUUIDText) {
 		t.Error(strings.Join(fine.lines(), "\n"))
@@ -676,7 +676,7 @@ func TestResumeOpensNoSessionForARepositoryOffTheList(t *testing.T) {
 	})
 	gone.update("repos", othersOnly)
 
-	reply = gone.work.Resume("PROJ-1")
+	reply = gone.work.Resume("PROJ-1", "")
 	same(t, "gone", reply.Code, 409)
 
 	if !strings.Contains(errorOf(reply), "acme/widgets is not an allowed repository") {

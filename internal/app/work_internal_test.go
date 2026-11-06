@@ -8,6 +8,7 @@ import (
 
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/origin"
+	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
@@ -55,5 +56,41 @@ func TestOpenWorkSeesTheClonesOnThisMachineThenSessionsThenMyPRs(t *testing.T) {
 
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestOpenWorkFindsASessionByNameOrFolderAndByFolderAloneWithNoName(t *testing.T) {
+	t.Parallel()
+
+	live := []sessions.LiveSession{
+		{Name: "", Cwd: "/work/other", Shown: "idle", SessionID: "s-60", PID: 60},
+		{Name: "PROJ-1", Cwd: "/work/widgets-proj-1", Shown: "busy", SessionID: "s-70", PID: 70},
+		{Name: "PROJ-1", Cwd: "/work/gadgets-proj-1", Shown: "idle", SessionID: "s-71", PID: 71},
+	}
+
+	rows := []struct {
+		name, lookUp, cwd string
+		// want is the session id found, "" for none.
+		want string
+	}{
+		{"by name", "PROJ-1", "/nowhere", "s-70"},
+		{"by folder", "PROJ-9", "/work/gadgets-proj-1", "s-71"},
+		{"by folder alone", "", "/work/gadgets-proj-1", "s-71"},
+		{"no name finds no unnamed session", "", "/nowhere", ""},
+	}
+
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := ""
+			if found := foundIn(live, row.lookUp, row.cwd); found != nil {
+				got = found.SessionID
+			}
+
+			if got != row.want {
+				t.Errorf("found %q, want %q", got, row.want)
+			}
+		})
 	}
 }

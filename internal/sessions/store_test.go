@@ -32,7 +32,23 @@ type world struct {
 	mutex   sync.Mutex
 	asked   []string
 	term    *terminal
+	// runs are the Open work runs the session list reads.
+	runs []sessions.Run
 }
+
+// fakeRun is an Open work run in its worktrees, the first its lead's.
+type fakeRun struct {
+	key       string
+	worktrees []string
+}
+
+func (r fakeRun) Key() string { return r.key }
+
+func (r fakeRun) Worktree() string { return r.worktrees[0] }
+
+func (r fakeRun) Worktrees() []string { return r.worktrees }
+
+func (r fakeRun) Facts() *sessions.RunFacts { return &sessions.RunFacts{State: "", PRState: ""} }
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
@@ -127,7 +143,13 @@ func (w *world) deps() sessions.Deps {
 		RepoOf:   func(folder string) string { return w.repos[folder] },
 		Upstream: func(_, branch string) string { return w.ups[branch] },
 		Hooks: sessions.Hooks{
-			Runs:    func() []sessions.Run { return []sessions.Run{} },
+			Runs: func() []sessions.Run {
+				if w.runs == nil {
+					return []sessions.Run{}
+				}
+
+				return w.runs
+			},
 			History: func() any { return nil }, Reviews: func() any { return nil }, MyPrs: nil,
 			Setup: never, OpenWork: never,
 			RepoVisible: func(repo string) bool { return w.allowed[repo] }, GithubOn: always,
@@ -476,6 +498,33 @@ func TestASessionInARepoOffTheListIsHiddenUnlessConnStartedIt(t *testing.T) {
 	_, found, _ = loop.AgentDetail(t.Context(), "71", "lead")
 	if !found {
 		t.Error("the review's lead page was not served")
+	}
+}
+
+func TestABuildSessionInAnyWorktreeOfItsRunShows(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	lead := fake.folder("widgets-proj-1", "acme/widgets")
+	second := fake.folder("gadgets-proj-1", "other/gadgets")
+	elsewhere := fake.folder("gadgets", "other/gadgets")
+	fake.runs = []sessions.Run{fakeRun{key: "PROJ-1", worktrees: []string{lead, second}}}
+	fake.procs = append(fake.procs, "80 1 claude", "81 1 claude")
+	fake.register("80.json", map[string]any{
+		"pid": 80, "sessionId": "s-80", "cwd": second, "name": "PROJ-1",
+	})
+	fake.register("81.json", map[string]any{
+		"pid": 81, "sessionId": "s-81", "cwd": elsewhere, "name": "PROJ-1",
+	})
+
+	got, _ := read(t, start(t, fake))
+
+	if strings.Join(names(got), ",") != "PROJ-1" {
+		t.Fatalf("sessions %v", names(got))
+	}
+
+	if got.Sessions[0].ID != "80" {
+		t.Errorf("shown %s, want the session in the run's second worktree", got.Sessions[0].ID)
 	}
 }
 

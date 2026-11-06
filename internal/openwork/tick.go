@@ -1,6 +1,7 @@
 package openwork
 
 import (
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,8 @@ import (
 const (
 	// gitEveryMs is how often a building run's commits and changed files are counted.
 	gitEveryMs = 5000
+	// gitLegsAtOnceMax is how many legs of a run are counted at once, two git calls each.
+	gitLegsAtOnceMax = 3
 	// pollDryMs, pollPendingMs and pollMs are how often a run's PR is read: the dry run's, one
 	// whose checks are running, and the rest.
 	pollDryMs     = 4000
@@ -41,7 +44,7 @@ func (w *Work) Tick() {
 
 	for _, key := range w.runs.Keys() {
 		record, _ := w.runs.Get(key)
-		if !followed(record) {
+		if !w.followed(record) {
 			continue
 		}
 
@@ -64,7 +67,9 @@ func (w *Work) Tick() {
 	}
 }
 
-func followed(record *Record) bool {
+// followed is whether a run's sessions are followed: while it builds, and while its PR is open
+// as long as a slot's worktree is still there.
+func (w *Work) followed(record *Record) bool {
 	if record.State == stateBuilding {
 		return true
 	}
@@ -73,15 +78,26 @@ func followed(record *Record) bool {
 		return false
 	}
 
-	return !record.lead().cleaned()
+	return slices.ContainsFunc(w.sessionSlots(record), func(slot *Leg) bool {
+		return !slot.cleaned()
+	})
 }
 
+// followSession keeps each slot's session as the session list has it, by its folder.
 func (w *Work) followSession(record *Record) {
-	leg := record.lead()
+	for _, slot := range w.sessionSlots(record) {
+		if slot.cleaned() {
+			continue
+		}
 
+		w.followSlot(record, slot)
+	}
+}
+
+func (w *Work) followSlot(record *Record, leg *Leg) {
 	var found *Found
 	if !w.deps.Dry {
-		found = w.deps.FindSession(record.Key, leg.Worktree)
+		found = w.findSession(record, leg)
 	}
 
 	prev := leg.Session
@@ -124,45 +140,88 @@ func sessionNext(key string, found *Found, prev *Session, dry bool) *Session {
 	return next
 }
 
-// followGit counts the run's commits and changed files; a failing git changes nothing.
+// legCount is what git said of one leg: its commits ahead and its uncommitted files.
+type legCount struct {
+	ahead, dirty float64
+	err          error
+}
+
+// followGit counts every leg's commits and changed files, gitLegsAtOnceMax legs at a time; a
+// leg whose git fails keeps its counts.
 func (w *Work) followGit(record *Record) {
-	leg := record.lead()
+	legs := make([]*Leg, 0, len(record.Repos))
+	slots := make([]bool, 0, len(record.Repos))
+
+	for _, leg := range record.Repos {
+		if leg.cleaned() {
+			continue
+		}
+
+		legs = append(legs, leg)
+		slots = append(slots, w.isSlot(record, leg))
+	}
 
 	w.launch(func(step *task) {
-		var (
-			ahead, dirty       float64
-			aheadErr, dirtyErr error
-		)
+		counts := make([]legCount, len(legs))
 
 		step.outside(func() {
+			turns := make(chan struct{}, gitLegsAtOnceMax)
 			calls := sync.WaitGroup{}
-			calls.Go(func() { ahead, aheadErr = w.countAhead(leg) })
-			calls.Go(func() {
-				var out string
 
-				out, dirtyErr = w.sh("git", []string{"status", argPorcelain}, leg.Worktree,
-					gitTimeout)
-				dirty = float64(countLines(out))
-			})
+			for index, leg := range legs {
+				calls.Go(func() {
+					turns <- struct{}{}
+					defer func() { <-turns }()
+
+					counts[index] = w.countLeg(leg)
+				})
+			}
+
 			calls.Wait()
 		})
 
-		if aheadErr != nil {
-			return
-		}
+		for index, leg := range legs {
+			if counts[index].err != nil {
+				continue
+			}
 
-		if dirtyErr != nil {
-			return
+			w.counted(record.Key, leg, slots[index], counts[index].ahead, counts[index].dirty)
 		}
-
-		w.counted(record.Key, leg, ahead, dirty)
 	})
 }
 
-// counted keeps a leg's counts. The page reads a session once anything was counted, so one is
-// made for a leg that has none yet.
-func (w *Work) counted(key string, leg *Leg, ahead, dirty float64) {
-	changed := leg.Session == nil
+// countLeg asks git for a leg's commits ahead and uncommitted files, both at once.
+func (w *Work) countLeg(leg *Leg) legCount {
+	var (
+		ahead, dirty       float64
+		aheadErr, dirtyErr error
+	)
+
+	calls := sync.WaitGroup{}
+	calls.Go(func() { ahead, aheadErr = w.countAhead(leg) })
+	calls.Go(func() {
+		var out string
+
+		out, dirtyErr = w.sh("git", []string{"status", argPorcelain}, leg.Worktree, gitTimeout)
+		dirty = float64(countLines(out))
+	})
+	calls.Wait()
+
+	if aheadErr != nil {
+		return legCount{ahead: 0, dirty: 0, err: aheadErr}
+	}
+
+	return legCount{ahead: ahead, dirty: dirty, err: dirtyErr}
+}
+
+// counted keeps a leg's counts. The page reads a slot's session once anything was counted, so
+// one is made for a slot that has none yet; a leg with no session of its own gets none.
+func (w *Work) counted(key string, leg *Leg, slot bool, ahead, dirty float64) {
+	changed := false
+	if slot {
+		changed = leg.Session == nil
+	}
+
 	if leg.Ahead != ahead {
 		changed = true
 	}
@@ -175,8 +234,10 @@ func (w *Work) counted(key string, leg *Leg, ahead, dirty float64) {
 		return
 	}
 
-	if leg.Session == nil {
-		leg.Session = &Session{Name: key, SessionID: nil, PID: nil, Status: nil}
+	if slot {
+		if leg.Session == nil {
+			leg.Session = &Session{Name: key, SessionID: nil, PID: nil, Status: nil}
+		}
 	}
 
 	leg.Ahead, leg.Dirty = ahead, dirty

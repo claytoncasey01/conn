@@ -74,22 +74,36 @@ func newWork(ctx context.Context, parts workParts, live *sessions.Loop) *openwor
 // findSession is the live session named name or in cwd, as the session list's last tick left
 // it: a hook of the session list reads Open work, so Open work never waits on it.
 func findSession(live *sessions.Loop) func(name, cwd string) *openwork.Found {
-	return func(name, cwd string) *openwork.Found {
-		for _, session := range live.Live() {
-			if session.Name != name {
-				if session.Cwd != cwd {
-					continue
-				}
-			}
+	return func(name, cwd string) *openwork.Found { return foundIn(live.Live(), name, cwd) }
+}
 
-			return &openwork.Found{
-				ID: js.Number(session.PID), PID: session.PID, Status: session.Shown,
-				SessionID: session.SessionID,
-			}
+// foundIn is the first of the live sessions named name or in cwd; a name of "" finds by cwd
+// alone, so a session with no name is not taken for the one asked for.
+func foundIn(live []sessions.LiveSession, name, cwd string) *openwork.Found {
+	for _, session := range live {
+		if !sessionIs(session, name, cwd) {
+			continue
 		}
 
-		return nil
+		return &openwork.Found{
+			ID: js.Number(session.PID), PID: session.PID, Status: session.Shown,
+			SessionID: session.SessionID,
+		}
 	}
+
+	return nil
+}
+
+func sessionIs(session sessions.LiveSession, name, cwd string) bool {
+	if session.Cwd == cwd {
+		return true
+	}
+
+	if name == "" {
+		return false
+	}
+
+	return session.Name == name
 }
 
 // sleepFor waits for wait, or until ctx ends.

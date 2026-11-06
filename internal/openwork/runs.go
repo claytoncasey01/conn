@@ -3,6 +3,7 @@ package openwork
 import (
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
@@ -13,16 +14,20 @@ import (
 // written to JSON when it is made, under the mutex, so the snapshot never reads a run that is
 // changing.
 type View struct {
-	key, worktree string
-	data          []byte
-	facts         sessions.RunFacts
+	key       string
+	worktrees []string
+	data      []byte
+	facts     sessions.RunFacts
 }
 
 // Key is the run's ticket key: its build session is named after it.
 func (v View) Key() string { return v.key }
 
-// Worktree is the folder the run builds in.
-func (v View) Worktree() string { return v.worktree }
+// Worktree is the folder the run's first repository builds in, where its shared session works.
+func (v View) Worktree() string { return v.worktrees[0] }
+
+// Worktrees are the folders of every repository the run builds in, the first's first.
+func (v View) Worktrees() []string { return slices.Clone(v.worktrees) }
 
 // Facts are the run's state and its PR's state, for the archive.
 func (v View) Facts() *sessions.RunFacts {
@@ -56,7 +61,7 @@ func (w *Work) Runs() []sessions.Run {
 		}
 
 		out = append(out, View{
-			key: record.Key, worktree: lead.Worktree, data: record.viewJSON(),
+			key: record.Key, worktrees: worktreesOf(record), data: record.viewJSON(),
 			facts: sessions.RunFacts{State: record.State, PRState: prState},
 		})
 	}

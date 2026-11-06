@@ -43,11 +43,25 @@ const Delegation = "Work split for this session:\n" +
 	"- Consult the advisor before locking a plan, after the same error twice, and before " +
 	"calling the task done.\n"
 
-// rules are what the build session starts with. key is a checked ticket key, so it can sit in
-// the commit example.
-func rules(key string) string {
-	return "- Work only in this directory, on this branch. Do not touch other worktrees or " +
-		"checkouts.\n" +
+// The rules that change when one session works in several worktrees: where it works, and where
+// it writes the PR body.
+const (
+	workHere = "- Work only in this directory, on this branch. Do not touch other worktrees or " +
+		"checkouts.\n"
+	workInEach = "- Work only in these directories, each on its own branch. Do not touch other " +
+		"worktrees or checkouts.\n"
+	bodyHere   = "- When finished, write .conn/pr-body.md (following the repository's pull request "
+	bodyInEach = "- When finished, write .conn/pr-body.md in each worktree with changes " +
+		"(following its repository's pull request "
+)
+
+// rules are what the build session starts with: a session in one worktree's. key is a checked
+// ticket key, so it can sit in the commit example.
+func rules(key string) string { return rulesFor(key, workHere, bodyHere) }
+
+// rulesFor are the rules with where the session works and where it writes the PR body.
+func rulesFor(key, work, body string) string {
+	return work +
 		"- Never push, never open a pull request, never change Jira or Slack. The dashboard's " +
 		"OPEN PR button does the push and the PR when you are done.\n" +
 		"- Commit as you go, in the commit message style the repository asks for (its " +
@@ -62,10 +76,9 @@ func rules(key string) string {
 		"- Fix any bug you find along the way in the same work, unless it is huge.\n" +
 		"- If a PRD section applies, note which sections the change implements and which it " +
 		"leaves out.\n" +
-		"- When finished, write .conn/pr-body.md (following the repository's pull request " +
-		"template, if it has one): what changed and why, how it was verified with the commands " +
-		"and results, deploy notes, and the PRD sections. Then stop and tell the person it is " +
-		"ready for the OPEN PR button.\n" +
+		body + "template, if it has one): what changed and why, how it was verified with the " +
+		"commands and results, deploy notes, and the PRD sections. Then stop and tell the " +
+		"person it is ready for the OPEN PR button.\n" +
 		"- Ask the person when something is unclear instead of guessing."
 }
 
@@ -147,9 +160,11 @@ func answerOf(answers any, questionID string) string {
 	return js.Cut(js.Trim(text), answerUnitsMax)
 }
 
-// BriefText is .conn/brief.md: the ticket, the research brief, what the sources settled, what
-// the person decided, and the rules.
-func BriefText(record *Record) string {
+// BriefText is .conn/brief.md: where the session works, the ticket, the research brief, what the
+// sources settled, what the person decided, and the rules. leg is the leg a split layout's
+// session works in; nil is the shared session, which works in every leg. A run in one
+// repository has one brief, whatever leg is.
+func BriefText(record *Record, leg *Leg) string {
 	settled := make([]string, 0, len(record.Answered))
 
 	for _, answered := range record.Answered {
@@ -168,17 +183,74 @@ func BriefText(record *Record) string {
 		desc = "(no description; read the ticket in Jira)"
 	}
 
-	lead := record.lead()
-
-	return "# " + record.Key + ": " + record.Title + "\n\n" +
-		"You are implementing this ticket in " + lead.Worktree + ", on branch " +
-		lead.Branch + ". The pull request will target " + lead.PRBase + ".\n\n" +
+	return "# " + record.Key + ": " + record.Title + "\n\n" + briefWhere(record, leg) + "\n\n" +
 		"## Ticket\n" + desc + "\n\n" +
 		"## Research brief\nRead-only agents searched Jira, Confluence, Slack and the code. " +
 		"Treat their notes as leads to verify, not facts.\n\n" + record.Brief + "\n\n" +
 		"## Settled by the sources\n" + joinedOr(settled, "- nothing recorded") + "\n\n" +
 		"## Decided by the person\n" + joinedOr(decided, "- nothing was open") + "\n\n" +
-		"## Rules for this session\n" + rules(record.Key) + "\n"
+		"## Rules for this session\n" + briefRules(record, leg) + "\n"
+}
+
+// briefWhere says where the session works: the one worktree; every leg, one line each, for the
+// shared session; or its own leg, then the others and that other sessions work there.
+func briefWhere(record *Record, leg *Leg) string {
+	if len(record.Repos) == 1 {
+		lead := record.lead()
+
+		return "You are implementing this ticket in " + lead.Worktree + ", on branch " +
+			lead.Branch + ". The pull request will target " + lead.PRBase + "."
+	}
+
+	if leg == nil {
+		lines := make([]string, 0, len(record.Repos))
+		for _, each := range record.Repos {
+			lines = append(lines, legLine(each))
+		}
+
+		return "You are implementing this ticket in these repositories, each in its own " +
+			"worktree on its own branch. This session starts in the first and can reach the " +
+			"others.\n" + strings.Join(lines, "\n")
+	}
+
+	others := make([]string, 0, len(record.Repos))
+
+	for _, each := range record.Repos {
+		if each != leg {
+			others = append(others, legLine(each))
+		}
+	}
+
+	working := "Other sessions work there"
+	if len(others) == 1 {
+		working = "Another session works there"
+	}
+
+	return "You are implementing this ticket in " + leg.Repo + " at " + leg.Worktree +
+		", on branch " + leg.Branch + ". The pull request will target " + leg.PRBase + ".\n\n" +
+		"The ticket also needs changes in these repositories:\n" + strings.Join(others, "\n") +
+		"\n" + working + ": do not change them. If a change is needed outside " + leg.Repo +
+		", ask the person."
+}
+
+// legLine is one leg in a brief: its repository, worktree, branch and PR target.
+func legLine(leg *Leg) string {
+	return "- " + leg.Repo + " in " + leg.Worktree + ", on branch " + leg.Branch +
+		". The pull request will target " + leg.PRBase + "."
+}
+
+// briefRules are the session's rules: one worktree's, unless the session is the shared one of a
+// run in several repositories.
+func briefRules(record *Record, leg *Leg) string {
+	if len(record.Repos) == 1 {
+		return rules(record.Key)
+	}
+
+	if leg != nil {
+		return rules(record.Key)
+	}
+
+	return rulesFor(record.Key, workInEach, bodyInEach)
 }
 
 func joinedOr(lines []string, empty string) string {
@@ -204,53 +276,92 @@ func label(question *Question) string {
 	return *question.Answer
 }
 
-// launchBuild opens the build session. The state is claimed before any call: a second POST of
-// the answers must see building, not asking.
+// launchBuild opens the build sessions: one in the lead's worktree that reaches every other
+// (shared), or one in each worktree (split). The state is claimed before any call: a second POST
+// of the answers must see building, not asking.
 func (w *Work) launchBuild(step *task, record *Record) error {
 	record.State = stateBuilding
 	record.Stage = stageBuild
-	leg := record.lead()
 
 	if w.deps.Dry {
-		status := "busy"
-		leg.Session = &Session{Name: record.Key, SessionID: nil, PID: nil, Status: &status}
-		leg.Ahead, leg.Dirty = dryAhead, dryDirty
-
-		w.log(record, logBuild, "Session "+record.Key+" opened (dry run)")
+		w.dryBuild(record)
 
 		return nil
 	}
 
-	err := writeBrief(record, leg)
-	if err != nil {
-		return err
+	slots := w.sessionSlots(record)
+
+	for _, slot := range slots {
+		err := writeBrief(record, slot, briefFor(record, slot))
+		if err != nil {
+			return err
+		}
 	}
 
-	step.outside(func() { reviews.ExcludeConn(w.ctx, w.excludeDeps(), leg.Worktree) })
+	// Every worktree excludes .conn/: the shared session writes its PR body in each one.
+	worktrees := worktreesOf(record)
+
+	step.outside(func() {
+		for _, worktree := range worktrees {
+			reviews.ExcludeConn(w.ctx, w.excludeDeps(), worktree)
+		}
+	})
 
 	if !live(record) {
 		return nil
 	}
 
 	// Settings can change while git answers: no session starts in a repository that has left
-	// the list.
-	if problem := w.buildProblem(leg); problem != "" {
+	// the list, nor reaches one.
+	if problem := w.runProblem(record); problem != "" {
 		return textError(problem)
 	}
 
-	w.openWorkspace(step, record, leg, "claude --name "+record.Key+" --model sonnet "+
-		"--append-system-prompt-file .conn/delegation.md --permission-mode acceptEdits "+
-		`"Read .conn/brief.md and follow it exactly."`, "opened")
+	for _, slot := range slots {
+		if !live(record) {
+			return nil
+		}
+
+		w.openWorkspace(step, record, slot, "claude --name "+record.Key+" --model sonnet "+
+			"--append-system-prompt-file .conn/delegation.md"+reachFlags(record, slot)+
+			` --permission-mode acceptEdits "Read .conn/brief.md and follow it exactly."`, "opened")
+	}
 
 	return nil
 }
 
-func writeBrief(record *Record, leg *Leg) error {
-	folder := filepath.Join(leg.Worktree, connFolder)
+// dryBuild opens the dry run's sessions: each slot's is busy, and every leg has commits.
+func (w *Work) dryBuild(record *Record) {
+	status := "busy"
+
+	for _, leg := range record.Repos {
+		leg.Ahead, leg.Dirty = dryAhead, dryDirty
+	}
+
+	for _, slot := range w.sessionSlots(record) {
+		slot.Session = &Session{Name: record.Key, SessionID: nil, PID: nil, Status: &status}
+
+		w.log(record, logBuild, w.sessionNamed(record, slot)+" opened (dry run)")
+	}
+}
+
+// briefFor is the brief a slot's session is given: its own leg's in the split layout, the run's
+// in the shared one.
+func briefFor(record *Record, slot *Leg) *Leg {
+	if record.Layout == layoutSplit {
+		return slot
+	}
+
+	return nil
+}
+
+func writeBrief(record *Record, slot, leg *Leg) error {
+	folder := filepath.Join(slot.Worktree, connFolder)
 
 	err := os.MkdirAll(folder, folderMode)
 	if err == nil {
-		err = os.WriteFile(filepath.Join(folder, briefFile), []byte(BriefText(record)), fileMode)
+		err = os.WriteFile(filepath.Join(folder, briefFile), []byte(BriefText(record, leg)),
+			fileMode)
 	}
 
 	if err == nil {
@@ -293,149 +404,4 @@ func (w *Work) excludeDeps() reviews.LaunchDeps {
 			return js.DecodeUTF8(data, false), nil
 		},
 	}
-}
-
-// openWorkspace starts command in a new cmux workspace named after the ticket; when cmux fails,
-// it leaves the command for the person to paste.
-func (w *Work) openWorkspace(step *task, record *Record, leg *Leg, command, verb string) {
-	var opened struct {
-		ok             bool
-		why, toCommand string
-	}
-
-	step.outside(func() {
-		result := w.deps.Open(w.ctx, record.Key, leg.Worktree, command)
-		opened.ok, opened.why, opened.toCommand = result.OK, result.Error, result.ManualCommand
-	})
-
-	if opened.ok {
-		leg.ManualCommand = nil
-
-		w.log(record, logBuild, "Session "+record.Key+" "+verb+" in a new cmux workspace")
-
-		return
-	}
-
-	leg.ManualCommand = &opened.toCommand
-	w.log(record, logError, "Could not open a cmux workspace ("+opened.why+"). Run the "+
-		"command shown to start the session.")
-}
-
-// Resume reopens the build session after it exited, on the same conversation when its id was
-// captured.
-func (w *Work) Resume(key string) Reply {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	record, found := w.runs.Get(key)
-	if !found {
-		return notFound("no run for " + key)
-	}
-
-	leg := record.lead()
-
-	if refusal, refused := w.resumeRefusal(record, leg); refused {
-		return refusal
-	}
-
-	if w.deps.Dry {
-		w.log(record, logBuild, "Session "+record.Key+" resumed (dry run)")
-
-		return ok()
-	}
-
-	if refusal, refused := w.resumeLiveRefusal(record, leg); refused {
-		return refusal
-	}
-
-	command, verb := resumeCommand(record.Key, leg)
-	w.resumedAt[key] = w.now()
-	// Held across the cmux call so a cleanup or a second resume cannot interleave with it.
-	w.busyPR[key] = true
-
-	w.openWorkspace(w.held(), record, leg, command, verb)
-	delete(w.busyPR, key)
-	w.touch(record)
-
-	return ok()
-}
-
-func (w *Work) resumeRefusal(record *Record, leg *Leg) (Reply, bool) {
-	key := record.Key
-
-	resumable := record.State == stateBuilding
-	if record.State == statePROpen {
-		resumable = true
-	}
-
-	if leg.cleaned() {
-		return conflict(key + " is cleaned up: nothing to resume"), true
-	}
-
-	if !resumable {
-		return conflict(key + " is " + record.State + ": nothing to resume"), true
-	}
-
-	if w.busyPR[key] {
-		return conflict("another change to this run is in progress"), true
-	}
-
-	return Reply{}, false
-}
-
-func (w *Work) resumeLiveRefusal(record *Record, leg *Leg) (Reply, bool) {
-	key := record.Key
-
-	if w.deps.FindSession(record.Key, leg.Worktree) != nil {
-		return conflict("a session for " + key + " is already running"), true
-	}
-
-	// While the first session is still opening it is not in the session list yet, and a second
-	// one would share its conversation.
-	if record.State == stateBuilding {
-		if sessionText(leg.ClaudeSessionID) == "" {
-			return conflict("the session has not started yet: wait for it to open"), true
-		}
-	}
-
-	if w.now()-w.resumedAt[key] < resumeGapMs {
-		return conflict("a session was just opened for this run: give it a few seconds to " +
-			"appear"), true
-	}
-
-	if !exists(leg.Worktree) {
-		return conflict(leg.Worktree + " no longer exists"), true
-	}
-
-	if problem := w.buildProblem(leg); problem != "" {
-		return conflict(problem), true
-	}
-
-	return Reply{}, false
-}
-
-func sessionText(id *string) string {
-	if id == nil {
-		return ""
-	}
-
-	return *id
-}
-
-// resumeCommand is the command that reopens the session, and what the log says it did. The id
-// comes from a file on disk: only a plain UUID is allowed into a shell command.
-func resumeCommand(key string, leg *Leg) (string, string) {
-	rule := ""
-	if exists(filepath.Join(leg.Worktree, connFolder, delegationFile)) {
-		rule = " --append-system-prompt-file .conn/delegation.md"
-	}
-
-	tail := " --name " + key + " --model sonnet" + rule + " --permission-mode acceptEdits"
-
-	id := sessionText(leg.ClaudeSessionID)
-	if sessionUUID.MatchString(id) {
-		return "claude --resume " + id + tail, "resumed"
-	}
-
-	return "claude --continue" + tail, "reopened on its last conversation"
 }

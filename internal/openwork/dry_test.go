@@ -31,7 +31,7 @@ func TestTheDryRunFollowsThePipelineToAMergedPR(t *testing.T) {
 	same(t, "session", parsed(t, lead.Session), body(t, `{"name":"PROJ-2","sessionId":null,`+
 		`"pid":null,"status":"busy"}`))
 	same(t, "counts", []float64{lead.Ahead, lead.Dirty}, []float64{3, 2})
-	same(t, "resume", made.work.Resume("PROJ-2").Code, 200)
+	same(t, "resume", made.work.Resume("PROJ-2", "").Code, 200)
 	same(t, "open", made.work.OpenPR("PROJ-2").Code, 200)
 	until(t, "the PR", func() bool { return made.state("PROJ-2") == "pr_open" })
 	same(t, "url", made.record("PROJ-2").Repos[0].PR.URL,
@@ -59,7 +59,7 @@ func TestTheDryRunFollowsThePipelineToAMergedPR(t *testing.T) {
 	same(t, "jira", made.record("PROJ-2").JiraStatus, "Done")
 	same(t, "cleanup", made.work.Cleanup("PROJ-2").Code, 200)
 	same(t, "again", errorOf(made.work.Cleanup("PROJ-2")), "the worktree is already removed")
-	same(t, "resume", errorOf(made.work.Resume("PROJ-2")), "PROJ-2 is cleaned up: nothing to "+
+	same(t, "resume", errorOf(made.work.Resume("PROJ-2", "")), "PROJ-2 is cleaned up: nothing to "+
 		"resume")
 	same(t, "nothing ran", helperOrGit(made), []string{})
 }

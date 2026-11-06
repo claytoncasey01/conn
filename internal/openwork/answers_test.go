@@ -261,7 +261,7 @@ func TestReaderPromptsAndBriefsMatchTheRecordedAnswers(t *testing.T) {
 	}
 
 	for index, item := range section(t, "", "brief") {
-		same(t, strconv.Itoa(index), openwork.BriefText(recordOf(t, get(item, "record"))),
+		same(t, strconv.Itoa(index), openwork.BriefText(recordOf(t, get(item, "record")), nil),
 			get(item, "out"))
 	}
 }

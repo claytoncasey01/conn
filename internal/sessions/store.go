@@ -98,11 +98,14 @@ type Hooks struct {
 	GithubOn func() bool
 }
 
-// Run is the part of an Open work run the session list reads: its key, its worktree, and its
+// Run is the part of an Open work run the session list reads: its key, its worktrees, and its
 // state for the archive.
 type Run interface {
 	Key() string
+	// Worktree is the worktree of the run's first repository, where its shared session works.
 	Worktree() string
+	// Worktrees are the worktrees of every repository the run builds in, the first's first.
+	Worktrees() []string
 	Facts() *RunFacts
 }
 
@@ -645,11 +648,11 @@ func (s *store) hidden(session *Session, runKeys map[string]bool, runs []Run) bo
 	}
 
 	name := session.reg.name()
-	worktree := ""
+	worktrees := []string{}
 
 	for _, run := range runs {
 		if run.Key() == name {
-			worktree = run.Worktree()
+			worktrees = run.Worktrees()
 
 			break
 		}
@@ -660,7 +663,14 @@ func (s *store) hidden(session *Session, runKeys map[string]bool, runs []Run) bo
 	cwd := session.reg.Cwd
 	kind := KindOf(name, &cwd, runKeys, rules)
 
-	return !StartedByConn(kind, cwd, s.deps.DataDir, worktree)
+	// A run's build session may work in any of its worktrees.
+	if kind == KindBuild {
+		return !slices.ContainsFunc(worktrees, func(worktree string) bool {
+			return StartedByConn(kind, cwd, s.deps.DataDir, worktree)
+		})
+	}
+
+	return !StartedByConn(kind, cwd, s.deps.DataDir, "")
 }
 
 // shown is the live session for a pid the page sent, unless it is hidden.

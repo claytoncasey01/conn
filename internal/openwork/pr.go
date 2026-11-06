@@ -387,7 +387,7 @@ func (w *Work) FixChecks(key string) (Reply, error) {
 		return conflict("another change to this run is in progress"), nil
 	}
 
-	session := w.deps.FindSession(record.Key, leg.Worktree)
+	session := w.findSession(record, leg)
 	if session == nil {
 		return conflict("no session for " + key + " is running; open one in " + leg.Worktree +
 			" first"), nil
@@ -603,7 +603,7 @@ func (w *Work) Cleanup(key string) Reply {
 		return ok()
 	}
 
-	if w.deps.FindSession(record.Key, leg.Worktree) != nil {
+	if w.findSession(record, leg) != nil {
 		return conflict("the session is still running: close it first")
 	}
 

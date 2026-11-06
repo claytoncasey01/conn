@@ -41,9 +41,13 @@ type world struct {
 	transition func(ctx context.Context, key string, move jira.Move) (jira.Moved, error)
 	fetch      func(ctx context.Context, hooks openwork.Hooks) (jira.Sprint, error)
 	cmuxFails  bool
+	// cmuxFailsIn is a folder cmux fails to open a workspace in, "" for none.
+	cmuxFailsIn string
 	// failReader is the reader (by its run name's prefix) whose helper run fails.
 	failReader string
 	session    *openwork.Found
+	// sessionsIn are the live sessions by folder; a folder not in it finds session.
+	sessionsIn map[string]*openwork.Found
 }
 
 type worldOpts struct {
@@ -161,7 +165,7 @@ func (w *world) deps(opts worldOpts) openwork.Deps {
 		FindSession: func(name, cwd string) *openwork.Found {
 			w.call("findSession", name, cwd)
 
-			return w.session
+			return w.sessionIn(cwd)
 		},
 		Reply: func(_ context.Context, sessionID, text string) openwork.Reply {
 			w.call("reply", sessionID, text)
@@ -170,6 +174,30 @@ func (w *world) deps(opts worldOpts) openwork.Deps {
 		},
 		Bump: func() {}, Now: w.now, Sleep: sleep, Logger: nil,
 	}
+}
+
+// sessionIn is the live session the fake session list finds in cwd.
+func (w *world) sessionIn(cwd string) *openwork.Found {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if found, present := w.sessionsIn[cwd]; present {
+		return found
+	}
+
+	return w.session
+}
+
+// setSessionIn makes found the live session in cwd (nil: none there).
+func (w *world) setSessionIn(cwd string, found *openwork.Found) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.sessionsIn == nil {
+		w.sessionsIn = map[string]*openwork.Found{}
+	}
+
+	w.sessionsIn[cwd] = found
 }
 
 func (w *world) now() float64 {
@@ -365,7 +393,12 @@ func (w *world) fakeFetch(ctx context.Context, hooks openwork.Hooks) (jira.Sprin
 func (w *world) fakeOpen(_ context.Context, name, cwd, command string) cmux.Opened {
 	w.call("cmux", name, cwd, command)
 
-	if w.cmuxFails {
+	failing := w.cmuxFails
+	if w.cmuxFailsIn != "" {
+		failing = w.cmuxFailsIn == cwd
+	}
+
+	if failing {
 		return cmux.Opened{
 			OK: false, Error: "cmux is not running",
 			ManualCommand: "cd '" + cwd + "' && " + command,

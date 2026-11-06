@@ -99,11 +99,7 @@ func readerTools(id string) []string {
 
 // ReaderPrompt is what a research agent is asked.
 func ReaderPrompt(record *Record, agentID string, site *jira.Site) string {
-	where := "the repository in your working directory"
-
-	if repo := record.lead().Repo; repo != "" {
-		where = "the repository " + repo
-	}
+	where := readerWhere(record, agentID)
 
 	desc := record.Desc
 	if desc == "" {
@@ -123,6 +119,31 @@ func ReaderPrompt(record *Record, agentID string, site *jira.Site) string {
 		"facts (each with where it came from: a comment number, Slack channel and date, PRD " +
 		"section, or path:line; and your confidence), questions (things that stay unresolved " +
 		"after your search, with why), and missing (what you looked for and did not find)."
+}
+
+// readerWhere is where the ticket is implemented, as a reader is told: the one repository, or
+// every repository and its worktree. The code mapper starts in the first worktree and may read
+// the others.
+func readerWhere(record *Record, agentID string) string {
+	if len(record.Repos) == 1 {
+		if repo := record.lead().Repo; repo != "" {
+			return "the repository " + repo
+		}
+
+		return "the repository in your working directory"
+	}
+
+	named := make([]string, 0, len(record.Repos))
+	for _, leg := range record.Repos {
+		named = append(named, leg.Repo+" in "+leg.Worktree)
+	}
+
+	where := "these repositories, each in its own worktree: " + strings.Join(named, ", ")
+	if agentID == agentCode {
+		where += " (you start in the first and may read every one of them)"
+	}
+
+	return where
 }
 
 // findings are what the research agents of one run reported: by agent, in the order they
@@ -229,8 +250,12 @@ func (w *Work) readerOpts(record *Record, agent *Agent, found findings) claude.O
 	}
 
 	dir := ""
+
+	var more []string
+
 	if agent.ID == agentCode {
 		dir = record.lead().Worktree
+		more = otherWorktrees(record)
 	}
 
 	budget := readerHaikuBudget
@@ -241,11 +266,22 @@ func (w *Work) readerOpts(record *Record, agent *Agent, found findings) claude.O
 	return claude.Opts{
 		Prompt: ReaderPrompt(record, agent.ID, jira.ReadSite(w.deps.DataDir)), Model: model,
 		Name: agent.ID + "-" + record.Key, AllowedTools: readerTools(agent.ID),
-		DisallowedTools: nil, Dir: dir, Schema: readerSchema, BudgetUSD: budget,
+		DisallowedTools: nil, Dir: dir, AddDirs: more, Schema: readerSchema, BudgetUSD: budget,
 		Timeout: readerTimeout, Lenient: true, NoMCP: false,
 		OnDenied:   w.onDenied(record, agent, found),
 		OnProgress: w.onProgress(record, agent), OnAuth: nil,
 	}
+}
+
+// otherWorktrees are the worktrees of every leg but the lead, in order: the folders a session or
+// reader that starts in the lead's also reaches. A run in one repository has none.
+func otherWorktrees(record *Record) []string {
+	others := make([]string, 0, len(record.Repos))
+	for _, leg := range record.Repos[1:] {
+		others = append(others, leg.Worktree)
+	}
+
+	return others
 }
 
 func (w *Work) onProgress(record *Record, agent *Agent) func(line string) {
