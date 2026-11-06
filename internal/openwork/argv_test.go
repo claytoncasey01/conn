@@ -192,7 +192,7 @@ func checkArguments(t *testing.T, spec pty.Spec, record *openwork.Record, reach 
 	hostile := []string{record.Title, record.Desc, record.Repos[0].Branch, record.Repos[0].Worktree}
 	options := []string{
 		"--name", "--model", "--append-system-prompt-file", "--permission-mode", "--resume",
-		"--add-dir",
+		"--add-dir", "--",
 	}
 
 	for index, argument := range spec.Argv[1:] {

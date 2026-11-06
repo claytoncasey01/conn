@@ -811,7 +811,7 @@ func eShellArgs(t *testing.T, dir, script string) []string {
 func eExpectedArgs() []string {
 	out := append([]string{"--disallowedTools"}, myprs.SelfDisallowed()...)
 
-	return append(out, "--name", "self-web-12", "--model", "sonnet",
+	return append(out, "--name", "self-web-12", "--model", "sonnet", "--",
 		"Read .conn/prompt.md and follow it exactly.")
 }
 

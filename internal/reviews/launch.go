@@ -39,8 +39,8 @@ const (
 	// gitWorktree is git's worktree command.
 	gitWorktree = "worktree"
 	// claudeFixedArguments are the arguments of a review session besides its rules:
-	// --disallowedTools, --name and the name, --model and the model, and readPrompt.
-	claudeFixedArguments = 6
+	// --disallowedTools, --name and the name, --model and the model, --, and readPrompt.
+	claudeFixedArguments = 7
 	// readPrompt is a review session's first message: the prompt is in its file.
 	readPrompt = "Read .conn/prompt.md and follow it exactly."
 )
@@ -276,7 +276,8 @@ func ClaudeArgs(name, model string, pattern *regexp.Regexp, disallowed []string)
 		args = append(args, rule)
 	}
 
-	return append(args, "--name", name, "--model", model, readPrompt), nil
+	// -- ends the options (and the rules' list): the prompt after it is never read as one.
+	return append(args, "--name", name, "--model", model, "--", readPrompt), nil
 }
 
 // IsSafeRef is whether a branch name is safe as a git argument and in a path: it starts with a

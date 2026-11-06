@@ -11,6 +11,7 @@
     "/work/gadgets-proj-12",
     "--permission-mode",
     "acceptEdits",
+    "--",
     "Read .conn/brief.md and follow it exactly."
   ],
   "dir": "/work/widgets-proj-12",

@@ -9,6 +9,7 @@
     ".conn/delegation.md",
     "--permission-mode",
     "acceptEdits",
+    "--",
     "Read .conn/brief.md and follow it exactly."
   ],
   "dir": "/work/gadgets-proj-12",

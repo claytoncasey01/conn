@@ -227,7 +227,7 @@ func TestDLaunchFetchesAddsWritesThenOpens(t *testing.T) {
 	opened := dOpenCall{
 		name: dName, cwd: dWorktree,
 		command: argv.ShellLine([]string{
-			"claude", "--name", "pr-412-acme--widget-app", "--model", "sonnet",
+			"claude", "--name", "pr-412-acme--widget-app", "--model", "sonnet", "--",
 			"Read .conn/prompt.md and follow it exactly.",
 		}),
 	}

@@ -181,7 +181,7 @@ func TestDLaunchCmuxFailureGivesTheManualCommand(t *testing.T) {
 	t.Parallel()
 
 	manual := "cd " + dWorktree + " && claude --name pr-412-acme--widget-app --model sonnet " +
-		"'Read .conn/prompt.md and follow it exactly.'"
+		"-- 'Read .conn/prompt.md and follow it exactly.'"
 	rig := dNewRig()
 	rig.opened = cmux.Opened{OK: false, Error: "cmux not found", ManualCommand: manual}
 

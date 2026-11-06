@@ -145,7 +145,7 @@ func launchLine(worktree string, reach ...string) string {
 	}
 
 	words = append(words, "--permission-mode", "acceptEdits",
-		"Read .conn/brief.md and follow it exactly.")
+		"--", "Read .conn/brief.md and follow it exactly.")
 
 	return "cmux PROJ-1 " + worktree + " " + argv.ShellLine(words)
 }

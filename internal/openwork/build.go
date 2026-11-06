@@ -408,8 +408,9 @@ func LaunchSpec(claude string, record *Record, slot *Leg) pty.Spec {
 		"--append-system-prompt-file", ".conn/delegation.md",
 	}
 	argv = append(argv, reachArgs(record, slot)...)
+	// -- ends the options: nothing after it is read as one, whatever a later change puts there.
 	argv = append(argv, "--permission-mode", "acceptEdits",
-		"Read .conn/brief.md and follow it exactly.")
+		"--", "Read .conn/brief.md and follow it exactly.")
 
 	return pty.Spec{Argv: argv, Dir: slot.Worktree, Env: nil, Name: record.Key}
 }

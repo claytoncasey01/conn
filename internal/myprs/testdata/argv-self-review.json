@@ -25,6 +25,7 @@
     "self-web-12",
     "--model",
     "sonnet",
+    "--",
     "Read .conn/prompt.md and follow it exactly."
   ],
   "dir": "/data/conn/myprs/acme-web-c52e5cc5-12/widget-app",
