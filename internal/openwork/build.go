@@ -459,6 +459,11 @@ func (w *Work) openDry(step *task, record *Record, slot *Leg) {
 		return
 	}
 
+	// The slot is marked as opening before the lock is let go for the host, so a press that
+	// comes meanwhile finds it taken.
+	key := slotKey(record, slot)
+	w.dryHosted[key] = dryOpening
+
 	var opened launch.Opened
 
 	spec := drysession.Spec(slot.Worktree, record.Key)
@@ -466,20 +471,28 @@ func (w *Work) openDry(step *task, record *Record, slot *Leg) {
 	step.outside(func() { opened = w.deps.Open(w.ctx, spec) })
 
 	if !opened.OK {
+		delete(w.dryHosted, key)
 		w.log(record, logError, w.sessionNamed(record, slot)+": could not open the dry run's "+
 			"session ("+opened.Error+")")
 
 		return
 	}
 
-	w.dryHosted[slotKey(record, slot)] = string(opened.HostedID)
+	w.dryHosted[key] = string(opened.HostedID)
 }
 
-// dryStillRunning is whether the dry session a slot last opened still runs.
+// dryOpening marks a slot whose dry session is being opened; no hosted id is empty.
+const dryOpening = ""
+
+// dryStillRunning is whether the dry session a slot last opened still runs, or is being opened.
 func (w *Work) dryStillRunning(record *Record, slot *Leg) bool {
 	hostedID, opened := w.dryHosted[slotKey(record, slot)]
 	if !opened {
 		return false
+	}
+
+	if hostedID == dryOpening {
+		return true
 	}
 
 	if w.deps.HostedRunning == nil {

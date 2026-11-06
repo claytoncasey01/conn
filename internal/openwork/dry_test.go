@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/claytoncasey01/conn/internal/openwork"
+	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
 // The dry run (CONN_WORK_DRY): the whole pipeline on timers, touching nothing outside this
@@ -27,6 +29,10 @@ func TestTheDryRunFollowsThePipelineToAMergedPR(t *testing.T) {
 	until(t, "the questions", func() bool { return made.state("PROJ-2") == "asking" })
 	same(t, "answers", made.work.Answer("PROJ-2", body(t, `{"q1":"c1","q2":"own words"}`)).Code,
 		200)
+	// The build's dry session has opened before Resume is pressed: a press made while it is
+	// still opening starts none of its own.
+	made.work.Settle()
+
 	lead := made.record("PROJ-2").Repos[0]
 	same(t, "session", parsed(t, lead.Session), body(t, `{"name":"PROJ-2","sessionId":null,`+
 		`"pid":null,"status":"busy"}`))
@@ -92,6 +98,86 @@ func TestADryResumeReusesItsRunningSession(t *testing.T) {
 
 	same(t, "one dry session", made.count("dry-session"), 1)
 }
+
+// TestADryResumeWhileOneOpensOpensNoSecond: a press of Resume while another press's dry session
+// is still being opened (the lock let go for the host) opens no second one, as one that runs
+// does not.
+func TestADryResumeWhileOneOpensOpensNoSecond(t *testing.T) {
+	t.Parallel()
+
+	base := realTemp(t)
+	made := newWorld(t, worldOpts{
+		base: base, settings: workSettings(makeClone(t, base), ""), dry: true,
+	})
+
+	made.work.Tickets()
+	until(t, "the dry list", func() bool { return len(made.work.Tickets().Tickets) == 6 })
+	same(t, "start", made.work.Start("PROJ-2", body(t, `{"model":"haiku"}`)).Code, 200)
+	until(t, "the questions", func() bool { return made.state("PROJ-2") == "asking" })
+	same(t, "answers", made.work.Answer("PROJ-2", body(t, `{"q1":"c1","q2":"x"}`)).Code, 200)
+	made.work.Settle()
+
+	gate := make(chan struct{})
+
+	made.mu.Lock()
+	made.dryOpenGate = gate
+	made.mu.Unlock()
+
+	first := make(chan int)
+
+	go func() { first <- made.work.Resume("PROJ-2", "").Code }()
+
+	until(t, "the first open", func() bool { return made.count("dry-session") == 2 })
+
+	second := make(chan int, 1)
+
+	go func() { second <- made.work.Resume("PROJ-2", "").Code }()
+
+	select {
+	case code := <-second:
+		same(t, "second resume", code, 200)
+	case <-time.After(testtime.Scaled(secondPressWait)):
+		close(gate)
+		t.Fatal("the second press is opening a session of its own")
+	}
+
+	close(gate)
+	same(t, "first resume", <-first, 200)
+	made.work.Settle()
+	same(t, "one dry session opened by the presses", made.count("dry-session"), 2)
+}
+
+// TestADryOpenThatFailedLeavesTheSlotFree: a dry session that could not be opened leaves
+// nothing marked, so the next Resume opens one.
+func TestADryOpenThatFailedLeavesTheSlotFree(t *testing.T) {
+	t.Parallel()
+
+	base := realTemp(t)
+	made := newWorld(t, worldOpts{
+		base: base, settings: workSettings(makeClone(t, base), ""), dry: true,
+	})
+
+	made.mu.Lock()
+	made.dryOpenFails = true
+	made.mu.Unlock()
+
+	made.work.Tickets()
+	until(t, "the dry list", func() bool { return len(made.work.Tickets().Tickets) == 6 })
+	same(t, "start", made.work.Start("PROJ-2", body(t, `{"model":"haiku"}`)).Code, 200)
+	until(t, "the questions", func() bool { return made.state("PROJ-2") == "asking" })
+	same(t, "answers", made.work.Answer("PROJ-2", body(t, `{"q1":"c1","q2":"x"}`)).Code, 200)
+	made.work.Settle()
+
+	made.mu.Lock()
+	made.dryOpenFails = false
+	made.mu.Unlock()
+
+	same(t, "resume", made.work.Resume("PROJ-2", "").Code, 200)
+	same(t, "the failed open, then the resume's", made.count("dry-session"), 2)
+}
+
+// secondPressWait is how long a second press may take to answer without opening anything.
+const secondPressWait = 5 * time.Second
 
 // TestTheDryRunOpensItsSessionOnlyInsideConn: set to open sessions elsewhere, the dry run opens
 // no session at all, as before there was one inside Conn.

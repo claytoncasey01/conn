@@ -55,6 +55,10 @@ type world struct {
 	onReply func()
 	// dryRunning says whether a hosted session the fake opened still runs.
 	dryRunning bool
+	// dryOpenGate, when set, holds every dry session's open until it is closed.
+	dryOpenGate chan struct{}
+	// dryOpenFails makes every dry session's open fail.
+	dryOpenFails bool
 }
 
 type worldOpts struct {
@@ -413,6 +417,22 @@ func (w *world) fakeFetch(ctx context.Context, hooks openwork.Hooks) (jira.Sprin
 func (w *world) fakeOpen(_ context.Context, spec pty.Spec) launch.Opened {
 	if spec.Argv[0] == drysession.Program {
 		w.call("dry-session", spec.Name, spec.Dir, argv.ShellLine(spec.Argv))
+
+		w.mu.Lock()
+		gate := w.dryOpenGate
+		failing := w.dryOpenFails
+		w.mu.Unlock()
+
+		if gate != nil {
+			<-gate
+		}
+
+		if failing {
+			return launch.Opened{
+				OK: false, Where: settings.WhereInside, HostedID: "", Place: "inside Conn",
+				Tried: "inside Conn", Error: "the host is full", ManualCommand: "",
+			}
+		}
 
 		return launch.Opened{
 			OK: true, Where: settings.WhereInside, HostedID: "0123456789abcdef0123456789abcdef",

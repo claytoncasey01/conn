@@ -164,7 +164,8 @@ type state struct {
 	// CHECKS was pressed for it.
 	dryPolls map[string]int
 	dryFixed map[string]bool
-	// dryHosted is the hosted id of the dry session each slot last opened, by slotKey.
+	// dryHosted is the hosted id of the dry session each slot last opened, by slotKey, or
+	// dryOpening while one is being opened.
 	dryHosted map[string]string
 }
 
