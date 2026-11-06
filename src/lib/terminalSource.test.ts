@@ -12,6 +12,7 @@ const read = (rel: string) => readFileSync(root + rel, 'utf8')
 const sources = [...new Glob('{src,public}/**/*.{ts,js,svelte}').scanSync(root)].filter(f => !/\.test\.ts$/.test(f)).sort()
 const panel = read('src/lib/Terminal.svelte')
 const logic = read('src/lib/terminal.ts')
+const mounting = read('src/lib/terminalMount.ts')
 
 test('the only terminal packages are xterm.js and its fit and unicode 11 addons, each pinned to an exact version', () => {
   const pkg = JSON.parse(read('package.json')) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> }
@@ -27,7 +28,7 @@ test('no source loads a clipboard, image, web-links or other xterm.js addon, or 
     for (const m of text.matchAll(/from '(@xterm\/[^']+)'/g)) {
       assert.ok(['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-unicode11', '@xterm/xterm/css/xterm.css'].includes(m[1]), `${file}: ${m[1]}`)
     }
-    if (file === 'src/lib/Terminal.svelte' || file === 'src/lib/terminal.ts') assert.doesNotMatch(text, /navigator\.clipboard|ClipboardAddon|ImageAddon|execCommand/, file)
+    if (['src/lib/Terminal.svelte', 'src/lib/terminal.ts', 'src/lib/terminalMount.ts'].includes(file)) assert.doesNotMatch(text, /navigator\.clipboard|ClipboardAddon|ImageAddon|execCommand/, file)
   }
 })
 
@@ -35,23 +36,10 @@ test('OSC 52, the clipboard, is among the commands taken whole', () => {
   assert.match(logic, /export const QUIET_OSC[^=]*= \[\n[^\]]*\b52\b/)
 })
 
-test('the panel silences the queries before it opens the terminal or attaches', () => {
-  const silenced = panel.indexOf('silence(t.parser)')
-  assert.ok(silenced > 0)
-  assert.ok(silenced < panel.indexOf('t.open(into)'))
-  assert.ok(silenced < panel.indexOf('connect()\n'))
-})
 
-test('the panel takes the options from terminalOptions, which keeps window reports off, with links through the policy', () => {
-  assert.match(panel, /new Terminal\(\{ \.\.\.terminalOptions\(openLink\), theme: terminalTheme\(theme\.resolved\.tokens\)/)
-  // nothing after the spread turns a window report or a link back on
-  assert.doesNotMatch(panel, /windowOptions|linkHandler|allowNonHttpProtocols/)
-  const open = panel.slice(panel.indexOf('function openLink('), panel.indexOf('function measure('))
-  assert.match(open, /const target = linkTarget\(text, location\.origin\)\n\s*if \(target === null\) return\n\s*window\.open\(target, '_blank', 'noopener,noreferrer'\)/)
-})
 
 test('nothing in the terminal moves the window, sets the page title, or draws text as HTML', () => {
-  for (const text of [panel, logic]) {
+  for (const text of [panel, logic, mounting]) {
     assert.doesNotMatch(text, /location\.(href|assign|replace)|document\.title|onTitleChange|innerHTML|outerHTML|insertAdjacentHTML|\{@html/)
   }
 })
@@ -62,27 +50,12 @@ test('no page that shows the panel draws HTML from a string', () => {
   }
 })
 
-test('the unicode 11 width table is the one in use', () => {
-  assert.match(panel, /t\.loadAddon\(new Unicode11Addon\(\)\)\n(\s*\/\/.*\n)?\s*t\.unicode\.activeVersion = '11'/)
-})
 
-test('what the person types goes through the connection, which types only their own input', () => {
-  assert.match(panel, /t\.onData\(data => link\?\.input\(data, focused\)\)/)
-  assert.doesNotMatch(panel, /onBinary/)
-  assert.match(panel, /into\.addEventListener\('focusin', gained\)/)
-  assert.match(panel, /into\.addEventListener\('focusout', lost\)/)
-})
 
 test('the terminal logs nothing', () => {
-  for (const text of [panel, logic, read('src/lib/terminalTheme.ts')]) assert.doesNotMatch(text, /console\./)
+  for (const text of [panel, logic, mounting, read('src/lib/terminalTheme.ts')]) assert.doesNotMatch(text, /console\./)
 })
 
-test('a reconnect is a button, never a timer', () => {
-  assert.match(panel, /\{#if view\.notice\?\.reconnect\}\s*<button type="button" class="btn cap" onclick=\{connect\}>Reconnect<\/button>/)
-  assert.doesNotMatch(logic, /setTimeout|setInterval/)
-  const timers = [...panel.matchAll(/setTimeout\(([^,]+),/g)].map(m => m[1])
-  assert.deepEqual(timers, ['done', 'measure'])
-})
 
 test('OPEN TERMINAL on a hosted session opens its panel and asks the server nothing', () => {
   const ask = read('src/lib/AskPanel.svelte')
@@ -91,11 +64,50 @@ test('OPEN TERMINAL on a hosted session opens its panel and asks the server noth
   assert.ok(fn.indexOf('showTerminal') < fn.indexOf('openTerminal('))
 })
 
+
+test('the panel gives mount the real pieces, and adds nothing to the options it makes', () => {
+  assert.match(panel, /makeTerminal: options => new Terminal\(options\),/)
+  assert.match(panel, /makeUnicode: \(\) => new Unicode11Addon\(\),/)
+  assert.match(panel, /openSocket: \(\) => termSocket\(sessionId\),/)
+  assert.match(panel, /openLink: url => void window\.open\(url, '_blank', 'noopener,noreferrer'\),/)
+  assert.match(panel, /ownOrigin: location\.origin,/)
+  // nothing in the panel turns a window report, a link or a mouse option back on
+  assert.doesNotMatch(panel, /windowOptions|linkHandler|allowNonHttpProtocols|altClickMovesCursor|onData|onBinary|attachCustom/)
+})
+
+test('a reconnect is a person\'s click on the button, and nothing else calls it', () => {
+  assert.match(panel, /\{#if view\.notice\?\.reconnect\}\s*<button type="button" class="btn cap" onclick=\{reconnect\}>Reconnect<\/button>/)
+  assert.match(panel, /function reconnect\(event: MouseEvent\) \{\n\s*if \(!event\.isTrusted\) return\n\s*panel\?\.reconnect\(\)/)
+  assert.equal(panel.split('.reconnect(').length - 1, 1)
+  assert.doesNotMatch(mounting.slice(mounting.indexOf('return {')), /reconnect\(\)\s*\{[^}]*setTimeout/)
+})
+
+test('the panel says how to leave the terminal by keyboard', () => {
+  assert.match(panel, /\{LEAVE_KEY\} leaves the terminal/)
+  assert.match(panel, /leave: \(\) => detachButton\?\.focus\(\),/)
+})
+
+test('the pages load the panel with import(), so xterm.js is not in their first chunk', () => {
+  for (const page of ['src/pages/Sessions.svelte', 'src/pages/TicketRun.svelte', 'src/pages/AgentPage.svelte']) {
+    const text = read(page)
+    assert.doesNotMatch(text, /import Terminal from|Terminal\.svelte'/, page)
+    assert.match(text, /\{#await loadTerminal\(\) then \{ default: TerminalPanel \}\}/, page)
+  }
+  for (const file of sources.filter(f => f !== 'src/lib/terminalPanel.svelte.ts')) {
+    assert.doesNotMatch(read(file), /from '[^']*Terminal\.svelte'/, file)
+  }
+  assert.match(read('src/lib/terminalPanel.svelte.ts'), /loading \?\?= import\('\.\/Terminal\.svelte'\)/)
+})
+
 test('the Sessions, run and agent pages show the panel of a hosted session, a new panel for each session', () => {
   // The panel attaches once, when it is made: keyed by the session, so another session's never reuses it
-  assert.match(read('src/pages/Sessions.svelte'), /\{#key terminalOf\.id\}\s*<Terminal sessionId=\{terminalOf\.id\}/)
-  assert.match(read('src/pages/TicketRun.svelte'), /\{#key hosted\.id\}\s*<Terminal sessionId=\{hosted\.id\}/)
-  assert.match(read('src/pages/AgentPage.svelte'), /\{#if owner\?\.session\.hosted && terminalPanel\.open === owner\.session\.id\}\s*\{#key owner\.session\.id\}\s*<Terminal sessionId=\{owner\.session\.id\}/)
+  assert.match(read('src/pages/Sessions.svelte'), /\{#key terminalOf\.id\}\s*\{#await loadTerminal\(\) then \{ default: TerminalPanel \}\}\s*<TerminalPanel sessionId=\{terminalOf\.id\}/)
+  assert.match(read('src/pages/TicketRun.svelte'), /\{#key hosted\.id\}\s*\{#await loadTerminal\(\) then \{ default: TerminalPanel \}\}\s*<TerminalPanel sessionId=\{hosted\.id\}/)
+  assert.match(read('src/pages/AgentPage.svelte'), /\{#if owner\?\.session\.hosted && terminalPanel\.open === owner\.session\.id\}\s*\{#key owner\.session\.id\}\s*\{#await loadTerminal\(\) then \{ default: TerminalPanel \}\}\s*<TerminalPanel sessionId=\{owner\.session\.id\}/)
+  // A run of several repositories: the lead's session in the shared layout, and each leg's own in the split one
+  assert.match(read('src/pages/TicketRun.svelte'), /legHosted\(run, lead, live\.snap\?\.sessions \?\? \[\]\)/)
+  assert.match(read('src/pages/TicketRun.svelte'), /\{#key legHostedHere\.id\}\s*\{#await loadTerminal\(\) then \{ default: TerminalPanel \}\}\s*<TerminalPanel sessionId=\{legHostedHere\.id\}/)
+  assert.match(read('src/lib/runLegs.ts'), /runTerminalSession\(sessions, \{ key: run\.repos\.length > 1 \? null : run\.key, worktree: leg\.worktree/)
 })
 
 // ---- the socket ----

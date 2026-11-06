@@ -23,7 +23,7 @@ import {
   runPrStatus,
   workSummary,
 } from './runLegs.ts'
-import type { PrStatus, Run, RunLayout, RunRepo, RunState } from './types.ts'
+import type { PrStatus, Run, RunLayout, RunRepo, RunState, SessionSummary } from './types.ts'
 
 const status = (state: PrStatus['state'], checks: PrStatus['checks']['state'] = 'passing', review = ''): PrStatus => ({
   state,
@@ -298,17 +298,14 @@ test('the per-leg rules match the server, case by case (testdata/answers/openwor
   }
 })
 
-test('a slot’s hosted session is found as its live session is: by folder alone with several legs, by key or folder with one', () => {
-  const leg = (repo: string, worktree: string) => ({ repo, worktree }) as unknown as RunRepo
+test('a slot’s hosted session is found as a run’s is: by folder alone with several legs, by key or folder with one, never guessed between two', () => {
+  const leg = (repo: string, worktree: string) => ({ repo, worktree, session: null }) as unknown as RunRepo
   const two = { key: 'PROJ-1', layout: 'split', repos: [leg('acme/a', '/w/a'), leg('acme/b', '/w/b')] } as unknown as Run
-  const sessions = [
-    { id: 'h1', hosted: true, name: 'PROJ-1', cwd: '/w/a' },
-    { id: 'h2', hosted: true, name: 'PROJ-1', cwd: '/w/b' },
-    { id: '42', name: 'PROJ-1', cwd: '/w/c' },
-  ]
+  const hosted = (id: string, name: string, cwd: string) => ({ id, hosted: true, name, cwd }) as unknown as SessionSummary
+  const sessions = [hosted('h1', 'PROJ-1', '/w/a'), hosted('h2', 'PROJ-1', '/w/b'), { id: '42', name: 'PROJ-1', cwd: '/w/c' } as unknown as SessionSummary]
   assert.equal(legHosted(two, two.repos[1], sessions)?.id, 'h2')
   assert.equal(legHosted(two, leg('acme/c', '/w/c'), sessions), null)
   const one = { key: 'PROJ-1', layout: 'shared', repos: [leg('acme/a', '/w/elsewhere')] } as unknown as Run
-  assert.equal(legHosted(one, one.repos[0], sessions)?.id, 'h1')
-  assert.equal(legHosted(one, one.repos[0], [{ id: '7', name: 'PROJ-1', cwd: '/w/x' }]), null)
+  assert.equal(legHosted(one, one.repos[0], [sessions[0]])?.id, 'h1')
+  assert.equal(legHosted(one, one.repos[0], sessions), null)
 })

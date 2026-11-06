@@ -9,8 +9,7 @@
   import ConfirmAction from '../lib/ConfirmAction.svelte'
   import { canOpenAll, legAfterMerge, legCanClean, legChecksFailing, legHosted, legKeptForOthers, legNeedsPr, legPrWarning, legResumable, legSessionLive, legsToOpen, legWorker, prProgress, runMerged, workSummary } from '../lib/runLegs.ts'
   import type { PrStatus, Run, RunAgent, RunLog, RunRepo, RunState, SourceName } from '../lib/types.ts'
-  import Terminal from '../lib/Terminal.svelte'
-  import { hideTerminal, terminalPanel, toggleTerminal } from '../lib/terminalPanel.svelte.ts'
+  import { hideTerminal, loadTerminal, terminalPanel, toggleTerminal } from '../lib/terminalPanel.svelte.ts'
 
   let { key }: { key: string } = $props()
 
@@ -296,7 +295,9 @@
       </div>
       {#if hosted && terminalPanel.open === hosted.id}
         {#key hosted.id}
-          <Terminal sessionId={hosted.id} name={hosted.name} onclose={hideTerminal} />
+          {#await loadTerminal() then { default: TerminalPanel }}
+            <TerminalPanel sessionId={hosted.id} name={hosted.name} onclose={hideTerminal} />
+          {/await}
         {/key}
       {/if}
       <div style="display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center; font-size: 12px; color: var(--mu)">
@@ -393,7 +394,9 @@
             </div>
             {#if legHostedHere && terminalPanel.open === legHostedHere.id}
               {#key legHostedHere.id}
-                <Terminal sessionId={legHostedHere.id} name={`${run.key} in ${leg.repo}`} onclose={hideTerminal} />
+                {#await loadTerminal() then { default: TerminalPanel }}
+                  <TerminalPanel sessionId={legHostedHere.id} name={`${run.key} in ${leg.repo}`} onclose={hideTerminal} />
+                {/await}
               {/key}
             {/if}
             <div style="display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--mu)">

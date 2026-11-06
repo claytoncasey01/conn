@@ -6,8 +6,7 @@
   import { bootIn, bootOut } from '../lib/fx.ts'
   import Brand from '../lib/Brand.svelte'
   import StopSession from '../lib/StopSession.svelte'
-  import Terminal from '../lib/Terminal.svelte'
-  import { hideTerminal, terminalPanel, toggleTerminal } from '../lib/terminalPanel.svelte.ts'
+  import { hideTerminal, loadTerminal, terminalPanel, toggleTerminal } from '../lib/terminalPanel.svelte.ts'
   import Nav from '../lib/Nav.svelte'
   import FilterBar from '../lib/FilterBar.svelte'
   import { barGroups, emptySelection, matches, toggle } from '../lib/filters.ts'
@@ -119,7 +118,9 @@
     {#if terminalOf}
       <!-- keyed: another session's terminal is a new panel, never this one pointed elsewhere -->
       {#key terminalOf.id}
-        <Terminal sessionId={terminalOf.id} name={terminalOf.name} onclose={hideTerminal} />
+        {#await loadTerminal() then { default: TerminalPanel }}
+          <TerminalPanel sessionId={terminalOf.id} name={terminalOf.name} onclose={hideTerminal} />
+        {/await}
       {/key}
     {/if}
 

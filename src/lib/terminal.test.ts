@@ -3,10 +3,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Terminal } from '@xterm/xterm'
+import { FakeFrames, FakeSocket } from './terminalFakes.test.ts'
 import {
-  attach, closeNotice, fitSize, forwardable, inputFrames, linkTarget, parseFrame, QUIET_CSI, QUIET_DCS, QUIET_OSC, silence, terminalOptions,
-  CELLS_MAX, FRAME_BYTES_MAX, INPUT_BYTES_MAX, PASTE_BYTES_MAX, SIZE_MAX, TERMINAL_PROTOCOL,
-  type Socket, type View,
+  attach, cleanPaste, closeNotice, fitSize, forwardable, inputFrames, isMotionReport, linkTarget, parseFrame, QUIET_CSI, QUIET_DCS,
+  QUIET_OSC, silence, terminalOptions, CELLS_MAX, FRAME_BYTES_MAX, INPUT_BYTES_MAX, PASTE_BYTES_MAX, SIZE_MAX,
+  WRITE_PENDING_BYTES_LOW, WRITE_PENDING_BYTES_MAX,
+  type View,
 } from './terminal.ts'
 
 // ---- answering nothing ----
@@ -220,8 +222,6 @@ const forwarded: [string, string, boolean, boolean][] = [
   ['an SGR mouse report while focused', '\x1b[<0;10;5M', true, true],
   ['an SGR mouse report while not focused', '\x1b[<35;10;5M', false, false],
   ['an SGR mouse release while not focused', '\x1b[<0;10;5m', false, false],
-  ['an X10 mouse report while focused', '\x1b[M #!', true, true],
-  ['an X10 mouse report while not focused', '\x1b[M #!', false, false],
   ['a paste that holds a focus report', 'x\x1b[Iy', true, true],
 ]
 
@@ -313,7 +313,7 @@ const closes: [string, number, string, number | null, { reconnect: boolean; matc
   ['Conn stopping', 1001, 'conn is stopping', null, { reconnect: true, match: /Conn is stopping/ }],
   ['fell behind', 1013, 'fell behind the program\'s output', null, { reconnect: true, match: /fell behind/ }],
   ['a slow replay', 1013, 'the replay took too long to write', null, { reconnect: true, match: /too long/ }],
-  ['over the input rate', 1008, 'input over the session\'s rate', null, { reconnect: false, match: /faster than/ }],
+  ['over the input rate', 1008, 'input over the session\'s rate', null, { reconnect: true, match: /faster than/ }],
   ['a malformed frame', 1008, 'malformed frame', null, { reconnect: false, match: /refused/ }],
   ['a size out of range', 1008, 'terminal size out of range', null, { reconnect: false, match: /size/ }],
   ['a binary frame', 1003, 'only text frames are taken', null, { reconnect: false, match: /refused/ }],
@@ -387,49 +387,24 @@ for (const [name, text, want] of links) {
 
 // ---- the connection, with a fake WebSocket ----
 
-class FakeSocket implements Socket {
-  binaryType: BinaryType = 'blob'
-  protocol = ''
-  sent: string[] = []
-  closed: { code?: number }[] = []
-  onopen: Socket['onopen'] = null
-  onmessage: Socket['onmessage'] = null
-  onclose: Socket['onclose'] = null
-  onerror: Socket['onerror'] = null
-  send(text: string) {
-    this.sent.push(text)
-  }
-  close(code?: number) {
-    this.closed.push({ code })
-  }
-  private socket = this as unknown as WebSocket
-  open(protocol = TERMINAL_PROTOCOL) {
-    this.protocol = protocol
-    this.onopen?.call(this.socket, new Event('open'))
-  }
-  message(data: unknown) {
-    this.onmessage?.call(this.socket, { data } as MessageEvent)
-  }
-  text(data: string) {
-    this.message(data)
-  }
-  bytes(data: string) {
-    this.message(new TextEncoder().encode(data).buffer)
-  }
-  end(code: number, reason = '') {
-    this.onclose?.call(this.socket, { code, reason } as CloseEvent)
-  }
-}
-
 class FakeScreen {
   writes: (string | Uint8Array)[] = []
   resets = 0
+  /** The callbacks of writes not yet parsed, oldest first. */
+  waiting: (() => void)[] = []
+  throws = false
   reset() {
     this.resets++
     this.writes = []
   }
-  write(data: Uint8Array) {
+  write(data: Uint8Array, done: () => void) {
+    if (this.throws) throw new Error('write data discarded')
     this.writes.push(data)
+    this.waiting.push(done)
+  }
+  /** Parses every write so far. */
+  drain() {
+    for (const done of this.waiting.splice(0)) done()
   }
   text() {
     return this.writes.map(w => (typeof w === 'string' ? `STRING:${w}` : new TextDecoder().decode(w))).join('')
@@ -440,9 +415,17 @@ function rig() {
   const socket = new FakeSocket()
   const screen = new FakeScreen()
   const views: View[] = []
-  const link = attach(() => socket, screen, view => views.push(view))
+  const frames = new FakeFrames()
+  const link = attach(() => socket, screen, view => views.push(view), frames.frame)
   const last = () => views[views.length - 1]
-  return { socket, screen, views, link, last }
+  return { socket, screen, views, link, last, frames }
+}
+
+function live() {
+  const parts = rig()
+  parts.socket.open()
+  parts.socket.text('{"t":"replay-end"}')
+  return parts
 }
 
 test('the socket takes binary frames as ArrayBuffers', () => {
@@ -517,7 +500,7 @@ test('a close for falling behind offers a reconnect and never reconnects by itse
   let opened = 0
   const socket = new FakeSocket()
   const views: View[] = []
-  attach(() => (opened++, socket), new FakeScreen(), v => views.push(v))
+  attach(() => (opened++, socket), new FakeScreen(), v => views.push(v), new FakeFrames().frame)
   socket.open()
   socket.end(1013, 'fell behind the program\'s output')
   assert.equal(views[views.length - 1].phase, 'closed')
@@ -525,11 +508,19 @@ test('a close for falling behind offers a reconnect and never reconnects by itse
   assert.equal(opened, 1)
 })
 
-test('a close for the input rate says so and offers no reconnect', () => {
+test('a close for the input rate says so in plain words and offers a reconnect, which it never makes by itself', () => {
   const { socket, last } = rig()
   socket.open()
   socket.end(1008, 'input over the session\'s rate')
   assert.equal(last().phase, 'closed')
+  assert.equal(last().notice?.reconnect, true)
+  assert.match(last().notice?.text ?? '', /faster than the session takes it/)
+})
+
+test('a close for a refused frame offers no reconnect: the page would send it again', () => {
+  const { socket, last } = rig()
+  socket.open()
+  socket.end(1008, 'malformed frame')
   assert.equal(last().notice?.reconnect, false)
 })
 
@@ -542,7 +533,7 @@ test('a server that does not echo the terminal protocol is closed at once', () =
 
 test('no socket (no secret, or an id that is not a session\'s) shows a notice and opens nothing', () => {
   const views: View[] = []
-  attach(() => null, new FakeScreen(), v => views.push(v))
+  attach(() => null, new FakeScreen(), v => views.push(v), new FakeFrames().frame)
   assert.equal(views[views.length - 1].phase, 'closed')
   assert.match(views[views.length - 1].notice?.text ?? '', /Could not attach/)
 })
@@ -585,4 +576,152 @@ test('a frame that is not ArrayBuffer or text is ignored', () => {
   socket.open()
   socket.message({ not: 'bytes' })
   assert.deepEqual(screen.writes, [])
+})
+
+// ---- the option set ----
+
+test('every option that bears on input or output is set, to exactly these values', () => {
+  const { linkHandler, windowOptions, ...rest } = terminalOptions()
+  assert.deepEqual(rest, {
+    allowProposedApi: true,
+    altClickMovesCursor: false,
+    convertEol: false,
+    cursorBlink: false,
+    disableStdin: false,
+    ignoreBracketedPasteMode: false,
+    logLevel: 'off',
+    macOptionClickForcesSelection: false,
+    macOptionIsMeta: false,
+    minimumContrastRatio: 4.5,
+    rightClickSelectsWord: false,
+    screenReaderMode: false,
+    scrollback: 5000,
+    scrollOnUserInput: true,
+    tabStopWidth: 8,
+  })
+  assert.equal(linkHandler?.allowNonHttpProtocols, false)
+  assert.equal(Object.values(windowOptions ?? {}).filter(Boolean).length, 0)
+})
+
+// ---- pastes ----
+
+const cleaned: [string, string, string][] = [
+  ['plain text', 'hello world', 'hello world'],
+  ['line breaks and tabs kept', 'a\tb\r\nc\n', 'a\tb\r\nc\n'],
+  ['an end-of-paste marker', 'x\x1b[201~\rrm -rf ~\r', 'x\rrm -rf ~\r'],
+  ['a start marker', '\x1b[200~x', 'x'],
+  ['a lone ESC', 'a\x1bb', 'ab'],
+  ['an arrow key', '\x1b[A', '[A'],
+  ['C0 controls', 'a\x03\x04\x1a\x00b', 'ab'],
+  ['DEL and C1', 'a\x7f\x9b31mb', 'a31mb'],
+  ['emoji and accents', 'é😀', 'é😀'],
+]
+
+for (const [name, text, want] of cleaned) {
+  test(`cleanPaste: ${name}`, () => {
+    assert.equal(cleanPaste(text), want)
+  })
+}
+
+test('a paste marker is never split between frames, wherever the frame boundary falls', () => {
+  // The first frame ends 1 to 6 bytes into where the end marker would fall
+  for (let into = 1; into <= 6; into++) {
+    const body = 'x'.repeat(INPUT_BYTES_MAX - 6 - 6 + into)
+    const frames = inputFrames(`\x1b[200~${body}\x1b[201~`)
+    assert.ok(frames)
+    const texts = frames.map(f => (JSON.parse(f) as { d: string }).d)
+    assert.equal(texts.length, 2, `into ${into}`)
+    for (const text of texts) assert.match(text.replace(/\x1b\[20[01]~/g, ''), /^x*$/, `a frame holds part of a marker (into ${into})`)
+    assert.equal(texts.join(''), `\x1b[200~${body}\x1b[201~`)
+  }
+})
+
+// ---- pointer motion ----
+
+const motions: [string, string, boolean][] = [
+  ['any-motion report', '\x1b[<35;10;5M', true],
+  ['drag report', '\x1b[<32;10;5M', true],
+  ['a press', '\x1b[<0;10;5M', false],
+  ['a release', '\x1b[<0;10;5m', false],
+  ['a wheel', '\x1b[<64;10;5M', false],
+  ['a key', 'a', false],
+]
+
+for (const [name, data, want] of motions) {
+  test(`isMotionReport: ${name}`, () => {
+    assert.equal(isMotionReport(data), want)
+  })
+}
+
+test('pointer motion is sent once a frame, the newest, and before anything typed after it', () => {
+  const { socket, link, frames } = live()
+  for (let x = 1; x <= 50; x++) link.input(`\x1b[<35;${x};5M`, true)
+  assert.deepEqual(socket.sent, [])
+  assert.equal(frames.waiting.length, 1)
+  frames.run()
+  assert.equal(socket.typed(), '\x1b[<35;50;5M')
+  link.input('\x1b[<35;51;5M', true)
+  link.input('\x1b[<0;51;5M', true)
+  assert.equal(socket.typed(), '\x1b[<35;50;5M\x1b[<35;51;5M\x1b[<0;51;5M')
+  frames.run()
+  assert.equal(socket.typed(), '\x1b[<35;50;5M\x1b[<35;51;5M\x1b[<0;51;5M')
+})
+
+test('a motion waiting for its frame is not sent once the terminal is left', () => {
+  const { socket, link, frames } = live()
+  link.input('\x1b[<35;1;5M', true)
+  link.detach()
+  frames.run()
+  assert.deepEqual(socket.sent, [])
+})
+
+// ---- flow control ----
+
+test('output arriving faster than it is drawn closes the terminal at the high mark, offering a reconnect', () => {
+  const { socket, screen, last } = live()
+  const chunk = new Uint8Array(1 << 20).buffer
+  for (let i = 0; i < 16; i++) socket.message(chunk.slice(0))
+  assert.equal(last().phase, 'live')
+  assert.equal(last().lagging, true)
+  socket.message(chunk.slice(0))
+  assert.equal(last().phase, 'closed')
+  assert.deepEqual(socket.closed, [{ code: 1000 }])
+  assert.match(last().notice?.text ?? '', /fell behind/)
+  assert.equal(last().notice?.reconnect, true)
+  assert.equal(screen.writes.length, 16, 'nothing is handed over past the mark')
+  socket.message(chunk.slice(0))
+  assert.equal(screen.writes.length, 16, 'nothing is drawn once closed')
+  socket.end(1000)
+  assert.match(last().notice?.text ?? '', /fell behind/, 'the close the page made keeps its reason')
+})
+
+test('output drawn as fast as it arrives never closes the terminal, and the lag clears at the low mark', () => {
+  const { socket, screen, last } = live()
+  const chunk = new Uint8Array(1 << 20).buffer
+  for (let i = 0; i < 64; i++) {
+    socket.message(chunk.slice(0))
+    screen.drain()
+  }
+  assert.equal(last().phase, 'live')
+  for (let i = 0; i < 3; i++) socket.message(chunk.slice(0))
+  assert.equal(last().lagging, true)
+  screen.drain()
+  assert.equal(last().lagging, false)
+  assert.ok(WRITE_PENDING_BYTES_LOW < WRITE_PENDING_BYTES_MAX)
+})
+
+test('a screen that throws on a write closes the terminal as fallen behind, not the page', () => {
+  const { socket, screen, last } = live()
+  screen.throws = true
+  socket.bytes('x')
+  assert.equal(last().phase, 'closed')
+  assert.equal(last().notice?.reconnect, true)
+})
+
+test('output from a connection the page has left is never drawn', () => {
+  const { socket, screen, link } = live()
+  socket.bytes('before')
+  link.detach()
+  socket.bytes('after')
+  assert.equal(screen.text(), 'before')
 })

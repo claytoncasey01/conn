@@ -17,3 +17,13 @@ export function toggleTerminal(id: string): void {
 export function hideTerminal(): void {
   terminalPanel.open = null
 }
+
+/**
+ * The panel's component, loaded on first use: xterm.js is a chunk of its own, so a page that never opens a terminal never
+ * loads it. The same promise every time.
+ */
+let loading: Promise<typeof import('./Terminal.svelte')> | null = null
+export function loadTerminal(): Promise<typeof import('./Terminal.svelte')> {
+  loading ??= import('./Terminal.svelte')
+  return loading
+}
