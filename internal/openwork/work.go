@@ -143,7 +143,8 @@ type state struct {
 	lastPoll  map[string]float64
 	polling   map[string]bool
 	pollError map[string]string
-	// resumedAt is when a session was last opened for a run: it takes a few seconds to appear.
+	// resumedAt is when a session was last opened in a slot, by slotKey: it takes a few seconds
+	// to appear.
 	resumedAt map[string]float64
 	dryPolls  map[string]int
 	dryFixed  map[string]bool

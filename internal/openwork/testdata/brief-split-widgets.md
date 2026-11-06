@@ -2,7 +2,7 @@
 
 You are implementing this ticket in acme/widgets at /work/widgets-proj-7, on branch proj-7-export-keeps-the-range. The pull request will target main.
 
-The ticket also needs changes in these repositories:
+This run also builds in these repositories:
 - acme/gadgets in /work/gadgets-proj-7, on branch proj-7-export-keeps-the-range. The pull request will target develop.
 Another session works there: do not change them. If a change is needed outside acme/widgets, ask the person.
 

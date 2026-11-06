@@ -534,3 +534,54 @@ func dryLegsRun(t *testing.T, base, layout string) *js.Object {
 
 	return record
 }
+
+func TestTheDryRunTakesATicketInTwoRepositoriesFromStartToItsSessions(t *testing.T) {
+	t.Parallel()
+
+	rows := []struct {
+		layout string
+		// sessions are whether each leg has a session.
+		sessions []bool
+	}{
+		{"shared", []bool{true, false}},
+		{"split", []bool{true, true}},
+	}
+
+	for _, row := range rows {
+		t.Run(row.layout, func(t *testing.T) {
+			t.Parallel()
+
+			base := realTemp(t)
+			made := newWorld(t, worldOpts{
+				base: base, dry: true,
+				settings: twoClones(fakeClone(t, base, "widgets"), fakeClone(t, base, "gadgets")),
+			})
+
+			made.work.Tickets()
+			until(t, "the dry list", func() bool { return len(made.work.Tickets().Tickets) == 6 })
+			same(t, "start", made.work.Start("PROJ-2", body(t, `{"model":"haiku","repos":`+
+				`["acme/widgets","acme/gadgets"],"layout":"`+row.layout+`"}`)).Code, 200)
+			until(t, "the questions", func() bool { return made.state("PROJ-2") == "asking" })
+			same(t, "answers", made.work.Answer("PROJ-2",
+				body(t, `{"q1":"c1","q2":"c2"}`)).Code, 200)
+
+			record := made.record("PROJ-2")
+			same(t, "layout", record.Layout, row.layout)
+
+			for index, want := range row.sessions {
+				leg := record.Repos[index]
+				same(t, "ready", leg.WorktreeReady, true)
+				same(t, "session", leg.Session != nil, want)
+				same(t, "counts", []float64{leg.Ahead, leg.Dirty}, []float64{3, 2})
+			}
+
+			same(t, "resume", made.work.Resume("PROJ-2", "").Code, 200)
+
+			if row.layout == "split" {
+				same(t, "resume one", made.work.Resume("PROJ-2", "acme/gadgets").Code, 200)
+			}
+
+			same(t, "nothing ran", helperOrGit(made), []string{})
+		})
+	}
+}

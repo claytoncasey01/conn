@@ -228,7 +228,7 @@ func briefWhere(record *Record, leg *Leg) string {
 
 	return "You are implementing this ticket in " + leg.Repo + " at " + leg.Worktree +
 		", on branch " + leg.Branch + ". The pull request will target " + leg.PRBase + ".\n\n" +
-		"The ticket also needs changes in these repositories:\n" + strings.Join(others, "\n") +
+		"This run also builds in these repositories:\n" + strings.Join(others, "\n") +
 		"\n" + working + ": do not change them. If a change is needed outside " + leg.Repo +
 		", ask the person."
 }
