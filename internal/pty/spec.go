@@ -91,3 +91,35 @@ func newID() (ID, error) {
 
 	return ID(hex.EncodeToString(raw)), nil
 }
+
+// ParseID is the ID text names, which must have the one shape newID makes: idBytes bytes as
+// lowercase hex. Anything else is ErrInvalidID, which never quotes the text, so a client's text
+// can be refused before any session is looked up.
+func ParseID(text string) (ID, error) {
+	if len(text) != hex.EncodedLen(idBytes) {
+		return "", ErrInvalidID
+	}
+
+	for _, char := range []byte(text) {
+		if !lowerHex(char) {
+			return "", ErrInvalidID
+		}
+	}
+
+	return ID(text), nil
+}
+
+// lowerHex says whether char is one of the digits hex.EncodeToString writes.
+func lowerHex(char byte) bool {
+	if char >= '0' {
+		if char <= '9' {
+			return true
+		}
+	}
+
+	if char >= 'a' {
+		return char <= 'f'
+	}
+
+	return false
+}

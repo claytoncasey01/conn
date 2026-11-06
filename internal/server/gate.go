@@ -15,6 +15,21 @@ const (
 	// textUnauthorized is the answer to an /api request without the secret.
 	textUnauthorized = "unauthorized"
 
+	// protocolHeader is the WebSocket handshake's header of subprotocols. The page's terminal
+	// asks for two: terminalProtocol, which the server echoes, and keyProtocolPrefix followed by
+	// the secret, which it never echoes. A browser's WebSocket cannot send any other header the
+	// page chooses, and a subprotocol never appears in a URL, a history or a log.
+	protocolHeader    = "Sec-WebSocket-Protocol"
+	terminalProtocol  = "conn.term.v1"
+	keyProtocolPrefix = "conn.key."
+	// terminalProtocolsCount is how many subprotocols the page's handshake names.
+	terminalProtocolsCount = 2
+	// protocolHeaderBytesMax bounds the header the secret is read from: the two protocols take
+	// 66 bytes.
+	protocolHeaderBytesMax = 128
+	// headerSpace is the space HTTP allows around a header's list items.
+	headerSpace = " \t"
+
 	// policyFormat is the page's Content-Security-Policy, with %s the Host the page was asked on,
 	// for its WebSocket. Scripts come only from this origin (no inline script); styles also from
 	// inline (Svelte and the theme set them) and from Google Fonts' stylesheet host; fonts from
@@ -59,7 +74,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, next route) {
 		}
 	}
 
-	if !s.admitted(w, r) {
+	if !s.admitted(w, r, urlPath) {
 		return
 	}
 
@@ -80,14 +95,31 @@ func underAPI(urlPath string) bool {
 // of this very origin, and must carry this launch's secret: a page on another site or port fails
 // the second, and another user of the machine, who can reach the port but cannot read the lock
 // file, fails the third.
-func (s *Server) admitted(w http.ResponseWriter, r *http.Request) bool {
+//
+// The secret travels in the Authorization header, except on the one request a browser cannot
+// give that header: the WebSocket handshake of the terminal route. There, and only there, the
+// page must also send its Origin, and the secret travels in the handshake's subprotocols instead
+// (terminalKey), never in the URL or a cookie.
+func (s *Server) admitted(w http.ResponseWriter, r *http.Request, urlPath string) bool {
 	if !sameOrigin(r) {
 		sendJSON(w, http.StatusForbidden, errorBody{Error: textForbidden})
 
 		return false
 	}
 
-	if !s.Secret.Matches(bearer(r.Header.Values(secret.Header))) {
+	presented := bearer(r.Header.Values(secret.Header))
+
+	if terminalHandshake(r, urlPath) {
+		if !ownOrigin(r) {
+			sendJSON(w, http.StatusForbidden, errorBody{Error: textForbidden})
+
+			return false
+		}
+
+		presented = terminalKey(r.Header)
+	}
+
+	if !s.Secret.Matches(presented) {
 		w.Header().Set("WWW-Authenticate", secret.Scheme)
 		sendJSON(w, http.StatusUnauthorized, errorBody{Error: textUnauthorized})
 
@@ -114,6 +146,17 @@ func sameOrigin(r *http.Request) bool {
 	}
 }
 
+// ownOrigin says whether a request carries exactly one Origin, this server's own. A browser
+// always sends one with a WebSocket handshake, so a handshake without one is not the page's.
+func ownOrigin(r *http.Request) bool {
+	origins := r.Header.Values("Origin")
+	if len(origins) != 1 {
+		return false
+	}
+
+	return origins[0] == "http://"+r.Host
+}
+
 // bearer is the token of the one Authorization value "Bearer <token>", or "" for no value, more
 // than one, or another scheme. An empty token matches no secret.
 func bearer(values []string) string {
@@ -127,4 +170,80 @@ func bearer(values []string) string {
 	}
 
 	return token
+}
+
+// terminalHandshake says whether a request is a WebSocket handshake for the terminal route: a GET
+// of /api/term/<a session id's shape>, asking to upgrade to a WebSocket. Only such a request may
+// carry the secret in its subprotocols.
+func terminalHandshake(r *http.Request, urlPath string) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+
+	_, found := terminalID(urlPath)
+	if !found {
+		return false
+	}
+
+	return asksForWebSocket(r.Header)
+}
+
+// asksForWebSocket says whether the headers ask to upgrade the connection to a WebSocket: an
+// Upgrade naming websocket and a Connection naming upgrade, each matched as a token in any case,
+// as a browser and the WebSocket library read them.
+func asksForWebSocket(header http.Header) bool {
+	if !hasToken(header, "Upgrade", "websocket") {
+		return false
+	}
+
+	return hasToken(header, "Connection", "upgrade")
+}
+
+// hasToken says whether any of the header's comma-separated tokens is token, in any case.
+func hasToken(header http.Header, name, token string) bool {
+	for _, value := range header.Values(name) {
+		for part := range strings.SplitSeq(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), token) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// terminalKey is the secret a terminal handshake carries, or "" for anything but the one shape
+// the page sends: no Authorization header (one credential, in one place), and exactly one
+// Sec-WebSocket-Protocol header of at most protocolHeaderBytesMax bytes, holding exactly two
+// protocols, terminalProtocol and then keyProtocolPrefix followed by the secret. The server
+// echoes only the first, so the second never comes back. An empty secret matches nothing.
+func terminalKey(header http.Header) string {
+	if len(header.Values(secret.Header)) != 0 {
+		return ""
+	}
+
+	values := header.Values(protocolHeader)
+	if len(values) != 1 {
+		return ""
+	}
+
+	if len(values[0]) > protocolHeaderBytesMax {
+		return ""
+	}
+
+	protocols := strings.Split(values[0], ",")
+	if len(protocols) != terminalProtocolsCount {
+		return ""
+	}
+
+	if strings.Trim(protocols[0], headerSpace) != terminalProtocol {
+		return ""
+	}
+
+	key, found := strings.CutPrefix(strings.Trim(protocols[1], headerSpace), keyProtocolPrefix)
+	if !found {
+		return ""
+	}
+
+	return key
 }

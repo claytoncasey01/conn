@@ -150,6 +150,8 @@ var (
 	ErrViewersFull = errors.New("the session has too many viewers")
 	// ErrNoSession is an ID the host does not hold.
 	ErrNoSession = errors.New("no such session")
+	// ErrInvalidID is text that is not an ID's shape.
+	ErrInvalidID = errors.New("not a session id")
 	// ErrEnded is input or a resize for a session whose program has ended.
 	ErrEnded = errors.New("the session has ended")
 	// ErrClosed is a Start after StopAll.

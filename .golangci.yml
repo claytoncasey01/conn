@@ -29,6 +29,11 @@ linters:
             # graph through Wails and the SQLite driver, so it adds no new author; chosen over a
             # third-party pty library for the smaller attack surface.
             - golang.org/x/sys/unix
+            # The WebSocket of the hosted terminal (internal/server/term.go). Already in the
+            # module graph through Wails, so it adds no new author; small, maintained by Coder,
+            # with no dependencies of its own, and it takes the handshake through net/http, so the
+            # gate in front of every /api route stands in front of it too.
+            - github.com/coder/websocket
     gosec:
       excludes:
         # Conn's job is running gh, git, ps and claude with arguments built from settings and

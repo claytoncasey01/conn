@@ -77,6 +77,8 @@ type Server struct {
 	Logger *log.Logger
 	// Secret is what every /api request must carry (see gate.go). The zero Secret refuses all.
 	Secret secret.Secret
+	// Terminals answers the terminal route, /api/term/<id>; nil answers it not found.
+	Terminals *Terminals
 }
 
 type errorBody struct {
@@ -113,7 +115,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, urlPath string
 // api answers a route under /api that one of the APIs owns, and is false when none does.
 func (s *Server) api(w http.ResponseWriter, r *http.Request, urlPath string) bool {
 	owners := []func(http.ResponseWriter, *http.Request, string) bool{
-		s.actions, s.work, s.history, s.tabs,
+		s.terminal, s.actions, s.work, s.history, s.tabs,
 	}
 
 	for _, owns := range owners {

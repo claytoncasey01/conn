@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -281,6 +282,49 @@ func TestIDsAreRandomAndLongEnough(t *testing.T) {
 		}
 
 		seen[sessionID] = true
+
+		parsed, err := pty.ParseID(string(sessionID))
+		if err != nil {
+			t.Fatalf("ParseID refused an id the host made: %v", err)
+		}
+
+		if parsed != sessionID {
+			t.Fatal("ParseID changed an id the host made")
+		}
+	}
+}
+
+// ParseID takes only the shape the host makes, so a client's text that is anything else is
+// refused before any session is looked up.
+func TestParseIDRefusesEverythingElse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		text string
+	}{
+		{"empty", ""},
+		{"one short", strings.Repeat("a", 31)},
+		{"one long", strings.Repeat("a", 33)},
+		{"capitals", strings.Repeat("A", 32)},
+		{"not hex", strings.Repeat("g", 32)},
+		{"a slash", strings.Repeat("a", 31) + "/"},
+		{"an escape", "%61" + strings.Repeat("a", 29)},
+		{"a dot", strings.Repeat("a", 31) + "."},
+		{"a space", strings.Repeat("a", 31) + " "},
+		{"a multibyte letter", strings.Repeat("a", 30) + "é"},
+		{"twice as long", strings.Repeat("ab", 32)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := pty.ParseID(tt.text)
+			if !errors.Is(err, pty.ErrInvalidID) {
+				t.Fatalf("ParseID = %v, want ErrInvalidID", err)
+			}
+		})
 	}
 }
 
