@@ -3,7 +3,9 @@ package pty_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -63,6 +65,9 @@ type fakeProcess struct {
 	resizeErr error
 	// writeErr, when set, is what every Write fails with.
 	writeErr error
+	// cut, when above zero, is how many bytes the next Write takes before it fails as a
+	// terminal's write deadline does; guarded by mu.
+	cut int
 	// afterKill is what the group looks like once it has ended: gone, or members no signal can
 	// reach (EPERM), for good or for unreachableAnswers more looks.
 	afterKill          killOutcome
@@ -132,6 +137,15 @@ func (f *fakeProcess) Write(data []byte) (int, error) {
 	defer f.mu.Unlock()
 
 	f.writing--
+
+	if f.cut > 0 {
+		taken := min(f.cut, len(data))
+		f.cut = 0
+		f.written = append(f.written, data[:taken]...)
+
+		return taken, fmt.Errorf("writing to the terminal: %w", os.ErrDeadlineExceeded)
+	}
+
 	f.written = append(f.written, data...)
 
 	return len(data), nil
@@ -216,6 +230,14 @@ func (f *fakeProcess) Keyboard() (pty.Keyboard, error) {
 
 // reuse makes the group's number look taken again, as a new program that a reused pid made a
 // group leader would.
+// cutNextWrite makes the next Write take only count bytes, then fail as a write deadline does.
+func (f *fakeProcess) cutNextWrite(count int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.cut = count
+}
+
 func (f *fakeProcess) reuse() { f.reused.Store(true) }
 
 func (f *fakeProcess) record(signal string) {

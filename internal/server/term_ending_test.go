@@ -632,3 +632,20 @@ func TestCloseWithNoTerminalReturnsAtOnce(t *testing.T) {
 		t.Errorf("Close waited %v with no terminal open", waited)
 	}
 }
+
+// The replay bound holds eight full replays, each a mode preamble and a whole scrollback, so the
+// eighth viewer to join at once is never refused for the preamble's few bytes.
+func TestReplayBoundHoldsEightFullReplays(t *testing.T) {
+	t.Parallel()
+
+	full := pty.DefaultLimits().ScrollbackBytesMax + pty.PreambleBytesMax
+	if pty.ReplayBytesMax != full {
+		t.Fatalf("ReplayBytesMax = %d, want the scrollback and the preamble, %d",
+			pty.ReplayBytesMax, full)
+	}
+
+	if server.ReplayBytesInFlightMax != 8*full {
+		t.Fatalf("ReplayBytesInFlightMax = %d, want eight full replays, %d",
+			server.ReplayBytesInFlightMax, 8*full)
+	}
+}

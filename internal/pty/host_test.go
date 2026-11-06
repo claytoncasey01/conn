@@ -910,8 +910,9 @@ func TestAReplayStartsWithTheModesTheProgramSet(t *testing.T) {
 	viewer := subscribeAfter(t, host, sessionID, want)
 	viewer.Close()
 
-	// Once the program has turned them off, a replay holds no modes.
-	process.feed(t, []byte("\x1b[?2004l\x1b[?1l\x1b[?1003l\x1b[?1006l"))
+	// Once the program has turned them off, a replay holds no modes: exactly the newest output.
+	const off = "\x1b[?2004l\x1b[?1l\x1b[?1003l\x1b[?1006l"
+	process.feed(t, []byte(off))
 	process.finish(0)
 	waitEnded(t, host, sessionID)
 
@@ -921,8 +922,131 @@ func TestAReplayStartsWithTheModesTheProgramSet(t *testing.T) {
 	}
 	defer ended.Close()
 
-	if bytes.HasPrefix(ended.Replay, []byte("\x1b[?1h")) {
-		t.Fatalf("an ended session's replay starts with modes the program turned off")
+	everything = append(everything, off...)
+	if !bytes.Equal(ended.Replay, everything[len(everything)-scrollbackBytesMax:]) {
+		t.Fatalf("an ended session's replay holds more than the newest output, %d bytes",
+			len(ended.Replay))
+	}
+}
+
+// An editor opened inside the replay's window (the switch to the alternate screen is still in
+// it) gets no switch in front of the replay: the replay switches itself, so the main screen's
+// output before it stays on the main screen, there when the editor exits.
+func TestAReplayDoesNotRepeatAnAlternateSwitchItHolds(t *testing.T) {
+	t.Parallel()
+
+	host, spawner := newFakeHost(t, pty.DefaultLimits())
+
+	sessionID, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const output = "MAIN-1\r\nMAIN-2\r\n\x1b[?1049hVIM"
+
+	spawner.last(t).feed(t, []byte(output))
+
+	viewer := subscribeAfter(t, host, sessionID, []byte(output))
+	viewer.Close()
+}
+
+// An editor whose switch to the alternate screen has left the window gets the switch in front,
+// so the replay is drawn on the alternate screen, as the program draws it.
+func TestAReplayStartsOnTheAlternateScreenWhenItsSwitchHasLeft(t *testing.T) {
+	t.Parallel()
+
+	host, spawner := newFakeHost(t, pty.DefaultLimits())
+
+	sessionID, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	process := spawner.last(t)
+	process.feed(t, []byte("MAIN\r\n\x1b[?1049h"))
+
+	scrollbackBytesMax := pty.DefaultLimits().ScrollbackBytesMax
+
+	var everything []byte
+	for len(everything) < scrollbackBytesMax {
+		chunk := bytes.Repeat([]byte{'v'}, pty.ReadBufferBytes)
+		everything = append(everything, chunk...)
+		process.feed(t, chunk)
+	}
+
+	want := append([]byte("\x1b[?1049h"), everything[len(everything)-scrollbackBytesMax:]...)
+
+	viewer := subscribeAfter(t, host, sessionID, want)
+	viewer.Close()
+}
+
+// A paste cut short by the program not reading (the terminal's write deadline) is closed in
+// front of the next input that reaches it, so the program is never left inside a paste where
+// every later key, Enter too, is pasted text.
+func TestAPasteCutShortIsClosedBeforeTheNextInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		first   string
+		cut     int
+		next    string
+		program string
+	}{
+		{
+			name: "cut inside the paste", first: "\x1b[200~abcdef\x1b[201~", cut: 9,
+			next: "x", program: "\x1b[200~abc\x1b[201~x",
+		},
+		{
+			name: "cut inside the end marker", first: "\x1b[200~abc\x1b[201~", cut: 12,
+			next: "x", program: "\x1b[200~abc\x1b[2\x1b[201~x",
+		},
+		{
+			name: "cut after the whole paste", first: "\x1b[200~abc\x1b[201~y", cut: 15,
+			next: "x", program: "\x1b[200~abc\x1b[201~x",
+		},
+		{
+			name: "cut before the paste began", first: "ab\x1b[200~cd\x1b[201~", cut: 2,
+			next: "x", program: "abx",
+		},
+		{
+			name: "cut keys, no paste", first: "abcdef", cut: 3, next: "x", program: "abcx",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			host, spawner := newFakeHost(t, pty.DefaultLimits())
+
+			sessionID, err := host.Start(t.Context(), testSpec(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			process := spawner.last(t)
+			process.cutNextWrite(tt.cut)
+
+			err = host.Write(sessionID, []byte(tt.first))
+			if !errors.Is(err, pty.ErrInputBlocked) {
+				t.Fatalf("a write cut short = %v, want ErrInputBlocked", err)
+			}
+
+			err = host.Write(sessionID, []byte(tt.next))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			err = host.Write(sessionID, []byte("z"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if got := string(process.writtenSoFar()); got != tt.program+"z" {
+				t.Fatalf("the program read %q, want %q", got, tt.program+"z")
+			}
+		})
 	}
 }
 

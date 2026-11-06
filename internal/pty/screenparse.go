@@ -91,7 +91,9 @@ func (s *Screen) Feed(data []byte) {
 	s.changed = false
 
 	for _, current := range data {
+		s.noteSequenceStart(current)
 		s.decode(current)
+		s.fed++
 	}
 
 	if s.changed {

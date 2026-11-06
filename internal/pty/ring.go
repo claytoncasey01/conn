@@ -7,6 +7,8 @@ type ring struct {
 	limit int
 	// start is where the oldest byte is once data is full; before that it is 0.
 	start int
+	// written counts every byte ever written, kept or not.
+	written uint64
 }
 
 // ringCapacityFirst is what a ring allocates for its first output, so a quiet session does not
@@ -21,11 +23,13 @@ func newRing(limit int) ring {
 		panic("pty: a scrollback ring needs a limit above zero")
 	}
 
-	return ring{data: nil, limit: limit, start: 0}
+	return ring{data: nil, limit: limit, start: 0, written: 0}
 }
 
 // write adds chunk as the newest bytes, dropping the oldest past the limit.
 func (r *ring) write(chunk []byte) {
+	r.written += uint64(len(chunk))
+
 	if len(chunk) >= r.limit {
 		r.reserve(r.limit)
 		r.data = append(r.data[:0], chunk[len(chunk)-r.limit:]...)
@@ -74,4 +78,9 @@ func (r *ring) contentsAfter(prefix []byte) []byte {
 	out = append(out, r.data[r.start:]...)
 
 	return append(out, r.data[:r.start]...)
+}
+
+// windowStart is the output offset of the oldest byte the ring holds.
+func (r *ring) windowStart() uint64 {
+	return r.written - uint64(len(r.data))
 }

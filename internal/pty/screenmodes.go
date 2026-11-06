@@ -2,6 +2,14 @@ package pty
 
 import "strconv"
 
+// PreambleBytesMax bounds a mode preamble: every mode written once is 47 bytes. A longer one is a
+// mistake in this file.
+const PreambleBytesMax = 64
+
+// ReplayBytesMax bounds a viewer's replay with the default limits: the preamble and a full
+// scrollback.
+const ReplayBytesMax = scrollbackBytesMax + PreambleBytesMax
+
 // The modes that decide what a viewer's terminal sends the program, beyond those screencontrol.go
 // acts on: the cursor keys, the keypad, and the mouse. The screen keeps them so that a viewer
 // who joins late is put in the modes the program asked for, even when the sequences that asked
@@ -23,8 +31,10 @@ const (
 	// mouseOff is no mouse tracking, and mouseEncodingDefault the X10 encoding.
 	mouseOff             = 0
 	mouseEncodingDefault = 0
-	// preambleBytesMax bounds the longest preamble: every mode written once.
-	preambleBytesMax = 64
+	// escapeByte and c1LeadByte begin a control sequence: ESC, and the first byte of a C1
+	// control written as UTF-8 (U+0080 to U+009F all start with it).
+	escapeByte = 0x1b
+	c1LeadByte = 0xc2
 	// decimal is the base a mode's number is written in.
 	decimal = 10
 )
@@ -75,16 +85,21 @@ func (s *Screen) softReset() {
 	s.top, s.bottom = 0, s.rows-1
 }
 
-// ModePreamble is what puts a terminal just reset into the modes the program's screen is in: the
-// alternate screen, the cursor keys, the keypad, bracketed paste, focus reports and the mouse.
-// Only modes that are on are written, so a program that set none gives nothing. A viewer's replay
-// starts with it, so its modes are the program's however much output has passed since they were
-// set; the replay's own mode switches, being later, still apply after it.
-func (s *Screen) ModePreamble() []byte {
-	out := make([]byte, 0, preambleBytesMax)
+// ModePreamble is what puts a terminal just reset into the modes the program's screen is in, for
+// a viewer whose replay starts at output offset windowStart (the offset of the first byte of
+// output still in the scrollback). The input modes that are on are written: the cursor keys, the
+// keypad, bracketed paste, focus reports and the mouse, so a viewer has them however much output
+// has passed since they were set; the replay's own later switches still apply after them. The
+// alternate screen is written only when the switch to it began before windowStart: a switch the
+// replay holds is made by the replay itself, after the main screen's output before it, which
+// then stays on the main screen.
+func (s *Screen) ModePreamble(windowStart uint64) []byte {
+	out := make([]byte, 0, PreambleBytesMax)
 
 	if s.onAlternate {
-		out = appendMode(out, modeAlternateSaveCursor)
+		if s.alternateFrom < windowStart {
+			out = appendMode(out, modeAlternateSaveCursor)
+		}
 	}
 
 	if s.cursorKeys {
@@ -111,7 +126,20 @@ func (s *Screen) ModePreamble() []byte {
 		out = appendMode(out, s.mouseEncoding)
 	}
 
+	if len(out) > PreambleBytesMax {
+		panic("pty: a mode preamble is longer than PreambleBytesMax")
+	}
+
 	return out
+}
+
+// noteSequenceStart keeps where the newest control sequence began, for a switch of screens to
+// say where it was in the output: every sequence begins with ESC or a C1 control.
+func (s *Screen) noteSequenceStart(current byte) {
+	switch current {
+	case escapeByte, c1LeadByte:
+		s.sequenceStart = s.fed
+	}
 }
 
 // appendMode is out with the sequence that sets DEC private mode.

@@ -59,6 +59,11 @@ type Screen struct {
 	keypad        bool
 	mouseTracking int
 	mouseEncoding int
+	// fed counts the bytes of output read; sequenceStart is the offset the newest control
+	// sequence began at, and alternateFrom that of the newest switch to the alternate screen.
+	fed           uint64
+	sequenceStart uint64
+	alternateFrom uint64
 	// lastPrinted is the character a repeat (REP) repeats.
 	lastPrinted rune
 	parser      parser
@@ -125,6 +130,7 @@ func NewScreen(size Size) (*Screen, error) {
 		cursor: cursorState{}, top: 0, bottom: rows - 1, autowrap: true, origin: false,
 		bracketedPaste: false, focusReports: false, cursorKeys: false, keypad: false,
 		mouseTracking: mouseOff, mouseEncoding: mouseEncodingDefault,
+		fed: 0, sequenceStart: 0, alternateFrom: 0,
 		lastPrinted: cellEmpty, parser: parser{}, queries: make([]Query, 0, queriesPendingMax),
 		generation: 0, changed: false,
 		wide: wideRanges(), graphics: lineDrawing(), answered: answeredQueries(),
@@ -339,6 +345,10 @@ func (s *Screen) reset() {
 // show shows the alternate screen or the main one. Leaving the alternate screen clears it, as
 // xterm.js does.
 func (s *Screen) show(alternate bool) {
+	if alternate {
+		s.alternateFrom = s.sequenceStart
+	}
+
 	if s.onAlternate == alternate {
 		return
 	}

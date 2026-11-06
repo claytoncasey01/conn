@@ -160,7 +160,7 @@ func (h *Host) unsubscribe(watched *session, leaving *viewer) {
 // takes Host.mu while holding the screen's.
 func (watched *session) replay() []byte {
 	watched.screenMu.Lock()
-	preamble := watched.screen.ModePreamble()
+	preamble := watched.screen.ModePreamble(watched.scrollback.windowStart())
 	watched.screenMu.Unlock()
 
 	return watched.scrollback.contentsAfter(preamble)

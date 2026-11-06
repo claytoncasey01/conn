@@ -50,6 +50,9 @@ type session struct {
 	ended chan struct{}
 	// writeTurn holds one value while a Write is in the program, so Writes take turns.
 	writeTurn chan struct{}
+	// pasteOpen says the program was last sent the start of a bracketed paste and not its end:
+	// a write cut short left it inside the paste. Guarded by writeTurn.
+	pasteOpen bool
 	// answers queues the replies to the program's terminal queries, from its reader to its
 	// answerer, which closes answered once the reader has closed answers and all are typed.
 	answers  chan []byte
@@ -431,12 +434,31 @@ func (h *Host) typeInto(writing *session, data []byte, how typing) (uint64, erro
 		}()
 	}
 
-	_, err = writing.process.Write(data)
+	err = writing.writeClosingPaste(data)
 	if err != nil {
 		return 0, writeFailure(err)
 	}
 
 	return inputs, nil
+}
+
+// writeClosingPaste writes data to the program, after the end of a paste a write cut short left
+// open, and keeps whether what the program has now read leaves a paste open. The caller holds
+// the write turn.
+func (held *session) writeClosingPaste(data []byte) error {
+	sent := data
+	if held.pasteOpen {
+		sent = append(append(make([]byte, 0, len(pasteEnd)+len(data)), pasteEnd...), data...)
+	}
+
+	written, err := held.process.Write(sent)
+	held.pasteOpen = pasteOpenAfter(held.pasteOpen, sent[:max(0, min(written, len(sent)))])
+
+	if err != nil {
+		return fmt.Errorf("writing input: %w", err)
+	}
+
+	return nil
 }
 
 // takeTurn waits for the session's write turn, at most writeWaitMax: writes take turns, and the

@@ -37,10 +37,13 @@ const (
 	// connectionsMax is the most terminals open at once over all sessions: more than the host's
 	// sessions times their viewers, so it only refuses a flood of handshakes for ended sessions.
 	connectionsMax = 64
+	// replaysInFlightFull is how many full replays may be written at once.
+	replaysInFlightFull = 8
 	// replayBytesInFlightMax bounds the replays being written at once, in bytes: eight full
-	// scrollbacks. With the viewers' queues (at most 2 MiB for each of the host's 48 viewers)
-	// it bounds what viewers that do not read can make the server hold.
-	replayBytesInFlightMax = 32 << 20
+	// replays, each a mode preamble and a full scrollback. With the viewers' queues (at most
+	// 2 MiB for each of the host's 48 viewers) it bounds what viewers that do not read can make
+	// the server hold.
+	replayBytesInFlightMax = replaysInFlightFull * pty.ReplayBytesMax
 	// inputQueueFramesMax is how many of a viewer's frames may wait for the program while it
 	// takes the one before. A frame past it is dropped, as input the program does not take is:
 	// the program is not reading, and the terminal stays open. The frames are typed on their own
