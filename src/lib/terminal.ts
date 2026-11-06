@@ -376,7 +376,8 @@ const NORMAL_CLOSE = 1000
 /** What the panel says of input refused for its size, or held while the page catches up. */
 export const TOO_LARGE = `That is too large to type at once: at most ${PASTE_BYTES_MAX >> 10} KiB, sent whole. Nothing was typed.`
 const HELD = 'The terminal is catching up with the program, so keys other than Ctrl-C are held. Once it has, press a key to type again, or Dismiss.'
-const PASTE_CLOSED = 'A paste was cut short and has been closed. Check the screen before typing.'
+/** The note the page shows once the server has closed a cut paste in place of a key. */
+export const PASTE_CLOSED = 'A paste was cut short and has been closed. Check the screen before typing.'
 const RELEASED = 'Typing again. The key that ended the hold was not typed.'
 /**
  * The interrupt keys, Ctrl-C and Ctrl-\: sent whenever the terminal is open, held or not, and never part of a hold, so
@@ -413,12 +414,20 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   const heard = options.heard ?? (() => {})
   const now = options.now ?? (() => performance.now())
   let view: View = { phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, held: false, pasteClosed: false }
-  // The note is made of these, the paste-closed warning first: no note of a hold ever replaces it
+  // The note is made of these, each that is true joined in a fixed rank: the paste-closed warning, then too large, then
+  // the hold's (typing again, or held). So no note ever replaces one that is still true
   let holdNote = ''
   let inputNote = ''
   let pasteClosedAt: number | null = null
-  const noteNow = (): string => [pasteClosedAt === null ? '' : PASTE_CLOSED, holdNote || inputNote].filter(Boolean).join(' ')
+  const noteNow = (): string => [pasteClosedAt === null ? '' : PASTE_CLOSED, inputNote, holdNote].filter(Boolean).join(' ')
   const noted = (next: Partial<View> = {}) => update({ ...next, note: noteNow(), pasteClosed: pasteClosedAt !== null })
+  // A closed or ended terminal takes no keys and shows no Dismiss: no note of input is left to ask for either
+  const ends = (next: Partial<View>) => {
+    holdNote = ''
+    inputNote = ''
+    pasteClosedAt = null
+    noted({ ...next, held: false, lagging: false })
+  }
   // When the last key was held, and when the page last caught up: the quiet gap runs from the later
   let heldAt = 0
   let caughtUpAt = 0
@@ -449,7 +458,7 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
   const fellBehind = () => {
     if (view.phase === 'closed') return
     socket.close(NORMAL_CLOSE)
-    update({ phase: 'closed', notice: FELL_BEHIND, held: false, lagging: false })
+    ends({ phase: 'closed', notice: FELL_BEHIND })
   }
   const drawn = (size: number) => () => {
     pending -= size
@@ -503,13 +512,13 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
       pasteClosedAt = now()
       noted()
     } else if (message?.t === 'exit') {
-      update({ phase: 'ended', exitCode: message.code, notice: closeNotice(NORMAL_CLOSE, '', message.code) })
+      ends({ phase: 'ended', exitCode: message.code, notice: closeNotice(NORMAL_CLOSE, '', message.code) })
     }
   }
   socket.onclose = (event: CloseEvent) => {
     if (view.phase === 'ended') return
     if (view.phase === 'closed') return
-    update({ phase: 'closed', notice: closeNotice(event.code, event.reason, null), held: false, lagging: false })
+    ends({ phase: 'closed', notice: closeNotice(event.code, event.reason, null) })
   }
   socket.onerror = () => {}
   const typeFrames = (data: string) => {
@@ -520,6 +529,8 @@ export function attach(open: () => Socket | null, screen: Screen, show: (view: V
       return
     }
     socket.send(text)
+    // A pointer report is not a key: it clears no note, as it neither starts nor ends a hold
+    if (isMouseReport(data)) return
     // A key typed makes old the notes about earlier input. The paste-closed warning is still true after a key (the program
     // still holds the paste), so only a key well after it, or Dismiss, clears it
     holdNote = ''

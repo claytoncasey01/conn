@@ -1019,6 +1019,7 @@ test('falling behind past the close mark ends the hold and the lag with the term
   assert.equal(last().phase, 'closed')
   assert.equal(last().held, false)
   assert.equal(last().lagging, false)
+  assert.equal(last().note, '', 'no note asks for a key or a Dismiss the closed terminal cannot take')
 })
 
 test('a close from the server ends the hold and the lag', () => {
@@ -1028,6 +1029,57 @@ test('a close from the server ends the hold and the lag', () => {
   socket.end(1001, 'conn is stopping')
   assert.equal(last().held, false)
   assert.equal(last().lagging, false)
+  assert.equal(last().note, '')
+})
+
+test('an exit ends the hold, the lag and every note, the paste-closed one too', () => {
+  const { socket, link, last } = live()
+  socket.text('{"t":"paste-closed"}')
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  socket.text('{"t":"exit","code":0}')
+  assert.equal(last().phase, 'ended')
+  assert.equal(last().held, false)
+  assert.equal(last().lagging, false)
+  assert.equal(last().note, '')
+  assert.equal(last().pasteClosed, false)
+})
+
+test('a close ends the paste-closed note, which could no longer be dismissed', () => {
+  const { socket, last } = live()
+  socket.text('{"t":"paste-closed"}')
+  socket.end(1013, "fell behind the program's output")
+  assert.equal(last().note, '')
+  assert.equal(last().pasteClosed, false)
+})
+
+test('a pointer report after the quiet gap does not clear the paste-closed note: only a key does', () => {
+  const { socket, link, last, frames, clock } = live()
+  socket.text('{"t":"paste-closed"}')
+  clock.now += HOLD_QUIET_MS
+  link.input('\x1b[<0;1;1M', true)
+  link.input('\x1b[<35;2;2M', true)
+  frames.run()
+  assert.equal(last().pasteClosed, true)
+  assert.ok(last().note.includes(PASTE_CLOSED_NOTE))
+  link.input('k', true)
+  assert.equal(last().pasteClosed, false)
+})
+
+test('the notes rank paste-closed, then too large, then typing again, joined', () => {
+  const { socket, screen, link, last, clock } = live()
+  socket.text('{"t":"paste-closed"}')
+  socket.message(bytesOf(2 * MiB))
+  link.input('a', true)
+  screen.drain()
+  clock.now += HOLD_QUIET_MS
+  link.input('b', true)
+  link.input('x'.repeat(INPUT_BYTES_MAX + 1), true)
+  const note = last().note
+  const at = (text: RegExp) => note.search(text)
+  assert.ok(note.startsWith(PASTE_CLOSED_NOTE), note)
+  assert.ok(at(/too large/) > at(/cut short/), note)
+  assert.ok(at(/Typing again/) > at(/too large/), note)
 })
 
 const noInterrupt: [string, (parts: ReturnType<typeof rig>) => void][] = [

@@ -10,7 +10,7 @@
 // - LEAVE_KEY leaves the terminal, so a keyboard is never trapped in it.
 // - A reconnect is a new terminal, so nothing queued for the old one is drawn after the replay.
 import type { ITerminalAddon, ITerminalOptions, ITheme, Terminal } from '@xterm/xterm'
-import { attach, cleanPaste, fitSize, hasLineBreak, inputFrame, isMouseRelease, isMouseReport, linkTarget, RESIZE_DEBOUNCE_MS, silence, terminalOptions, TOO_LARGE } from './terminal.ts'
+import { attach, cleanPaste, fitSize, hasLineBreak, inputFrame, isMouseRelease, isMouseReport, linkTarget, PASTE_CLOSED, RESIZE_DEBOUNCE_MS, silence, terminalOptions, TOO_LARGE } from './terminal.ts'
 import type { Frame, LinkCallbacks, Link, Size, Socket, View } from './terminal.ts'
 
 /** The part of xterm.js's Terminal the panel uses. */
@@ -111,7 +111,19 @@ export function mount(deps: MountDeps): Panel {
   let cancelMeasure = () => {}
 
   const render = () => {
-    if (!stopped) deps.show({ ...base, note: note || base.note, ask, hover })
+    if (!stopped) deps.show({ ...base, note: shownNote(), ask, hover })
+  }
+
+  /**
+   * The note shown, in the same rank as the connection's: its paste-closed warning first, joined with the panel's own note
+   * (a paste refused or dropped, which answers what the person just did) ahead of the connection's other notes.
+   */
+  const shownNote = (): string => {
+    if (note === '') return base.note
+    if (!base.pasteClosed) return note
+    // The connection's note starts with the warning whenever it is up
+    const rest = base.note.slice(PASTE_CLOSED.length).trim()
+    return [PASTE_CLOSED, note, rest].filter(Boolean).join(' ')
   }
 
   /** The connection's view. A new note of its own replaces the panel's, which never hides it. */
