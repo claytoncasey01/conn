@@ -29,6 +29,61 @@ func (h *Host) Stop(ctx context.Context, sessionID ID) error {
 	return h.stopSession(ctx, stopping)
 }
 
+// StopIfStill is Stop, but only if the screen read that gave mark still stands once the session's
+// write turn is taken, by WriteIfStill's checks (no input since the read, the program in the
+// foreground and not reading a line, the bottom count lines still passing still); otherwise it
+// returns why, as WriteIfStill does, and signals nothing. The polite stop is sent inside the
+// turn, so no input reaches the program between the check and it; the rest of the stop (the
+// grace, the kill, the wait) runs after the turn is given back, as Stop's does.
+func (h *Host) StopIfStill(
+	ctx context.Context, sessionID ID, mark ScreenMark, count int,
+	still func(lines []string) bool,
+) error {
+	if still == nil {
+		panic("pty: StopIfStill needs a check")
+	}
+
+	stopping, err := h.runningSession(sessionID)
+	if err != nil {
+		return err
+	}
+
+	err = h.takeTurn(stopping)
+	if err != nil {
+		return err
+	}
+
+	check := screenCheck{mark: mark, count: count, still: still}
+
+	err = check.passes(stopping)
+	if err == nil {
+		err = h.terminateUnlessStopped(stopping)
+	}
+
+	<-stopping.writeTurn
+
+	if err != nil {
+		return err
+	}
+
+	return h.stopSession(ctx, stopping)
+}
+
+// terminateUnlessStopped sends the polite stop, unless the group is known to be empty (its
+// number may belong to a new program by now).
+func (h *Host) terminateUnlessStopped(stopping *session) error {
+	if h.isGroupStopped(stopping) {
+		return nil
+	}
+
+	err := stopping.process.Terminate()
+	if err != nil {
+		return fmt.Errorf("stopping session %s: %w", stopping.sessionID, err)
+	}
+
+	return nil
+}
+
 // StopAll refuses every Start from now on, waits for the Starts already spawning (for at most
 // ctx), then stops every session whose group is not known to be empty, all at once, and waits
 // for them. It is what quitting Conn does. It returns every problem, joined. (The plan had it

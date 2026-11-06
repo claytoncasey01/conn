@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/ask"
+	"github.com/claytoncasey01/conn/internal/pty"
 )
 
 // TestReviewsCanCloseAHostedSessionThroughTheHost: the input state and the close Reviews uses to
@@ -69,3 +70,52 @@ func TestReviewsCanCloseAHostedSessionThroughTheHost(t *testing.T) {
 
 // testSettle is longer than the host's settle window for input, so a screen read counts.
 func testSettle() time.Duration { return settledAfter }
+
+// TestAHostedCloseIsRefusedUnlessTheReadStillStands: a hosted review is not closed while a program
+// it started holds its terminal, when something was typed into it just before, or while it runs
+// but has not registered; none of them is signalled.
+func TestAHostedCloseIsRefusedUnlessTheReadStillStands(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	stamp := float64(time.Now().UnixMilli() - 5000)
+	held, heldProgram := fake.hostedSession(71, "pr-3-acme--app", "idle", "", idleBox, stamp)
+	typed, typedProgram := fake.hostedSession(72, "pr-4-acme--app", "idle", "", idleBox, stamp)
+	unregistered, unregisteredProgram := fake.hostedSession(73, "pr-5-acme--app", "", "",
+		idleBox, stamp)
+	loop := start(t, fake)
+
+	rowOf(t, loop, held, anyRow)
+	rowOf(t, loop, typed, anyRow)
+	rowOf(t, loop, unregistered, anyRow)
+	time.Sleep(testSettle())
+
+	heldProgram.background.Store(true)
+
+	foreground := loop.CloseWorkspace(t.Context(), held)
+	if body(foreground) != `{"error":"a program the session started has its terminal, so `+
+		`nothing was closed"}` {
+		t.Errorf("foreground held: %d %s", foreground.Code, body(foreground))
+	}
+
+	err := fake.host.Write(pty.ID(typed), []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	justTyped := loop.CloseWorkspace(t.Context(), typed)
+	if justTyped.Code != http.StatusConflict {
+		t.Errorf("input just typed: %d %s", justTyped.Code, body(justTyped))
+	}
+
+	notRegistered := loop.CloseWorkspace(t.Context(), unregistered)
+	if notRegistered.Code != http.StatusNotFound {
+		t.Errorf("unregistered: %d %s", notRegistered.Code, body(notRegistered))
+	}
+
+	for _, program := range []*program{heldProgram, typedProgram, unregisteredProgram} {
+		if stops := program.stops(); len(stops) != 0 {
+			t.Errorf("program %d was signalled: %v", program.pid, stops)
+		}
+	}
+}
