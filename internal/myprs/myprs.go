@@ -193,7 +193,7 @@ type Deps struct {
 	// RepoMatches is whether the clone at path has repo as its origin; an error when git
 	// cannot say.
 	RepoMatches func(ctx context.Context, repo, path string) (bool, error)
-	// Launch opens a self-review round (the worktree, the prompt file and the cmux workspace);
+	// Launch opens a self-review round (the worktree, the prompt file and the session);
 	// the data folder is the wiring's.
 	Launch func(ctx context.Context, opts LaunchOpts) LaunchResult
 	// Git runs git without a shell, in dir, stopped after timeout.

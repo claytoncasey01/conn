@@ -1,10 +1,10 @@
 package myprs
 
 // Launching a self-review: a worktree of the local clone on a new branch at the PR's head, the
-// prompt in a file, and a cmux workspace running claude. Only an integer PR number and round, a
-// validated repo and branch name, the fixed name and model and the constant deny rules ever
-// reach a command or the prompt. A PR title, an author, a thread or anything else from GitHub
-// or Slack is not an input of anything here.
+// prompt in a file, and a session running claude where the settings say. Only an integer PR
+// number and round, a validated repo and branch name, the fixed name and model and the constant
+// deny rules ever reach an argument or the prompt. A PR title, an author, a thread or anything
+// else from GitHub or Slack is not an input of anything here.
 
 import (
 	"context"
@@ -216,8 +216,9 @@ type LaunchOpts struct {
 }
 
 // LaunchResult is how a launch went: the worktree and the commit it was put at (read there, so
-// it is the head the round starts from, not the last poll's). When only cmux failed, the
-// worktree and the prompt are in place and the command to paste comes with both.
+// it is the head the round starts from, not the last poll's). When only the session's start
+// failed (or the settings ask for the command), the worktree and the prompt are in place and the
+// command to paste comes with both.
 type LaunchResult struct {
 	OK            bool
 	Worktree      string
@@ -239,13 +240,13 @@ type launchPlan struct {
 // Launch opens a self-review: it refuses a bad repo, number, round, ref, name or model before
 // any call; fetches the PR branch; puts the worktree (`Folder(...)/<clone-name>`) on a local
 // branch `conn-self-<n>` at it (after pruning stale worktree records); writes
-// `.conn/prompt.md`; starts the workspace. A worktree that exists is reused only when it
+// `.conn/prompt.md`; starts the session. A worktree that exists is reused only when it
 // belongs to this clone, is clean and is on that branch, and is then fast-forwarded; one left
 // holding a commit that is not on the PR branch is refused. A leftover branch with no worktree
 // is reused only when it holds nothing the PR branch lacks. Nothing here deletes or forces
 // anything. A git or write failure gives the first line of its message and opens nothing. A
-// cmux failure leaves the worktree and returns the command to paste, with the worktree and its
-// commit.
+// session that did not start leaves the worktree and returns the command to paste, with the
+// worktree and its commit.
 func (s Self) Launch(ctx context.Context, deps reviews.LaunchDeps, opts LaunchOpts) LaunchResult {
 	plan, err := s.checks(opts)
 	if err != nil {

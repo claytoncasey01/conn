@@ -145,13 +145,15 @@ type Deps struct {
 	Sessions func() []sessions.LiveSession
 	Bump     func()
 	Now      func() float64
-	// Launch opens a review (the worktree, the prompt file and the cmux workspace).
+	// Launch opens a review (the worktree, the prompt file and the session, where the settings
+	// say).
 	Launch func(ctx context.Context, opts LaunchOpts) LaunchResult
 	// Git runs git without a shell, in dir, stopped after timeout.
 	Git func(ctx context.Context, args []string, dir string, timeout time.Duration) (string, error)
 	// InputState is what a live session's input box shows now ("empty", ...).
 	InputState func(ctx context.Context, pid string) string
-	// CloseWorkspace closes a session's whole cmux workspace: the reply's code and error.
+	// CloseWorkspace closes a session's whole cmux workspace, or stops a session Conn hosts:
+	// the reply's code and error.
 	CloseWorkspace func(ctx context.Context, pid string) (int, string)
 	// Exists is whether a path exists.
 	Exists func(path string) bool

@@ -1,8 +1,9 @@
 // Package openwork is Open work: the open sprint's Jira tickets, and the runs started from them.
-// A run makes a worktree beside the clone of each repository it was started in, moves the ticket
-// into progress, has four read-only agents research it (Jira, Confluence, Slack and the code),
-// asks the person what the sources could not settle, opens a build session in cmux, and on OPEN
-// PR pushes the branch and opens the pull request, then follows it until it merges.
+// asks the person what the sources could not settle, opens a build session where the settings
+// say (inside Conn, a terminal app, or a command to paste), and on OPEN PR pushes the branch and
+// opens the pull request, then follows it until it merges. A run may build in several
+// repositories (legs), each in a worktree of its own, with one session that reaches them all or
+// one session per leg.
 //
 // Concurrency: one mutex guards the state. Every stretch of work between two calls to the outside
 // (git, gh, claude, cmux, the session list's reply) runs holding it, and every call to the
