@@ -3,8 +3,10 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -271,7 +273,7 @@ func TestASecondInterruptSoonAfterIsNotSent(t *testing.T) {
 		t.Fatalf("second: %d %s", code, body)
 	}
 
-	if !strings.Contains(body, "already sent") {
+	if !strings.Contains(body, "just sent or is being sent") {
 		t.Errorf("second: %s", body)
 	}
 
@@ -306,4 +308,33 @@ func TestAnInterruptForAnUnknownSessionKeepsNothing(t *testing.T) {
 	if kept := server.BudgetsKept(rig.terminals); kept != 0 {
 		t.Errorf("%d budgets kept for sessions that do not exist", kept)
 	}
+}
+
+// TestAnInterruptThatFailedIsNotCountedAsSent: an interrupt the program did not take (its write
+// failed) typed nothing, so a press straight after it, inside the repeat window, is typed.
+func TestAnInterruptThatFailedIsNotCountedAsSent(t *testing.T) {
+	t.Parallel()
+
+	// The program refuses the first write and takes the second.
+	replies := make(chan error, 2)
+	for _, reply := range []error{fmt.Errorf("write: %w", os.ErrDeadlineExceeded), nil} {
+		replies <- reply
+	}
+
+	rig := newTerminalRig(t, rigSetup{programs: &fakePrograms{writeReplies: replies}})
+	sessionID, program := rig.start(t)
+
+	code, body := rig.postInterrupt(t, string(sessionID), "", nil)
+	if code != http.StatusBadGateway {
+		t.Fatalf("the failed press: %d %s", code, body)
+	}
+
+	code, body = rig.postInterrupt(t, string(sessionID), "", nil)
+	if code != http.StatusOK {
+		t.Fatalf("the press after it: %d %s", code, body)
+	}
+
+	eventually(t, "the second press typed one ETX", func() bool {
+		return bytes.Equal(program.writtenSoFar(), []byte{0x03})
+	})
 }

@@ -24,7 +24,8 @@ import (
 //
 // A second Ctrl-C soon after the first makes claude quit, and a person pressing again because
 // nothing seemed to happen means no such thing: an interrupt within interruptRepeatWindow of the
-// last one sent to the same session is not typed, and the answer says it was already sent.
+// last one sent to the same session is not typed, and the answer says one was just sent or is
+// being sent.
 
 const (
 	// interruptSuffix ends the route's path, after the session's id.
@@ -38,8 +39,10 @@ const (
 	textPasteShut = "a paste into the terminal was cut short and has just been closed: " +
 		"interrupt again"
 	textNotEmpty = "an interrupt takes no body"
-	textAlready  = "already sent: Ctrl-C reached the program a moment ago, and a second one " +
-		"so soon could make it quit"
+	// textAlready is the answer to a press while another's claim stands: that one may still be
+	// on its way, or may yet fail, so it is not said to have reached the program.
+	textAlready = "an interrupt was just sent or is being sent: a second Ctrl-C so soon " +
+		"could make the program quit"
 
 	// interruptRepeatWindow is how long after an interrupt is sent another to the same session
 	// is not typed: longer than claude's own window for a second Ctrl-C to quit it.
