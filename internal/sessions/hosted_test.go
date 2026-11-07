@@ -424,11 +424,7 @@ func TestAHostedSessionIsARowUnderItsIssuedID(t *testing.T) {
 
 	loop := start(t, fake)
 
-	tests := []struct {
-		name, id, wantName, wantStatus string
-		wantCanReply                   bool
-		wantExit                       bool
-	}{
+	tests := []hostedRowCase{
 		{"registered", registered, "n40", "idle", true, false},
 		{"not registered yet", unregistered, "build-2", "idle", true, false},
 		{"ended", ended, "build-3", "idle", false, true},
@@ -439,26 +435,7 @@ func TestAHostedSessionIsARowUnderItsIssuedID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			row := rowOf(t, loop, tt.id, anyRow)
-			if !row.Hosted {
-				t.Error("the row is not marked hosted")
-			}
-
-			if row.Name != tt.wantName {
-				t.Errorf("name %q, want %q", row.Name, tt.wantName)
-			}
-
-			if row.Status != tt.wantStatus {
-				t.Errorf("status %q, want %q", row.Status, tt.wantStatus)
-			}
-
-			if row.CanReply != tt.wantCanReply {
-				t.Errorf("canReply %v, want %v", row.CanReply, tt.wantCanReply)
-			}
-
-			if (row.ExitCode != nil) != tt.wantExit {
-				t.Errorf("exitCode %v, want one: %v", row.ExitCode, tt.wantExit)
-			}
+			checkHostedRow(t, rowOf(t, loop, tt.id, anyRow), tt)
 		})
 	}
 
@@ -501,6 +478,134 @@ func TestAHostedSessionThatEndsCanNoLongerBeRepliedTo(t *testing.T) {
 	}
 }
 
+// replyCase is a reply and what it should answer and type.
+type replyCase struct {
+	name, id, text, want string
+	code                 int
+	typedInto            *program
+	wantTyped            string
+}
+
+// checkReply sends the reply and fails unless it answers and types as the case says.
+func checkReply(t *testing.T, loop *sessions.Loop, tt replyCase) {
+	t.Helper()
+
+	got := loop.Reply(t.Context(), tt.id, tt.text)
+	if got.Code != tt.code {
+		t.Errorf("%s: code %d, want %d", tt.name, got.Code, tt.code)
+	}
+
+	if body(got) != tt.want {
+		t.Errorf("%s: %s", tt.name, body(got))
+	}
+
+	if tt.typedInto == nil {
+		return
+	}
+
+	if typed := tt.typedInto.typed(); typed != tt.wantTyped {
+		t.Errorf("%s: typed %q, want %q", tt.name, typed, tt.wantTyped)
+	}
+}
+
+// checkChangedPromptRefused redraws the prompt askID was shown for as another, and fails unless
+// an answer to askID is refused, carrying the ask as it is now, with nothing typed.
+func checkChangedPromptRefused(
+	t *testing.T, loop *sessions.Loop, hostedID string, held *program, askID string,
+) {
+	t.Helper()
+
+	held.show(t, permissionScreen("rm -rf build"))
+	waitAsk(t, loop, hostedID, func(found map[string]any) bool {
+		return found["text"] == "rm -rf build"
+	})
+
+	changed := loop.Answer(t.Context(), hostedID, pressOne(askID))
+	if changed.Code != http.StatusConflict {
+		t.Errorf("a changed prompt: %d %s", changed.Code, body(changed))
+	}
+
+	if !strings.Contains(body(changed), `"text":"rm -rf build"`) {
+		t.Errorf("the refusal does not carry the ask as it is now: %s", body(changed))
+	}
+
+	if typed := held.typed(); typed != "" {
+		t.Errorf("a changed prompt was answered: %q", typed)
+	}
+}
+
+// hostedAct is the send a test makes: a reply of text, or, when answer is set, a press of 1 on
+// the prompt shown now.
+func hostedAct(
+	t *testing.T, loop *sessions.Loop, hostedID string, answer bool, text string,
+) func(ctx context.Context) sessions.Reply {
+	t.Helper()
+
+	if !answer {
+		return func(ctx context.Context) sessions.Reply {
+			return loop.Reply(ctx, hostedID, text)
+		}
+	}
+
+	askID, _ := askByID(t, loop, hostedID)["id"].(string)
+
+	return func(ctx context.Context) sessions.Reply {
+		return loop.Answer(ctx, hostedID, pressOne(askID))
+	}
+}
+
+// checkOnlyTheViewersKey fails unless got is a refusal (with the body want, when it is not "")
+// and the program was given nothing but the viewer's key.
+func checkOnlyTheViewersKey(t *testing.T, got sessions.Reply, held *program, key, want string) {
+	t.Helper()
+
+	if got.Code != http.StatusConflict {
+		t.Errorf("%d %s", got.Code, body(got))
+	}
+
+	if want != "" {
+		if body(got) != want {
+			t.Errorf("%s, want %s", body(got), want)
+		}
+	}
+
+	if typed := held.typed(); typed != key {
+		t.Errorf("typed %q, want only the viewer's %q", typed, key)
+	}
+}
+
+// hostedRowCase is a hosted session's row as a test expects it.
+type hostedRowCase struct {
+	name, id, wantName, wantStatus string
+	wantCanReply                   bool
+	wantExit                       bool
+}
+
+// checkHostedRow fails unless row is the hosted row want describes.
+func checkHostedRow(t *testing.T, row detail, want hostedRowCase) {
+	t.Helper()
+
+	if !row.Hosted {
+		t.Error("the row is not marked hosted")
+	}
+
+	if row.Name != want.wantName {
+		t.Errorf("name %q, want %q", row.Name, want.wantName)
+	}
+
+	if row.Status != want.wantStatus {
+		t.Errorf("status %q, want %q", row.Status, want.wantStatus)
+	}
+
+	if row.CanReply != want.wantCanReply {
+		t.Errorf("canReply %v, want %v", row.CanReply, want.wantCanReply)
+	}
+
+	if (row.ExitCode != nil) != want.wantExit {
+		t.Errorf("exitCode %v, want one: %v", row.ExitCode, want.wantExit)
+	}
+}
+
 // A reply types into a hosted session's program, as a paste and Enter, only once its screen
 // shows an empty input box; anything else is refused with nothing typed.
 func TestReplyToAHostedSessionTypesOnlyIntoAnEmptyBox(t *testing.T) {
@@ -515,12 +620,7 @@ func TestReplyToAHostedSessionTypesOnlyIntoAnEmptyBox(t *testing.T) {
 
 	rowOf(t, loop, asking, func(row detail) bool { return row.Status == "waiting" })
 
-	tests := []struct {
-		name, id, text, want string
-		code                 int
-		typedInto            *program
-		wantTyped            string
-	}{
+	tests := []replyCase{
 		{
 			"an empty box", empty, "hello\nthere", `{"ok":true}`, http.StatusOK, emptyProgram,
 			"\x1b[200~hello\nthere\x1b[201~\r",
@@ -555,22 +655,7 @@ func TestReplyToAHostedSessionTypesOnlyIntoAnEmptyBox(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := loop.Reply(t.Context(), tt.id, tt.text)
-		if got.Code != tt.code {
-			t.Errorf("%s: code %d, want %d", tt.name, got.Code, tt.code)
-		}
-
-		if body(got) != tt.want {
-			t.Errorf("%s: %s", tt.name, body(got))
-		}
-
-		if tt.typedInto == nil {
-			continue
-		}
-
-		if typed := tt.typedInto.typed(); typed != tt.wantTyped {
-			t.Errorf("%s: typed %q, want %q", tt.name, typed, tt.wantTyped)
-		}
+		checkReply(t, loop, tt)
 	}
 
 	if typed := emptyProgram.typed(); typed != "\x1b[200~hello\nthere\x1b[201~\r" {
@@ -609,23 +694,7 @@ func TestAnswerToAHostedSessionPressesTheKeyOfThePromptShown(t *testing.T) {
 		t.Fatalf("the ask is %v, not a permission", shown["kind"])
 	}
 
-	hostedProgram.show(t, permissionScreen("rm -rf build"))
-	waitAsk(t, loop, hostedID, func(found map[string]any) bool {
-		return found["text"] == "rm -rf build"
-	})
-
-	changed := loop.Answer(t.Context(), hostedID, pressOne(askID))
-	if changed.Code != http.StatusConflict {
-		t.Errorf("a changed prompt: %d %s", changed.Code, body(changed))
-	}
-
-	if !strings.Contains(body(changed), `"text":"rm -rf build"`) {
-		t.Errorf("the refusal does not carry the ask as it is now: %s", body(changed))
-	}
-
-	if typed := hostedProgram.typed(); typed != "" {
-		t.Errorf("a changed prompt was answered: %q", typed)
-	}
+	checkChangedPromptRefused(t, loop, hostedID, hostedProgram, askID)
 
 	current, _ := askByID(t, loop, hostedID)["id"].(string)
 
@@ -1270,18 +1339,8 @@ func TestASendChecksTheScreenAgainWhenItsTurnComes(t *testing.T) {
 				tt.before, stamp)
 			loop := start(t, fake)
 
-			act := func(ctx context.Context) sessions.Reply {
-				return loop.Reply(ctx, hostedID, "hello")
-			}
-
 			rowOf(t, loop, hostedID, func(row detail) bool { return row.Status == tt.status })
-
-			if tt.answer {
-				askID, _ := askByID(t, loop, hostedID)["id"].(string)
-				act = func(ctx context.Context) sessions.Reply {
-					return loop.Answer(ctx, hostedID, pressOne(askID))
-				}
-			}
+			act := hostedAct(t, loop, hostedID, tt.answer, "hello")
 
 			got := whileTurnHeld(t, fake, hostedID, held, act, tt.after, tt.line)
 			if got.Code != tt.wantCode {
@@ -1385,31 +1444,9 @@ func TestOtherInputRefusesASendOnTheScreenBeforeIt(t *testing.T) {
 
 			rowOf(t, loop, hostedID, func(row detail) bool { return row.Status == tt.status })
 
-			act := func(ctx context.Context) sessions.Reply {
-				return loop.Reply(ctx, hostedID, "rm -rf build")
-			}
-
-			if tt.answer {
-				askID, _ := askByID(t, loop, hostedID)["id"].(string)
-				act = func(ctx context.Context) sessions.Reply {
-					return loop.Answer(ctx, hostedID, pressOne(askID))
-				}
-			}
-
+			act := hostedAct(t, loop, hostedID, tt.answer, "rm -rf build")
 			got := afterViewerKey(t, fake, hostedID, held, tt.key, tt.how, tt.screen, act)
-			if got.Code != http.StatusConflict {
-				t.Errorf("%d %s", got.Code, body(got))
-			}
-
-			if tt.want != "" {
-				if body(got) != tt.want {
-					t.Errorf("%s, want %s", body(got), tt.want)
-				}
-			}
-
-			if typed := held.typed(); typed != tt.key {
-				t.Errorf("typed %q, want only the viewer's %q", typed, tt.key)
-			}
+			checkOnlyTheViewersKey(t, got, held, tt.key, tt.want)
 		})
 	}
 }
@@ -1508,12 +1545,46 @@ func afterHeldKey(t *testing.T, fake *world, hostedID string, held *program, key
 func TestAReplyIsTypedAsTheTerminalTakesIt(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name, text, echo string
-		pasteOff         bool
-		background       bool
-		want, wantTyped  string
-	}{
+	for index, tt := range replyTypedCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := newWorld(t)
+			hostedID, held := fake.hostedSession(110+index, "u", "idle", "", idleBox, 1)
+			held.echo = tt.echo
+			held.background.Store(tt.background)
+
+			if tt.pasteOff {
+				held.show(t, "\x1b[?2004l"+idleBox)
+				waitPastesUnbracketed(t, fake.host, hostedID)
+			}
+
+			loop := start(t, fake)
+			rowOf(t, loop, hostedID, anyRow)
+
+			got := loop.Reply(t.Context(), hostedID, tt.text)
+			if body(got) != tt.want {
+				t.Errorf("%d %s", got.Code, body(got))
+			}
+
+			if typed := held.typed(); typed != tt.wantTyped {
+				t.Errorf("typed %q, want %q", typed, tt.wantTyped)
+			}
+		})
+	}
+}
+
+// replyTypedCase is a reply, the terminal it meets, and what it answers and types.
+type replyTypedCase struct {
+	name, text, echo string
+	pasteOff         bool
+	background       bool
+	want, wantTyped  string
+}
+
+// replyTypedCases are replies against terminals that take them, or refuse them, as they are.
+func replyTypedCases() []replyTypedCase {
+	return []replyTypedCase{
 		{
 			"one line, no bracketed paste", "hello", "", true, false, `{"ok":true}`,
 			"hello\r",
@@ -1546,34 +1617,6 @@ func TestAReplyIsTypedAsTheTerminalTakesIt(t *testing.T) {
 			"a long paste shown as such", "hello\nthere", boxWith("[Pasted text #1 +2 lines]"),
 			false, false, `{"ok":true}`, "\x1b[200~hello\nthere\x1b[201~\r",
 		},
-	}
-
-	for index, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			fake := newWorld(t)
-			hostedID, held := fake.hostedSession(110+index, "u", "idle", "", idleBox, 1)
-			held.echo = tt.echo
-			held.background.Store(tt.background)
-
-			if tt.pasteOff {
-				held.show(t, "\x1b[?2004l"+idleBox)
-				waitPastesUnbracketed(t, fake.host, hostedID)
-			}
-
-			loop := start(t, fake)
-			rowOf(t, loop, hostedID, anyRow)
-
-			got := loop.Reply(t.Context(), hostedID, tt.text)
-			if body(got) != tt.want {
-				t.Errorf("%d %s", got.Code, body(got))
-			}
-
-			if typed := held.typed(); typed != tt.wantTyped {
-				t.Errorf("typed %q, want %q", typed, tt.wantTyped)
-			}
-		})
 	}
 }
 

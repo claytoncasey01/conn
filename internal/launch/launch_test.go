@@ -271,10 +271,27 @@ func TestAsACommandNothingStarts(t *testing.T) {
 func TestASpecNoSessionMayStartFromStartsNothing(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-		spec pty.Spec
-	}{
+	for _, tt := range specsNoSessionMayStartFrom() {
+		for _, where := range []string{
+			settings.WhereInside, settings.WhereTerminal, settings.WhereCommand,
+		} {
+			t.Run(tt.name+" "+where, func(t *testing.T) {
+				t.Parallel()
+				checkNothingStarted(t, where, tt.spec)
+			})
+		}
+	}
+}
+
+// namedSpec is a spec a table row names.
+type namedSpec struct {
+	name string
+	spec pty.Spec
+}
+
+// specsNoSessionMayStartFrom are specs no session may start from, one problem each.
+func specsNoSessionMayStartFrom() []namedSpec {
+	return []namedSpec{
 		{"no program", pty.Spec{Argv: nil, Dir: "/w", Env: nil, Name: "n"}},
 		{"a relative folder", pty.Spec{Argv: []string{"claude"}, Dir: "w", Env: nil, Name: "n"}},
 		{"no name", pty.Spec{Argv: []string{"claude"}, Dir: "/w", Env: nil, Name: ""}},
@@ -310,34 +327,30 @@ func TestASpecNoSessionMayStartFromStartsNothing(t *testing.T) {
 			Name: "n",
 		}},
 	}
+}
 
-	for _, tt := range tests {
-		for _, where := range []string{
-			settings.WhereInside, settings.WhereTerminal, settings.WhereCommand,
-		} {
-			t.Run(tt.name+" "+where, func(t *testing.T) {
-				t.Parallel()
+// checkNothingStarted opens spec where sessions open and fails unless nothing started, no line
+// to paste was given, and Check calls it invalid.
+func checkNothingStarted(t *testing.T, where string, spec pty.Spec) {
+	t.Helper()
 
-				world := newRig(where)
+	world := newRig(where)
 
-				opened := world.opener()(t.Context(), tt.spec)
-				if opened.OK {
-					t.Fatal("opened")
-				}
+	opened := world.opener()(t.Context(), spec)
+	if opened.OK {
+		t.Fatal("opened")
+	}
 
-				if opened.ManualCommand != "" {
-					t.Errorf("a line to paste: %q", opened.ManualCommand)
-				}
+	if opened.ManualCommand != "" {
+		t.Errorf("a line to paste: %q", opened.ManualCommand)
+	}
 
-				if len(world.started)+len(world.cmuxCalls) != 0 {
-					t.Error("something was started")
-				}
+	if len(world.started)+len(world.cmuxCalls) != 0 {
+		t.Error("something was started")
+	}
 
-				if !errors.Is(launch.Check(tt.spec), launch.ErrInvalidSession) {
-					t.Error("not ErrInvalidSession")
-				}
-			})
-		}
+	if !errors.Is(launch.Check(spec), launch.ErrInvalidSession) {
+		t.Error("not ErrInvalidSession")
 	}
 }
 

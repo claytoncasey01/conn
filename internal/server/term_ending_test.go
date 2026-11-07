@@ -182,29 +182,8 @@ func TestInputBackedUpPastTheQueueIsDropped(t *testing.T) {
 
 	// The server reads frames in order, so once a ping sent after them is answered, it has
 	// queued or dropped every one; and the terminal is still open.
-	output := make(chan []byte, 1)
-
-	go func() {
-		defer close(output)
-
-		for {
-			_, data, err := conn.Read(context.Background())
-			if err != nil {
-				return
-			}
-
-			output <- data
-		}
-	}()
-
-	pingCtx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(waitLimit))
-	defer cancel()
-
-	err := conn.Ping(pingCtx)
-	if err != nil {
-		t.Fatalf("the terminal was closed: %v", err)
-	}
-
+	output := readOutputs(conn)
+	pingRead(t, conn)
 	close(gate)
 
 	eventually(t, "the queued input never reached the program", func() bool {
@@ -245,22 +224,8 @@ func TestABlockedWriteDropsWhatIsQueuedBehindIt(t *testing.T) {
 
 	// The server reads frames in order: once a ping sent after them is answered, the reader has
 	// queued them behind the first.
-	go func() {
-		for {
-			_, _, err := conn.Read(context.Background())
-			if err != nil {
-				return
-			}
-		}
-	}()
-
-	pingCtx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(waitLimit))
-	defer cancel()
-
-	err := conn.Ping(pingCtx)
-	if err != nil {
-		t.Fatalf("the terminal was closed: %v", err)
-	}
+	readOutputs(conn)
+	pingRead(t, conn)
 
 	// Every write after the second waits for a reply the test never sends, until the end.
 	t.Cleanup(func() { close(replies) })
@@ -279,6 +244,42 @@ func TestABlockedWriteDropsWhatIsQueuedBehindIt(t *testing.T) {
 
 	if got := string(program.writtenSoFar()); got != "e" {
 		t.Fatalf("typed %q, want only %q: input queued behind a refused frame was typed", got, "e")
+	}
+}
+
+// readOutputs reads conn's output on its own goroutine, so pings are answered, and hands each
+// message on the channel it returns (which it closes when the reading ends). A test that does
+// not want the output leaves it: one message waits, and the reading stops there.
+func readOutputs(conn *websocket.Conn) <-chan []byte {
+	output := make(chan []byte, 1)
+
+	go func() {
+		defer close(output)
+
+		for {
+			_, data, err := conn.Read(context.Background())
+			if err != nil {
+				return
+			}
+
+			output <- data
+		}
+	}()
+
+	return output
+}
+
+// pingRead pings the server over conn and waits for the answer: the server reads frames in
+// order, so it has read every frame sent before. Someone must be reading conn (readOutputs).
+func pingRead(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+
+	pingCtx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(waitLimit))
+	defer cancel()
+
+	err := conn.Ping(pingCtx)
+	if err != nil {
+		t.Fatalf("the terminal was closed: %v", err)
 	}
 }
 

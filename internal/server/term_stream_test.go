@@ -109,17 +109,72 @@ func TestAResizeReachesTheHost(t *testing.T) {
 	})
 }
 
+// readAllOf reads conn's output until it has total bytes or the read fails, counting what it has
+// in received as it goes, and sends all of it on the channel it returns.
+func readAllOf(conn *websocket.Conn, total int, received *atomic.Int64) <-chan []byte {
+	done := make(chan []byte, 1)
+
+	go func() {
+		var all []byte
+
+		for len(all) < total {
+			_, data, err := conn.Read(context.Background())
+			if err != nil {
+				break
+			}
+
+			all = append(all, data...)
+			received.Store(int64(len(all)))
+		}
+
+		done <- all
+	}()
+
+	return done
+}
+
 // Each frame that is not one of the page's two, exactly, closes the connection with a policy
 // code, before anything of it reaches the program.
 func TestABadFrameClosesTheConnection(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-		kind websocket.MessageType
-		data string
-		want websocket.StatusCode
-	}{
+	for _, tt := range badFrames() {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rig := newTerminalRig(t, rigSetup{})
+			sessionID, program := rig.start(t)
+			conn := rig.open(t, sessionID)
+			readOutputUntilText(t, conn)
+
+			sendMessage(t, conn, tt.kind, tt.data)
+
+			if code := closeCode(t, conn); code != tt.want {
+				t.Fatalf("closed with %v, want %v", code, tt.want)
+			}
+
+			if len(program.writtenSoFar()) != 0 {
+				t.Fatal("a bad frame reached the program")
+			}
+
+			if len(program.sizesSoFar()) != 0 {
+				t.Fatal("a bad size reached the program")
+			}
+		})
+	}
+}
+
+// badFrame is a frame that is not one of the page's two, and the close code it gets.
+type badFrame struct {
+	name string
+	kind websocket.MessageType
+	data string
+	want websocket.StatusCode
+}
+
+// badFrames are frames that close the connection, each for its own reason.
+func badFrames() []badFrame {
+	return []badFrame{
 		{
 			"an unknown type", websocket.MessageText, `{"t":"exec","d":"x"}`,
 			websocket.StatusPolicyViolation,
@@ -158,31 +213,6 @@ func TestABadFrameClosesTheConnection(t *testing.T) {
 			"a frame longer than the read limit", websocket.MessageText,
 			strings.Repeat(" ", server.FrameBytesMax+1), websocket.StatusMessageTooBig,
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rig := newTerminalRig(t, rigSetup{})
-			sessionID, program := rig.start(t)
-			conn := rig.open(t, sessionID)
-			readOutputUntilText(t, conn)
-
-			sendMessage(t, conn, tt.kind, tt.data)
-
-			if code := closeCode(t, conn); code != tt.want {
-				t.Fatalf("closed with %v, want %v", code, tt.want)
-			}
-
-			if len(program.writtenSoFar()) != 0 {
-				t.Fatal("a bad frame reached the program")
-			}
-
-			if len(program.sizesSoFar()) != 0 {
-				t.Fatal("a bad size reached the program")
-			}
-		})
 	}
 }
 
@@ -351,23 +381,7 @@ func TestASlowViewerIsClosedAndAFastOneKeepsItsOutput(t *testing.T) {
 
 	var received atomic.Int64
 
-	fastDone := make(chan []byte, 1)
-
-	go func() {
-		var all []byte
-
-		for len(all) < chunks*chunkBytes {
-			_, data, err := fast.Read(context.Background())
-			if err != nil {
-				break
-			}
-
-			all = append(all, data...)
-			received.Store(int64(len(all)))
-		}
-
-		fastDone <- all
-	}()
+	fastDone := readAllOf(fast, chunks*chunkBytes, &received)
 
 	want := make([]byte, 0, chunks*chunkBytes)
 
