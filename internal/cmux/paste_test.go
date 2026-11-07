@@ -36,7 +36,8 @@ func TestNoLineToPasteHoldsAControlCharacter(t *testing.T) {
 				t.Errorf("a line to paste: %q", failed.ManualCommand)
 			}
 
-			if !strings.Contains(failed.Error, "no command to paste") {
+			// Whether cmux was refused the command or failed, the reason names the rule.
+			if !strings.Contains(failed.Error, "printable ASCII") {
 				t.Errorf("error %q", failed.Error)
 			}
 		})

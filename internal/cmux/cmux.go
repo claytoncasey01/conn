@@ -83,16 +83,27 @@ type Opened struct {
 	ManualCommand string
 }
 
+// textNotTypable is why a command was not handed to cmux.
+const textNotTypable = "the folder, the name or an argument holds a character other than " +
+	"printable ASCII, which cmux would type into a shell: open sessions inside Conn instead"
+
 // Opener starts a command in a new cmux workspace.
 type Opener func(ctx context.Context, name, cwd, command string) Opened
 
 // Open starts command in a new cmux workspace in cwd, without focusing it, with the cmux program
-// bin. When cmux fails the person gets the command to paste: the folder through argv.ShellLine,
-// so it is one word whatever it holds, unless the line holds a byte other than printable ASCII
-// (argv.PastableLine). cwd and name go to cmux as arguments, never through a
+// bin; a command holding a byte other than printable ASCII is not handed to cmux, which types it
+// into a shell. When cmux fails the person gets the command to paste: the folder through
+// argv.ShellLine, so it is one word whatever it holds, unless the line holds a byte other than
+// printable ASCII (argv.PastableLine). cwd and name go to cmux as arguments, never through a
 // shell here.
 func Open(bin string) Opener {
 	return func(ctx context.Context, name, cwd, command string) Opened {
+		// cmux types the command into a shell in the new workspace, where a line editor acts on
+		// a byte other than printable ASCII before any quote is read: it is not handed over.
+		if !argv.PastableLine(command) {
+			return Opened{OK: false, Error: textNotTypable, ManualCommand: ""}
+		}
+
 		result := run.Cmd(ctx, bin, []string{
 			"workspace", "create", "--name", name, "--cwd", cwd, "--command", command,
 			"--focus", "false",

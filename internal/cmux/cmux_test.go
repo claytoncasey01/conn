@@ -98,3 +98,25 @@ func TestOpenHandsBackTheCommandToPaste(t *testing.T) {
 		}
 	}
 }
+
+// TestCmuxIsNotGivenACommandItCannotTypeSafely: cmux types its command into a shell, so a command
+// holding a byte other than printable ASCII is not handed to it: nothing is opened, and the
+// error says why and where it can still start.
+func TestCmuxIsNotGivenACommandItCannotTypeSafely(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{"claude --name '\u0112x'", "claude --name 'a\u2028b'"} {
+		opened := cmux.Open("/usr/bin/true")(t.Context(), "n", "/tmp", command)
+		if opened.OK {
+			t.Errorf("%q was handed to cmux", command)
+		}
+
+		if !strings.Contains(opened.Error, "printable ASCII") {
+			t.Errorf("error %q", opened.Error)
+		}
+
+		if opened.ManualCommand != "" {
+			t.Errorf("a line to paste: %q", opened.ManualCommand)
+		}
+	}
+}
