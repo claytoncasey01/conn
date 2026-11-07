@@ -155,33 +155,38 @@ func PastableLine(line string) bool {
 	return true
 }
 
-// The invisible characters Invisible finds: the zero-width space, non-joiner and joiner, the word
-// joiner, the byte order mark (zero-width no-break space), and the tag characters.
-const (
-	zeroWidthFirst = 0x200b
-	zeroWidthLast  = 0x200d
-	wordJoiner     = 0x2060
-	byteOrderMark  = 0xfeff
-	tagsFirst      = 0xe0000
-	tagsLast       = 0xe007f
-)
+// invisibleRange is a run of characters, first to last, that draw nothing.
+type invisibleRange struct{ first, last rune }
 
 // Invisible is whether char draws nothing: a name holding one is shown differently from the name
-// used.
+// used. The ranges are the soft hyphen, the combining grapheme joiner, the Hangul fillers, the
+// Mongolian vowel separator, the zero-width space, non-joiner and joiner, the word joiner and the
+// invisible operators, the variation selectors, the byte order mark (zero-width no-break space)
+// and the tag characters.
 func Invisible(char rune) bool {
-	switch char {
-	case wordJoiner, byteOrderMark:
-		return true
+	ranges := [...]invisibleRange{
+		{0x00ad, 0x00ad},
+		{0x034f, 0x034f},
+		{0x115f, 0x1160},
+		{0x180e, 0x180e},
+		{0x200b, 0x200d},
+		{0x2060, 0x2064},
+		{0x3164, 0x3164},
+		{0xfe00, 0xfe0f},
+		{0xfeff, 0xfeff},
+		{0xffa0, 0xffa0},
+		{0xe0000, 0xe007f},
+		{0xe0100, 0xe01ef},
 	}
 
-	if char >= zeroWidthFirst {
-		if char <= zeroWidthLast {
+	for _, each := range ranges {
+		if char < each.first {
+			continue
+		}
+
+		if char <= each.last {
 			return true
 		}
-	}
-
-	if char >= tagsFirst {
-		return char <= tagsLast
 	}
 
 	return false

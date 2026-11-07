@@ -300,15 +300,37 @@ func TestAPastableLineIsPrintableASCIIOnly(t *testing.T) {
 func TestInvisibleCharactersAreFound(t *testing.T) {
 	t.Parallel()
 
-	for _, char := range []rune{0x200b, 0x200c, 0x200d, 0x2060, 0xfeff, 0xe0000, 0xe0041, 0xe007f} {
-		if !argv.Invisible(char) {
-			t.Errorf("U+%04X is not found", char)
-		}
+	tests := []struct {
+		name      string
+		chars     []rune
+		invisible bool
+	}{
+		{"zero-width space, non-joiner and joiner", []rune{0x200b, 0x200c, 0x200d}, true},
+		{"word joiner and invisible operators", []rune{0x2060, 0x2061, 0x2064}, true},
+		{"byte order mark", []rune{0xfeff}, true},
+		{"tag characters", []rune{0xe0000, 0xe0041, 0xe007f}, true},
+		{"soft hyphen", []rune{0x00ad}, true},
+		{"combining grapheme joiner", []rune{0x034f}, true},
+		{"Hangul fillers", []rune{0x115f, 0x1160, 0x3164, 0xffa0}, true},
+		{"Mongolian vowel separator", []rune{0x180e}, true},
+		{"variation selectors", []rune{0xfe00, 0xfe0f, 0xe0100, 0xe01ef}, true},
+		{"letters", []rune{'a', 0x00e9, 0x0112}, false},
+		{"next to a range", []rune{
+			0x00ac, 0x00ae, 0x034e, 0x0350, 0x115e, 0x1161, 0x180d, 0x180f, 0x200a, 0x200e,
+			0x205f, 0x2065, 0x3163, 0x3165, 0xfdff, 0xfe10, 0xfefe, 0xff00, 0xff9f, 0xffa1,
+			0xe0080, 0xe00ff, 0xe01f0,
+		}, false},
 	}
 
-	for _, char := range []rune{'a', 0x00e9, 0x200a, 0x2061, 0xe0080, 0xfefe} {
-		if argv.Invisible(char) {
-			t.Errorf("U+%04X is found", char)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, char := range tt.chars {
+				if argv.Invisible(char) != tt.invisible {
+					t.Errorf("U+%04X: invisible %v, want %v", char, !tt.invisible, tt.invisible)
+				}
+			}
+		})
 	}
 }
