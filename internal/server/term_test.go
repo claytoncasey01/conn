@@ -57,19 +57,7 @@ func newTerminalRig(t *testing.T, setup rigSetup) *terminalRig {
 		t.Fatal(err)
 	}
 
-	programs := setup.programs
-	if programs == nil {
-		programs = &fakePrograms{}
-	}
-
-	spawner := setup.spawner
-	if spawner == nil {
-		spawner = programs.spawn
-	}
-
-	host := pty.NewHost(pty.Config{
-		Spawner: spawner, Limits: pty.DefaultLimits(), Answers: pty.Answers{},
-	})
+	programs, host := rigHost(setup)
 	counted := &countedHost{host: host}
 	lifetime, stop := context.WithCancel(context.Background())
 
@@ -78,16 +66,7 @@ func newTerminalRig(t *testing.T, setup rigSetup) *terminalRig {
 		behind = setup.host
 	}
 
-	// A test's viewer answers the server's pings only while the test reads it, and most tests
-	// stop reading once they have seen what they wait for. The server's keepalive rightly drops
-	// such a viewer once a ping goes unanswered past its timeout, which a slow run outlasts; so a
-	// test that does not set the keepalive's times gets one no test outlasts.
-	times := setup.times
-	if times.PingInterval == 0 {
-		times.PingInterval = rigPingInterval
-	}
-
-	terminals := server.NewTerminalsTimed(lifetime, behind, times)
+	terminals := server.NewTerminalsTimed(lifetime, behind, rigTimes(setup))
 	handler := &server.Server{UI: bundle(), Secret: key, Terminals: terminals}
 
 	if setup.logger != nil {
@@ -109,6 +88,37 @@ func newTerminalRig(t *testing.T, setup rigSetup) *terminalRig {
 		key: key, programs: programs, host: host, counted: counted,
 		address: strings.TrimPrefix(test.URL, "http://"), stop: stop, terminals: terminals,
 	}
+}
+
+// rigHost is the rig's host and its fake programs: the setup's spawner, else the programs'.
+func rigHost(setup rigSetup) (*fakePrograms, *pty.Host) {
+	programs := setup.programs
+	if programs == nil {
+		programs = &fakePrograms{}
+	}
+
+	spawner := setup.spawner
+	if spawner == nil {
+		spawner = programs.spawn
+	}
+
+	return programs, pty.NewHost(pty.Config{
+		Spawner: spawner, Limits: pty.DefaultLimits(), Answers: pty.Answers{},
+	})
+}
+
+// rigTimes are the setup's terminal times. A test's viewer answers the server's pings only while
+// the test reads it, and most tests stop reading once they have seen what they wait for. The
+// server's keepalive rightly drops such a viewer once a ping goes unanswered past its timeout,
+// which a slow run outlasts; so a test that does not set the keepalive's times gets one no test
+// outlasts.
+func rigTimes(setup rigSetup) server.TerminalTimes {
+	times := setup.times
+	if times.PingInterval == 0 {
+		times.PingInterval = rigPingInterval
+	}
+
+	return times
 }
 
 // start starts a session of a fake program and returns its id and the program.

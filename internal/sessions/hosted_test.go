@@ -36,7 +36,7 @@ func settledAfter() time.Duration { return testtime.Scaled(settledAfterBase) }
 func waitSettled(t *testing.T, host *pty.Host, hostedID string) {
 	t.Helper()
 
-	deadline := time.Now().Add(testtime.Scaled(5 * time.Second))
+	deadline := time.Now().Add(testtime.Scaled(screenWaitLimit))
 
 	for time.Now().Before(deadline) {
 		_, mark, err := host.ScreenLines(pty.ID(hostedID), 1)
@@ -48,7 +48,7 @@ func waitSettled(t *testing.T, host *pty.Host, hostedID string) {
 			return
 		}
 
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(settledPoll)
 	}
 
 	t.Fatal("the session's input never settled")
@@ -1084,7 +1084,7 @@ func waitDrawn(t *testing.T, host *pty.Host, sessionID pty.ID, screen string) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(5*time.Second))
+	ctx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(screenWaitLimit))
 	defer cancel()
 
 	_, err := host.WaitScreen(ctx, sessionID, drawnLinesRead, func(lines []string) bool {
@@ -1097,8 +1097,14 @@ func waitDrawn(t *testing.T, host *pty.Host, sessionID pty.ID, screen string) {
 	}
 }
 
-// drawnLinesRead is how many lines waitDrawn looks at: every line of a test's screen.
-const drawnLinesRead = 40
+const (
+	// drawnLinesRead is how many lines waitDrawn looks at: every line of a test's screen.
+	drawnLinesRead = 40
+	// screenWaitLimit bounds waitDrawn's and waitSettled's waits for the host.
+	screenWaitLimit = 5 * time.Second
+	// settledPoll is how often waitSettled looks.
+	settledPoll = 10 * time.Millisecond
+)
 
 // waitScreen waits until the session's screen has a line want.
 func waitScreen(t *testing.T, host *pty.Host, hostedID, want string) {

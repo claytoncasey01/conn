@@ -250,8 +250,8 @@ func (c *movableClock) now() time.Time { return time.Unix(0, c.at.Load()) }
 func (c *movableClock) add(by time.Duration) { c.at.Add(int64(by)) }
 
 // TestASecondInterruptSoonAfterIsNotSent: two presses close together send one Ctrl-C, since a
-// second one would make claude quit; the second is answered "already sent", and one after the
-// window is sent.
+// second one would make claude quit; the second is answered that an interrupt was just sent or
+// is being sent, and one after the window is sent.
 func TestASecondInterruptSoonAfterIsNotSent(t *testing.T) {
 	t.Parallel()
 

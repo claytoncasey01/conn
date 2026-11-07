@@ -521,6 +521,9 @@ func openWithinReadTimeout(t *testing.T, rig *terminalRig, sessionID pty.ID) *we
 			t.Fatalf("no handshake was read within the read timeout: status %d: %v", got.status,
 				got.err)
 		}
+
+		// The server is the slow side: a pause before the next handshake leaves it the machine.
+		time.Sleep(waitPoll)
 	}
 }
 
