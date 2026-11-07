@@ -52,12 +52,19 @@ func gitIn(ctx context.Context, args []string, dir string, timeout time.Duration
 func shIn(ctx context.Context, name string, args []string, dir string, timeout time.Duration) (
 	string, error,
 ) {
+	return shWithInput(ctx, name, args, dir, "", timeout)
+}
+
+// shWithInput is shIn with input written to the command's standard input.
+func shWithInput(ctx context.Context, name string, args []string, dir, input string,
+	timeout time.Duration,
+) (string, error) {
 	if timeout == 0 {
 		timeout = gitTimeout
 	}
 
 	result := command.Cmd(ctx, name, args, command.Opts{
-		Dir: dir, Timeout: timeout, OutputBytesMax: gitBytesMax, Stdin: "", Env: nil,
+		Dir: dir, Timeout: timeout, OutputBytesMax: gitBytesMax, Stdin: input, Env: nil,
 	})
 	if result.Err == nil {
 		return result.Stdout, nil

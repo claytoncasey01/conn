@@ -1,10 +1,14 @@
 package openwork_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"github.com/claytoncasey01/conn/internal/openwork"
 )
 
 const secretText = "-----BEGIN OPENSSH PRIVATE KEY----- not-for-github"
@@ -63,12 +67,12 @@ func TestAPRBodyGoesToGhAsText(t *testing.T) {
 	until(t, "the PR", func() bool { return made.state("PROJ-3") == "pr_open" })
 
 	for _, line := range made.lines() {
-		if strings.Contains(line, "--body-file") {
-			t.Errorf("gh was given a path: %q", line)
-		}
-
 		if strings.Contains(line, worktree+"/.conn") {
 			t.Errorf("a call names the worktree's .conn: %q", line)
+		}
+
+		if strings.Contains(line, "--body=") {
+			t.Errorf("the body is an argument: %q", line)
 		}
 	}
 
@@ -77,8 +81,13 @@ func TestAPRBodyGoesToGhAsText(t *testing.T) {
 		t.Error(strings.Join(made.lines(), "\n"))
 	}
 
-	if !made.countPrefixAny("--body=body") {
-		t.Error("the body was not sent as text")
+	// The body is read from gh's standard input ("-"), never a path and never an argument.
+	if !made.countPrefixAny("--body-file -") {
+		t.Error("gh was not told to read the body from its standard input")
+	}
+
+	if !made.has("stdin body") {
+		t.Error("the body was not sent on gh's standard input")
 	}
 }
 
@@ -91,4 +100,101 @@ func (w *world) countPrefixAny(text string) bool {
 	}
 
 	return false
+}
+
+// TestAPRBodyFileIsCheckedBeforeGhGetsIt: a session's body that is larger than a pull request
+// body holds, holds a NUL byte or is not UTF-8 is refused with each reason, rather than sent
+// changed or failing in gh.
+func TestAPRBodyFileIsCheckedBeforeGhGetsIt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		data []byte
+		// says are the reasons the refusal gives; none when the body is taken.
+		says []string
+	}{
+		{"plain text", []byte("## What changed\n\ndone"), nil},
+		{"exactly the most", bytes.Repeat([]byte("a"), openwork.PRBodyBytesMax), nil},
+		{
+			"one byte more", bytes.Repeat([]byte("a"), openwork.PRBodyBytesMax+1),
+			[]string{"larger than 65536 bytes"},
+		},
+		{"a NUL byte", []byte("a\x00b"), []string{"a NUL byte"}},
+		{"not UTF-8", []byte("caf\xe9"), []string{"not UTF-8 text"}},
+		{
+			"all three", append(bytes.Repeat([]byte("\xe9"), openwork.PRBodyBytesMax), 0),
+			[]string{"larger than 65536 bytes", "a NUL byte", "not UTF-8 text"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := openwork.CheckPRBody("/w/.conn/pr-body.md", tt.data)
+			if len(tt.says) == 0 {
+				if err != nil {
+					t.Fatalf("refused: %v", err)
+				}
+
+				return
+			}
+
+			if err == nil {
+				t.Fatal("taken")
+			}
+
+			for _, reason := range tt.says {
+				if !strings.Contains(err.Error(), reason) {
+					t.Errorf("%q does not say %q", err, reason)
+				}
+			}
+		})
+	}
+}
+
+// TestAFallbackBodyIsValidTextWithinTheLimit: the body made from commit subjects is UTF-8 with
+// no NUL, and never larger than a pull request body holds, however many commits there are.
+func TestAFallbackBodyIsValidTextWithinTheLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, subjects string
+	}{
+		{"a few", "- one\n- two"},
+		{"many", strings.Repeat("- a commit subject é\n", 20000)},
+		{"broken bytes", "- caf\xe9\x00 bar"},
+		// Two- and three-byte characters at every offset: one of these is cut inside one,
+		// wherever the limit falls.
+		{"two-byte characters", strings.Repeat("é", 40000)},
+		{"two-byte characters, one byte on", "a" + strings.Repeat("é", 40000)},
+		{"three-byte characters", strings.Repeat("€", 30000)},
+		{"three-byte characters, one byte on", "a" + strings.Repeat("€", 30000)},
+		{"three-byte characters, two bytes on", "ab" + strings.Repeat("€", 30000)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			body := openwork.FallbackBody(tt.subjects)
+			if len(body) > openwork.PRBodyBytesMax {
+				t.Errorf("%d bytes", len(body))
+			}
+
+			if !utf8.ValidString(body) {
+				t.Error("not UTF-8")
+			}
+
+			if strings.Contains(body, "\x00") {
+				t.Error("a NUL byte")
+			}
+
+			if !strings.HasSuffix(body, "Not recorded: the session did not write "+
+				".conn/pr-body.md.\n") {
+				t.Errorf("the ending was cut: %q", body[max(0, len(body)-80):])
+			}
+		})
+	}
 }

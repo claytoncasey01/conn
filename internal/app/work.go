@@ -53,7 +53,7 @@ func newWork(ctx context.Context, parts workParts, live *sessions.Loop) *openwor
 			return clone.Path, found
 		},
 		SeenRepos: seenWorkRepos(parts, func() []string { return seenRepos(live, parts.reader) }),
-		OriginOf:  parts.reader.Of, Sh: shIn, Helper: runner.Run,
+		OriginOf:  parts.reader.Of, Sh: shIn, ShInput: shWithInput, Helper: runner.Run,
 		FetchSprint: func(ctx context.Context, hooks openwork.Hooks) (jira.Sprint, error) {
 			return jira.FetchSprint(ctx, jira.SprintDeps{
 				Settings: store.Get(), DataDir: cfg.DataDir, Run: runner.Run, Save: nil,

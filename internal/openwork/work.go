@@ -87,6 +87,8 @@ type Deps struct {
 	// OriginOf is the GitHub repository of a folder ("" for none).
 	OriginOf func(folder string) string
 	Sh       Sh
+	// ShInput runs a command as Sh does, with input on its standard input.
+	ShInput ShInput
 	// Helper starts a research agent's or the synthesis's helper run.
 	Helper jira.Run
 	// FetchSprint reads the sprint; Transition moves a ticket.

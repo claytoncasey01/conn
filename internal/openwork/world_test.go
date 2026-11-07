@@ -170,7 +170,7 @@ func (w *world) deps(opts worldOpts) openwork.Deps {
 			return clone.Path, found
 		},
 		SeenRepos: func() []string { return opts.seen },
-		OriginOf:  reader.Of, Sh: w.fakeSh, Helper: w.fakeHelper,
+		OriginOf:  reader.Of, Sh: w.fakeSh, ShInput: w.fakeShInput, Helper: w.fakeHelper,
 		FetchSprint: w.fakeFetch, Transition: w.fakeTransition, Open: w.fakeOpen,
 		Claude: "claude",
 		Record: func(name string, ok bool, detail string) {
@@ -329,6 +329,16 @@ func (w *world) fakeSh(_ context.Context, name string, args []string, dir string
 	}
 
 	return "", nil
+}
+
+// fakeShInput is fakeSh that also records what was written to the command's standard input.
+func (w *world) fakeShInput(ctx context.Context, name string, args []string, dir, input string,
+	timeout time.Duration,
+) (string, error) {
+	out, err := w.fakeSh(ctx, name, args, dir, timeout)
+	w.call("stdin", input)
+
+	return out, err
 }
 
 type fakeError string

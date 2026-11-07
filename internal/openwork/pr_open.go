@@ -350,8 +350,9 @@ func (w *Work) pushLeg(step *task, record *Record, push legPush) error {
 	return w.createPR(step, record, leg, push.repo, prText)
 }
 
-// createPR opens the pull request with the body as text (--body=, so a body starting with a dash
-// is still the body), never a path.
+// createPR opens the pull request with the body on gh's standard input (--body-file -): never a
+// path in the worktree, and never an argument, which a long body would overflow and which other
+// users of the machine can read in the process table.
 func (w *Work) createPR(step *task, record *Record, leg *Leg, repo, prText string) error {
 	var (
 		out string
@@ -359,11 +360,11 @@ func (w *Work) createPR(step *task, record *Record, leg *Leg, repo, prText strin
 	)
 
 	step.outside(func() {
-		out, err = w.sh("gh", []string{
+		out, err = w.deps.ShInput(w.ctx, "gh", []string{
 			"pr", "create", "--repo", repo, "--base", leg.PRBase,
 			"--head", leg.Branch, "--title", record.Key + ": " + record.Title,
-			"--body=" + prText,
-		}, leg.Worktree, createTimeout)
+			"--body-file", "-",
+		}, leg.Worktree, prText, createTimeout)
 	})
 
 	if err != nil {

@@ -1,6 +1,7 @@
 package openwork
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
@@ -186,8 +188,7 @@ func (w *Work) prBody(step *task, leg *Leg) (string, error) {
 		return "", err
 	}
 
-	body = "## What changed and why\n\n" + subjects + "\n\n## How it was verified\n\n" +
-		"Not recorded: the session did not write .conn/pr-body.md.\n"
+	body = fallbackBody(subjects)
 
 	// A leg with no session of its own (shared layout, not the lead) has no brief, so no .conn/
 	// yet; the launch excluded it from git in every worktree. The write makes the folder, only
@@ -235,12 +236,75 @@ func readPRBody(path string) (string, bool, error) {
 		return "", false, nodeError{err: err}
 	}
 
-	if len(data) > prBodyBytesMax {
-		return "", false, textError(fmt.Sprintf("%s is larger than %d bytes, more than a pull "+
-			"request body holds: shorten it, then press OPEN PR again", path, prBodyBytesMax))
+	err = checkPRBody(path, data)
+	if err != nil {
+		return "", false, err
 	}
 
-	return js.DecodeUTF8(data, false), true, nil
+	return string(data), true, nil
+}
+
+// checkPRBody refuses a session's body gh should not be given as it is, saying every reason at
+// once: larger than a pull request body holds, a NUL byte, or bytes that are not UTF-8 (each of
+// which would be sent changed). data is at most prBodyBytesMax plus one byte.
+func checkPRBody(path string, data []byte) error {
+	reasons := []string{}
+
+	if len(data) > prBodyBytesMax {
+		reasons = append(reasons, fmt.Sprintf("is larger than %d bytes, more than a pull "+
+			"request body holds", prBodyBytesMax))
+	}
+
+	if bytes.IndexByte(data, 0) >= 0 {
+		reasons = append(reasons, "holds a NUL byte")
+	}
+
+	if !utf8.Valid(data) {
+		reasons = append(reasons, "is not UTF-8 text")
+	}
+
+	if len(reasons) == 0 {
+		return nil
+	}
+
+	return textError(path + " " + strings.Join(reasons, ", ") + ": fix it, then press OPEN " +
+		"PR again")
+}
+
+// fallbackBodyEnd closes the body made from the commit subjects.
+const fallbackBodyEnd = "\n\n## How it was verified\n\n" +
+	"Not recorded: the session did not write .conn/pr-body.md.\n"
+
+// fallbackBodyStart opens the body made from the commit subjects.
+const fallbackBodyStart = "## What changed and why\n\n"
+
+// fallbackBody is the PR body made from the commit subjects (git log's output): UTF-8 with no
+// NUL byte, and within prBodyBytesMax, the subjects cut at a character to fit.
+func fallbackBody(subjects string) string {
+	clean := strings.ReplaceAll(strings.ToValidUTF8(subjects, "\uFFFD"), "\x00", "")
+	room := prBodyBytesMax - len(fallbackBodyStart) - len(fallbackBodyEnd)
+
+	return fallbackBodyStart + cutAtCharacter(clean, room) + fallbackBodyEnd
+}
+
+// cutAtCharacter is text cut to at most bytesMax bytes, never inside a UTF-8 character. text is
+// valid UTF-8.
+func cutAtCharacter(text string, bytesMax int) string {
+	if len(text) <= bytesMax {
+		return text
+	}
+
+	// A character is at most utf8.UTFMax bytes, so its start is at most that far back.
+	end := bytesMax
+	for range utf8.UTFMax {
+		if utf8.RuneStart(text[end]) {
+			break
+		}
+
+		end--
+	}
+
+	return text[:end]
 }
 
 func (w *Work) commitsAhead(step *task, leg *Leg) (float64, error) {

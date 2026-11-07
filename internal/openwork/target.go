@@ -51,6 +51,10 @@ var (
 type Sh func(ctx context.Context, name string, args []string, dir string,
 	timeout time.Duration) (string, error)
 
+// ShInput is Sh with input written to the command's standard input.
+type ShInput func(ctx context.Context, name string, args []string, dir, input string,
+	timeout time.Duration) (string, error)
+
 // Target is one repository a run may build in: the repository, its local clone, and the branch
 // a run starts from there. Reason says what to fix when a run cannot start there, "" when it can.
 type Target struct {
