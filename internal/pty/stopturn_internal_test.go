@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
 var errTurnFakeClosed = errors.New("closed")
@@ -119,14 +121,9 @@ func TestStopIfStillSendsThePoliteStopInsideTheWriteTurn(t *testing.T) {
 
 	host, fake, sessionID := turnHost(t)
 
-	time.Sleep(foreignWriteSettle + 50*time.Millisecond)
+	mark := quietMark(t, host, sessionID)
 
-	_, mark, err := host.ScreenLines(sessionID, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = host.StopIfStill(t.Context(), sessionID, mark, 1, func([]string) bool { return true })
+	err := host.StopIfStill(t.Context(), sessionID, mark, 1, func([]string) bool { return true })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,16 +144,11 @@ func TestStopIfStillSignalsNoGroupThatIsGone(t *testing.T) {
 
 	host, fake, sessionID := turnHost(t)
 
-	time.Sleep(foreignWriteSettle + 50*time.Millisecond)
-
-	_, mark, err := host.ScreenLines(sessionID, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	mark := quietMark(t, host, sessionID)
 
 	fake.gone.Store(true)
 
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(stopWait))
 	defer cancel()
 
 	_ = host.StopIfStill(ctx, sessionID, mark, 1, func([]string) bool { return true })
@@ -173,12 +165,7 @@ func TestStopIfStillSignalsNoGroupKnownEmpty(t *testing.T) {
 
 	host, fake, sessionID := turnHost(t)
 
-	time.Sleep(foreignWriteSettle + 50*time.Millisecond)
-
-	_, mark, err := host.ScreenLines(sessionID, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	mark := quietMark(t, host, sessionID)
 
 	held, err := host.find(sessionID)
 	if err != nil {
@@ -187,7 +174,7 @@ func TestStopIfStillSignalsNoGroupKnownEmpty(t *testing.T) {
 
 	host.groupEmptied(held)
 
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(stopWait))
 	defer cancel()
 
 	_ = host.StopIfStill(ctx, sessionID, mark, 1, func([]string) bool { return true })
@@ -195,4 +182,38 @@ func TestStopIfStillSignalsNoGroupKnownEmpty(t *testing.T) {
 	if fake.terminates.Load() != 0 {
 		t.Errorf("a group known empty was signalled %d times", fake.terminates.Load())
 	}
+}
+
+const (
+	// turnWaitLimit bounds how long a test waits for the session's input to settle.
+	turnWaitLimit = 5 * time.Second
+	// stopWait bounds a stop whose answer the test does not look at.
+	stopWait = 200 * time.Millisecond
+	// quietPoll is how often quietMark looks.
+	quietPoll = 10 * time.Millisecond
+)
+
+// quietMark is a screen read taken once the session's input has settled, so StopIfStill reaches
+// its check in the turn rather than refusing the read as one other input may have moved.
+func quietMark(t *testing.T, host *Host, sessionID ID) ScreenMark {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(turnWaitLimit))
+
+	for time.Now().Before(deadline) {
+		_, mark, err := host.ScreenLines(sessionID, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if mark.Quiet {
+			return mark
+		}
+
+		time.Sleep(quietPoll)
+	}
+
+	t.Fatal("the session's input never settled")
+
+	return ScreenMark{}
 }
