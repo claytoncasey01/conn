@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -60,20 +61,7 @@ func TestARealProgramThatStopsReadingKeepsItsTerminal(t *testing.T) {
 
 	rig := newTerminalRig(t, rigSetup{spawner: pty.Spawn})
 	folder := t.TempDir()
-
-	// The program reads again only once the test has sent all its motion and made the file
-	// "go", however slow the machine; it gives up waiting after 30 seconds.
-	sessionID := rig.startSpec(t, pty.Spec{
-		Argv: []string{
-			"/bin/sh", "-c",
-			`stty raw -echo; printf 'ready\n'; ` +
-				`for n in $(seq 1 600); do if [ -e go ]; then break; fi; sleep 0.05; done; ` +
-				`printf 'reading\n'; ` +
-				`stty -raw; while read line; do printf 'got:%s:end\n' "$line"; done`,
-		},
-		Dir: folder, Env: nil, Name: "not reading",
-	})
-
+	sessionID := startNotReading(t, rig, folder)
 	conn := rig.open(t, sessionID)
 
 	replay, _ := readOutputUntilText(t, conn)
@@ -92,7 +80,44 @@ func TestARealProgramThatStopsReadingKeepsItsTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// One reader takes the output from here on, so the test can type while it waits.
+	typeUntilTaken(t, conn)
+}
+
+const (
+	// notReadingWaitLimit is how long the program waits for the test's "go" before it reads
+	// again anyway, and says so: the test fails then, since its motion never backed up.
+	notReadingWaitLimit = 30 * time.Second
+	// notReadingPoll is how often the program looks for "go".
+	notReadingPoll = 50 * time.Millisecond
+)
+
+// startNotReading starts a program that stops reading its input (raw, no echo) until the file
+// "go" is in folder, then reads lines and prints each back. It waits at most a scaled
+// notReadingWaitLimit, and prints "gave-up" if it stopped waiting before the file came.
+func startNotReading(t *testing.T, rig *terminalRig, folder string) pty.ID {
+	t.Helper()
+
+	waits := int(testtime.Scaled(notReadingWaitLimit) / notReadingPoll)
+
+	return rig.startSpec(t, pty.Spec{
+		Argv: []string{
+			"/bin/sh", "-c",
+			`stty raw -echo; printf 'ready\n'; ` +
+				`for n in $(seq 1 "$1"); do if [ -e go ]; then break; fi; sleep 0.05; done; ` +
+				`if [ ! -e go ]; then printf 'gave-up\n'; fi; printf 'reading\n'; ` +
+				`stty -raw; while read line; do printf 'got:%s:end\n' "$line"; done`,
+			"sh", strconv.Itoa(waits),
+		},
+		Dir: folder, Env: nil, Name: "not reading",
+	})
+}
+
+// typeUntilTaken types a line a second apart until the program prints it back, after whatever
+// motion it still had to read, failing if the terminal closes, the program gave up waiting for
+// the test, or no line is taken in time. One reader takes the output from here on.
+func typeUntilTaken(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+
 	output := &lockedBuffer{}
 	readErr := make(chan error, 1)
 
@@ -109,8 +134,6 @@ func TestARealProgramThatStopsReadingKeepsItsTerminal(t *testing.T) {
 		}
 	}()
 
-	// The program reads lines again once it has slept; a line typed then reaches it, after
-	// whatever motion it still had to read. Each line is typed a second apart until one does.
 	deadline := time.Now().Add(testtime.Scaled(4 * waitLimit))
 
 	for !strings.Contains(output.String(), "got:after:end") {
@@ -120,10 +143,18 @@ func TestARealProgramThatStopsReadingKeepsItsTerminal(t *testing.T) {
 		case <-time.After(time.Second):
 		}
 
+		if strings.Contains(output.String(), "gave-up") {
+			t.Fatal("the program read again before the test's motion was sent")
+		}
+
 		if time.Now().After(deadline) {
 			t.Fatal("the terminal never took input again")
 		}
 
 		sendMessage(t, conn, websocket.MessageText, inputFrame(`\rafter\r`))
+	}
+
+	if strings.Contains(output.String(), "gave-up") {
+		t.Fatal("the program read again before the test's motion was sent")
 	}
 }
