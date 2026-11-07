@@ -300,8 +300,10 @@ func (w *world) hostedSession(pid int, name, status, waitingFor, screen string,
 	}
 
 	started := w.programs[pid]
-	// Claude Code asks for bracketed pastes.
+	// Claude Code asks for bracketed pastes. The host takes the screen on its own goroutine, so
+	// it is waited for: a test acts on a screen that is drawn, however slow the machine.
 	started.show(w.t, "\x1b[?2004h"+screen)
+	waitDrawn(w.t, w.host, sessionID, screen)
 
 	if status != "" {
 		w.procs = append(w.procs, strconv.Itoa(pid)+" 1 claude")
@@ -1038,6 +1040,38 @@ func TestOneSendToAHostedSessionAtATime(t *testing.T) {
 		t.Errorf("typed %q, want the first message only", typed)
 	}
 }
+
+// waitDrawn waits until the session's screen shows the last line of screen that is not blank.
+func waitDrawn(t *testing.T, host *pty.Host, sessionID pty.ID, screen string) {
+	t.Helper()
+
+	last := ""
+
+	for line := range strings.SplitSeq(screen, "\n") {
+		if strings.TrimSpace(line) != "" {
+			last = strings.TrimSpace(line)
+		}
+	}
+
+	if last == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(5*time.Second))
+	defer cancel()
+
+	_, err := host.WaitScreen(ctx, sessionID, drawnLinesRead, func(lines []string) bool {
+		return slices.ContainsFunc(lines, func(line string) bool {
+			return strings.TrimSpace(line) == last
+		})
+	})
+	if err != nil {
+		t.Fatalf("the screen never showed %q: %v", last, err)
+	}
+}
+
+// drawnLinesRead is how many lines waitDrawn looks at: every line of a test's screen.
+const drawnLinesRead = 40
 
 // waitScreen waits until the session's screen has a line want.
 func waitScreen(t *testing.T, host *pty.Host, hostedID, want string) {
@@ -1874,9 +1908,18 @@ func TestAnIdenticalDialogOnTheSameStampStaysAnswered(t *testing.T) {
 		t.Fatalf("the answer: %d %s", first.Code, body(first))
 	}
 
+	// The loop reads a frame with no dialog, then the same dialog drawn again: each is on the
+	// screen before it is read, however slow the machine.
 	held.show(t, "✻ working")
+	waitScreen(t, fake.host, hostedID, "✻ working")
+	loop.ReadAsks(t.Context())
+
+	if between := shownAsk(t, loop, hostedID); between != nil {
+		t.Fatalf("with no dialog on the screen, an ask is shown: %v", between)
+	}
+
 	held.show(t, permissionScreen("ls"))
-	time.Sleep(settledAfter)
+	waitScreen(t, fake.host, hostedID, " Do you want to proceed?")
 
 	shown, _ := askByID(t, loop, hostedID)["id"].(string)
 	if shown != answered {
