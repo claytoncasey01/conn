@@ -2,9 +2,7 @@ package openwork
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -537,30 +535,16 @@ func writeBrief(record *Record, slot, leg *Leg) error {
 	}
 
 	// What the session writes for Conn to read, as the repository left it (a link to a secret, a
-	// file of someone else's), goes: the session writes its own.
+	// file of someone else's), goes: the session writes its own. It is removed through the
+	// folder's own descriptor, so nothing put in the folder's place since the writes is touched.
 	for _, name := range []string{prBodyFile, repliesFile} {
 		if err == nil {
-			err = removeIfThere(filepath.Join(folder, name))
+			err = reviews.UnlinkInOwnFolder(folder, name)
 		}
 	}
 
 	if err != nil {
 		return nodeError{err: err}
-	}
-
-	return nil
-}
-
-// removeIfThere removes the file or link at path, never what a link points to; a path with
-// nothing there is not an error.
-func removeIfThere(path string) error {
-	err := os.Remove(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-
-	if err != nil {
-		return fmt.Errorf("removing %s: %w", path, err)
 	}
 
 	return nil
