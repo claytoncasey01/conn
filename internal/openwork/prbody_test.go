@@ -255,3 +255,40 @@ func TestAPRBodyIsReadOnlyFromARegularFile(t *testing.T) {
 		})
 	}
 }
+
+// TestAStoredLineToPasteIsServedOnlyWhenPastable: a run written before lines were held to
+// printable ASCII, or one edited by hand, never offers a line that is not.
+func TestAStoredLineToPasteIsServedOnlyWhenPastable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		command *string
+		want    *string
+	}{
+		{"none", nil, nil},
+		{"printable ASCII", new("cd '/w/a' && claude"), new("cd '/w/a' && claude")},
+		{"a letter beyond ASCII", new("cd '/w/\u0112' && claude"), nil},
+		{"a control character", new("cd '/w/a\x15' && claude"), nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			served := openwork.LegView(&openwork.Leg{ManualCommand: tt.command}).ManualCommand
+			if lineText(served) != lineText(tt.want) {
+				t.Errorf("served %q, want %q", lineText(served), lineText(tt.want))
+			}
+		})
+	}
+}
+
+// lineText is a line to paste as the test compares it: "<none>" for none.
+func lineText(line *string) string {
+	if line == nil {
+		return "<none>"
+	}
+
+	return *line
+}

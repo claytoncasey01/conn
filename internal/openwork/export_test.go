@@ -210,3 +210,6 @@ const PRBodyBytesMax = prBodyBytesMax
 
 // ReadPRBody is readPRBody.
 func ReadPRBody(path string) (string, bool, error) { return readPRBody(path) }
+
+// LegView is a leg as a run is served.
+func LegView(leg *Leg) *LegRun { return leg.view() }

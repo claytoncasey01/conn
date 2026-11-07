@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/argv"
+
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/prstatus"
@@ -204,9 +206,25 @@ type LegRun struct {
 func (l *Leg) view() *LegRun {
 	return &LegRun{
 		Repo: l.Repo, Base: l.Base, PRBase: l.PRBase, Branch: l.Branch, Worktree: l.Worktree,
-		Session: l.Session, ClaudeSessionID: l.ClaudeSessionID, ManualCommand: l.ManualCommand,
-		Ahead: l.Ahead, Dirty: l.Dirty, PR: l.PR, Cleaned: l.Cleaned,
+		Session: l.Session, ClaudeSessionID: l.ClaudeSessionID,
+		ManualCommand: pastableOnly(l.ManualCommand),
+		Ahead:         l.Ahead, Dirty: l.Dirty, PR: l.PR, Cleaned: l.Cleaned,
 	}
+}
+
+// pastableOnly is a stored line to paste as it is served: only a line of printable ASCII
+// (argv.PastableLine). A run written before lines were held to that, or edited by hand, keeps its
+// line on disk but offers none.
+func pastableOnly(line *string) *string {
+	if line == nil {
+		return nil
+	}
+
+	if !argv.PastableLine(*line) {
+		return nil
+	}
+
+	return line
 }
 
 func (l *Leg) cleaned() bool {
