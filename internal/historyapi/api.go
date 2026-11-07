@@ -159,6 +159,9 @@ type Deps struct {
 	LiveIDs func(ctx context.Context) map[string]bool
 	// Allow is the allowlist; nil shows every row.
 	Allow func() []string
+	// RepoOf is the GitHub repository of a folder, "" for none: a session is resumed at launch
+	// only in an allowed repository. Nil resumes none at launch.
+	RepoOf func(folder string) string
 	// Open starts a resumed session where the settings say sessions open.
 	Open launch.Opener
 	// Claude is the claude program as configured (CONN_CLAUDE): the resumed session's program.

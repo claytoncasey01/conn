@@ -257,7 +257,19 @@ func ClaudeArgs(name, model string, pattern *regexp.Regexp, disallowed []string)
 		return nil, errNotModel
 	}
 
-	args := make([]string, 0, len(disallowed)+claudeFixedArguments)
+	args, err := ruleArgs(disallowed, claudeFixedArguments)
+	if err != nil {
+		return nil, err
+	}
+
+	// -- ends the options (and the rules' list): the prompt after it is never read as one.
+	return append(args, "--name", name, "--model", model, "--", readPrompt), nil
+}
+
+// ruleArgs are --disallowedTools and each rule, one argument each, with room for more arguments
+// after them; none for no rules. An empty rule, or one with a control character, is refused.
+func ruleArgs(disallowed []string, more int) ([]string, error) {
+	args := make([]string, 0, len(disallowed)+more)
 
 	if len(disallowed) > 0 {
 		args = append(args, "--disallowedTools")
@@ -275,8 +287,7 @@ func ClaudeArgs(name, model string, pattern *regexp.Regexp, disallowed []string)
 		args = append(args, rule)
 	}
 
-	// -- ends the options (and the rules' list): the prompt after it is never read as one.
-	return append(args, "--name", name, "--model", model, "--", readPrompt), nil
+	return args, nil
 }
 
 // IsSafeRef is whether a branch name is safe as a git argument and in a path: it starts with a

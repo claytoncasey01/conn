@@ -1,0 +1,215 @@
+package historyapi_test
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/claytoncasey01/conn/internal/history"
+	"github.com/claytoncasey01/conn/internal/historyapi"
+	"github.com/claytoncasey01/conn/internal/launch"
+	"github.com/claytoncasey01/conn/internal/pty"
+)
+
+const allowedRepo = "acme/widgets"
+
+// launchRig is an archive with one ended session in folder, and the deps of an API over it,
+// each of which a case may change before api builds it.
+type launchRig struct {
+	folder     string
+	transcript string
+	deps       historyapi.Deps
+	opened     []pty.Spec
+}
+
+func newLaunchRig(t *testing.T) *launchRig {
+	t.Helper()
+
+	folder := filepath.Join(t.TempDir(), "widgets")
+
+	err := os.MkdirAll(folder, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	archive, err := history.Open(t.Context(), filepath.Join(t.TempDir(), "history.db"),
+		history.Options{
+			OriginOf: func(string) string { return "" }, Now: func() float64 { return 1 },
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = archive.Close() })
+
+	transcript := filepath.Join(t.TempDir(), resumedID+".jsonl")
+
+	err = os.WriteFile(transcript, []byte("{}\n"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = archive.Upsert(t.Context(), history.Entry{
+		SessionID: resumedID, Name: "fix the widget", Cwd: folder, Kind: "session",
+		Source: "transcript", TranscriptPath: transcript, Named: true, Final: true,
+		Outcome: "ended",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rig := &launchRig{folder: folder, transcript: transcript, deps: historyapi.Deps{}}
+	rig.deps = historyapi.Deps{
+		DB: archive, Summarizer: nil,
+		LiveIDs: func(context.Context) map[string]bool { return map[string]bool{} },
+		Allow:   func() []string { return []string{allowedRepo} },
+		RepoOf:  func(string) string { return allowedRepo },
+		Open: func(_ context.Context, spec pty.Spec) launch.Opened {
+			rig.opened = append(rig.opened, spec)
+
+			return launch.Opened{OK: true}
+		},
+		Claude: "/opt/claude/bin/claude", Dry: func() bool { return false },
+		Now: time.Now, ResumeCooldown: time.Minute,
+	}
+
+	return rig
+}
+
+func (r *launchRig) api() *historyapi.API { return historyapi.New(r.deps) }
+
+func TestResumeAtLaunchIsWhatResumeOpens(t *testing.T) {
+	t.Parallel()
+
+	rig := newLaunchRig(t)
+
+	got, ok := rig.api().ResumeAtLaunch(t.Context(), resumedID, rig.folder)
+	if !ok {
+		t.Fatal("not resumed")
+	}
+
+	_, err := rig.api().Handle(t.Context(),
+		historyapi.Route{Kind: historyapi.RouteResume, ID: resumedID, AgentID: ""}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rig.opened) != 1 {
+		t.Fatalf("RESUME opened %d sessions", len(rig.opened))
+	}
+
+	want := rig.opened[0]
+	if !slices.Equal(got.Argv, want.Argv) {
+		t.Errorf("argv %q, want %q", got.Argv, want.Argv)
+	}
+
+	if got.Dir != want.Dir {
+		t.Errorf("folder %q, want %q", got.Dir, want.Dir)
+	}
+
+	if got.Name != want.Name {
+		t.Errorf("name %q, want %q", got.Name, want.Name)
+	}
+}
+
+// launchRefusal is a record ResumeAtLaunch refuses: arrange changes the rig and is the id and
+// folder to check.
+type launchRefusal struct {
+	name    string
+	arrange func(t *testing.T, rig *launchRig) (string, string)
+}
+
+// recordRefusals are records that name no session History holds as it is.
+func recordRefusals() []launchRefusal {
+	return []launchRefusal{
+		{"an id that is not a UUID", func(_ *testing.T, rig *launchRig) (string, string) {
+			return "--continue", rig.folder
+		}},
+		{"a session History does not hold", func(_ *testing.T, rig *launchRig) (string, string) {
+			return "11111111-2222-4333-8444-555555555555", rig.folder
+		}},
+		{"a folder that is not the row's", func(_ *testing.T, _ *launchRig) (string, string) {
+			return resumedID, "/etc"
+		}},
+	}
+}
+
+// stateRefusals are records of a session RESUME, or the allowlist, would not open now.
+func stateRefusals() []launchRefusal {
+	return []launchRefusal{
+		{"a repository off the allowlist", func(_ *testing.T, rig *launchRig) (string, string) {
+			rig.deps.RepoOf = func(string) string { return "acme/other" }
+
+			return resumedID, rig.folder
+		}},
+		{"a folder of no repository", func(_ *testing.T, rig *launchRig) (string, string) {
+			rig.deps.RepoOf = func(string) string { return "" }
+
+			return resumedID, rig.folder
+		}},
+		{"no way to tell the repository", func(_ *testing.T, rig *launchRig) (string, string) {
+			rig.deps.RepoOf = nil
+
+			return resumedID, rig.folder
+		}},
+		{"no allowlist", func(_ *testing.T, rig *launchRig) (string, string) {
+			rig.deps.Allow = nil
+
+			return resumedID, rig.folder
+		}},
+		{"a dry run", func(_ *testing.T, rig *launchRig) (string, string) {
+			rig.deps.Dry = func() bool { return true }
+
+			return resumedID, rig.folder
+		}},
+		{"a session that runs", func(_ *testing.T, rig *launchRig) (string, string) {
+			rig.deps.LiveIDs = func(context.Context) map[string]bool {
+				return map[string]bool{resumedID: true}
+			}
+
+			return resumedID, rig.folder
+		}},
+		{"a folder that is gone", removed(func(rig *launchRig) string { return rig.folder })},
+		{
+			"a transcript that is gone",
+			removed(func(rig *launchRig) string { return rig.transcript }),
+		},
+	}
+}
+
+func TestResumeAtLaunchRefuses(t *testing.T) {
+	t.Parallel()
+
+	tests := slices.Concat(recordRefusals(), stateRefusals())
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rig := newLaunchRig(t)
+			sessionID, folder := tt.arrange(t, rig)
+
+			got, ok := rig.api().ResumeAtLaunch(t.Context(), sessionID, folder)
+			if ok {
+				t.Errorf("resumed %+v", got)
+			}
+		})
+	}
+}
+
+// removed is an arrangement that removes the path it names, then checks the good record.
+func removed(path func(rig *launchRig) string) func(t *testing.T, rig *launchRig) (string, string) {
+	return func(t *testing.T, rig *launchRig) (string, string) {
+		t.Helper()
+
+		err := os.RemoveAll(path(rig))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return resumedID, rig.folder
+	}
+}
