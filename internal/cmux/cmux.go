@@ -84,18 +84,21 @@ type Opened struct {
 }
 
 // textNotTypable is why a command was not handed to cmux.
-const textNotTypable = "the folder, the name or an argument holds a character other than " +
-	"printable ASCII, which cmux would type into a shell: open sessions inside Conn instead"
+const textNotTypable = "the command (the program and its arguments, the session's name " +
+	"among them) holds a character other than printable ASCII, which cmux would type into a " +
+	"shell: open sessions inside Conn instead"
 
 // Opener starts a command in a new cmux workspace.
 type Opener func(ctx context.Context, name, cwd, command string) Opened
 
 // Open starts command in a new cmux workspace in cwd, without focusing it, with the cmux program
 // bin; a command holding a byte other than printable ASCII is not handed to cmux, which types it
-// into a shell. When cmux fails the person gets the command to paste: the folder through
-// argv.ShellLine, so it is one word whatever it holds, unless the line holds a byte other than
-// printable ASCII (argv.PastableLine). cwd and name go to cmux as arguments, never through a
-// shell here.
+// into a shell. Only the command is checked: the folder is handed to cmux as its --cwd argument,
+// not as part of the command, so Conn types nothing with it. Whether cmux itself types a cd with
+// it is cmux's own (cmux was not available to check). When cmux fails the person gets the
+// command to paste: the folder through argv.ShellLine, so it is one word whatever it holds,
+// unless the line holds a byte other than printable ASCII (argv.PastableLine). cwd and name go
+// to cmux as arguments, never through a shell here.
 func Open(bin string) Opener {
 	return func(ctx context.Context, name, cwd, command string) Opened {
 		// cmux types the command into a shell in the new workspace, where a line editor acts on

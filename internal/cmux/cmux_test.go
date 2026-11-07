@@ -118,5 +118,20 @@ func TestCmuxIsNotGivenACommandItCannotTypeSafely(t *testing.T) {
 		if opened.ManualCommand != "" {
 			t.Errorf("a line to paste: %q", opened.ManualCommand)
 		}
+
+		if strings.Contains(opened.Error, "folder") {
+			t.Errorf("the error blames a folder, which is not what is checked: %q", opened.Error)
+		}
+	}
+}
+
+// TestCmuxIsHandedAFolderAsAnArgument: the folder goes to cmux as its --cwd argument, not in the
+// command it types, so a folder beyond ASCII with a command of printable ASCII opens.
+func TestCmuxIsHandedAFolderAsAnArgument(t *testing.T) {
+	t.Parallel()
+
+	opened := cmux.Open("/usr/bin/true")(t.Context(), "n", "/tmp/Jos\u00e9", "claude --continue")
+	if !opened.OK {
+		t.Errorf("not opened: %+v", opened)
 	}
 }
