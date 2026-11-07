@@ -175,3 +175,28 @@ func mustWrite(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// TestAFolderAnotherUserOwnsIsRefusedByItsDescriptor: / belongs to root, so the descriptor's own
+// owner check is what refuses it, before any write or read is tried there.
+func TestAFolderAnotherUserOwnsIsRefusedByItsDescriptor(t *testing.T) {
+	t.Parallel()
+
+	if os.Getuid() == 0 {
+		t.Skip("root owns /")
+	}
+
+	_, err := openOwnFolder("/")
+	if !errors.Is(err, ErrNotOwnFolder) {
+		t.Errorf("open: %v", err)
+	}
+
+	err = writeNewPrivate("/conn-no-such-file", "x")
+	if !errors.Is(err, ErrNotOwnFolder) {
+		t.Errorf("write: %v", err)
+	}
+
+	_, err = openInFolder("/", "etc")
+	if !errors.Is(err, ErrNotOwnFolder) {
+		t.Errorf("read: %v", err)
+	}
+}

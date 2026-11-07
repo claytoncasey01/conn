@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
+
+	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
 // TestRepliesAreReadOnlyFromAConnFolderOfOurOwn: a replies file in a .conn that is a link (a
@@ -138,5 +141,46 @@ func mustMake(t *testing.T, err error) {
 
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestRepliesAreReadOnlyFromARegularFile: a pipe (one a session still holds open would never
+// end) or a folder at .conn/replies.json is not read, and never waited on.
+func TestRepliesAreReadOnlyFromARegularFile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		make func(path string) error
+	}{
+		{"a pipe", func(path string) error { return syscall.Mkfifo(path, 0o600) }},
+		{"a folder", func(path string) error { return os.Mkdir(path, 0o700) }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			worktree := t.TempDir()
+			path := filepath.Join(worktree, ".conn", "replies.json")
+			mustMake(t, os.Mkdir(filepath.Join(worktree, ".conn"), 0o700))
+			mustMake(t, tt.make(path))
+
+			read := make(chan bool, 1)
+
+			go func() {
+				_, taken := readReplies(path)
+				read <- taken
+			}()
+
+			select {
+			case taken := <-read:
+				if taken {
+					t.Error("it was read")
+				}
+			case <-time.After(testtime.Scaled(5 * time.Second)):
+				t.Fatal("the read waited on it")
+			}
+		})
 	}
 }

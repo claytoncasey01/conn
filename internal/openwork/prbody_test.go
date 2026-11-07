@@ -5,10 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/claytoncasey01/conn/internal/openwork"
+	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
 const secretText = "-----BEGIN OPENSSH PRIVATE KEY----- not-for-github"
@@ -194,6 +197,60 @@ func TestAFallbackBodyIsValidTextWithinTheLimit(t *testing.T) {
 			if !strings.HasSuffix(body, "Not recorded: the session did not write "+
 				".conn/pr-body.md.\n") {
 				t.Errorf("the ending was cut: %q", body[max(0, len(body)-80):])
+			}
+		})
+	}
+}
+
+// TestAPRBodyIsReadOnlyFromARegularFile: a pipe (one a session still holds open would never
+// end) or a folder at .conn/pr-body.md is refused at once, never waited on.
+func TestAPRBodyIsReadOnlyFromARegularFile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		make func(path string) error
+	}{
+		{"a pipe", func(path string) error { return syscall.Mkfifo(path, 0o600) }},
+		{"a folder", func(path string) error { return os.Mkdir(path, 0o700) }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conn := filepath.Join(t.TempDir(), ".conn")
+			path := filepath.Join(conn, "pr-body.md")
+
+			err := os.Mkdir(conn, 0o700)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			err = tt.make(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			read := make(chan error, 1)
+
+			go func() {
+				_, _, readErr := openwork.ReadPRBody(path)
+				read <- readErr
+			}()
+
+			select {
+			case err = <-read:
+			case <-time.After(testtime.Scaled(5 * time.Second)):
+				t.Fatal("the read waited on it")
+			}
+
+			if err == nil {
+				t.Fatal("it was read")
+			}
+
+			if !strings.Contains(err.Error(), "not a regular file") {
+				t.Errorf("error %q", err)
 			}
 		})
 	}

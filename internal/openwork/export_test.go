@@ -207,3 +207,6 @@ func FallbackBody(subjects string) string { return fallbackBody(subjects) }
 
 // PRBodyBytesMax is prBodyBytesMax.
 const PRBodyBytesMax = prBodyBytesMax
+
+// ReadPRBody is readPRBody.
+func ReadPRBody(path string) (string, bool, error) { return readPRBody(path) }
