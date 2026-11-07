@@ -3,6 +3,7 @@ package myprs_test
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"math"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/claytoncasey01/conn/internal/claude"
@@ -67,13 +69,15 @@ type eRig struct {
 	stderr   string
 	outs     []eOut
 	opened   cmux.Opened
+	// unlinkErr is what removing a replies file answers.
+	unlinkErr error
 }
 
 func eNewRig(existing []string, outs ...eOut) *eRig {
 	return &eRig{
 		calls: nil, gits: nil, opens: nil, writes: nil, files: map[string]string{},
 		existing: eSet(existing...), fail: "", stderr: eBoom, outs: outs,
-		opened: cmux.Opened{OK: true, Error: "", ManualCommand: ""},
+		opened: cmux.Opened{OK: true, Error: "", ManualCommand: ""}, unlinkErr: nil,
 	}
 }
 
@@ -140,7 +144,7 @@ func (r *eRig) deps() reviews.LaunchDeps {
 		Unlink: func(folder, name string) error {
 			r.calls = append(r.calls, "unlink "+filepath.Join(folder, name))
 
-			return nil
+			return r.unlinkErr
 		},
 		Exists: func(path string) bool {
 			if r.existing[path] {
@@ -919,5 +923,28 @@ func TestELaunchTakesARelativeCommonDir(t *testing.T) {
 
 	if got != want {
 		t.Errorf("%+v", got)
+	}
+}
+
+// TestELaunchStopsWhenTheRepliesFileCannotBeRemoved: a replies file the launch could not remove
+// (one the branch committed) would end the round at once, so the launch fails with why and
+// opens no session.
+func TestELaunchStopsWhenTheRepliesFileCannotBeRemoved(t *testing.T) {
+	t.Parallel()
+
+	rig := eNewRig(nil)
+	rig.unlinkErr = &fs.PathError{Op: "unlink", Path: ".conn/replies.json", Err: syscall.EPERM}
+	got := eLaunchWith(rig, eOpts())
+
+	if got.OK {
+		t.Fatalf("launched: %+v", got)
+	}
+
+	if !strings.Contains(got.Error, "operation not permitted") {
+		t.Errorf("error %q", got.Error)
+	}
+
+	if slices.Contains(rig.calls, "open") {
+		t.Error("a session was opened")
 	}
 }

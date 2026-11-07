@@ -200,3 +200,26 @@ func TestAFolderAnotherUserOwnsIsRefusedByItsDescriptor(t *testing.T) {
 		t.Errorf("read: %v", err)
 	}
 }
+
+// TestAFolderAtTheNameIsLeftAndIsNoError: a folder at the name (a branch can commit one) is left
+// as it is, and is no error: failing on it would fail every launch.
+func TestAFolderAtTheNameIsLeftAndIsNoError(t *testing.T) {
+	t.Parallel()
+
+	conn := t.TempDir()
+
+	err := os.Mkdir(filepath.Join(conn, "replies.json"), 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = UnlinkInOwnFolder(conn, "replies.json")
+	if err != nil {
+		t.Errorf("a folder at the name: %v", err)
+	}
+
+	_, err = os.Stat(filepath.Join(conn, "replies.json"))
+	if err != nil {
+		t.Errorf("the folder at the name is gone: %v", err)
+	}
+}
