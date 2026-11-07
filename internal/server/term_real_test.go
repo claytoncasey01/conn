@@ -3,6 +3,8 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -57,14 +59,19 @@ func TestARealProgramThatStopsReadingKeepsItsTerminal(t *testing.T) {
 	t.Parallel()
 
 	rig := newTerminalRig(t, rigSetup{spawner: pty.Spawn})
+	folder := t.TempDir()
 
+	// The program reads again only once the test has sent all its motion and made the file
+	// "go", however slow the machine; it gives up waiting after 30 seconds.
 	sessionID := rig.startSpec(t, pty.Spec{
 		Argv: []string{
 			"/bin/sh", "-c",
-			`stty raw -echo; printf 'ready\n'; sleep 4; printf 'reading\n'; ` +
+			`stty raw -echo; printf 'ready\n'; ` +
+				`for n in $(seq 1 600); do if [ -e go ]; then break; fi; sleep 0.05; done; ` +
+				`printf 'reading\n'; ` +
 				`stty -raw; while read line; do printf 'got:%s:end\n' "$line"; done`,
 		},
-		Dir: t.TempDir(), Env: nil, Name: "not reading",
+		Dir: folder, Env: nil, Name: "not reading",
 	})
 
 	conn := rig.open(t, sessionID)
@@ -78,6 +85,11 @@ func TestARealProgramThatStopsReadingKeepsItsTerminal(t *testing.T) {
 	for range 150 {
 		sendMessage(t, conn, websocket.MessageText, inputFrame(mouseMotion))
 		time.Sleep(time.Second / 60)
+	}
+
+	err := os.WriteFile(filepath.Join(folder, "go"), nil, 0o600)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	// One reader takes the output from here on, so the test can type while it waits.

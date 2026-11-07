@@ -85,20 +85,25 @@ func held(t *testing.T) chan struct{} {
 
 // Input waiting for a program never holds up the reading of the viewer's frames: pings are
 // answered, and the terminal stays open, however long the input waits.
+//
+// The server reads a ping only from the reader that reads the input frames, so each ping the
+// viewer sends after them, answered, shows that reader still reading. Nothing here races a
+// clock: the server's own pings come often, but may wait as long as the test's limit for their
+// answer, so a slow machine never drops the terminal for a late pong.
 func TestPingsAreAnsweredWhileInputWaits(t *testing.T) {
 	t.Parallel()
 
 	rig := newTerminalRig(t, rigSetup{
 		programs: &fakePrograms{writeGate: held(t)},
 		times: server.TerminalTimes{
-			PingInterval: 50 * time.Millisecond, PingTimeout: 100 * time.Millisecond,
+			PingInterval: serverPingInterval, PingTimeout: testtime.Scaled(waitLimit),
 		},
 	})
 	sessionID, program := rig.start(t)
 	conn := rig.open(t, sessionID)
 	readOutputUntilText(t, conn)
 
-	// The reader keeps reading, so the client's pongs are read too.
+	// The reader keeps reading, so the server's pings and the answers to the viewer's are read.
 	output := make(chan []byte, 1)
 
 	go func() {
@@ -110,11 +115,25 @@ func TestPingsAreAnsweredWhileInputWaits(t *testing.T) {
 		close(output)
 	}()
 
+	// One frame is in the program, held there, and the queue holds the next ones.
 	for range 3 {
 		sendMessage(t, conn, websocket.MessageText, inputFrame("x"))
 	}
 
-	time.Sleep(testtime.Scaled(time.Second))
+	eventually(t, "the first frame never reached the program", func() bool {
+		return program.attemptsSoFar() == 1
+	})
+
+	for index := range pingsWhileInputWaits {
+		pingCtx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(waitLimit))
+		err := conn.Ping(pingCtx)
+
+		cancel()
+
+		if err != nil {
+			t.Fatalf("ping %d while the input waited: %v", index+1, err)
+		}
+	}
 
 	program.feed(t, []byte("alive"))
 
@@ -131,6 +150,13 @@ func TestPingsAreAnsweredWhileInputWaits(t *testing.T) {
 		t.Fatal("no output came")
 	}
 }
+
+const (
+	// serverPingInterval has the server ping often while the test runs.
+	serverPingInterval = 10 * time.Millisecond
+	// pingsWhileInputWaits is how many pings the viewer sends while its input waits.
+	pingsWhileInputWaits = 20
+)
 
 // Input that backs up past the queue a viewer may have waiting is dropped, as input a program
 // does not take is: the terminal stays open, and once the program takes input again, what was
@@ -217,17 +243,33 @@ func TestABlockedWriteDropsWhatIsQueuedBehindIt(t *testing.T) {
 		sendMessage(t, conn, websocket.MessageText, inputFrame(queued))
 	}
 
-	// Let the reader queue them before the program refuses the first.
-	time.Sleep(testtime.Scaled(100 * time.Millisecond))
+	// The server reads frames in order: once a ping sent after them is answered, the reader has
+	// queued them behind the first.
+	go func() {
+		for {
+			_, _, err := conn.Read(context.Background())
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	pingCtx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(waitLimit))
+	defer cancel()
+
+	err := conn.Ping(pingCtx)
+	if err != nil {
+		t.Fatalf("the terminal was closed: %v", err)
+	}
+
+	// Every write after the second waits for a reply the test never sends, until the end.
+	t.Cleanup(func() { close(replies) })
 
 	replies <- fmt.Errorf("write: %w", os.ErrDeadlineExceeded)
 
-	time.Sleep(testtime.Scaled(100 * time.Millisecond))
-	sendMessage(t, conn, websocket.MessageText, inputFrame("e"))
-
-	eventually(t, "input after the dropped ones never reached the program", func() bool {
-		return program.attemptsSoFar() == 2
-	})
+	// The queue is emptied after the refusal, apart from the reader: an "e" read before that is
+	// dropped with the rest, so "e" is sent until one reaches the program.
+	sendUntilAttempted(t, conn, program, inputFrame("e"), 2)
 
 	replies <- nil
 
@@ -239,6 +281,33 @@ func TestABlockedWriteDropsWhatIsQueuedBehindIt(t *testing.T) {
 		t.Fatalf("typed %q, want only %q: input queued behind a refused frame was typed", got, "e")
 	}
 }
+
+// sendUntilAttempted sends frame until the program has been given attempts writes.
+func sendUntilAttempted(
+	t *testing.T, conn *websocket.Conn, program *fakeProgram, frame string, attempts int,
+) {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(waitLimit))
+
+	for time.Now().Before(deadline) {
+		sendMessage(t, conn, websocket.MessageText, frame)
+
+		resend := time.Now().Add(testtime.Scaled(resendAfter))
+		for time.Now().Before(resend) {
+			if program.attemptsSoFar() >= attempts {
+				return
+			}
+
+			time.Sleep(waitPoll)
+		}
+	}
+
+	t.Fatalf("the program was given %d writes, want %d", program.attemptsSoFar(), attempts)
+}
+
+// resendAfter is how long sendUntilAttempted waits for a frame before sending it again.
+const resendAfter = 200 * time.Millisecond
 
 // The terminal ends as the host says its viewer's output ended: a viewer that fell behind is
 // told to come back (1013) while every write to it still succeeds, and one whose program ended

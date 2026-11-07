@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	"github.com/claytoncasey01/conn/internal/pty"
 )
 
 // MarshalJSON lets the tests check the JSON text without a route that returns user text.
@@ -71,3 +73,15 @@ const InterruptRepeatWindow = interruptRepeatWindow
 
 // BudgetsKept is how many sessions' input budgets terminals keeps.
 func BudgetsKept(terminals *Terminals) int { return terminals.budgets.count() }
+
+// SetTerminalEnded has terminals tell ended each session whose terminal is told to end. Set it
+// before any terminal is opened.
+func SetTerminalEnded(terminals *Terminals, ended func(pty.ID)) { terminals.ended = ended }
+
+// ActiveTerminals is how many terminals are being served.
+func ActiveTerminals(terminals *Terminals) int {
+	terminals.activeMu.Lock()
+	defer terminals.activeMu.Unlock()
+
+	return terminals.active
+}

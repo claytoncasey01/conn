@@ -159,6 +159,9 @@ func TestATypistStopsWhenItsTerminalEnds(t *testing.T) {
 	t.Cleanup(func() { close(replies) })
 
 	rig := newTerminalRig(t, rigSetup{programs: &fakePrograms{writeReplies: replies}})
+	ended := make(chan pty.ID, typistRounds)
+
+	server.SetTerminalEnded(rig.terminals, func(sessionID pty.ID) { ended <- sessionID })
 
 	for round := range typistRounds {
 		sessionID, program := rig.start(t)
@@ -174,17 +177,35 @@ func TestATypistStopsWhenItsTerminalEnds(t *testing.T) {
 			sendMessage(t, conn, websocket.MessageText, inputFrame("b"))
 		}
 
-		// The viewer goes while its first frame is in the program and the rest are queued.
+		// The viewer goes while its first frame is in the program and the rest are queued. The
+		// program takes the frame only once the terminal has been told to end, and what the
+		// typist did is looked at once the terminal is done.
 		_ = conn.CloseNow()
 
-		time.Sleep(testtime.Scaled(100 * time.Millisecond))
+		waitEnded(t, ended, sessionID)
 		takeNext(t, replies)
-		time.Sleep(testtime.Scaled(100 * time.Millisecond))
+		eventually(t, "the terminal was never done", func() bool {
+			return server.ActiveTerminals(rig.terminals) == 0
+		})
 
 		if attempts := program.attemptsSoFar(); attempts != 1 {
 			t.Fatalf("round %d: %d frames given to the program after its terminal ended, want 0",
 				round, attempts-1)
 		}
+	}
+}
+
+// waitEnded waits until the server has told sessionID's terminal to end.
+func waitEnded(t *testing.T, ended <-chan pty.ID, sessionID pty.ID) {
+	t.Helper()
+
+	select {
+	case got := <-ended:
+		if got != sessionID {
+			t.Fatalf("the terminal of %s ended, want %s", got, sessionID)
+		}
+	case <-time.After(testtime.Scaled(waitLimit)):
+		t.Fatal("the terminal was never told to end")
 	}
 }
 

@@ -488,9 +488,10 @@ func TestATerminalOutlivesTheServersReadTimeout(t *testing.T) {
 
 	rig := newTerminalRig(t, rigSetup{readTimeout: readTimeout})
 	sessionID, program := rig.start(t)
-	conn := rig.open(t, sessionID)
+	conn := openWithinReadTimeout(t, rig, sessionID)
 	readOutputUntilText(t, conn)
 
+	// The test is that time passes beyond the read timeout with the terminal open.
 	time.Sleep(3 * readTimeout)
 
 	sendMessage(t, conn, websocket.MessageText, inputFrame("late"))
@@ -500,6 +501,27 @@ func TestATerminalOutlivesTheServersReadTimeout(t *testing.T) {
 
 	program.feed(t, []byte("still open"))
 	readOutputUntil(t, conn, "still open")
+}
+
+// openWithinReadTimeout opens a terminal whose handshake the server read within its read
+// timeout. The timeout bounds the handshake as well, so on a slow machine the server rightly
+// hangs up on one that took longer, before any terminal is open; the next is tried.
+func openWithinReadTimeout(t *testing.T, rig *terminalRig, sessionID pty.ID) *websocket.Conn {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(waitLimit))
+
+	for {
+		got := rig.dial(t, string(sessionID), nil)
+		if got.err == nil {
+			return got.conn
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("no handshake was read within the read timeout: status %d: %v", got.status,
+				got.err)
+		}
+	}
 }
 
 // A peer that stops answering pings is dropped, and its place is freed.

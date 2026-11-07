@@ -78,7 +78,16 @@ func newTerminalRig(t *testing.T, setup rigSetup) *terminalRig {
 		behind = setup.host
 	}
 
-	terminals := server.NewTerminalsTimed(lifetime, behind, setup.times)
+	// A test's viewer answers the server's pings only while the test reads it, and most tests
+	// stop reading once they have seen what they wait for. The server's keepalive rightly drops
+	// such a viewer once a ping goes unanswered past its timeout, which a slow run outlasts; so a
+	// test that does not set the keepalive's times gets one no test outlasts.
+	times := setup.times
+	if times.PingInterval == 0 {
+		times.PingInterval = rigPingInterval
+	}
+
+	terminals := server.NewTerminalsTimed(lifetime, behind, times)
 	handler := &server.Server{UI: bundle(), Secret: key, Terminals: terminals}
 
 	if setup.logger != nil {
@@ -344,6 +353,10 @@ func sendTyped(t *testing.T, conn *websocket.Conn, program *fakeProgram, frame s
 		time.Sleep(typedPoll)
 	}
 }
+
+// rigPingInterval is how often the rig's server pings a viewer, unless a test sets it: longer
+// than any test runs.
+const rigPingInterval = 24 * time.Hour
 
 // typedPoll is how often sendTyped looks.
 const typedPoll = 100 * time.Microsecond

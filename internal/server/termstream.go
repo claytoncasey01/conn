@@ -67,7 +67,14 @@ func (t *Terminals) run(
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	open := &link{conn: conn, cancel: cancel, once: sync.Once{}}
+	ending := func() {
+		cancel()
+
+		if t.ended != nil {
+			t.ended(sessionID)
+		}
+	}
+	open := &link{conn: conn, cancel: ending, once: sync.Once{}}
 	queue := make(chan []byte, inputQueueFramesMax)
 
 	var group sync.WaitGroup
