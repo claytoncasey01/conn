@@ -392,18 +392,57 @@ func TestNoLineToPasteHoldsAByteBeyondPrintableASCII(t *testing.T) {
 	}
 }
 
-// TestInvisibleCharactersInTheNameOrFolderStartNothing: a name or folder holding a zero-width or
-// tag character, shown differently from what it is, is refused.
+// TestInvisibleCharactersInTheNameOrFolderStartNothing: a name or folder holding a zero-width
+// space, a word joiner, a byte order mark or a tag character, shown differently from what it is,
+// is refused. The joiners and the emoji presentation selector are part of how emoji and Persian
+// or Indic words are spelled: those names and folders start inside Conn, with no line to paste.
 func TestInvisibleCharactersInTheNameOrFolderStartNothing(t *testing.T) {
 	t.Parallel()
 
-	for _, spec := range []pty.Spec{
-		{Argv: []string{"claude"}, Dir: "/w", Env: nil, Name: "pr-1\u200b"},
-		{Argv: []string{"claude"}, Dir: "/w/a\ufeffb", Env: nil, Name: "n"},
-		{Argv: []string{"claude"}, Dir: "/w/a\U000e0041b", Env: nil, Name: "n"},
-	} {
-		if !errors.Is(launch.Check(spec), launch.ErrInvalidSession) {
-			t.Errorf("%+q was taken", spec.Name+" "+spec.Dir)
-		}
+	tests := []struct {
+		name, sessionName, dir string
+		refused                bool
+	}{
+		{"a zero-width space in the name", "pr-1\u200b", "/w", true},
+		{"a word joiner in the name", "pr-1\u2060x", "/w", true},
+		{"a byte order mark in the folder", "n", "/w/a\ufeffb", true},
+		{"a tag character in the folder", "n", "/w/a\U000e0041b", true},
+		{"a technologist in the name", "\U0001f469\u200d\U0001f4bb notes", "/w", false},
+		{"a red heart in the folder", "n", "/w/notes-\u2764\ufe0f", false},
+		{"a rainbow flag in the name", "\U0001f3f3\ufe0f\u200d\U0001f308", "/w", false},
+		{
+			"a Persian word with a non-joiner in the folder", "n",
+			"/w/\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645", false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			spec := pty.Spec{
+				Argv: []string{"claude", "--name", tt.sessionName}, Dir: tt.dir, Env: nil,
+				Name: tt.sessionName,
+			}
+
+			refused := errors.Is(launch.Check(spec), launch.ErrInvalidSession)
+			if refused != tt.refused {
+				t.Fatalf("refused %v, want %v", refused, tt.refused)
+			}
+
+			if tt.refused {
+				return
+			}
+
+			inside := newRig(settings.WhereInside).opener()(t.Context(), spec)
+			if !inside.OK {
+				t.Errorf("did not start inside Conn: %+v", inside)
+			}
+
+			shown := launch.New(commandDeps())(t.Context(), spec)
+			if shown.ManualCommand != "" {
+				t.Errorf("a line to paste: %q", shown.ManualCommand)
+			}
+		})
 	}
 }

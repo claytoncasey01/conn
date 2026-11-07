@@ -160,19 +160,21 @@ type invisibleRange struct{ first, last rune }
 
 // Invisible is whether char draws nothing: a name holding one is shown differently from the name
 // used. The ranges are the soft hyphen, the combining grapheme joiner, the Hangul fillers, the
-// Mongolian vowel separator, the zero-width space, non-joiner and joiner, the word joiner and the
-// invisible operators, the variation selectors, the byte order mark (zero-width no-break space)
-// and the tag characters.
+// Mongolian vowel separator, the zero-width space, the word joiner and the invisible operators,
+// the variation selectors but the emoji presentation selector (U+FE0F), the byte order mark
+// (zero-width no-break space) and the tag characters. The zero-width non-joiner and joiner
+// (U+200C, U+200D) and U+FE0F are left out: they spell emoji sequences and Persian or Indic
+// words, so refusing them would refuse ordinary names.
 func Invisible(char rune) bool {
 	ranges := [...]invisibleRange{
 		{0x00ad, 0x00ad},
 		{0x034f, 0x034f},
 		{0x115f, 0x1160},
 		{0x180e, 0x180e},
-		{0x200b, 0x200d},
+		{0x200b, 0x200b},
 		{0x2060, 0x2064},
 		{0x3164, 0x3164},
-		{0xfe00, 0xfe0f},
+		{0xfe00, 0xfe0e},
 		{0xfeff, 0xfeff},
 		{0xffa0, 0xffa0},
 		{0xe0000, 0xe007f},
