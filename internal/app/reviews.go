@@ -158,7 +158,7 @@ func launchDeps(parts reviewsParts, names reviews.Names) reviews.LaunchDeps {
 			return gitIn(ctx, args, dir, 0)
 		},
 		Open: parts.open, Claude: cfg.ClaudeBin,
-		Write: reviews.WriteLaunchFile,
+		Write: reviews.WriteLaunchFile, Unlink: reviews.UnlinkInOwnFolder,
 		Exists: func(path string) bool {
 			_, err := os.Stat(path)
 

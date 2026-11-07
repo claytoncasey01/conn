@@ -547,7 +547,14 @@ func (l launchSteps) open(ctx context.Context, plan launchPlan, headSha string) 
 		return launchFailed("could not read the commit " + l.worktree + " is at")
 	}
 
-	err := l.deps.Write(filepath.Join(l.worktree, ".conn", "prompt.md"), plan.prompt, false)
+	err := l.deps.Write(filepath.Join(l.worktree, ConnFolder, "prompt.md"), plan.prompt, false)
+	if err == nil {
+		// A replies file already there, which the branch may have committed (a link to a file
+		// that changes often would end the round at once), is not this round's: it goes before
+		// the session starts, through the folder the write has just checked is the person's.
+		err = l.deps.Unlink(filepath.Join(l.worktree, ConnFolder), RepliesFile)
+	}
+
 	if err != nil {
 		return launchFailed(reviews.FirstLine(&FailureError{Message: settings.NodeError(err)}))
 	}

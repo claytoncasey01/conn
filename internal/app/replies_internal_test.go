@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -75,4 +76,67 @@ func ownReplies(t *testing.T) string {
 	}
 
 	return own
+}
+
+// TestARepliesTimeIsReadOnlyFromARegularFileOfOurOwn: the time a replies file was written ends a
+// round, so it is read only from a regular file in a .conn folder of ours, never through a link
+// a repository committed (which would give the time of whatever it points to).
+func TestARepliesTimeIsReadOnlyFromARegularFileOfOurOwn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		make func(t *testing.T, worktree, elsewhere string)
+		want bool
+	}{
+		{"a regular file of ours", func(t *testing.T, worktree, _ string) {
+			t.Helper()
+			mustMake(t, os.Mkdir(filepath.Join(worktree, ".conn"), 0o700))
+			mustMake(t, os.WriteFile(filepath.Join(worktree, ".conn", "replies.json"),
+				[]byte(`[]`), 0o600))
+		}, true},
+		{"no file", func(t *testing.T, worktree, _ string) {
+			t.Helper()
+			mustMake(t, os.Mkdir(filepath.Join(worktree, ".conn"), 0o700))
+		}, false},
+		{"the file is a link", func(t *testing.T, worktree, elsewhere string) {
+			t.Helper()
+			mustMake(t, os.Mkdir(filepath.Join(worktree, ".conn"), 0o700))
+			mustMake(t, os.Symlink(filepath.Join(elsewhere, "replies.json"),
+				filepath.Join(worktree, ".conn", "replies.json")))
+		}, false},
+		{".conn is a link", func(t *testing.T, worktree, elsewhere string) {
+			t.Helper()
+			mustMake(t, os.Symlink(elsewhere, filepath.Join(worktree, ".conn")))
+		}, false},
+		{"the file is a pipe", func(t *testing.T, worktree, _ string) {
+			t.Helper()
+			mustMake(t, os.Mkdir(filepath.Join(worktree, ".conn"), 0o700))
+			mustMake(t, syscall.Mkfifo(filepath.Join(worktree, ".conn", "replies.json"), 0o600))
+		}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			worktree, elsewhere := t.TempDir(), t.TempDir()
+			mustMake(t, os.WriteFile(filepath.Join(elsewhere, "replies.json"), []byte(`[]`),
+				0o600))
+			tt.make(t, worktree, elsewhere)
+
+			at := repliesAt(worktree)
+			if read := at != nil; read != tt.want {
+				t.Errorf("a time read: %v, want %v", read, tt.want)
+			}
+		})
+	}
+}
+
+func mustMake(t *testing.T, err error) {
+	t.Helper()
+
+	if err != nil {
+		t.Fatal(err)
+	}
 }

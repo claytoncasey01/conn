@@ -3,6 +3,8 @@ package myprs_test
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,7 +142,7 @@ func (w *eGitWorld) deps() reviews.LaunchDeps {
 			return cmux.Opened{OK: true, Error: "", ManualCommand: ""}
 		}),
 		Claude: "claude",
-		Write:  reviews.WriteLaunchFile,
+		Write:  reviews.WriteLaunchFile, Unlink: reviews.UnlinkInOwnFolder,
 		Exists: func(path string) bool {
 			_, err := os.Stat(path)
 
@@ -310,5 +312,50 @@ func eCheckReused(t *testing.T, world *eGitWorld, first, second myprs.LaunchResu
 
 	if !slices.Equal(world.opens, []string{"self-web-12", "self-web-12-2"}) {
 		t.Errorf("opens %v", world.opens)
+	}
+}
+
+// TestALaunchRemovesARepliesFileTheBranchCommitted: a PR branch that commits .conn/replies.json
+// (a link to a file that changes often would end every round at once) has it removed before the
+// session starts, and what the link pointed to is left as it was.
+func TestALaunchRemovesARepliesFileTheBranchCommitted(t *testing.T) {
+	t.Parallel()
+
+	world := eNewGitWorld(t, false)
+	target := filepath.Join(t.TempDir(), "history")
+
+	err := os.WriteFile(target, []byte("kept"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.MkdirAll(filepath.Join(world.seed, ".conn"), 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Symlink(target, filepath.Join(world.seed, ".conn", "replies.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	eMustGit(t, world.seed, "add", ".conn/replies.json")
+	eMustGit(t, world.seed, "commit", "-qm", "replies")
+	eMustGit(t, world.seed, "push", "-q", "origin", "HEAD:feat")
+
+	first := world.firstRound(t)
+
+	_, err = os.Lstat(filepath.Join(first.Worktree, ".conn", "replies.json"))
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the committed replies file is still there: %v", err)
+	}
+
+	kept, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(kept) != "kept" {
+		t.Errorf("what the link pointed to is now %q", kept)
 	}
 }

@@ -519,7 +519,7 @@ func (m *MyPrs) repliesOf(entry *Entry) (any, *Launch) {
 		return nil, nil
 	}
 
-	content, ok := m.deps.ReadFile(filepath.Join(newest.Worktree, ".conn", "replies.json"))
+	content, ok := m.deps.ReadFile(filepath.Join(newest.Worktree, ConnFolder, RepliesFile))
 	if !ok {
 		return nil, nil
 	}

@@ -123,7 +123,8 @@ func (r *dLaunchRig) deps() reviews.LaunchDeps {
 	cfg := dConfig()
 
 	return reviews.LaunchDeps{
-		Git: r.git, Open: asCmux(r.open), Claude: "claude", Write: r.write, Exists: r.exists,
+		Git: r.git, Open: asCmux(r.open), Claude: "claude", Write: r.write, Unlink: nil,
+		Exists: r.exists,
 		Read:   func(path string) (string, error) { return r.files[path], nil },
 		Origin: func(string) string { return r.origin },
 		Names:  reviews.Names{Pattern: cfg.ReviewNamePattern},

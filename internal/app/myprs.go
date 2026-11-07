@@ -101,10 +101,23 @@ func repoMatches(ctx context.Context, repo, path string) (bool, error) {
 }
 
 // repliesAt is the mtime (ms, floored) of <worktree>/.conn/replies.json; nil when it is not
-// there.
+// there. It is read only from a regular file reached through a .conn folder of the person's
+// own, with no link followed: a link a branch committed would give the time of what it points to.
 func repliesAt(worktree string) *float64 {
-	info, err := os.Stat(filepath.Join(worktree, ".conn", "replies.json"))
+	file, err := reviews.OpenInOwnFolder(filepath.Join(worktree, myprs.ConnFolder),
+		myprs.RepliesFile)
 	if err != nil {
+		return nil
+	}
+
+	defer func() { _ = file.Close() }()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil
+	}
+
+	if !info.Mode().IsRegular() {
 		return nil
 	}
 

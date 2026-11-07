@@ -116,3 +116,62 @@ func TestAFileInTheFolderIsOpenedOnlyIfItIsNoLink(t *testing.T) {
 
 	_ = file.Close()
 }
+
+// TestAFileIsRemovedOnlyThroughAFolderOfOurOwn: a file or a link in the folder is removed (what
+// the link points to is kept), a missing one is nothing to do, and a folder that is a link is
+// refused with nothing removed where it points.
+func TestAFileIsRemovedOnlyThroughAFolderOfOurOwn(t *testing.T) {
+	t.Parallel()
+
+	conn, elsewhere := t.TempDir(), t.TempDir()
+	target := filepath.Join(elsewhere, "replies.json")
+	mustWrite(t, target, "kept")
+	mustWrite(t, filepath.Join(conn, "own.json"), "own")
+
+	err := os.Symlink(target, filepath.Join(conn, "linked.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"own.json", "linked.json", "missing.json"} {
+		err = UnlinkInOwnFolder(conn, name)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+
+		_, err = os.Lstat(filepath.Join(conn, name))
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s is still there", name)
+		}
+	}
+
+	linked := filepath.Join(t.TempDir(), ".conn")
+
+	err = os.Symlink(elsewhere, linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = UnlinkInOwnFolder(linked, "replies.json")
+	if !errors.Is(err, ErrNotOwnFolder) {
+		t.Errorf("through a linked folder: %v", err)
+	}
+
+	kept, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(kept) != "kept" {
+		t.Errorf("the target is now %q", kept)
+	}
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+
+	err := os.WriteFile(path, []byte(content), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+}

@@ -28,8 +28,10 @@ const (
 	delegationFile = "delegation.md"
 	briefFile      = "brief.md"
 	connFolder     = ".conn"
-	// repliesFile is what a My PRs self-review session writes for Conn to read; it never belongs
-	// in a build's .conn.
+	// repliesFile is what a My PRs self-review session writes for Conn to read. Open work never
+	// reads it, and a run's worktree is never a My PRs one (that launch removes its own); a
+	// brief still removes one the repository left, as the P2-B ruling asked, so no file of the
+	// repository's is ever taken for a session's.
 	repliesFile = "replies.json"
 )
 
@@ -579,7 +581,7 @@ func (w *Work) excludeDeps() reviews.LaunchDeps {
 		Git: func(_ context.Context, args []string, dir string) (string, error) {
 			return w.sh("git", args, dir, 0)
 		},
-		Open: nil,
+		Open: nil, Unlink: nil,
 		Write: func(path, content string, _ bool) error {
 			return os.WriteFile(path, []byte(content), fileMode)
 		},

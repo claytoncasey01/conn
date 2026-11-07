@@ -136,6 +136,20 @@ func openInFolder(folder, name string) (*os.File, error) {
 	return os.NewFile(uintptr(opened), path), nil
 }
 
+// UnlinkInOwnFolder removes name from folder, through the folder's own descriptor, only when
+// folder is a folder of the person's own: a link at name is removed, never followed, and a
+// missing name is nothing to do. A folder at name is left.
+func UnlinkInOwnFolder(folder, name string) error {
+	descriptor, err := openOwnFolder(folder)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = unix.Close(descriptor) }()
+
+	return removeUnlessFolder(descriptor, filepath.Join(folder, name), name)
+}
+
 // writeNewPrivate writes a new file at path, 0600, through its folder's own descriptor:
 // whatever was at the path is removed first, so a link is never followed; a folder is left for
 // the write to fail on.

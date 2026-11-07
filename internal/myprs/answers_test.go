@@ -704,6 +704,7 @@ func TestLaunchesMatchTheRecording(t *testing.T) {
 		}
 		deps := reviews.LaunchDeps{
 			Git: world.git, Open: asCmux(world.open), Claude: "claude", Write: world.write,
+			Unlink: func(string, string) error { return nil },
 			Exists: func(path string) bool { return world.present[path] },
 			Read:   func(string) (string, error) { return "existing\n", nil },
 			Origin: nil, Names: reviews.Names{Pattern: nil},

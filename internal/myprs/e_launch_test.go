@@ -137,6 +137,11 @@ func (r *eRig) deps() reviews.LaunchDeps {
 
 			return nil
 		},
+		Unlink: func(folder, name string) error {
+			r.calls = append(r.calls, "unlink "+filepath.Join(folder, name))
+
+			return nil
+		},
 		Exists: func(path string) bool {
 			if r.existing[path] {
 				return true
@@ -863,7 +868,10 @@ func TestELaunchOrder(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 
-	want := []string{"git", "git", "git", "git", "git", "write", "git", "write", "open"}
+	want := []string{
+		"git", "git", "git", "git", "git", "write",
+		"unlink " + filepath.Join(eWorktree, ".conn", "replies.json"), "git", "write", "open",
+	}
 	if !slices.Equal(rig.calls, want) {
 		t.Errorf("calls %v", rig.calls)
 	}

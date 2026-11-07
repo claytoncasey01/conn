@@ -352,6 +352,8 @@ type LaunchDeps struct {
 	Claude string
 	// Write writes a file (WriteLaunchFile).
 	Write func(path, content string, shared bool) error
+	// Unlink removes a file from a folder of the person's own (UnlinkInOwnFolder).
+	Unlink func(folder, name string) error
 	// Exists is whether a path exists.
 	Exists func(path string) bool
 	// Read is the text of a file that exists.
