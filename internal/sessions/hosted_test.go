@@ -24,8 +24,35 @@ import (
 // replyLinesRead is how many screen lines a test reads.
 const replyLinesRead = 40
 
-// settledAfter is longer than the host's settle window for input (250 ms).
-const settledAfter = 400 * time.Millisecond
+// settledAfterBase is longer than the host's settle window for input (250 ms).
+const settledAfterBase = 400 * time.Millisecond
+
+// settledAfter is how long a test lets pass for input to count as settled, while it holds a write
+// or has a fake program wait: a lower bound, which a slow machine only makes longer.
+func settledAfter() time.Duration { return testtime.Scaled(settledAfterBase) }
+
+// waitSettled waits until a screen read of the session counts as settled (no input for the host's
+// settle window), so what the test does next sees the screen the host trusts.
+func waitSettled(t *testing.T, host *pty.Host, hostedID string) {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(5 * time.Second))
+
+	for time.Now().Before(deadline) {
+		_, mark, err := host.ScreenLines(pty.ID(hostedID), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if mark.Quiet {
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("the session's input never settled")
+}
 
 // notSent is the answer to a reply whose message was typed and whose Enter was not pressed.
 const notSent = `{"error":"the message is in the session's input box but was not sent, ` +
@@ -1398,7 +1425,7 @@ func afterViewerKey(t *testing.T, fake *world, hostedID string, held *program, k
 		go func() { viewer <- fake.host.Write(pty.ID(hostedID), []byte(key)) }()
 
 		held.waitWriting(t)
-		time.Sleep(settledAfter)
+		time.Sleep(settledAfter())
 		release()
 
 		err := <-viewer
@@ -1416,7 +1443,8 @@ func afterViewerKey(t *testing.T, fake *world, hostedID string, held *program, k
 
 	if how == keySettledThenRedrawn {
 		held.show(t, screen)
-		time.Sleep(settledAfter)
+		waitDrawn(t, fake.host, pty.ID(hostedID), screen)
+		waitSettled(t, fake.host, hostedID)
 	}
 
 	return act(t.Context())
@@ -1435,7 +1463,7 @@ func afterHeldKey(t *testing.T, fake *world, hostedID string, held *program, key
 	go func() { viewer <- fake.host.Write(pty.ID(hostedID), []byte(key)) }()
 
 	held.waitWriting(t)
-	time.Sleep(settledAfter)
+	time.Sleep(settledAfter())
 
 	acted := make(chan sessions.Reply, 1)
 
@@ -1627,7 +1655,7 @@ func TestAnEnterIsCheckedAgainWhenItsTurnComes(t *testing.T) {
 	fake := newWorld(t)
 	hostedID, held := fake.hostedSession(140, "w", "idle", "", idleBox, 1)
 	// The message is drawn only once the program's input is held below.
-	held.echoDelay = settledAfter
+	held.echoDelay = settledAfter()
 	loop := start(t, fake)
 
 	rowOf(t, loop, hostedID, anyRow)
@@ -1678,7 +1706,7 @@ func TestTextTypedAfterTheMessageIsNotSent(t *testing.T) {
 	hostedID, held := fake.hostedSession(142, "y", "idle", "", idleBox, 1)
 	// The box shows the message whatever else is typed, so only what was typed refuses it.
 	held.echo = boxWith("hello")
-	held.echoDelay = settledAfter
+	held.echoDelay = settledAfter()
 	loop := start(t, fake)
 
 	rowOf(t, loop, hostedID, anyRow)
@@ -1793,7 +1821,7 @@ func TestAnAnswerAfterEarlierInputIsPressed(t *testing.T) {
 	})
 	askID, _ := shown["id"].(string)
 
-	time.Sleep(settledAfter)
+	waitSettled(t, fake.host, hostedID)
 
 	got := loop.Answer(t.Context(), hostedID, pressOne(askID))
 	if body(got) != `{"ok":true}` {
@@ -1849,7 +1877,7 @@ func TestASecondPressOfAJustAnsweredPromptIsRefused(t *testing.T) {
 
 	// The program has not redrawn: the prompt is still on screen, read again past the settle
 	// window.
-	time.Sleep(settledAfter)
+	waitSettled(t, fake.host, hostedID)
 
 	shown, _ := askByID(t, loop, hostedID)["id"].(string)
 	if shown != answered {
@@ -1882,7 +1910,7 @@ func TestASecondPressOfAJustAnsweredPromptIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(settledAfter)
+	waitSettled(t, fake.host, hostedID)
 
 	if again, _ := askByID(t, loop, hostedID)["id"].(string); again != answered {
 		t.Errorf("after a viewer's key the prompt just answered is shown as %q", again)
@@ -2037,7 +2065,8 @@ func TestASecondTextAnswerIsRefused(t *testing.T) {
 	}
 
 	held.show(t, idleBox)
-	time.Sleep(settledAfter)
+	waitDrawn(t, fake.host, pty.ID(hostedID), idleBox)
+	waitSettled(t, fake.host, hostedID)
 
 	if again, _ := askByID(t, loop, hostedID)["id"].(string); again != answered {
 		t.Errorf("the box drawn again is shown as %q, not locked as %q", again, answered)

@@ -70,7 +70,7 @@ func TestReviewsCanCloseAHostedSessionThroughTheHost(t *testing.T) {
 }
 
 // testSettle is longer than the host's settle window for input, so a screen read counts.
-func testSettle() time.Duration { return settledAfter }
+func testSettle() time.Duration { return settledAfter() }
 
 // TestAHostedCloseIsRefusedUnlessTheReadStillStands: a hosted review is not closed while a program
 // it started holds its terminal, when something was typed into it just before, or while it runs
