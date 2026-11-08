@@ -345,3 +345,43 @@ func TestReadRefusesAnotherUsersFile(t *testing.T) {
 		})
 	}
 }
+
+// The record is readable by its owner only, as Write makes it: a file anyone else may read or
+// write is not one Conn wrote.
+func TestReadRefusesAFileOfAnotherMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mode    os.FileMode
+		wantErr error
+	}{
+		{"read and write by its owner only", privateMode, nil},
+		{"read by others", 0o644, hosted.ErrBadFile},
+		{"written by anyone", 0o666, hosted.ErrBadFile},
+		{"read by its owner only", 0o400, hosted.ErrBadFile},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+
+			err := hosted.Write(dir, []hosted.Record{record(0)})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			err = os.Chmod(filepath.Join(dir, hosted.FileName), tt.mode)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = hosted.Read(dir)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("err %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}

@@ -13,8 +13,12 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// temporaryPattern names the file a write goes to before it takes the record's place.
-const temporaryPattern = ".hosted-*.json"
+const (
+	// temporaryPattern names the file a write goes to before it takes the record's place.
+	temporaryPattern = ".hosted-*.json"
+	// fileMode is the record's mode, as CreateTemp makes it: its owner's alone.
+	fileMode os.FileMode = 0o600
+)
 
 // file is the record file's shape.
 type file struct {
@@ -47,14 +51,27 @@ func Write(dir string, records []Record) error {
 		return fmt.Errorf("writing the hosted sessions: %w", err)
 	}
 
-	err = os.Rename(temporary, filepath.Join(dir, FileName))
+	path := filepath.Join(dir, FileName)
+
+	err = os.Rename(temporary, path)
 	if err != nil {
 		_ = os.Remove(temporary)
 
-		return fmt.Errorf("writing the hosted sessions: %w", err)
+		return fmt.Errorf("writing the hosted sessions: replacing %s: %w", path, renameCause(err))
 	}
 
 	return nil
+}
+
+// renameCause is why a rename failed, without the paths: the temporary file's name is new at
+// each try, so the same failure reads the same.
+func renameCause(err error) error {
+	linkErr, isLink := errors.AsType[*os.LinkError](err)
+	if isLink {
+		return linkErr.Err
+	}
+
+	return err
 }
 
 // checkAll is every problem with records: too many, and each record's own.
@@ -102,7 +119,8 @@ func writeTemporary(dir string, text []byte) (string, error) {
 
 // Read is the record in dir: none when there is no file. The file is opened with no link
 // followed and without waiting (a fifo at its name opens and is refused), and is read only when
-// it is a regular file of the person running Conn, at most fileBytesMax bytes, of exactly the
+// it is a regular file of the person running Conn, of mode 0600, at most fileBytesMax bytes, of
+// exactly the
 // shape Write writes (an unknown field, such as a command line, refuses the file), with at most
 // RecordsMax records, each of which CheckRecord passes. A file that is not is ErrBadFile, or every
 // record's problems, and no record of it is returned: Conn never writes such a file, so nothing
@@ -156,8 +174,8 @@ func openNoFollow(path string) (*os.File, error) {
 	return os.NewFile(uintptr(descriptor), path), nil
 }
 
-// readOwnFile is the text of opened when it is a regular file the user uid owns, of at most
-// fileBytesMax bytes.
+// readOwnFile is the text of opened when it is a regular file the user uid owns, readable and
+// writable by it alone (fileMode), of at most fileBytesMax bytes.
 func readOwnFile(opened *os.File, uid int) ([]byte, error) {
 	info, err := opened.Stat()
 	if err != nil {
@@ -166,6 +184,11 @@ func readOwnFile(opened *os.File, uid int) ([]byte, error) {
 
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: it is not a regular file", ErrBadFile)
+	}
+
+	if info.Mode().Perm() != fileMode {
+		return nil, fmt.Errorf("%w: its mode is %v, not %v", ErrBadFile, info.Mode().Perm(),
+			fileMode)
 	}
 
 	stat, read := info.Sys().(*syscall.Stat_t)

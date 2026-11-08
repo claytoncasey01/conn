@@ -3,6 +3,8 @@ package hosted_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -493,5 +495,68 @@ func TestRecorderOpenerRecordsTheConversationItResumes(t *testing.T) {
 				t.Errorf("recorded conversation %q, want %q", records[0].ClaudeSessionID, tt.want)
 			}
 		})
+	}
+}
+
+// A write that keeps failing the same way (a folder at the record's name) is said once, not at
+// every sync, and said again once it fails after a write that worked.
+func TestRecorderSaysTheSameWriteFailureOnce(t *testing.T) {
+	t.Parallel()
+
+	setting := newWorld()
+	setting.writeErr = errDiskFull
+	recorder := setting.recorder()
+
+	recorder.Sync()
+	recorder.Sync()
+	recorder.Sync()
+
+	if len(setting.failures) != 1 {
+		t.Fatalf("said %d failures, want 1", len(setting.failures))
+	}
+
+	setting.mu.Lock()
+	setting.writeErr = nil
+	setting.mu.Unlock()
+
+	recorder.Sync()
+	setting.run(0)
+
+	setting.mu.Lock()
+	setting.writeErr = errDiskFull
+	setting.mu.Unlock()
+
+	started(recorder, 0)
+
+	if len(setting.failures) != 2 {
+		t.Errorf("said %d failures, want the new one said", len(setting.failures))
+	}
+}
+
+// A folder at the record's name fails every write the same way, and is said once.
+func TestRecorderSaysAFolderAtTheRecordsNameOnce(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	err := os.Mkdir(filepath.Join(dir, hosted.FileName), 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var failures []error
+
+	recorder := hosted.NewRecorder(hosted.RecorderDeps{
+		Dir: dir, Live: func() []pty.Info { return nil },
+		Linked: func() map[pty.ID]string { return nil }, Write: hosted.Write,
+		Failed: func(err error) { failures = append(failures, err) },
+	})
+
+	recorder.Sync()
+	recorder.Sync()
+	recorder.Sync()
+
+	if len(failures) != 1 {
+		t.Errorf("said %d failures, want 1: %v", len(failures), failures)
 	}
 }

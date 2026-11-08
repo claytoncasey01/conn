@@ -50,6 +50,9 @@ type Recorder struct {
 	written []Record
 	wrote   bool
 	frozen  bool
+	// failure is the write failure said last, until a write works: the same one is not said
+	// again.
+	failure string
 }
 
 // NewRecorder is a Recorder with no sessions recorded yet. Its first Sync writes the record, so
@@ -57,7 +60,7 @@ type Recorder struct {
 func NewRecorder(deps RecorderDeps) *Recorder {
 	return &Recorder{
 		deps: deps, mu: sync.Mutex{}, records: []Record{}, carried: nil, written: nil,
-		wrote: false, frozen: false,
+		wrote: false, frozen: false, failure: "",
 	}
 }
 
@@ -195,13 +198,25 @@ func (r *Recorder) syncLocked() {
 
 	err := r.deps.Write(r.deps.Dir, kept)
 	if err != nil {
-		r.deps.Failed(err)
+		r.writeFailedLocked(err)
 
 		return
 	}
 
 	r.written = kept
 	r.wrote = true
+	r.failure = ""
+}
+
+// writeFailedLocked says err to Failed, unless it is the failure said last: a write that keeps
+// failing the same way (a folder at the record's name) is said once, not at every sync.
+func (r *Recorder) writeFailedLocked(err error) {
+	if err.Error() == r.failure {
+		return
+	}
+
+	r.failure = err.Error()
+	r.deps.Failed(err)
 }
 
 // keptLocked is what the record holds: the sessions that run, then as many carried records as
