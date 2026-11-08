@@ -18,6 +18,9 @@ const (
 	temporaryPattern = ".hosted-*.json"
 	// fileMode is the record's mode, as CreateTemp makes it: its owner's alone.
 	fileMode os.FileMode = 0o600
+	// folderEntriesMax bounds the entries of the data folder RemoveTemporaries looks at: far
+	// more than Conn keeps there.
+	folderEntriesMax = 1024
 )
 
 // file is the record file's shape.
@@ -60,7 +63,81 @@ func Write(dir string, records []Record) error {
 		return fmt.Errorf("writing the hosted sessions: replacing %s: %w", path, renameCause(err))
 	}
 
+	// The rename is atomic; flushing the folder makes it last through a power loss too.
+	err = syncFolder(dir)
+	if err != nil {
+		return fmt.Errorf("writing the hosted sessions: %w", err)
+	}
+
 	return nil
+}
+
+// syncFolder flushes dir's entries to the disk.
+func syncFolder(dir string) error {
+	folder, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("opening %s: %w", dir, err)
+	}
+
+	err = folder.Sync()
+	closeErr := folder.Close()
+
+	err = errors.Join(err, closeErr)
+	if err != nil {
+		return fmt.Errorf("flushing %s: %w", dir, err)
+	}
+
+	return nil
+}
+
+// RemoveTemporaries removes the temporary files of writes a crash cut short from dir: regular
+// files named as Write names them, among the first folderEntriesMax entries. Only the Conn
+// holding the data folder calls it, so no write of its own is under way.
+func RemoveTemporaries(dir string) error {
+	folder, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("removing temporary records: %w", err)
+	}
+
+	entries, err := folder.ReadDir(folderEntriesMax)
+	_ = folder.Close()
+
+	if err != nil {
+		if !errors.Is(err, io.EOF) {
+			return fmt.Errorf("removing temporary records: %w", err)
+		}
+	}
+
+	var problems []error
+
+	for _, entry := range entries {
+		if !isTemporary(entry) {
+			continue
+		}
+
+		problems = append(problems, os.Remove(filepath.Join(dir, entry.Name())))
+	}
+
+	err = errors.Join(problems...)
+	if err != nil {
+		return fmt.Errorf("removing temporary records: %w", err)
+	}
+
+	return nil
+}
+
+// isTemporary is whether entry is a regular file named as Write names its temporary files.
+func isTemporary(entry os.DirEntry) bool {
+	if !entry.Type().IsRegular() {
+		return false
+	}
+
+	matched, err := filepath.Match(temporaryPattern, entry.Name())
+	if err != nil {
+		return false
+	}
+
+	return matched
 }
 
 // renameCause is why a rename failed, without the paths: the temporary file's name is new at

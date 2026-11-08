@@ -2,7 +2,10 @@ package app_test
 
 import (
 	"context"
+	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -54,4 +57,20 @@ func TestAQuitDuringTheResumeKeepsEveryRecord(t *testing.T) {
 	sameSpecs(t, second.started(), []pty.Spec{
 		world.resumeSpec(0), world.resumeSpec(1), world.resumeSpec(2),
 	})
+}
+
+// A launch removes the temporary file a write the last launch's crash cut short left behind.
+func TestALaunchRemovesALeftoverTemporaryRecord(t *testing.T) {
+	t.Parallel()
+
+	world := newLifeWorld(t, "")
+	leftover := filepath.Join(world.data(), ".hosted-4242.json")
+	writeLifeFile(t, leftover, "{}")
+
+	launch(t, world, newSpawns(world.data()))
+
+	_, err := os.Lstat(leftover)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the leftover is still there: %v", err)
+	}
 }

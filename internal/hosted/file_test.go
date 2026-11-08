@@ -385,3 +385,47 @@ func TestReadRefusesAFileOfAnotherMode(t *testing.T) {
 		})
 	}
 }
+
+// A write a crash cut short leaves its temporary file; the next launch removes it, and only it.
+func TestRemoveTemporaries(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	for _, name := range []string{".hosted-123.json", ".hosted-x.json", "other.json"} {
+		err := os.WriteFile(filepath.Join(dir, name), []byte("{}"), privateMode)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	err := hosted.Write(dir, []hosted.Record{record(0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Mkdir(filepath.Join(dir, ".hosted-folder.json"), 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = hosted.RemoveTemporaries(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+
+	want := []string{".hosted-folder.json", hosted.FileName, "other.json"}
+	if !slices.Equal(names, want) {
+		t.Errorf("left %q, want %q", names, want)
+	}
+}

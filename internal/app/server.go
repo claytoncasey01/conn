@@ -199,8 +199,14 @@ func completeHandler(
 }
 
 // lastRecord is the record the last launch left in dataDir, with the settings now, as what a
-// launch resumes from before its owners' checks and its start are known.
+// launch resumes from before its owners' checks and its start are known. The temporary files of
+// writes a crash cut short are removed.
 func lastRecord(dataDir string, store *settings.Store, stderr io.Writer) launchResume {
+	err := hosted.RemoveTemporaries(dataDir)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
+	}
+
 	records, readErr := hosted.Read(dataDir)
 
 	return launchResume{
