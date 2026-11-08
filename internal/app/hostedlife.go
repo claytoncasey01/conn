@@ -117,14 +117,18 @@ type ownerParts struct {
 
 // besideIn is whether a session named name in any folder, or one in folder or inside it, runs
 // in live (the session list: the person's own claude too) or is in records (the sessions this
-// launch has started, before claude registers them).
+// launch has started, before claude registers them). Folders are compared with their links
+// resolved: claude's working folder is the physical one, and the data folder may sit under a
+// link.
 func besideIn(live []sessions.LiveSession, records []hosted.Record, name, folder string) bool {
+	resolved := reviews.Real(folder)
+
 	for _, session := range live {
 		if session.Name == name {
 			return true
 		}
 
-		if reviews.Within(session.Cwd, folder) {
+		if reviews.Within(reviews.Real(session.Cwd), resolved) {
 			return true
 		}
 	}
@@ -134,7 +138,7 @@ func besideIn(live []sessions.LiveSession, records []hosted.Record, name, folder
 			return true
 		}
 
-		if reviews.Within(record.Dir, folder) {
+		if reviews.Within(reviews.Real(record.Dir), resolved) {
 			return true
 		}
 	}

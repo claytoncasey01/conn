@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/claytoncasey01/conn/internal/hosted"
@@ -75,5 +77,37 @@ func besideRows(name, worktree string) []besideRow {
 			[]hosted.Record{{Name: name, Dir: "/x"}},
 			true,
 		},
+	}
+}
+
+// A data folder under a link: claude's working folder is the physical one, the record's the
+// linked one. Both are resolved before they are compared, so the person's claude is seen.
+func TestBesideInResolvesLinks(t *testing.T) {
+	t.Parallel()
+
+	physical := t.TempDir()
+	worktree := filepath.Join(physical, "reviews", "pr-12", "widgets")
+
+	err := os.MkdirAll(worktree, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	linked := filepath.Join(t.TempDir(), "data")
+
+	err = os.Symlink(physical, linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorded := filepath.Join(linked, "reviews", "pr-12", "widgets")
+	live := []sessions.LiveSession{{Name: "", Cwd: worktree}}
+
+	if !besideIn(live, nil, "pr-12", recorded) {
+		t.Error("a session in the worktree through a link was not seen")
+	}
+
+	if !besideIn(nil, []hosted.Record{{Name: "", Dir: worktree}}, "pr-12", recorded) {
+		t.Error("a session this launch started in the worktree through a link was not seen")
 	}
 }
