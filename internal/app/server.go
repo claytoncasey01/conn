@@ -188,8 +188,7 @@ func StartWith(
 
 	running.serveAndResume(serveCtx, launched{
 		handler: handler, listener: listener, life: life, host: host, recorded: recorded,
-		steps: quitStepsOf(life, terminals.Close, cancel, func() {
-			waitForResume(running.resumed, quitResumeTimeout)
+		steps: quitStepsOf(life, running.resumed, terminals.Close, cancel, func() {
 			stopHosted(context.WithoutCancel(ctx), host, stderr)
 		}, release),
 	})
@@ -276,7 +275,7 @@ func lastRecord(dataDir string, store *settings.Store, stderr io.Writer) launchR
 
 	return launchResume{
 		sessions: store.Get().Sessions, records: records, readErr: readErr, checks: nil,
-		start: nil, carry: nil, ready: nil, stderr: stderr,
+		start: nil, ready: nil, stderr: stderr,
 	}
 }
 
@@ -287,7 +286,6 @@ func lastRecord(dataDir string, store *settings.Store, stderr io.Writer) launchR
 func resumeRecorded(ctx context.Context, life hostedLife, host *pty.Host, plan launchResume) {
 	plan.checks = life.checks
 	plan.start = resumeStart(insideOpener(host), life.recorder)
-	plan.carry = life.recorder.Carry
 	plan.ready = func(ctx context.Context) error {
 		return waitForFirstTick(ctx, life.ticked, life.tickTimeout)
 	}
@@ -310,30 +308,37 @@ type quitSteps struct {
 	closeTerminals func()
 	// cancel ends the server's context.
 	cancel func()
+	// waitResume waits for the launch's resume to end, once the context has ended it.
+	waitResume func()
 	// stopSessions stops every hosted session.
 	stopSessions func()
 	// release lets the data folder go.
 	release func()
 }
 
-// quitStepsOf are the quit's steps for a server whose hosted sessions life records: the record
-// step is the recorder's Freeze, so no stop after it is recorded as an end.
-func quitStepsOf(life hostedLife, closeTerminals, cancel, stopSessions, release func(),
+// quitStepsOf are the quit's steps for a server whose hosted sessions life records, and whose
+// launch's resume ends by closing resumed: the record step is the recorder's Freeze, so no stop
+// after it is recorded as an end, and the sessions stop only once the resume has ended (within
+// quitResumeTimeout), so none it starts outlives the quit.
+func quitStepsOf(life hostedLife, resumed <-chan struct{},
+	closeTerminals, cancel, stopSessions, release func(),
 ) quitSteps {
 	return quitSteps{
 		record: life.recorder.Freeze, closeTerminals: closeTerminals, cancel: cancel,
+		waitResume:   func() { waitForResume(resumed, quitResumeTimeout) },
 		stopSessions: stopSessions, release: release,
 	}
 }
 
 // quit ends a server. The record comes first, so it names every session that runs at the quit
 // and none of the stops below is recorded as an end; the terminals close next, as going away,
-// so none sees its program stopped or races a reconnect against the stop; then the sessions stop;
-// then the folder is let go.
+// so none sees its program stopped or races a reconnect against the stop; then, once the
+// launch's resume has ended, the sessions stop; then the folder is let go.
 func quit(steps quitSteps) {
 	steps.record()
 	steps.closeTerminals()
 	steps.cancel()
+	steps.waitResume()
 	steps.stopSessions()
 	steps.release()
 }

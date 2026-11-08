@@ -1,14 +1,20 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"net/http"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/hosted"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/secret"
+	"github.com/claytoncasey01/conn/internal/server"
+	"github.com/claytoncasey01/conn/internal/settings"
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
@@ -40,7 +46,7 @@ func TestTheQuitRecordsBeforeTheServerDrains(t *testing.T) {
 	none := func() {}
 	steps := quitSteps{
 		record:         func() { first.Do(func() { answered <- answers(t, address) }) },
-		closeTerminals: none, cancel: none, stopSessions: none, release: none,
+		closeTerminals: none, cancel: none, waitResume: none, stopSessions: none, release: none,
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -128,5 +134,68 @@ func TestWaitForResume(t *testing.T) {
 				t.Fatal("the quit kept waiting")
 			}
 		})
+	}
+}
+
+// The records are carried before the launch serves: a quit that comes before the resume has
+// done anything still records every one of them.
+func TestTheRecordsAreCarriedBeforeTheLaunchServes(t *testing.T) {
+	t.Parallel()
+
+	var listenConfig net.ListenConfig
+
+	listener, err := listenConfig.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var written []hosted.Record
+
+	recorder := hosted.NewRecorder(hosted.RecorderDeps{
+		Dir: "/data", Live: func() []pty.Info { return nil },
+		Linked: func() map[pty.ID]string { return nil },
+		Write: func(_ string, records []hosted.Record) error {
+			written = slices.Clone(records)
+
+			return nil
+		},
+		Failed: func(err error) { t.Error(err) },
+	})
+	host := pty.NewHost(pty.Config{
+		Spawner: func(pty.Spec) (pty.Process, error) { return nil, errNeverSpawns },
+		Limits:  pty.DefaultLimits(), Answers: pty.Answers{}, TurnWaited: nil,
+	})
+	// The session list never ticks: the resume waits, and has done nothing, when the quit
+	// records.
+	life := hostedLife{
+		recorder: recorder, checks: resumeChecks(), resumed: newResumedSessions(host),
+		bump: func() {}, ticked: make(chan struct{}), tickTimeout: neverTimesOut,
+		settle: newResumeSettle(),
+	}
+	records := []hosted.Record{resumeRecord()}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	running := newServer("http://"+listener.Addr().String(), secret.Secret{})
+	none := func() {}
+
+	running.serveAndResume(ctx, launched{
+		handler: &server.Server{}, listener: listener, life: life, host: host,
+		recorded: launchResume{
+			sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
+			records:  records, readErr: nil, checks: nil, start: nil, ready: nil,
+			stderr: &bytes.Buffer{},
+		},
+		steps: quitSteps{
+			record: none, closeTerminals: none, cancel: none, waitResume: none,
+			stopSessions: none, release: none,
+		},
+	})
+
+	recorder.Freeze()
+	cancel()
+	<-running.Done()
+
+	if !slices.Equal(written, records) {
+		t.Errorf("the quit recorded %+v, want every record carried", written)
 	}
 }

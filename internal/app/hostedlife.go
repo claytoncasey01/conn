@@ -223,15 +223,15 @@ func (parts ownerParts) reviewRule(kind reviewKind) reviews.ResumeRule {
 }
 
 // launchResume is what a launch resumes from: the settings now, the record the last launch left
-// and why it could not be read, the owners' checks, what starts a session, what carries the
-// records not resumed yet in the record, and what waits for the session list the checks read.
+// and why it could not be read, the owners' checks, what starts a session, and what waits for
+// the session list the checks read. The records are carried in the record before the resume
+// begins (serveAndResume).
 type launchResume struct {
 	sessions settings.Sessions
 	records  []hosted.Record
 	readErr  error
 	checks   hosted.Checks
 	start    hosted.Start
-	carry    func([]hosted.Record)
 	// ready waits until the session list holds what runs now (waitForFirstTick).
 	ready  func(ctx context.Context) error
 	stderr io.Writer
@@ -273,9 +273,6 @@ func resumeAtLaunch(ctx context.Context, plan launchResume) hosted.Outcome {
 			Resumed: []hosted.Resumed{}, Skipped: len(plan.records), Unreached: kept,
 		}
 	}
-
-	// Until each is resumed or refused, the record keeps the last launch's records as they were.
-	plan.carry(plan.records)
 
 	// An owner's check that reads the session list before its first tick sees nothing run: a
 	// session the person runs in the folder would be missed. Without it, nothing is resumed, and

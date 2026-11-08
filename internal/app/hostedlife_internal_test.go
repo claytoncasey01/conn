@@ -30,10 +30,13 @@ func TestQuitRecordsThenClosesTerminalsThenStopsSessionsThenLetsTheFolderGo(t *t
 
 	quit(quitSteps{
 		record: step("record"), closeTerminals: step("close terminals"), cancel: step("cancel"),
-		stopSessions: step("stop sessions"), release: step("release"),
+		waitResume: step("wait for the resume"), stopSessions: step("stop sessions"),
+		release: step("release"),
 	})
 
-	want := []string{"record", "close terminals", "cancel", "stop sessions", "release"}
+	want := []string{
+		"record", "close terminals", "cancel", "wait for the resume", "stop sessions", "release",
+	}
 	if !slices.Equal(order, want) {
 		t.Errorf("the quit ran %q, want %q", order, want)
 	}
@@ -111,7 +114,7 @@ func TestResumeAtLaunchFollowsTheSettings(t *testing.T) {
 
 			outcome := resumeAtLaunch(t.Context(), launchResume{
 				sessions: tt.sessions, records: []hosted.Record{resumeRecord()}, readErr: nil,
-				checks: resumeChecks(), start: start, carry: func([]hosted.Record) {},
+				checks: resumeChecks(), start: start,
 				ready: ticked, stderr: &bytes.Buffer{},
 			})
 
@@ -135,7 +138,7 @@ func TestResumeAtLaunchSaysWhyTheRecordWasNotRead(t *testing.T) {
 		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
 		records:  nil, readErr: errTampered, checks: resumeChecks(),
 		start: func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) { return "", false },
-		carry: func([]hosted.Record) {}, ready: ticked, stderr: &said,
+		ready: ticked, stderr: &said,
 	})
 
 	if len(outcome.Resumed) != 0 {
@@ -204,7 +207,10 @@ func TestTheQuitsRecordStaysAsItWasAtTheQuit(t *testing.T) {
 		settle: newResumeSettle(),
 	}
 
-	quit(quitStepsOf(life, none, none, stop, none))
+	resumed := make(chan struct{})
+	close(resumed)
+
+	quit(quitStepsOf(life, resumed, none, none, stop, none))
 
 	last := written[len(written)-1]
 	if len(last) != 1 {
@@ -233,7 +239,7 @@ func TestResumeAtLaunchChecksNothingBeforeTheSessionListTicked(t *testing.T) {
 		start: func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) {
 			return "000000000000000000000000000000bb", true
 		},
-		carry: func([]hosted.Record) {}, stderr: &bytes.Buffer{},
+		stderr: &bytes.Buffer{},
 		ready: func(context.Context) error {
 			order = append(order, "ticked")
 
@@ -263,8 +269,8 @@ func TestResumeAtLaunchResumesNothingWhenTheSessionListNeverTicked(t *testing.T)
 
 			return "000000000000000000000000000000bb", true
 		},
-		carry: func([]hosted.Record) {}, stderr: &said,
-		ready: func(context.Context) error { return errNeverTicked },
+		stderr: &said,
+		ready:  func(context.Context) error { return errNeverTicked },
 	})
 
 	if started != 0 {
@@ -339,7 +345,7 @@ func TestResumeRecordedMovesTheSnapshotsVersion(t *testing.T) {
 
 	resumeRecorded(t.Context(), life, host, launchResume{
 		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
-		records:  nil, readErr: nil, checks: nil, start: nil, carry: nil, ready: nil,
+		records:  nil, readErr: nil, checks: nil, start: nil, ready: nil,
 		stderr: &bytes.Buffer{},
 	})
 
@@ -374,41 +380,11 @@ func TestResumeRecordedWaitsForTheSessionList(t *testing.T) {
 	resumeRecorded(t.Context(), life, host, launchResume{
 		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
 		records:  []hosted.Record{resumeRecord()}, readErr: nil, checks: nil, start: nil,
-		carry: nil, ready: nil, stderr: &bytes.Buffer{},
+		ready: nil, stderr: &bytes.Buffer{},
 	})
 
 	if checked != 0 {
 		t.Errorf("ran %d checks before the session list ticked", checked)
-	}
-}
-
-// The last launch's records are carried before the first start, so a crash during the resume
-// leaves the ones not reached in the record.
-func TestResumeAtLaunchCarriesTheRecordsBeforeItStarts(t *testing.T) {
-	t.Parallel()
-
-	var order []string
-
-	records := []hosted.Record{resumeRecord()}
-
-	resumeAtLaunch(t.Context(), launchResume{
-		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
-		records:  records, readErr: nil, checks: resumeChecks(),
-		start: func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) {
-			order = append(order, "start")
-
-			return "000000000000000000000000000000bb", true
-		},
-		carry: func(carried []hosted.Record) {
-			if slices.Equal(carried, records) {
-				order = append(order, "carry")
-			}
-		},
-		ready: ticked, stderr: &bytes.Buffer{},
-	})
-
-	if !slices.Equal(order, []string{"carry", "start"}) {
-		t.Errorf("ran %q, want the records carried before the start", order)
 	}
 }
 
@@ -445,7 +421,7 @@ func TestResumeRecordedSettlesTheLaunchWhenTheResumeIsDone(t *testing.T) {
 	resumeRecorded(t.Context(), life, host, launchResume{
 		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
 		records:  []hosted.Record{resumeRecord()}, readErr: nil, checks: nil, start: nil,
-		carry: nil, ready: nil, stderr: &bytes.Buffer{},
+		ready: nil, stderr: &bytes.Buffer{},
 	})
 
 	// The session list has ticked: the check runs.

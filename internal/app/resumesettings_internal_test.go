@@ -53,7 +53,7 @@ func TestResumeAtLaunchKeepsOrDropsTheRecordsAsTheSettingsSay(t *testing.T) {
 				start: func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) {
 					return "", false
 				},
-				carry: func([]hosted.Record) {}, ready: ticked, stderr: &said,
+				ready: ticked, stderr: &said,
 			})
 
 			if !slices.Equal(outcome.Unreached, tt.wantUnreached) {
