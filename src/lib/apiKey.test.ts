@@ -91,3 +91,16 @@ test('a caller cannot replace the secret with a header of its own', async () => 
   await api('/api/snapshot', { headers: { authorization: 'Bearer other' } })
   assert.deepEqual(seen[0].headers, { authorization: `Bearer ${SECRET}` })
 })
+
+test('api sends nothing to a path that is not one of the server\'s own /api routes', async () => {
+  Object.defineProperty(globalThis, 'sessionStorage', { value: memory({ [KEY]: SECRET }), configurable: true })
+  const seen: string[] = []
+  globalThis.fetch = (async (url: string) => {
+    seen.push(url)
+    return new Response('{}')
+  }) as unknown as typeof fetch
+  for (const path of ['https://evil.example/api/x', '//evil.example/api/x', '/apix', '/api', 'api/x', '/themes/x.css', '', ' /api/x']) {
+    await assert.rejects(api(path), /not an \/api route/, path)
+  }
+  assert.deepEqual(seen, [])
+})

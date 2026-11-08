@@ -5,8 +5,15 @@ import { KEY_PROTOCOL_PREFIX, SESSION_ID, TERMINAL_PROTOCOL } from './terminal.t
 
 export type ApiInit = Omit<RequestInit, 'headers'> & { headers?: Record<string, string> }
 
-/** fetch(path) with the secret's Authorization header added to the request's own headers */
+/** The paths api() sends to: the server's own routes, never another origin (`//host`, `https:`) or a page file */
+const API_PATH = /^\/api\//
+
+/**
+ * fetch(path) with the secret's Authorization header added to the request's own headers. A path that is not one of the
+ * server's /api routes is refused before anything is sent, so the secret can never go anywhere else.
+ */
 export function api(path: string, init: ApiInit = {}): Promise<Response> {
+  if (!API_PATH.test(path)) return Promise.reject(new Error(`not an /api route: ${path.slice(0, 80)}`))
   return globalThis.fetch(path, { ...init, headers: { ...init.headers, ...header() } })
 }
 
