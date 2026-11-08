@@ -99,3 +99,50 @@ func TestALaunchWithSessionsElsewhereKeepsTheRecord(t *testing.T) {
 		t.Errorf("the record is %+v, want it kept as it was", readRecords(t, world.data()))
 	}
 }
+
+// The launch answers while it still resumes: it published where it listens, so a window that
+// attached to it is not left without an answer while the resume waits or checks.
+func TestALaunchAnswersWhileItResumes(t *testing.T) {
+	t.Parallel()
+
+	world := newLifeWorld(t, "", sessionOne)
+	writeRecords(t, world.data(), world.record(0))
+
+	resuming := make(chan struct{})
+	spawned := newSpawns(world.data())
+	// The resume holds at its start until the page has had its answer.
+	spawned.atSpawn = func() { <-resuming }
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	started := make(chan *app.Server, 1)
+
+	go func() {
+		server, err := app.StartWith(ctx, lookupFrom(world.env), io.Discard, spawned.host())
+		if err != nil {
+			t.Error(err)
+		}
+
+		started <- server
+	}()
+
+	var server *app.Server
+
+	select {
+	case server = <-started:
+	case <-time.After(testtime.Scaled(lifeWait)):
+		close(resuming)
+		t.Fatal("the launch did not serve before its resume was done")
+	}
+
+	snapshotResumed(t, server)
+	close(resuming)
+	cancel()
+
+	select {
+	case <-server.Done():
+	case <-time.After(testtime.Scaled(lifeWait)):
+		t.Fatal("the server did not stop")
+	}
+}

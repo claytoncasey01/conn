@@ -126,6 +126,13 @@ func startOwner(t *testing.T, env map[string]string) (*app.Server, *heldProgram)
 		<-owner.Done()
 	})
 
+	// The owner serves at once and resumes while it serves: its first record is written then.
+	select {
+	case <-owner.Resumed():
+	case <-time.After(testtime.Scaled(runWait)):
+		t.Fatal("the owner never finished its resume")
+	}
+
 	return owner, program
 }
 

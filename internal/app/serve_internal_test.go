@@ -44,7 +44,10 @@ func TestTheQuitRecordsBeforeTheServerDrains(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	running := &Server{URL: address, Secret: secret.Secret{}, done: make(chan struct{}), err: nil}
+	running := &Server{
+		URL: address, Secret: secret.Secret{}, done: make(chan struct{}), err: nil,
+		resumed: make(chan struct{}),
+	}
 
 	go running.serve(ctx, httpServer, listener, steps)
 
@@ -89,4 +92,43 @@ func answers(t *testing.T, address string) bool {
 	_ = response.Body.Close()
 
 	return true
+}
+
+// A quit waits for the launch's resume to end, but no longer than its limit.
+func TestWaitForResume(t *testing.T) {
+	t.Parallel()
+
+	ended := make(chan struct{})
+	close(ended)
+
+	// A wait that must not time out has a limit far past the test's; the one that does times out
+	// at once. Neither is a wait the test makes, so neither is scaled.
+	tests := []struct {
+		name    string
+		resumed chan struct{}
+		timeout time.Duration
+	}{
+		{"a resume that ended", ended, time.Hour},
+		{"a resume that does not end", make(chan struct{}), time.Nanosecond},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			waited := make(chan struct{})
+
+			go func() {
+				defer close(waited)
+
+				waitForResume(tt.resumed, tt.timeout)
+			}()
+
+			select {
+			case <-waited:
+			case <-time.After(testtime.Scaled(serveWait)):
+				t.Fatal("the quit kept waiting")
+			}
+		})
+	}
 }

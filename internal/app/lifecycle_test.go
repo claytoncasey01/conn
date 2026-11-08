@@ -298,6 +298,13 @@ func launch(t *testing.T, world lifeWorld, spawned *spawns) (*app.Server, func()
 
 	t.Cleanup(quit)
 
+	// The launch serves at once and resumes while it serves: the tests look once it is done.
+	select {
+	case <-server.Resumed():
+	case <-time.After(testtime.Scaled(lifeWait)):
+		t.Fatal("the launch never finished its resume")
+	}
+
 	return server, quit
 }
 

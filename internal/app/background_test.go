@@ -103,12 +103,19 @@ func TestAPagesLightThemeReachesTheHostsAnswer(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
 
 	server, err := app.StartWith(ctx, lookupFrom(environment(t)), io.Discard, host)
 	if err != nil {
+		cancel()
 		t.Fatal(err)
 	}
+
+	// The server writes its record as it resumes and as it quits: it is let go before the
+	// test's folders are removed.
+	t.Cleanup(func() {
+		cancel()
+		<-server.Done()
+	})
 
 	putBackground(t, server, `{"background":"#f3f5f9"}`)
 
