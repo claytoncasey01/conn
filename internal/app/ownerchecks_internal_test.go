@@ -72,8 +72,15 @@ func (w *ownerWorld) worktree(kind string) string {
 	return filepath.Join(w.data, kind, "acme-widgets-12", "widgets")
 }
 
-// checks are the owners' checks the app builds over the world.
+// checks are the owners' checks the app builds over the world, with its modules' stores.
 func (w *ownerWorld) checks(t *testing.T) hosted.Checks {
+	t.Helper()
+
+	return w.checksWith(t, w.stores())
+}
+
+// checksWith are the owners' checks the app builds over the world, with stores.
+func (w *ownerWorld) checksWith(t *testing.T, stores launchStores) hosted.Checks {
 	t.Helper()
 
 	writeOwnerFile(t, filepath.Join(w.data, "settings.json"), w.settings)
@@ -89,7 +96,7 @@ func (w *ownerWorld) checks(t *testing.T) hosted.Checks {
 			io.Discard),
 		reader: origin.NewReader(), work: nil, history: nil,
 		beside: func(string, string) bool { return w.beside },
-		stores: w.stores(),
+		stores: stores,
 	})
 }
 
@@ -103,11 +110,15 @@ func (w *ownerWorld) stores() launchStores {
 	}}})
 
 	selfFile := myprs.EmptyFile()
-	selfFile.PRs.Set("acme/widgets#12", &myprs.Entry{Launches: []*myprs.Launch{{
+	round := &myprs.Launch{
 		At: 1, Model: ownerModel, Name: selfName, Worktree: w.worktree("myprs"),
 		HeadSha: "abc", Round: 1, Armed: false, AskedSha: nil, AskedAt: nil, ClosedAt: nil,
 		AskTry: nil, Manual: false,
-	}}})
+	}
+	selfFile.PRs.Set("acme/widgets#12", &myprs.Entry{
+		FirstSeenAt: 1, Launches: []*myprs.Launch{round}, Proposals: []*myprs.Proposal{},
+		Draft: nil, SeenAt: 1,
+	})
 
 	return launchStores{reviews: reviewsFile, myPrs: selfFile}
 }
@@ -231,5 +242,33 @@ func TestOwnerChecksRefuse(t *testing.T) {
 				t.Errorf("resumed %+v", spec)
 			}
 		})
+	}
+}
+
+// A launch reads each module's store from its own file in the data folder: a review and a
+// self-review its module wrote there are resumed on the model they were launched with.
+func TestALaunchReadsTheModulesStoresFromTheDataFolder(t *testing.T) {
+	t.Parallel()
+
+	world := newOwnerWorld(t)
+	stores := world.stores()
+	writeOwnerFile(t, filepath.Join(world.data, "reviews.json"), string(stores.reviews.Marshal()))
+	writeOwnerFile(t, filepath.Join(world.data, "myprs.json"), string(stores.myPrs.Marshal()))
+
+	checks := world.checksWith(t, readLaunchStores(world.data))
+
+	for _, kind := range []struct{ owner, folder string }{
+		{hosted.OwnerReviews, "reviews"}, {hosted.OwnerMyPrs, "myprs"},
+	} {
+		spec, ok := checks[kind.owner](t.Context(), world.record(kind.owner, kind.folder))
+		if !ok {
+			t.Errorf("%s: not resumed from the store on disk", kind.owner)
+
+			continue
+		}
+
+		if !slices.Contains(spec.Argv, ownerModel) {
+			t.Errorf("%s: argv %q, want the store's model", kind.owner, spec.Argv)
+		}
 	}
 }
