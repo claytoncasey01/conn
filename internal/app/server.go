@@ -170,15 +170,10 @@ func StartWith(
 	serveCtx, cancel := context.WithCancel(ctx)
 	running := &Server{URL: address, Secret: key, done: make(chan struct{}), err: nil}
 	handler, life := newHandler(serveCtx, cfg, store, logger, ui(lookup), host)
-	handler.Secret = key
-	// The page says the background its theme draws the terminal on; the host answers with it.
-	handler.TerminalBackground = func(colour pty.RGB) {
-		host.SetAnswers(pty.Answers{Background: colour})
-	}
 	// The terminals are closed by the quit below rather than when ctx ends, so the quit alone
 	// orders their closing and the sessions' stop.
 	terminals := server.NewTerminals(context.WithoutCancel(ctx), host)
-	handler.Terminals = terminals
+	completeHandler(handler, key, host, terminals)
 
 	resumeRecorded(serveCtx, life, host, recorded)
 
@@ -189,6 +184,18 @@ func StartWith(
 	})
 
 	return running, nil
+}
+
+// completeHandler gives handler what it serves besides the tabs: the launch's secret, the
+// terminals, and the background the page draws them on, which the host answers with.
+func completeHandler(
+	handler *server.Server, key secret.Secret, host *pty.Host, terminals *server.Terminals,
+) {
+	handler.Secret = key
+	handler.TerminalBackground = func(colour pty.RGB) {
+		host.SetAnswers(pty.Answers{Background: colour})
+	}
+	handler.Terminals = terminals
 }
 
 // lastRecord is the record the last launch left in dataDir, with the settings now, as what a
