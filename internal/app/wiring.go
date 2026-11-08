@@ -134,9 +134,7 @@ func newHandler(
 		Themes: library, Gallery: themesAPI, Provided: newProvided(cfg, logger),
 	}, hostedLife{
 		recorder: recorder, checks: checks, resumed: resumed, bump: live.Bump,
-		ready: func(ctx context.Context) error {
-			return waitForFirstTick(ctx, live.Ticked(), firstTickTimeout)
-		},
+		ticked: live.Ticked(), tickTimeout: firstTickTimeout,
 	}
 }
 

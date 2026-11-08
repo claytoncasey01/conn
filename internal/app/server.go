@@ -223,7 +223,9 @@ func resumeRecorded(ctx context.Context, life hostedLife, host *pty.Host, plan l
 	plan.checks = life.checks
 	plan.start = resumeStart(insideOpener(host), life.recorder)
 	plan.carry = life.recorder.Carry
-	plan.ready = life.ready
+	plan.ready = func(ctx context.Context) error {
+		return waitForFirstTick(ctx, life.ticked, life.tickTimeout)
+	}
 	outcome := resumeAtLaunch(ctx, plan)
 	life.recorder.Carry(outcome.Unreached)
 	life.resumed.set(outcome.Resumed)

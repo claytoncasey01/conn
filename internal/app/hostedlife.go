@@ -37,8 +37,10 @@ type hostedLife struct {
 	// bump moves the snapshot's version, so a snapshot cached before the resumed sessions were
 	// set is not shown without them.
 	bump func()
-	// ready waits until the session list holds what runs now, for the checks to read.
-	ready func(ctx context.Context) error
+	// ticked is closed once the session list the checks read holds what runs now, and
+	// tickTimeout bounds the launch's wait for it (firstTickTimeout).
+	ticked      <-chan struct{}
+	tickTimeout time.Duration
 }
 
 // newRecorder is the recorder of host's sessions into the data folder, which takes Claude's id of

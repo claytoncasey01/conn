@@ -192,7 +192,9 @@ func TestTheQuitsRecordStaysAsItWasAtTheQuit(t *testing.T) {
 	}
 	none := func() {}
 
-	life := hostedLife{recorder: recorder, checks: nil, resumed: nil, bump: none, ready: ticked}
+	life := hostedLife{
+		recorder: recorder, checks: nil, resumed: nil, bump: none, ticked: nil, tickTimeout: 0,
+	}
 
 	quit(quitStepsOf(life, none, none, stop, none))
 
@@ -320,6 +322,9 @@ func TestResumeRecordedMovesTheSnapshotsVersion(t *testing.T) {
 	t.Parallel()
 
 	bumps := 0
+	tickedChannel := make(chan struct{})
+	close(tickedChannel)
+
 	// No record: the host never spawns.
 	host := pty.NewHost(pty.Config{
 		Spawner: func(pty.Spec) (pty.Process, error) { return nil, errNeverSpawns },
@@ -327,7 +332,7 @@ func TestResumeRecordedMovesTheSnapshotsVersion(t *testing.T) {
 	})
 	life := hostedLife{
 		recorder: openedRecorder(t), checks: resumeChecks(), resumed: newResumedSessions(host),
-		bump: func() { bumps++ }, ready: ticked,
+		bump: func() { bumps++ }, ticked: tickedChannel, tickTimeout: time.Hour,
 	}
 
 	resumeRecorded(t.Context(), life, host, launchResume{
@@ -338,5 +343,38 @@ func TestResumeRecordedMovesTheSnapshotsVersion(t *testing.T) {
 
 	if bumps != 1 {
 		t.Errorf("moved the version %d times, want once", bumps)
+	}
+}
+
+// A launch whose session list has not ticked runs no owner's check: it waits, and then resumes
+// nothing.
+func TestResumeRecordedWaitsForTheSessionList(t *testing.T) {
+	t.Parallel()
+
+	checked := 0
+	checks := hosted.Checks{
+		hosted.OwnerReviews: func(ctx context.Context, record hosted.Record) (pty.Spec, bool) {
+			checked++
+
+			return resumeChecks()[hosted.OwnerReviews](ctx, record)
+		},
+	}
+	host := pty.NewHost(pty.Config{
+		Spawner: func(pty.Spec) (pty.Process, error) { return nil, errNeverSpawns },
+		Limits:  pty.DefaultLimits(), Answers: pty.Answers{}, TurnWaited: nil,
+	})
+	life := hostedLife{
+		recorder: openedRecorder(t), checks: checks, resumed: newResumedSessions(host),
+		bump: func() {}, ticked: make(chan struct{}), tickTimeout: time.Nanosecond,
+	}
+
+	resumeRecorded(t.Context(), life, host, launchResume{
+		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
+		records:  []hosted.Record{resumeRecord()}, readErr: nil, checks: nil, start: nil,
+		carry: nil, ready: nil, stderr: &bytes.Buffer{},
+	})
+
+	if checked != 0 {
+		t.Errorf("ran %d checks before the session list ticked", checked)
 	}
 }
