@@ -181,7 +181,7 @@ its owner, which rebuilds the command from its own state, as its own button woul
 - Closing the app's window hides it. Every session keeps running, and opening the window again
   shows each one as it was.
 - Quitting (Cmd-Q, the Quit menu, SIGINT or SIGTERM to `conn serve`) writes the record, then
-  stops every session.
+  stops every session. A session you were stopping at that moment is not recorded.
 - A crash or `kill -9` ends the sessions too: the system hangs up each terminal. The record is
   kept up to date every second, so the next launch resumes them the same way.
 - At launch Conn waits for the first read of the session list (at most 15 seconds), then

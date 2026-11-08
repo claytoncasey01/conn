@@ -260,15 +260,22 @@ func resumedConversation(argv []string) string {
 	return argv[flagAt+1]
 }
 
-// Track is records kept to the sessions that still run in live, each with Claude's id from
-// linked once it is a UUID there, in the order they were recorded.
+// Track is records kept to the sessions that still run in live and are not being stopped (one the
+// person is ending must not come back at the next launch), each with Claude's id from linked once
+// it is a UUID there, in the order they were recorded.
 func Track(records []Record, live []pty.Info, linked map[pty.ID]string) []Record {
 	running := map[string]bool{}
 
 	for _, info := range live {
-		if info.ExitCode == nil {
-			running[string(info.ID)] = true
+		if info.ExitCode != nil {
+			continue
 		}
+
+		if info.Stopping {
+			continue
+		}
+
+		running[string(info.ID)] = true
 	}
 
 	kept := make([]Record, 0, len(records))

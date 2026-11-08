@@ -94,6 +94,9 @@ type session struct {
 	groupStopped bool
 	// stopError is why the group could not be stopped, while that is so.
 	stopError string
+	// stopping is set once a stop of the session has begun (Stop, StopIfStill once its check
+	// passed, or StopAll): the program is being ended on purpose, and Live says so.
+	stopping bool
 	// retired is set once the session has given back its running slot and joined h.ended:
 	// when its program has ended and its group is known to be empty.
 	retired bool
@@ -349,6 +352,7 @@ func (h *Host) Live() []Info {
 		infos = append(infos, Info{
 			ID: held.sessionID, Name: held.name, Dir: held.dir, PID: held.pid,
 			StartedAt: held.startedAt, ExitCode: exitCode, StopError: held.stopError,
+			Stopping: held.stopping,
 		})
 	}
 
@@ -698,7 +702,7 @@ func (h *Host) admit(sessionID ID, spec Spec, process Process) error {
 		answers: make(chan []byte, answersQueuedMax), answered: make(chan struct{}),
 		screenMu: sync.Mutex{}, screen: screen, redrawn: make(chan struct{}),
 		exitCode: nil, scrollback: newRing(h.limits.ScrollbackBytesMax), viewers: nil,
-		groupStopped: false, stopError: "", retired: false,
+		groupStopped: false, stopError: "", stopping: false, retired: false,
 	}
 
 	h.mu.Lock()

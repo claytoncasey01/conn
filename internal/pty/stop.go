@@ -57,6 +57,7 @@ func (h *Host) StopIfStill(
 
 	err = check.passes(stopping)
 	if err == nil {
+		h.markStopping(stopping)
 		err = h.terminateUnlessStopped(stopping)
 	}
 
@@ -162,6 +163,8 @@ func (h *Host) stopSession(ctx context.Context, stopping *session) error {
 		return nil
 	}
 
+	h.markStopping(stopping)
+
 	err := stopGroup(ctx.Done(), stopping.process, h.limits.StopGrace)
 	if errors.Is(err, errGaveUp) {
 		err = errors.Join(err, ctx.Err())
@@ -174,6 +177,14 @@ func (h *Host) stopSession(ctx context.Context, stopping *session) error {
 	h.groupEmptied(stopping)
 
 	return waitEnded(ctx, stopping)
+}
+
+// markStopping records that a stop of the session has begun.
+func (h *Host) markStopping(held *session) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	held.stopping = true
 }
 
 // stopGroup stops whatever is in the program's group: a polite stop, then a kill if anything is

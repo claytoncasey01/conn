@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/pty"
+	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
 func TestStopEscalatesToAKillAfterTheGrace(t *testing.T) {
@@ -450,4 +451,56 @@ func TestAStoppedGroupIsNeverSignalledAgain(t *testing.T) {
 	if len(process.signalsSoFar()) != 0 {
 		t.Fatalf("a reused group number got %v", process.signalsSoFar())
 	}
+}
+
+// A session whose stop is under way says so in Live while its program still runs, so a quit in
+// that moment does not record it to resume.
+func TestLiveSaysAStopIsUnderWay(t *testing.T) {
+	t.Parallel()
+
+	limits := pty.DefaultLimits()
+	limits.StopGrace = testGrace
+	spawner := &fakes{ignoreTerminate: true, afterKill: killClears}
+	host := pty.NewHost(pty.Config{Spawner: spawner.spawn, Limits: limits})
+
+	sessionID, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entry, _ := info(t, host, sessionID)
+	if entry.Stopping {
+		t.Fatal("a session no one stops says it is stopping")
+	}
+
+	stopped := make(chan error, 1)
+
+	go func() { stopped <- host.Stop(t.Context(), sessionID) }()
+
+	waitStopping(t, host, sessionID)
+
+	err = <-stopped
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// waitStopping waits until Live says the session's stop is under way while it still runs.
+func waitStopping(t *testing.T, host *pty.Host, sessionID pty.ID) {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(waitLimit))
+
+	for time.Now().Before(deadline) {
+		entry, _ := info(t, host, sessionID)
+		if entry.Stopping {
+			if entry.ExitCode == nil {
+				return
+			}
+		}
+
+		time.Sleep(waitPoll)
+	}
+
+	t.Fatal("Live never said the stop was under way while the program ran")
 }

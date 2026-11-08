@@ -231,6 +231,9 @@ type Info struct {
 	// StopError is set when the program's group could not be stopped: what failed, in Conn's own
 	// words, never the program's output. The session keeps its running slot while it is set.
 	StopError string
+	// Stopping is set once a stop of the session has begun: it is being ended on purpose, though
+	// its program may still run for the stop's grace. A quit does not record it to resume.
+	Stopping bool
 }
 
 // Limits are a Host's limits. Each must be above zero and at most its default.

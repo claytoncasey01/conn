@@ -66,6 +66,18 @@ func (w *world) run(index int) {
 	w.live = append(w.live, pty.Info{ID: pty.ID(hostID(index)), Name: "", Dir: "", PID: 0})
 }
 
+// stopping says a stop of the index-th session is under way: the person asked for it to end.
+func (w *world) stopping(index int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	for position := range w.live {
+		if w.live[position].ID == pty.ID(hostID(index)) {
+			w.live[position].Stopping = true
+		}
+	}
+}
+
 // end ends the index-th session.
 func (w *world) end(index int) {
 	w.mu.Lock()
@@ -178,6 +190,27 @@ func TestRecorderKeepsWhatRanAtTheFreeze(t *testing.T) {
 
 	if !slices.Equal(setting.last(), []hosted.Record{first, second}) {
 		t.Errorf("the record is %+v, want both sessions", setting.last())
+	}
+}
+
+// A session the person was stopping when Conn quit is not recorded: it was ending on purpose, and
+// the next launch must not bring it back.
+func TestRecorderDoesNotRecordASessionBeingStoppedAtTheFreeze(t *testing.T) {
+	t.Parallel()
+
+	setting := newWorld()
+	recorder := setting.recorder()
+
+	setting.run(0)
+	setting.run(1)
+	started(recorder, 0)
+	kept := started(recorder, 1)
+
+	setting.stopping(0)
+	recorder.Freeze()
+
+	if !slices.Equal(setting.last(), []hosted.Record{kept}) {
+		t.Errorf("the record is %+v, want only %+v", setting.last(), kept)
 	}
 }
 
