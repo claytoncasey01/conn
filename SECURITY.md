@@ -125,11 +125,12 @@ own `Origin`: a handshake with no Origin is refused.
 A viewer that falls behind is dropped; the program's output is never held up for it. Input the
 program does not take is dropped, and the terminal stays open.
 
-**The program.** It runs in a new session and process group, with close-on-exec descriptors, the
-program `CONN_CLAUDE` names, and your environment less Conn's own variables (`CONN_*`, the secret
-among them), cmux's (`CMUX_*`, so a hosted session never looks like a cmux pane), your terminal's
-and multiplexer's, and those of a Claude Code session Conn may have been started from. A stop
-signals the whole group.
+**The program.** It runs in a new session and process group, with only its terminal as
+descriptors: each spawn first marks every other descriptor of Conn's process close-on-exec, those
+the app's WebKit opens included. It is the program `CONN_CLAUDE` names, with your environment less
+Conn's own variables (`CONN_*`, the secret among them), cmux's (`CMUX_*`, so a hosted session
+never looks like a cmux pane), your terminal's and multiplexer's, and those of a Claude Code
+session Conn may have been started from. A stop signals the whole group.
 
 **Output is untrusted.** The page's terminal is xterm.js, bundled with Conn, with no CDN.
 - It answers no query. The server answers device attributes, the cursor position and the

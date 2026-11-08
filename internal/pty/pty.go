@@ -52,7 +52,9 @@
 //
 // Descriptors: every descriptor this package opens is close-on-exec, and so is every file and
 // socket Go's os and net packages open, so a program inherits only its terminal. A descriptor
-// made by cgo or by a raw syscall without O_CLOEXEC is not covered; Conn makes none.
+// made by cgo or by a raw syscall without O_CLOEXEC (the desktop app's WebKit and Metal open
+// some) is marked close-on-exec by each spawn first (markCloseOnExec), up to descriptorsSweptMax;
+// one another thread opens between that sweep and the spawn is not covered.
 //
 // Terminal content is never logged and never written to disk: the scrollback is memory only, and
 // no error this package returns holds input or output bytes. The program's side of each terminal

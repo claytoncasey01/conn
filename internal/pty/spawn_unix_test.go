@@ -32,7 +32,15 @@ const (
 	// terminal, as a shell with job control does for a foreground job.
 	helperJob   = "job"
 	helperReady = "ready"
+	// helperRawSpawn opens a descriptor without close-on-exec, as a framework the desktop app
+	// links can, then spawns a program on a host of its own and prints whether the program got
+	// the descriptor. It runs in a process of its own, so the descriptor reaches no other test.
+	helperRawSpawn = "raw-spawn"
 )
+
+// rawDescriptorLowest is the lowest number the raw descriptor gets: above what the helper's
+// program opens itself, so the two cannot be taken for each other.
+const rawDescriptorLowest = 200
 
 // descriptorsScanMax is how many descriptors the helper looks at.
 const descriptorsScanMax = 1024
@@ -65,6 +73,10 @@ func TestHelperProcess(t *testing.T) {
 
 	if mode == helperReady {
 		_, _ = fmt.Fprintln(os.Stdout, "ready")
+	}
+
+	if mode == helperRawSpawn {
+		spawnBesideARawDescriptor(t)
 	}
 
 	_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
@@ -675,4 +687,54 @@ func TestRealCheckedWriteNeedsTheProgramInTheForeground(t *testing.T) {
 			t.Fatalf("WriteIfStill = %v, want %v", err, tt.wantErr)
 		})
 	}
+}
+
+// A descriptor something else in Conn's process opened without close-on-exec (a framework the
+// desktop app links, a raw syscall) never reaches a program: the spawn marks every descriptor
+// close-on-exec first. The descriptor is opened in a helper process, never in this one.
+func TestRealChildGetsNoDescriptorOpenedWithoutCloseOnExec(t *testing.T) {
+	t.Parallel()
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	helper := exec.CommandContext(t.Context(), executable, "-test.run=^TestHelperProcess$",
+		"--", helperRawSpawn)
+
+	output, err := helper.Output()
+	if err != nil {
+		t.Fatalf("the helper failed: %v", err)
+	}
+
+	if !strings.Contains(string(output), "raw descriptor: absent") {
+		t.Fatalf("the program inherited the raw descriptor, or the helper said nothing: %q",
+			strings.TrimSpace(string(output)))
+	}
+}
+
+// spawnBesideARawDescriptor is helperRawSpawn: it opens /dev/null without close-on-exec at or
+// above rawDescriptorLowest, spawns a program that looks for that descriptor, and prints what it
+// saw.
+func spawnBesideARawDescriptor(t *testing.T) {
+	t.Helper()
+
+	opened, err := unix.Open(os.DevNull, unix.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	descriptor, err := unix.FcntlInt(uintptr(opened), unix.F_DUPFD, rawDescriptorLowest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	host := newRealHost(t)
+	look := fmt.Sprintf("if [ -e /dev/fd/%d ]; then echo 'raw descriptor: 'inherited; "+
+		"else echo 'raw descriptor: 'absent; fi", descriptor)
+	sessionID := startReal(t, host, untilRead(look), nil)
+
+	match := waitForOutput(t, host, sessionID, regexp.MustCompile(`raw descriptor: (\w+)`))
+	_, _ = fmt.Fprintf(os.Stdout, "raw descriptor: %s\n", match[1])
 }

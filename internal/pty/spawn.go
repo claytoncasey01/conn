@@ -48,6 +48,11 @@ func Spawn(requested Spec) (Process, error) {
 		return nil, err
 	}
 
+	err = markCloseOnExec()
+	if err != nil {
+		return nil, err
+	}
+
 	hostSide, childSide, err := openTerminal()
 	if err != nil {
 		return nil, fmt.Errorf("opening a terminal: %w", err)
