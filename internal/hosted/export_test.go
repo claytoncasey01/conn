@@ -8,3 +8,6 @@ const (
 	NameBytesMax = nameBytesMax
 	DirBytesMax  = dirBytesMax
 )
+
+// FileBytesMax is the most bytes a record file is read for.
+func FileBytesMax() int { return int(fileBytesMax()) }

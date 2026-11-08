@@ -173,22 +173,6 @@ func ruleRefusals() []refusal {
 		) (string, string, string) {
 			return "--dangerously-skip-permissions", world.worktree, resumeID
 		}},
-		{"no launch of it in the module's store", func(_ *testing.T, world resumeWorld,
-			rule *reviews.ResumeRule,
-		) (string, string, string) {
-			rule.Launched = func(string, string, string) (string, bool) { return "", false }
-
-			return good(world)
-		}},
-		{"a model that is not one", func(_ *testing.T, world resumeWorld,
-			rule *reviews.ResumeRule,
-		) (string, string, string) {
-			rule.Launched = func(string, string, string) (string, bool) {
-				return "--dangerously-skip-permissions", true
-			}
-
-			return good(world)
-		}},
 		{"a session runs beside it", func(_ *testing.T, world resumeWorld,
 			rule *reviews.ResumeRule,
 		) (string, string, string) {
@@ -198,6 +182,38 @@ func ruleRefusals() []refusal {
 				}
 
 				return worktree == world.worktree
+			}
+
+			return good(world)
+		}},
+	}
+}
+
+// storeRefusals are records the module's store holds no launch of, or not on a model.
+func storeRefusals() []refusal {
+	return []refusal{
+		{"no launch of it in the module's store", func(_ *testing.T, world resumeWorld,
+			rule *reviews.ResumeRule,
+		) (string, string, string) {
+			rule.Launched = func(string, string, string) (string, bool) { return "", false }
+
+			return good(world)
+		}},
+		// A lookup that found nothing refuses on its own, whatever model it gives.
+		{"no launch, with a model", func(_ *testing.T, world resumeWorld,
+			rule *reviews.ResumeRule,
+		) (string, string, string) {
+			rule.Launched = func(string, string, string) (string, bool) {
+				return resumeModel, false
+			}
+
+			return good(world)
+		}},
+		{"a model that is not one", func(_ *testing.T, world resumeWorld,
+			rule *reviews.ResumeRule,
+		) (string, string, string) {
+			rule.Launched = func(string, string, string) (string, bool) {
+				return "--dangerously-skip-permissions", true
 			}
 
 			return good(world)
@@ -262,7 +278,7 @@ func folderRefusals() []refusal {
 func TestResumeAtLaunchRefuses(t *testing.T) {
 	t.Parallel()
 
-	for _, tt := range slices.Concat(ruleRefusals(), folderRefusals()) {
+	for _, tt := range slices.Concat(ruleRefusals(), storeRefusals(), folderRefusals()) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

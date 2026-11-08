@@ -292,11 +292,6 @@ func tamperedTexts(t *testing.T) []struct {
 			"two objects", `{"version":1,"sessions":[]}{"version":1,"sessions":[]}`,
 			hosted.ErrBadFile,
 		},
-		// Well formed but for its size: only the bound refuses it.
-		{
-			"too large", `{"version":1,` + strings.Repeat(" ", 1<<20) + `"sessions":[]}`,
-			hosted.ErrBadFile,
-		},
 	}
 }
 
@@ -534,6 +529,94 @@ func TestSetAside(t *testing.T) {
 			_, err = os.Lstat(filepath.Join(dir, hosted.FileName+hosted.RefusedSuffix))
 			if (err == nil) != tt.wantMoved {
 				t.Errorf("set aside: %v, want moved %v", err, tt.wantMoved)
+			}
+		})
+	}
+}
+
+// writtenText is the text Write writes for records, whatever their size: Write itself refuses
+// a file over the bound.
+func writtenText(t *testing.T, records []hosted.Record) string {
+	t.Helper()
+
+	text, err := json.Marshal(struct {
+		Version  int             `json:"version"`
+		Sessions []hosted.Record `json:"sessions"`
+	}{Version: 1, Sessions: records})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return string(text) + "\n"
+}
+
+// sizedText is writtenText of RecordsMax valid records, padded by the last one's name to
+// exactly size bytes.
+func sizedText(t *testing.T, size int) string {
+	t.Helper()
+
+	records := make([]hosted.Record, 0, hosted.RecordsMax())
+	for index := range hosted.RecordsMax() {
+		each := record(index)
+		// JSON writes six bytes for each "&".
+		each.Dir = "/" + strings.Repeat("&", folderAmpersands)
+		records = append(records, each)
+	}
+
+	for pad := 1; pad <= hosted.NameBytesMax; pad++ {
+		records[len(records)-1].Name = strings.Repeat("a", pad)
+
+		text := writtenText(t, records)
+		if len(text) == size {
+			return text
+		}
+	}
+
+	t.Fatalf("no padding makes %d bytes", size)
+
+	return ""
+}
+
+// folderAmpersands puts RecordsMax records within a name's padding of the file's bound.
+const folderAmpersands = 1860
+
+// A record file is read only up to its bound: one byte over is refused, even when it is exactly
+// what Write would write for its records.
+func TestReadRefusesAFileOverItsSize(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		text    func(t *testing.T) string
+		wantErr error
+	}{
+		{"the most bytes", func(t *testing.T) string {
+			t.Helper()
+
+			return sizedText(t, hosted.FileBytesMax())
+		}, nil},
+		{"a byte more", func(t *testing.T) string {
+			t.Helper()
+
+			return sizedText(t, hosted.FileBytesMax()+1)
+		}, hosted.ErrBadFile},
+		{"a byte more, then more", func(t *testing.T) string {
+			t.Helper()
+
+			return sizedText(t, hosted.FileBytesMax()+1) + `{"anything":1}`
+		}, hosted.ErrBadFile},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			writeText(t, dir, tt.text(t))
+
+			_, err := hosted.Read(dir)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Read: %v, want %v", err, tt.wantErr)
 			}
 		})
 	}
