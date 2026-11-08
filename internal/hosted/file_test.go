@@ -313,3 +313,35 @@ func TestReadRefusesAFifoWithoutWaiting(t *testing.T) {
 		t.Errorf("Read: %v, want %v", err, hosted.ErrBadFile)
 	}
 }
+
+// A record another user owns is never read: only the person running Conn writes it.
+func TestReadRefusesAnotherUsersFile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		uid     int
+		wantErr error
+	}{
+		{"the person's own", os.Getuid(), nil},
+		{"another user's", os.Getuid() + 1, hosted.ErrBadFile},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+
+			err := hosted.Write(dir, []hosted.Record{record(0)})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = hosted.ReadAs(dir, tt.uid)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("err %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}

@@ -115,6 +115,30 @@ func recordRefusals() []launchRefusal {
 	}
 }
 
+// moduleRefusals are records of a resumable run while Open work would start nothing real.
+func moduleRefusals() []launchRefusal {
+	known := `{"claudeSessionId":"` + sessionUUIDText + `"}`
+
+	return []launchRefusal{
+		{"a dry run", func(t *testing.T) (*world, string) {
+			t.Helper()
+
+			made, folders := legsWorldOf(t, true, "split", "", known, known)
+
+			return made, folders.worktrees[0]
+		}},
+		{"Open work off", func(t *testing.T) (*world, string) {
+			t.Helper()
+
+			made, worktrees := resumable(t, "split")
+			made.update("atlassian", `{"enabled":false,"jira":{"projects":["PROJ"],`+
+				`"buildRepo":"acme/widgets"}}`)
+
+			return made, worktrees[0]
+		}},
+	}
+}
+
 // runRefusals are records of a session the run would not reopen now.
 func runRefusals() []launchRefusal {
 	return []launchRefusal{
@@ -150,7 +174,7 @@ func runRefusals() []launchRefusal {
 func TestResumeAtLaunchRefuses(t *testing.T) {
 	t.Parallel()
 
-	tests := slices.Concat(recordRefusals(), runRefusals())
+	tests := slices.Concat(recordRefusals(), moduleRefusals(), runRefusals())
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

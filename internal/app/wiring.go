@@ -106,9 +106,10 @@ func newHandler(
 	})
 
 	recorder := newRecorder(cfg.DataDir, host, live, logger.Writer())
+	openers := ownedOpenersOf(recorder, opener)
 	parts := newTabs(ctx, tabParts{
 		cfg: cfg, store: store, reader: reader, logger: logger, host: host, live: live,
-		opener: opener, recorder: recorder,
+		openers: openers,
 	}, running)
 
 	liveIDs := liveIDsOf(live)
@@ -116,8 +117,7 @@ func newHandler(
 	archived.startBackfill(ctx, cfg, store, live, func() map[string]bool { return liveIDs(ctx) })
 
 	api := newSettingsAPI(ctx, parts, live, archived, running.myPrs.Repos)
-	historyAPI := archived.newAPI(cfg, store, liveIDs,
-		recorder.Opener(hosted.OwnerHistory, opener), reader.Of)
+	historyAPI := archived.newAPI(cfg, store, liveIDs, openers.history, reader.Of)
 	library, themesAPI := newThemes(cfg, logger)
 	checks := ownerChecks(ownerParts{
 		cfg: cfg, store: store, reader: reader, work: running.work, history: historyAPI,
@@ -140,17 +140,31 @@ func newHandler(
 	}
 }
 
+// ownedOpeners are each module's opener: the settings' opener, with each session it starts
+// inside Conn recorded under the module as its owner.
+type ownedOpeners struct {
+	work, reviews, myPrs, history launch.Opener
+}
+
+func ownedOpenersOf(recorder *hosted.Recorder, opener launch.Opener) ownedOpeners {
+	return ownedOpeners{
+		work:    recorder.Opener(hosted.OwnerOpenWork, opener),
+		reviews: recorder.Opener(hosted.OwnerReviews, opener),
+		myPrs:   recorder.Opener(hosted.OwnerMyPrs, opener),
+		history: recorder.Opener(hosted.OwnerHistory, opener),
+	}
+}
+
 // tabParts are what the tabs beside the session list are made of: each module's sessions open
-// through opener, recorded under the module by recorder.
+// through its own of openers.
 type tabParts struct {
-	cfg      config.Config
-	store    *settings.Store
-	reader   *origin.Reader
-	logger   *log.Logger
-	host     *pty.Host
-	live     *sessions.Loop
-	opener   launch.Opener
-	recorder *hosted.Recorder
+	cfg     config.Config
+	store   *settings.Store
+	reader  *origin.Reader
+	logger  *log.Logger
+	host    *pty.Host
+	live    *sessions.Loop
+	openers ownedOpeners
 }
 
 // newTabs makes Open work, Reviews and My PRs into running, starts them, and is the parts Reviews
@@ -163,7 +177,7 @@ func newTabs(ctx context.Context, made tabParts, running *tabs) reviewsParts {
 	running.work = newWork(ctx, workParts{
 		cfg: cfg, store: store, reader: made.reader, runner: runner, statuses: statuses,
 		logger: made.logger, myPrRepos: func() []string { return running.myPrs.Repos() },
-		open: made.recorder.Opener(hosted.OwnerOpenWork, made.opener), host: made.host,
+		open: made.openers.work, host: made.host,
 	}, live)
 
 	// My PRs and Reviews poll GitHub as the same account: they share its hourly budget and a
@@ -173,8 +187,8 @@ func newTabs(ctx context.Context, made tabParts, running *tabs) reviewsParts {
 		cfg: cfg, store: store, reader: made.reader, statuses: statuses, budget: ghbudget.New(),
 		runner: runner, logger: made.logger,
 		myPrRepos: func() []string { return running.myPrs.Repos() },
-		open:      made.recorder.Opener(hosted.OwnerReviews, made.opener),
-		selfOpen:  made.recorder.Opener(hosted.OwnerMyPrs, made.opener),
+		open:      made.openers.reviews,
+		selfOpen:  made.openers.myPrs,
 	}
 	running.reviews = newReviews(ctx, parts, live)
 	running.myPrs = newMyPrs(ctx, parts, live)

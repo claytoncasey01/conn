@@ -271,16 +271,20 @@ func resumeWanted(current settings.Sessions) bool {
 	return current.Where == settings.WhereInside
 }
 
-// resumeStart starts a resumed session inside Conn, whatever the settings say, and records it
-// in the record's place: for the record's owner, on the conversation the owner's check resumed.
-func resumeStart(host *pty.Host, recorder *hosted.Recorder) hosted.Start {
-	inside := launch.New(launch.Deps{
+// insideOpener opens every session inside Conn on host, whatever the settings say: a resume never
+// opens cmux or prints a command.
+func insideOpener(host *pty.Host) launch.Opener {
+	return launch.New(launch.Deps{
 		Sessions: func() settings.Sessions {
 			return settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true}
 		},
 		Start: host.Start, Cmux: nil, LookPath: exec.LookPath, Environ: os.Environ,
 	})
+}
 
+// resumeStart starts a resumed session through inside, and records it in the record's place: for
+// the record's owner, on the conversation the owner's check resumed.
+func resumeStart(inside launch.Opener, recorder *hosted.Recorder) hosted.Start {
 	return func(ctx context.Context, record hosted.Record, spec pty.Spec) (pty.ID, bool) {
 		opened := inside(ctx, spec)
 		if opened.HostedID == "" {

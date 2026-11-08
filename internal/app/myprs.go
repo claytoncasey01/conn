@@ -29,13 +29,21 @@ const (
 
 var errNotRegularFile = errors.New("not a regular file")
 
+// selfLaunchDeps are My PRs' launch deps: Reviews', with each session opened through selfOpen,
+// so it is recorded under My PRs.
+func selfLaunchDeps(parts reviewsParts) reviews.LaunchDeps {
+	launch := launchDeps(parts, reviews.Names{Pattern: parts.cfg.ReviewNamePattern})
+	launch.Open = parts.selfOpen
+
+	return launch
+}
+
 // newMyPrs is the My PRs tab over this machine: gh, git, cmux, the Slack draft helper and the
 // session list's last tick. It shares Reviews' parts, the GitHub budget among them.
 func newMyPrs(ctx context.Context, parts reviewsParts, live *sessions.Loop) *myprs.MyPrs {
 	cfg := parts.cfg
 	self := myprs.Self{Pattern: cfg.SelfNamePattern, Prompt: cfg.SelfReviewPrompt}
-	launch := launchDeps(parts, reviews.Names{Pattern: cfg.ReviewNamePattern})
-	launch.Open = parts.selfOpen
+	launch := selfLaunchDeps(parts)
 	draft := myprs.DraftConfig{
 		Model: cfg.ReviewScanModel, BudgetUSD: cfg.ReviewScanCostUSDMax,
 		Timeout: cfg.ReviewScanTimeout,

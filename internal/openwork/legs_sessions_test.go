@@ -49,6 +49,14 @@ func legJSON(t *testing.T, repo, clone, worktree, extra string) *js.Object {
 func legsWorld(t *testing.T, layout, fields string, legExtras ...string) (*world, legsRun) {
 	t.Helper()
 
+	return legsWorldOf(t, false, layout, fields, legExtras...)
+}
+
+// legsWorldOf is legsWorld, a dry run when dry is set.
+func legsWorldOf(t *testing.T, dry bool, layout, fields string, legExtras ...string,
+) (*world, legsRun) {
+	t.Helper()
+
 	base := realTemp(t)
 	folders := legsRun{clones: []string{}, worktrees: []string{}}
 	legs := make([]any, 0, 2)
@@ -82,7 +90,7 @@ func legsWorld(t *testing.T, layout, fields string, legExtras ...string) (*world
 
 	made := newWorld(t, worldOpts{
 		base: base, settings: twoClones(folders.clones[0], folders.clones[1]),
-		runs: []any{record},
+		runs: []any{record}, dry: dry,
 	})
 
 	return made, folders

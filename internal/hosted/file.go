@@ -108,6 +108,11 @@ func writeTemporary(dir string, text []byte) (string, error) {
 // record's problems, and no record of it is returned: Conn never writes such a file, so nothing
 // in it is trusted.
 func Read(dir string) ([]Record, error) {
+	return readAs(dir, os.Getuid())
+}
+
+// readAs is Read for the person whose user id is uid.
+func readAs(dir string, uid int) ([]Record, error) {
 	path := filepath.Join(dir, FileName)
 
 	opened, err := openNoFollow(path)
@@ -121,7 +126,7 @@ func Read(dir string) ([]Record, error) {
 
 	defer func() { _ = opened.Close() }()
 
-	text, err := readOwnFile(opened)
+	text, err := readOwnFile(opened, uid)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
@@ -151,9 +156,9 @@ func openNoFollow(path string) (*os.File, error) {
 	return os.NewFile(uintptr(descriptor), path), nil
 }
 
-// readOwnFile is the text of opened when it is a regular file the person running Conn owns, of
-// at most fileBytesMax bytes.
-func readOwnFile(opened *os.File) ([]byte, error) {
+// readOwnFile is the text of opened when it is a regular file the user uid owns, of at most
+// fileBytesMax bytes.
+func readOwnFile(opened *os.File, uid int) ([]byte, error) {
 	info, err := opened.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("looking at the file: %w", err)
@@ -168,7 +173,7 @@ func readOwnFile(opened *os.File) ([]byte, error) {
 		return nil, fmt.Errorf("%w: its owner cannot be read", ErrBadFile)
 	}
 
-	if int64(stat.Uid) != int64(os.Getuid()) {
+	if int64(stat.Uid) != int64(uid) {
 		return nil, fmt.Errorf("%w: it belongs to another user", ErrBadFile)
 	}
 

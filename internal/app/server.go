@@ -215,7 +215,7 @@ func lastRecord(dataDir string, store *settings.Store, stderr io.Writer) launchR
 // the records it did not reach, as they were, for the next launch.
 func resumeRecorded(ctx context.Context, life hostedLife, host *pty.Host, plan launchResume) {
 	plan.checks = life.checks
-	plan.start = resumeStart(host, life.recorder)
+	plan.start = resumeStart(insideOpener(host), life.recorder)
 	plan.carry = life.recorder.Carry
 	plan.ready = life.ready
 	outcome := resumeAtLaunch(ctx, plan)
