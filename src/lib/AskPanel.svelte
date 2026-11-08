@@ -139,7 +139,7 @@
         {/if}
 
         {#if view.view === 'nocmux'}
-          <div class="line">not running in a cmux terminal, so it cannot be answered here</div>
+          <div class="line">not running inside Conn or in a cmux terminal, so it cannot be answered here</div>
         {:else if view.view === 'pending'}
           {#if pending === 'unread'}
             <div class="line dim">The screen has not been read yet.</div>

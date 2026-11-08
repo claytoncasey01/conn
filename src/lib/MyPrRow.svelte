@@ -51,7 +51,7 @@
       if (next !== started) started = next
     }
   })
-  // The server's refusal or failure, and the command to paste when cmux could not open the session: shown as text only
+  // The server's refusal or failure, and the command to paste when the session did not start (or opens as a command): shown as text only
   let failure = $state<{ error: string; manualCommand?: string } | null>(null)
   let copied = $state(false)
   let copyFailed = $state(false)

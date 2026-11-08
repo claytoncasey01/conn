@@ -3,7 +3,7 @@ import { api } from './api.ts'
 import { parseEntryAction } from './entryAction.ts'
 import type { ReviewStartResult } from './reviewsApi.ts'
 
-/** SELF-REVIEW or RE-REVIEW: start a round for one PR. A launch that cmux refused is HTTP 200 {ok:false, error, manualCommand}, so the body is read. Never throws. */
+/** SELF-REVIEW or RE-REVIEW: start a round for one PR. A launch whose session did not start (or opens as a command) is HTTP 200 {ok:false, error, manualCommand}, so the body is read. Never throws. */
 export async function startSelf(repo: string, number: number, model: 'sonnet' | 'opus'): Promise<ReviewStartResult> {
   try {
     const r = await api('/api/myprs/start', {

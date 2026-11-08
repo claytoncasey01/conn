@@ -1,4 +1,4 @@
-// The REVIEW button's request, and the remembered model choice. Not post() in live.svelte.ts: a review that cmux refused is HTTP 200 {ok:false, error, manualCommand},
+// The REVIEW button's request, and the remembered model choice. Not post() in live.svelte.ts: a review whose session did not start (or opens as a command) is HTTP 200 {ok:false, error, manualCommand},
 // which post() would take for success, so the body is read here (the same parse as History's RESUME).
 import { api } from './api.ts'
 import { parseEntryAction } from './entryAction.ts'
@@ -6,7 +6,7 @@ import { parseEntryAction } from './entryAction.ts'
 export interface ReviewStartResult {
   ok: boolean
   error?: string
-  /** cmux could not open the review: a command to paste into a terminal */
+  /** The session did not start, or sessions open as a command: a command to paste into a terminal */
   manualCommand?: string
 }
 

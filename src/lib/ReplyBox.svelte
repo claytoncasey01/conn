@@ -38,7 +38,7 @@
   {#if s.hosted}
     <span style="font-size: 11px; letter-spacing: calc(var(--tracking) * 0.4286); color: color-mix(in oklab, var(--mu) 70%, var(--bg))" title="This session has ended, so nothing can be typed into it" class="cap">Ended</span>
   {:else}
-    <span style="font-size: 11px; letter-spacing: calc(var(--tracking) * 0.4286); color: color-mix(in oklab, var(--mu) 70%, var(--bg))" title="Replies are typed into the session's cmux terminal; this one is not running in cmux" class="cap">No cmux terminal</span>
+    <span style="font-size: 11px; letter-spacing: calc(var(--tracking) * 0.4286); color: color-mix(in oklab, var(--mu) 70%, var(--bg))" title="Conn types replies into a session it runs, or into a cmux terminal; this one runs in neither" class="cap">No terminal Conn can type into</span>
   {/if}
 {:else if dialog}
   <a href={href.agent(s.id, 'lead')} style="font-size: 11px; letter-spacing: calc(var(--tracking) * 0.4286); color: var(--warn)">ANSWER ON THE AGENT PAGE{s.waitingFor ? ` · ${s.waitingFor.toUpperCase()}` : ''}</a>

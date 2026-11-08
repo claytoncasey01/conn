@@ -51,7 +51,7 @@ export async function stopSession(sessionId: string, force: boolean): Promise<{ 
   return r.ok ? { ok: true } : { ok: false, busy: !!j.busy, error: j.error ?? `HTTP ${r.status}` }
 }
 
-/** Type a message into the session's own terminal (cmux). The server refuses anything it cannot send safely. */
+/** Type a message into the session's own terminal (inside Conn, or cmux). The server refuses anything it cannot send safely. */
 export async function replySession(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const r = await api(`/api/sessions/${sessionId}/reply`, {

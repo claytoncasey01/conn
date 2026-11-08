@@ -1,5 +1,5 @@
 // What the History POST routes (resume, summary) answer, read into one shape. The existing post() in live.svelte.ts
-// counts any 2xx as success and drops the body, but a resume that cmux refused is HTTP 200 {ok:false, error, manualCommand}.
+// counts any 2xx as success and drops the body, but a resume whose session did not start (or opens as a command) is HTTP 200 {ok:false, error, manualCommand}.
 import type { ActionResult } from './live.svelte.ts'
 import type { SummaryState } from './types.ts'
 

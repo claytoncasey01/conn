@@ -37,7 +37,9 @@ export const sameSessions = (a: SessionsSettings, b: SessionsSettings): boolean 
 
 /** The line a save leaves: where sessions now open, and whether they resume. */
 export function wroteSessions(s: SessionsSettings): string {
-  const resume = s.resumeOnLaunch ? 'resume' : 'do not resume'
-  if (s.where === 'command') return `Saved: conn shows the command to paste, and sessions ${resume} when conn starts`
-  return `Saved: sessions open ${s.where === 'inside' ? 'inside Conn' : 'in cmux'}, and ${resume} when conn starts`
+  if (s.where === 'inside') return `Saved: sessions open inside Conn, and ${s.resumeOnLaunch ? 'resume' : 'do not resume'} when conn starts`
+  const opened = s.where === 'command' ? 'conn shows the command to paste' : 'sessions open in cmux'
+  // Sessions that ran inside Conn are kept, not resumed, while new ones open elsewhere (the server's resumeKept).
+  const kept = s.resumeOnLaunch ? 'those that ran inside Conn resume once sessions open inside Conn again' : 'those that ran inside Conn do not resume'
+  return `Saved: ${opened}, and ${kept}`
 }

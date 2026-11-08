@@ -44,6 +44,8 @@ test('two drafts are the same when every field is', () => {
 
 test('a save says where sessions now open', () => {
   assert.equal(wroteSessions({ where: 'inside', resumeOnLaunch: true }), 'Saved: sessions open inside Conn, and resume when conn starts')
-  assert.equal(wroteSessions({ where: 'terminal', resumeOnLaunch: false }), 'Saved: sessions open in cmux, and do not resume when conn starts')
-  assert.equal(wroteSessions({ where: 'command', resumeOnLaunch: true }), 'Saved: conn shows the command to paste, and sessions resume when conn starts')
+  assert.equal(wroteSessions({ where: 'inside', resumeOnLaunch: false }), 'Saved: sessions open inside Conn, and do not resume when conn starts')
+  assert.equal(wroteSessions({ where: 'terminal', resumeOnLaunch: false }), 'Saved: sessions open in cmux, and those that ran inside Conn do not resume')
+  assert.equal(wroteSessions({ where: 'terminal', resumeOnLaunch: true }), 'Saved: sessions open in cmux, and those that ran inside Conn resume once sessions open inside Conn again')
+  assert.equal(wroteSessions({ where: 'command', resumeOnLaunch: true }), 'Saved: conn shows the command to paste, and those that ran inside Conn resume once sessions open inside Conn again')
 })

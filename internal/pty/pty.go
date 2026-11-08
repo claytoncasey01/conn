@@ -25,8 +25,9 @@
 // ErrGroupUnreachable, Info.StopError says so, and the session keeps its running slot and is
 // never forgotten while that is so. Once a group is known to be empty its number is never
 // signalled again, since a new program may have been given it. A descendant that calls setsid or
-// setpgid itself has left the group and is out of reach; Task 9 checks this against a real
-// claude running a background command. StopAll (which returns an error, unlike the plan's
+// setpgid itself has left the group and is out of reach. Claude Code runs a background command
+// in a group of its own, and ends it when it is stopped politely; if it is killed instead, such a
+// command may outlive it. StopAll (which returns an error, unlike the plan's
 // signature, so quitting can say what did not stop) refuses new Starts and waits for those in
 // flight.
 //
