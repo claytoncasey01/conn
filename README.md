@@ -7,7 +7,7 @@ Conn runs on your machine and listens on 127.0.0.1 only. It reads the files Clau
 ## What it does
 
 - Shows every live session with its status, cost estimate and repository, and a tree of the agents and subagents inside it. A session waiting on a prompt is marked and sorted first. See [sessions](docs/sessions.md).
-- For sessions running in cmux, lets you type a reply, or allow once or deny a permission prompt, from the browser. The prompt is read again right before your answer is sent, and nothing is sent if it changed.
+- Runs the sessions it starts inside itself, on a terminal the page shows, so no terminal app is needed. You can type into that terminal, or type a reply, or allow once or deny a permission prompt, from the page. The prompt is read again right before your answer is sent, and nothing is sent if it changed. See [sessions inside Conn](#sessions-inside-conn).
 - Keeps a searchable archive of finished sessions, each with a short summary. See [history](docs/history.md).
 - Lists your open pull requests with their unresolved review threads. One click starts a Claude Code session, in its own git worktree, that fixes what is open. See [my PRs](docs/my-prs.md).
 - Lists the pull requests that ask for your review, from GitHub and optionally Slack. One click starts a review session in a worktree. See [reviews](docs/reviews.md).
@@ -44,7 +44,7 @@ It listens on http://127.0.0.1:7777 and prints the page's address with a secret 
 
 `Conn.app` is the same server in a window of its own, with an icon in the Dock. It shows a splash while it starts, then the page. It needs macOS 13 or later, on Apple silicon or Intel.
 
-- Closing the window hides it and leaves Conn running. Click the Dock icon to bring the window back. Cmd-Q, or Quit in the app menu, quits.
+- Closing the window hides it and leaves Conn running, with every session inside it. Click the Dock icon to bring the window back. Cmd-Q, or Quit in the app menu, quits, and stops those sessions; the next launch resumes them (see [sessions inside Conn](#sessions-inside-conn)).
 - It listens on the same port as `conn serve` (7777, or `CONN_PORT`) and keeps its data in the same folder, so the app and the command line show the same Conn. If another program holds the port, or the data folder cannot be read, the app says so in a dialog.
 - If a Conn is already running on the data folder, such as a `conn serve` in a terminal, the app opens its window on that server. Quitting the app then leaves that server running. Only a server the app started is stopped when it quits: to stop it, quit the app (Cmd-Q). The server runs inside the app, so `conn stop` on such a server ends the app too.
 - A link to a pull request, a Slack thread or any other site opens in your default browser, and the window stays on Conn. That holds for a link you click, a form, a script and a redirect alike. Links that are not web addresses are not opened. A page inside a frame is not watched.
@@ -61,7 +61,7 @@ What you need besides the binary:
 Optional:
 
 - `gh`, signed in. Needed for My PRs, Reviews and the PR links on sessions.
-- cmux. Needed to reply from the browser, answer prompts, and launch review and build sessions.
+- cmux. Only if you set sessions to open in your terminal (Settings, Where sessions open), or to reply to a session you started in cmux yourself. Sessions Conn starts run inside Conn by default and need no terminal app.
 - The claude.ai Slack and Atlassian connectors. Needed for the Slack scans in Reviews and for Open work.
 
 ## Build from source
@@ -82,11 +82,21 @@ One Conn runs per data folder. A second `conn serve` on the same folder prints t
 
 On first start every page except Themes sends you to Settings. Choose the repositories Conn may read, as patterns such as `acme/widgets` or `acme/*`. Nothing is fetched until you do. The allowlist limits what Conn reads, not what a Claude Code session can reach on its own. See [settings](docs/settings.md).
 
+## Sessions inside Conn
+
+Open work, Reviews, My PRs and History's RESUME start Claude Code sessions. By default each one runs inside Conn: the Sessions page and the Open work run page show its terminal, which you can type into from the browser or the app. Several tabs, or the app and a browser, see the same screen, up to 4 at once. A program that floods the terminal faster than the page can draw closes the panel; **Interrupt** then sends it Ctrl-C.
+
+- Closing the app's window keeps every session running. Opening it again shows each one as it was.
+- Quitting Conn (Cmd-Q, or Ctrl-C or SIGTERM to `conn serve`) stops every session, after writing down which ones ran.
+- The next launch resumes those sessions on their own conversations. The page says how many, and offers **Stop all**. *Resume on launch* in Settings turns this off.
+
+Settings, *Where sessions open*, can send new sessions to cmux instead, or show the command to paste into any terminal. How the terminal is protected, and what is kept on disk, is in [SECURITY.md](SECURITY.md#sessions-inside-conn).
+
 ## What Conn touches
 
 - **Network.** The server makes one kind of web request of its own: the theme gallery reads `raw.githubusercontent.com` with plain GETs that carry no credentials. `CONN_THEME_INDEX=off` turns it off. The macOS app makes one more: about 10 seconds after it has finished starting, and then daily, a `HEAD` request to `github.com` for the address of the latest release, to learn whether a newer one exists, and only when one does, a second `HEAD` request to learn whether that release's app is attached yet, so it never offers a release the install command cannot deliver. They send no version of Conn and nothing of yours, read only the status and the redirect and no body, and GitHub sees the address they came from and the client name `conn-app`. `CONN_UPDATE_CHECK=off` turns it off. GitHub goes through your `gh`. Slack, Jira and Confluence go through short headless `claude -p` runs that use your claude.ai connectors. Those runs cost tokens, and each is capped in cost and time. There is no telemetry.
 - **Fonts.** Themes name Google Fonts families, and the page loads the active theme's from `fonts.googleapis.com`, so your browser contacts Google. The glyph font for Matrix's rain is bundled.
-- **Files.** Conn keeps everything it saves in one folder, `~/.config/conn` (`$XDG_CONFIG_HOME/conn` when that is set to an absolute path; `CONN_DATA` changes it): the History archive, `settings.json`, `reviews.json`, `myprs.json` and `conn.lock`, which names the server running on the folder and holds its secret (mode 0600). It also holds copies of the agents and skills Conn provides (`agents/`, `skills/`); the agents are linked into `~/.claude/agents` when the server starts, and a skill is linked into `~/.claude/skills` only when you press INSTALL on the Settings page. See [Agents and skills](docs/settings.md#agents-and-skills). Conn creates the folder private to you (mode 0700). A `~/.conn` folder from an earlier version is not read or moved: Conn starts fresh in the new folder, and the old one can be deleted or copied over by hand. `history.db` holds the text of your prompts and results, so treat it like `~/.claude`.
+- **Files.** Conn keeps everything it saves in one folder, `~/.config/conn` (`$XDG_CONFIG_HOME/conn` when that is set to an absolute path; `CONN_DATA` changes it): the History archive, `settings.json`, `reviews.json`, `myprs.json`, `hosted.json` (the sessions running inside Conn, to resume at the next launch: ids, names and folders, no command line; mode 0600) and `conn.lock`, which names the server running on the folder and holds its secret (mode 0600). It also holds copies of the agents and skills Conn provides (`agents/`, `skills/`); the agents are linked into `~/.claude/agents` when the server starts, and a skill is linked into `~/.claude/skills` only when you press INSTALL on the Settings page. See [Agents and skills](docs/settings.md#agents-and-skills). Conn creates the folder private to you (mode 0700). A `~/.conn` folder from an earlier version is not read or moved: Conn starts fresh in the new folder, and the old one can be deleted or copied over by hand. `history.db` holds the text of your prompts and results, so treat it like `~/.claude`.
 - **Your shell.** The app runs your login shell once, when it starts, to read the environment that `claude`, `gh` and `git` need. It keeps that environment in memory and never logs it or writes it down. `conn serve` does not do this.
 - **Git.** Review and self-review sessions work in their own git worktrees, never in your working copy. Each page's doc lists everything Conn writes and calls for that feature.
 - **The API.** Every `/api` request needs the secret this launch of Conn made (256 random bits, in an `Authorization: Bearer` header), a `Host` that is a loopback name, and no `Origin` or exactly the server's own; every request that changes something also needs the `x-conn: 1` header. The page itself and its files need none. The page carries a Content-Security-Policy: scripts only from Conn itself, no inline script, requests only to Conn, and never in a frame.
@@ -102,7 +112,8 @@ Most settings are on the Settings page. A few come from the environment:
 | `CONN_DATA` | `~/.config/conn` (`$XDG_CONFIG_HOME/conn` when set) | Where Conn keeps its data |
 | `CONN_PORT` | `7777` | Dashboard port |
 | `CONN_TRANSCRIPTS` | `~/.claude/projects` | Where Claude Code's transcripts are read from |
-| `CONN_CLAUDE`, `CONN_CMUX` | `claude`, `cmux` | Binaries to run |
+| `CONN_CLAUDE` | `claude` | The Claude Code binary. Inside Conn it must be `claude` itself or a wrapper that `exec`s it |
+| `CONN_CMUX` | `cmux` | The cmux binary: for sessions set to open in your terminal, and replies to sessions you run in cmux |
 | `CONN_SUMMARY_MODEL` | Haiku | Model for History summaries |
 | `CONN_THEME_INDEX` | `claytoncasey01/conn-themes` | Gallery repository, or `off` |
 | `CONN_UPDATE_CHECK` | on | `off` stops the app's check for a newer release |
