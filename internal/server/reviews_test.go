@@ -12,6 +12,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/reviews"
+	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/server"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
@@ -41,8 +42,10 @@ func newReviewsRig(t *testing.T) reviewsRig {
 	})
 
 	return reviewsRig{
-		handler: &server.Server{UI: bundle(), Clients: func() int { return 0 }, Reviews: tab},
-		tab:     tab, data: data,
+		handler: &server.Server{
+			UI: bundle(), Secret: testKey(t), Clients: func() int { return 0 }, Reviews: tab,
+		},
+		tab: tab, data: data,
 	}
 }
 
@@ -66,6 +69,7 @@ func (r reviewsRig) send(t *testing.T, call reviewsCall) (int, string) {
 	request := httptest.NewRequestWithContext(t.Context(), call.method, call.path,
 		strings.NewReader(call.body))
 	request.Host = "127.0.0.1:7777"
+	request.Header.Set(secret.Header, testKey(t).Authorization())
 
 	for name, value := range call.headers {
 		if name == "Host" {

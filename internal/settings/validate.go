@@ -33,7 +33,10 @@ func refused(reason string) Checked { return Checked{OK: false, Value: nil, Erro
 
 // Sections are the settings sections a PUT may replace, in the file's order.
 func Sections() []string {
-	return []string{SectionRepos, sectionGitHub, sectionSlack, sectionAtlassian, SectionReviews}
+	return []string{
+		SectionRepos, sectionGitHub, sectionSlack, sectionAtlassian, SectionReviews,
+		SectionSessions,
+	}
 }
 
 // ValidateSection checks one section as a PUT sends it, replacing the whole section. Stricter
@@ -96,6 +99,8 @@ func validate(name string, object *js.Object, found *problems) (any, string) {
 		}
 
 		return readAtlassian(object, true, nil, false, found), ""
+	case SectionSessions:
+		return validateSessions(object, found), ""
 	}
 
 	return validateReviews(object)

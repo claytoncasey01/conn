@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/server"
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/testtime"
@@ -26,7 +28,7 @@ func emptyLoop(t *testing.T) *sessions.Loop {
 	return sessions.NewLoop(sessions.Deps{
 		Home: t.TempDir(), DataDir: t.TempDir(), Kinds: sessions.KindRules{},
 		Procs: func() (string, error) { return "", nil },
-		Env:   func(float64) (string, error) { return "", errNone },
+		Env:   func(float64) ([]string, error) { return nil, errNone },
 		PRView: func(context.Context, string, []string) ([]byte, error) {
 			return nil, errNone
 		},
@@ -54,8 +56,8 @@ func TestEventsStreamOutlivesTheReadTimeout(t *testing.T) {
 	go loop.Run(ctx)
 
 	handler := &server.Server{
-		UI: bundle(), Clients: loop.Hub().Count, Settings: nil, Themes: nil, Gallery: nil,
-		Logger: nil, Sessions: loop,
+		UI: bundle(), Secret: testKey(t), Clients: loop.Hub().Count, Settings: nil, Themes: nil,
+		Gallery: nil, Logger: nil, Sessions: loop,
 	}
 	test := httptest.NewUnstartedServer(handler)
 	test.Config.ReadTimeout = testtime.Scaled(200 * time.Millisecond)
@@ -69,6 +71,8 @@ func TestEventsStreamOutlivesTheReadTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	request.Header.Set(secret.Header, testKey(t).Authorization())
+
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +83,12 @@ func TestEventsStreamOutlivesTheReadTimeout(t *testing.T) {
 	reader := bufio.NewReader(response.Body)
 
 	first, _ := reader.ReadString('\n')
+
+	// The page is counted before its first byte is sent, so as soon as anything arrives.
+	if loop.Hub().Count() != 1 {
+		t.Errorf("clients = %d once the first line arrived, want 1", loop.Hub().Count())
+	}
+
 	if first != "retry: 1500\n" {
 		t.Errorf("first line %q", first)
 	}
@@ -134,8 +144,8 @@ func TestSessionRoutes(t *testing.T) {
 	go loop.Run(t.Context())
 
 	handler := &server.Server{
-		UI: bundle(), Clients: loop.Hub().Count, Settings: nil, Themes: nil, Gallery: nil,
-		Logger: nil, Sessions: loop,
+		UI: bundle(), Secret: testKey(t), Clients: loop.Hub().Count, Settings: nil, Themes: nil,
+		Gallery: nil, Logger: nil, Sessions: loop,
 	}
 
 	notFound := `{"error":"not found"}`
@@ -148,6 +158,19 @@ func TestSessionRoutes(t *testing.T) {
 		{http.MethodPost, "/api/sessions/123/agents/lead", http.StatusNotFound, notFound},
 		{http.MethodGet, "/api/sessions/abc/agents/lead", http.StatusOK, shell},
 		{http.MethodGet, "/api/sessions/1/agents/a.b", http.StatusOK, shell},
+		// A hosted session's id is looked up like a pid: one the host never issued is not found.
+		{
+			http.MethodGet, "/api/sessions/0123456789abcdef0123456789abcdef/agents/lead",
+			http.StatusNotFound, notFound,
+		},
+		{
+			http.MethodGet, "/api/sessions/0123456789abcdef0123456789abcde/agents/lead",
+			http.StatusOK, shell,
+		},
+		{
+			http.MethodGet, "/api/sessions/0123456789ABCDEF0123456789ABCDEF/agents/lead",
+			http.StatusOK, shell,
+		},
 		{http.MethodGet, "/api/health", http.StatusOK, `{"ok":true,"clients":0}`},
 	}
 
@@ -155,6 +178,8 @@ func TestSessionRoutes(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequestWithContext(t.Context(), tt.method, tt.target, nil)
 		request.Host = "127.0.0.1"
+		request.Header.Set(secret.Header, testKey(t).Authorization())
+		request.Header.Set(secret.Header, testKey(t).Authorization())
 		handler.ServeHTTP(recorder, request)
 
 		if recorder.Code != tt.status {
@@ -169,6 +194,7 @@ func TestSessionRoutes(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/snapshot", nil)
 	request.Host = "127.0.0.1"
+	request.Header.Set(secret.Header, testKey(t).Authorization())
 	handler.ServeHTTP(recorder, request)
 
 	if !strings.HasPrefix(recorder.Body.String(), `{"at":`) {
@@ -191,8 +217,8 @@ func TestActionRoutesAreGuarded(t *testing.T) {
 	go loop.Run(t.Context())
 
 	handler := &server.Server{
-		UI: bundle(), Clients: loop.Hub().Count, Settings: nil, Themes: nil, Gallery: nil,
-		Logger: nil, Sessions: loop,
+		UI: bundle(), Secret: testKey(t), Clients: loop.Hub().Count, Settings: nil, Themes: nil,
+		Gallery: nil, Logger: nil, Sessions: loop,
 	}
 
 	forbidden := `{"error":"forbidden"}`
@@ -223,6 +249,30 @@ func TestActionRoutesAreGuarded(t *testing.T) {
 			`{"error":"no such live session"}`,
 		},
 		{http.MethodPost, "/api/sessions/x/terminal", "{}", true, http.StatusOK, shell},
+		// A hosted session's id is answered as an unknown pid is when the host never issued it.
+		{
+			http.MethodPost, "/api/sessions/0123456789abcdef0123456789abcdef/reply", "{}", true,
+			http.StatusNotFound, `{"error":"no such live session"}`,
+		},
+		{
+			http.MethodPost, "/api/sessions/0123456789abcdef0123456789abcdef/stop", "{}", true,
+			http.StatusNotFound, `{"error":"no such live session"}`,
+		},
+		{
+			http.MethodPost, "/api/sessions/0123456789abcdef0123456789abcdef/answer", "{}", true,
+			http.StatusNotFound, `{"error":"no such live session"}`,
+		},
+		{
+			http.MethodPost, "/api/sessions/0123456789abcdef0123456789abcdef/terminal", "{}", true,
+			http.StatusNotFound, `{"error":"no such live session"}`,
+		},
+		{http.MethodPost, "/api/sessions/abc/terminal", "{}", true, http.StatusOK, shell},
+		// The stop route takes the same ids, and nothing else.
+		{http.MethodPost, "/api/sessions/abc/stop", "{}", true, http.StatusOK, shell},
+		{
+			http.MethodPost, "/api/sessions/0123456789abcdef0123456789abcde/stop", "{}", true,
+			http.StatusOK, shell,
+		},
 	}
 
 	for _, tt := range tests {
@@ -230,6 +280,8 @@ func TestActionRoutesAreGuarded(t *testing.T) {
 		request := httptest.NewRequestWithContext(t.Context(), tt.method, tt.target,
 			strings.NewReader(tt.body))
 		request.Host = "127.0.0.1"
+		request.Header.Set(secret.Header, testKey(t).Authorization())
+		request.Header.Set(secret.Header, testKey(t).Authorization())
 
 		if tt.header {
 			request.Header.Set("X-Conn", "1")
@@ -244,5 +296,93 @@ func TestActionRoutesAreGuarded(t *testing.T) {
 		if recorder.Body.String() != tt.want {
 			t.Errorf("%s %s body %q", tt.method, tt.target, recorder.Body.String())
 		}
+	}
+}
+
+// The events stream joins the page before it takes the first snapshot: a change that lands
+// between the two is pushed to the page. The snapshot's own build records how many pages were
+// listening as it was taken.
+func TestTheEventsStreamJoinsBeforeItsFirstSnapshot(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mutex sync.Mutex
+		seen  []int
+		loop  *sessions.Loop
+	)
+
+	record := func(listening int) {
+		mutex.Lock()
+		defer mutex.Unlock()
+
+		seen = append(seen, listening)
+	}
+
+	never := func() bool { return false }
+	loop = sessions.NewLoop(sessions.Deps{
+		Home: t.TempDir(), DataDir: t.TempDir(), Kinds: sessions.KindRules{},
+		Procs: func() (string, error) { return "", nil },
+		Env:   func(float64) ([]string, error) { return nil, errNone },
+		PRView: func(context.Context, string, []string) ([]byte, error) {
+			return nil, errNone
+		},
+		RepoOf:   func(string) string { return "" },
+		Upstream: func(string, string) string { return "" },
+		Hooks: sessions.Hooks{
+			Runs: func() []sessions.Run { return []sessions.Run{} },
+			History: func() any {
+				record(loop.Hub().Count())
+
+				return nil
+			},
+			Reviews: func() any { return nil }, MyPrs: nil,
+			Setup: never, OpenWork: never, RepoVisible: func(string) bool { return true },
+			GithubOn: never,
+		},
+		Now: time.Now,
+	})
+
+	go loop.Run(t.Context())
+
+	handler := &server.Server{
+		UI: bundle(), Secret: testKey(t), Clients: loop.Hub().Count, Settings: nil, Themes: nil,
+		Sessions: loop,
+	}
+	test := httptest.NewServer(handler)
+
+	defer test.Close()
+
+	// A change, so the stream's first snapshot is built for it, not taken from the cache.
+	loop.Bump()
+
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		test.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request.Header.Set(secret.Header, testKey(t).Authorization())
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = response.Body.Close() }()
+
+	reader := bufio.NewReader(response.Body)
+	_, _ = reader.ReadString('\n')
+	_, _ = reader.ReadString('\n')
+
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	if len(seen) == 0 {
+		t.Fatal("no snapshot was built")
+	}
+
+	if last := seen[len(seen)-1]; last != 1 {
+		t.Fatalf("the first snapshot was built with %d pages listening, want 1 (seen %v)", last,
+			seen)
 	}
 }

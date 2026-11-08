@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/ask"
 	"github.com/claytoncasey01/conn/internal/claude"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/run"
 	"github.com/claytoncasey01/conn/internal/snapshot"
 )
@@ -55,8 +57,8 @@ type Deps struct {
 	Kinds   KindRules
 	// Procs is `ps -A -o pid=,ppid=,comm=`.
 	Procs func() (string, error)
-	// Env is `ps eww -p <pid>`: a process's environment.
-	Env func(pid float64) (string, error)
+	// Env is a process's environment, entry by entry (see Env).
+	Env func(pid float64) ([]string, error)
 	// PRView runs `gh pr view` in a folder and gives its stdout.
 	PRView func(ctx context.Context, cwd string, args []string) ([]byte, error)
 	// RepoOf is the GitHub repo of a folder that exists, "" for none.
@@ -73,6 +75,10 @@ type Deps struct {
 	Archive Archive
 	Hooks   Hooks
 	Now     func() time.Time
+	// Host runs the sessions Conn hosts on terminals of its own; nil when there are none. A
+	// hosted session is told by the host's own record, never by anything a process prints or
+	// holds in its environment.
+	Host *pty.Host
 }
 
 // Hooks are what other parts of the server put in the snapshot and decide about sessions. They
@@ -96,6 +102,9 @@ type Hooks struct {
 	RepoVisible func(repo string) bool
 	// GithubOn is whether the GitHub module is on.
 	GithubOn func() bool
+	// Resumed are the sessions this launch resumed that still run, nil for none: the page says
+	// so, with a Stop all. Nil leaves the field out.
+	Resumed func() any
 }
 
 // Run is the part of an Open work run the session list reads: its key, its worktrees, and its
@@ -119,6 +128,7 @@ type Snapshot struct {
 	Setup    bool              `json:"setup"`
 	OpenWork bool              `json:"openWork"`
 	MyPrs    any               `json:"myPrs,omitempty"`
+	Resumed  any               `json:"resumed,omitempty"`
 }
 
 // LiveSession is a live session as plain fields, for the modules that must not reach into the
@@ -131,6 +141,9 @@ type LiveSession struct {
 	Shown     string
 	SessionID string
 	PID       float64
+	// HostedID is the id its host issued for a session Conn hosts, "" for any other: the only
+	// id the routes and actions take for a hosted session.
+	HostedID string
 }
 
 type prEntry struct {
@@ -181,6 +194,7 @@ type store struct {
 	projects  string
 	registry  string
 	bumpCount func() int64
+	hosts     hostedState
 }
 
 func newStore(deps Deps, bumps func() int64, stopped <-chan struct{}) *store {
@@ -195,6 +209,7 @@ func newStore(deps Deps, bumps func() int64, stopped <-chan struct{}) *store {
 		askDone: make(chan askRead, readsMax), leads: NewLeads(), lastProc: 0, lastReg: 0,
 		projects: filepath.Join(claudeDir, "projects"),
 		registry: filepath.Join(claudeDir, "sessions"), bumpCount: bumps,
+		hosts: newHostedState(),
 	}
 }
 
@@ -210,7 +225,15 @@ func (s *store) tick(ctx context.Context) {
 	now := s.now()
 	s.refreshProcs(now)
 
-	changed := s.refreshRegistry(ctx, now)
+	// The host's sessions are read before the registry, so a hosted session is known as one
+	// before anything can look it up as a cmux one.
+	changed := s.refreshHosted()
+
+	if s.refreshRegistry(ctx, now) {
+		changed = true
+	}
+
+	s.markHosted()
 
 	for _, key := range s.order {
 		if s.sessions[key].poll(s.projects, now, s.leads) {
@@ -425,6 +448,11 @@ func (s *store) readReg(file string) (Reg, bool) {
 		return Reg{}, false
 	}
 
+	// The host's own record says this process is the hosted program, whatever it is named.
+	if _, hosted := s.hosts.byPID[reg.PID]; hosted {
+		return reg, true
+	}
+
 	return reg, strings.Contains(strings.ToLower(proc.Comm), "claude")
 }
 
@@ -475,7 +503,7 @@ func (s *store) liveSessions() []LiveSession {
 		out = append(out, LiveSession{
 			Name: name, Cwd: reg.Cwd, Status: reg.status(),
 			Shown:     snapshot.ShownStatus(reg.status(), session.parts(), now),
-			SessionID: reg.SessionID, PID: reg.PID,
+			SessionID: reg.SessionID, PID: reg.PID, HostedID: string(session.hosted),
 		})
 	}
 
@@ -673,10 +701,15 @@ func (s *store) hidden(session *Session, runKeys map[string]bool, runs []Run) bo
 	return !StartedByConn(kind, cwd, s.deps.DataDir, "")
 }
 
-// shown is the live session for a pid the page sent, unless it is hidden.
+// shown is the live session for a pid the page sent, unless it is hidden. A hosted session is
+// named by the id its host issued, never by its pid.
 func (s *store) shown(pid string) (*Session, bool) {
 	session, found := s.sessions[pid]
 	if !found {
+		return nil, false
+	}
+
+	if session.hosted != "" {
 		return nil, false
 	}
 
@@ -710,11 +743,23 @@ func (s *store) build(ctx context.Context, now float64) Snapshot {
 
 	for _, key := range s.order {
 		session := s.sessions[key]
+		// A hosted session is a row of the host's, below.
+		if session.hosted != "" {
+			continue
+		}
+
 		if s.hidden(session, keys, runs) {
 			continue
 		}
 
-		details = append(details, s.detail(ctx, session, now, keys))
+		details = append(details, s.detail(ctx, session, now, keys, rowFacts{
+			id: key, canReply: s.cmuxOf(session) != nil,
+			ask: s.askOf(key, session), hosted: false, exitCode: nil,
+		}))
+	}
+
+	for _, info := range s.hosts.live {
+		details = append(details, s.hostedDetail(ctx, info, now, keys))
 	}
 
 	js.Sort(details, func(left, right snapshot.Detail) float64 {
@@ -725,19 +770,35 @@ func (s *store) build(ctx context.Context, now float64) Snapshot {
 	snap := Snapshot{
 		At: now, Sessions: details, Runs: runs, History: hooks.History(),
 		Reviews: hooks.Reviews(), Setup: hooks.Setup(), OpenWork: hooks.OpenWork(), MyPrs: nil,
+		Resumed: nil,
 	}
 
 	if hooks.MyPrs != nil {
 		snap.MyPrs = hooks.MyPrs()
 	}
 
+	if hooks.Resumed != nil {
+		snap.Resumed = hooks.Resumed()
+	}
+
 	return snap
+}
+
+// rowFacts are what a row says that depends on where the session runs: the id the page names it
+// by, whether a reply can be typed into it, what its screen asks, and, for a hosted one, how it
+// ended.
+type rowFacts struct {
+	id       string
+	canReply bool
+	ask      *ask.Ask
+	hosted   bool
+	exitCode *int
 }
 
 // detail is one session with the live fields only this machine can supply; the rest is built
 // from the transcripts.
 func (s *store) detail(
-	ctx context.Context, session *Session, now float64, runKeys map[string]bool,
+	ctx context.Context, session *Session, now float64, runKeys map[string]bool, row rowFacts,
 ) snapshot.Detail {
 	reg := session.reg
 	name := reg.name()
@@ -760,12 +821,11 @@ func (s *store) detail(
 	}
 
 	live := snapshot.Live{
-		ID: reg.key(), PID: reg.PID, SessionID: reg.SessionID, Name: name, Cwd: reg.Cwd,
-		Repo: repo, Status: status, WaitingFor: waitingFor,
-		CanReply: session.cmuxTarget(s.procs, s.deps.Env) != nil, Ask: s.askOf(reg.key(), session),
+		ID: row.id, PID: reg.PID, SessionID: reg.SessionID, Name: name, Cwd: reg.Cwd,
+		Repo: repo, Status: status, WaitingFor: waitingFor, CanReply: row.canReply, Ask: row.ask,
 		Shells: s.shellsOf(reg.PID), PR: s.prFor(ctx, reg.Cwd, session.lead.Branch),
 		StartedAt: valueOr(reg.StartedAt, session.firstAt), UpdatedAt: valueOr(reg.UpdatedAt, 0),
-		Team: s.teamOf(session, now),
+		Team: s.teamOf(session, now), Hosted: row.hosted, ExitCode: row.exitCode,
 	}
 
 	cwd := reg.Cwd
@@ -789,7 +849,7 @@ func (s *store) teamOf(session *Session, now float64) *snapshot.Team {
 
 	for _, key := range s.order {
 		if s.sessions[key].reg.SessionID == team.LeadSessionID {
-			id := key
+			id := s.rowID(key)
 			linked.LeadID = &id
 
 			break
@@ -814,6 +874,11 @@ func (s *store) agentDetail(pid, agentID string) ([]byte, bool) {
 		return nil, false
 	}
 
+	return s.agentPage(session, agentID)
+}
+
+// agentPage is one agent page of a live session.
+func (s *store) agentPage(session *Session, agentID string) ([]byte, bool) {
 	name := session.reg.name()
 	status := session.reg.status()
 

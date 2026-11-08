@@ -9,6 +9,7 @@
   import ArchiveNotice from '../lib/ArchiveNotice.svelte'
   import ArchivedMark from '../lib/ArchivedMark.svelte'
   import AskPanel from '../lib/AskPanel.svelte'
+  import { hideTerminal, loadTerminal, terminalPanel } from '../lib/terminalPanel.svelte.ts'
   import { askOwner, viaName, waitingAgents } from '../lib/ask.ts'
   import type { SessionSource } from '../lib/source.svelte.ts'
   import type { Agent, AgentDetail, ToolCall } from '../lib/types.ts'
@@ -227,6 +228,13 @@
     {#if owner && agent}
       {#key `${owner.session.id}/${agent.id}`}
         <AskPanel session={owner.session} {via} agentName={agentName(agent)} />
+      {/key}
+    {/if}
+    {#if owner?.session.hosted && terminalPanel.open === owner.session.id}
+      {#key owner.session.id}
+        {#await loadTerminal() then { default: TerminalPanel }}
+          <TerminalPanel sessionId={owner.session.id} name={owner.session.name} onclose={hideTerminal} />
+        {/await}
       {/key}
     {/if}
 

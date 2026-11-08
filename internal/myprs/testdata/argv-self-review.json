@@ -1,0 +1,33 @@
+{
+  "argv": [
+    "/opt/claude/bin/claude",
+    "--disallowedTools",
+    "mcp__claude_ai_Slack__slack_send_message",
+    "mcp__claude_ai_Slack__slack_send_message_draft",
+    "mcp__claude_ai_Slack__slack_schedule_message",
+    "mcp__claude_ai_Slack__slack_add_reaction",
+    "mcp__claude_ai_Slack__slack_create_canvas",
+    "mcp__claude_ai_Slack__slack_update_canvas",
+    "mcp__claude_ai_Slack__slack_create_conversation",
+    "mcp__claude_ai_Slack__slack_create_list",
+    "mcp__claude_ai_Slack__slack_add_list_record",
+    "mcp__claude_ai_Slack__slack_update_list",
+    "mcp__claude_ai_Slack__slack_update_list_record",
+    "mcp__claude_ai_Slack__slack_get_file_upload_url",
+    "mcp__claude_ai_Slack__slack_complete_file_upload",
+    "Bash(gh pr comment:*)",
+    "Bash(gh pr review:*)",
+    "Bash(gh pr merge:*)",
+    "Bash(git push --force:*)",
+    "Bash(git push -f:*)",
+    "Bash(git push --force-with-lease:*)",
+    "--name",
+    "self-web-12",
+    "--model",
+    "sonnet",
+    "--",
+    "Read .conn/prompt.md and follow it exactly."
+  ],
+  "dir": "/data/conn/myprs/acme-web-c52e5cc5-12/widget-app",
+  "name": "self-web-12"
+}

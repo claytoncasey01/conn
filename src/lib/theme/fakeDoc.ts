@@ -34,7 +34,12 @@ export function fakeDoc(): FakeDoc {
       get lastElementChild() {
         return children.at(-1) ?? null
       },
-      appendChild: (e) => void children.push(e),
+      // as in the DOM, appending an element already in the head moves it to the end
+      appendChild: (e) => {
+        const i = children.indexOf(e)
+        if (i >= 0) children.splice(i, 1)
+        children.push(e)
+      },
       insertBefore: (e, ref) => {
         const i = ref ? children.indexOf(ref) : -1
         if (i < 0) children.push(e)

@@ -320,7 +320,7 @@ func (r *Reviews) pinned(launch *Launch, live []sessions.LiveSession) *sessions.
 }
 
 // screenCheck is a launch whose session's screen is to be read: the time alone says a close is
-// due.
+// due. pid is the id the session list's actions take for it (rowID).
 type screenCheck struct {
 	key    string
 	launch *Launch
@@ -336,6 +336,12 @@ func (r *Reviews) checkLaunch(key string, launch *Launch) *screenCheck {
 
 	session := r.pinned(launch, r.deps.Sessions())
 	if session == nil {
+		// While this launch of Conn resumes its last quit's sessions, and until they have had
+		// the time to appear, a session not live may be one it resumes: it is not gone yet.
+		if r.resumeHeld(now) {
+			return nil
+		}
+
 		// Gone, or not provably the same session any more: the launch is marked closed and
 		// never auto-closed afterwards.
 		if anyOf(launch.SessionID != nil, now-launch.At >= appearMs) {
@@ -372,8 +378,31 @@ func (r *Reviews) checkLaunch(key string, launch *Launch) *screenCheck {
 	r.nextLook[sessionID] = now + lookAgainMs
 
 	return &screenCheck{
-		key: key, launch: launch, id: sessionID, pid: js.Number(session.PID), facts: facts,
+		key: key, launch: launch, id: sessionID, pid: rowID(session), facts: facts,
 	}
+}
+
+// resumeHeld is whether a launch's session not being live does not yet say it is gone: this
+// launch of Conn has not finished resuming its last quit's sessions, or did less than appearMs
+// ago.
+func (r *Reviews) resumeHeld(now float64) bool {
+	settledAt, settled := r.deps.Settled()
+	if !settled {
+		return true
+	}
+
+	return now-settledAt < appearMs
+}
+
+// rowID is the id the session list's actions take for session: the id its host issued for a
+// session Conn hosts, so its screen is read and its close is a stop through the host; its
+// process id for any other.
+func rowID(session *sessions.LiveSession) string {
+	if session.HostedID != "" {
+		return session.HostedID
+	}
+
+	return js.Number(session.PID)
 }
 
 // readScreen reads a session's screen, and closes its workspace when the box is empty and the

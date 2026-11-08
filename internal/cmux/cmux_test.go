@@ -98,3 +98,40 @@ func TestOpenHandsBackTheCommandToPaste(t *testing.T) {
 		}
 	}
 }
+
+// TestCmuxIsNotGivenACommandItCannotTypeSafely: cmux types its command into a shell, so a command
+// holding a byte other than printable ASCII is not handed to it: nothing is opened, and the
+// error says why and where it can still start.
+func TestCmuxIsNotGivenACommandItCannotTypeSafely(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{"claude --name '\u0112x'", "claude --name 'a\u2028b'"} {
+		opened := cmux.Open("/usr/bin/true")(t.Context(), "n", "/tmp", command)
+		if opened.OK {
+			t.Errorf("%q was handed to cmux", command)
+		}
+
+		if !strings.Contains(opened.Error, "printable ASCII") {
+			t.Errorf("error %q", opened.Error)
+		}
+
+		if opened.ManualCommand != "" {
+			t.Errorf("a line to paste: %q", opened.ManualCommand)
+		}
+
+		if strings.Contains(opened.Error, "folder") {
+			t.Errorf("the error blames a folder, which is not what is checked: %q", opened.Error)
+		}
+	}
+}
+
+// TestCmuxIsHandedAFolderAsAnArgument: the folder goes to cmux as its --cwd argument, not in the
+// command it types, so a folder beyond ASCII with a command of printable ASCII opens.
+func TestCmuxIsHandedAFolderAsAnArgument(t *testing.T) {
+	t.Parallel()
+
+	opened := cmux.Open("/usr/bin/true")(t.Context(), "n", "/tmp/Jos\u00e9", "claude --continue")
+	if !opened.OK {
+		t.Errorf("not opened: %+v", opened)
+	}
+}

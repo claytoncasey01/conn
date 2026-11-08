@@ -136,3 +136,28 @@ func TestOwnsTerminalAndIDsMatchTheRecording(t *testing.T) {
 		}
 	}
 }
+
+func TestScreenTextJoinsLinesAsReadScreenDoes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		lines []string
+		want  string
+	}{
+		{"none", []string{}, ""},
+		{"one", []string{"a"}, "a"},
+		{"several, blank ones kept", []string{"a", "", " b"}, "a\n\n b"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := ask.ScreenText(tt.lines)
+			if got != tt.want {
+				t.Errorf("ScreenText = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

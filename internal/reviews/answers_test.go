@@ -524,10 +524,10 @@ func TestLaunchNamesMatchTheRecording(t *testing.T) {
 		check(t, "buildPrompt "+js.Stringify(row), outOrError(got, err), get(row, "out"))
 	}
 
-	for _, row := range section(t, data, "claudeCommand") {
-		got, err := reviews.ClaudeCommand(str(get(row, "name")), str(get(row, "model")),
+	for _, row := range section(t, data, "claudeArgs") {
+		got, err := reviews.ClaudeArgs(str(get(row, "name")), str(get(row, "model")),
 			cfg.ReviewNamePattern, strs(get(row, "disallowed")))
-		check(t, "claudeCommand "+js.Stringify(row), outOrError(got, err), get(row, "out"))
+		check(t, "claudeArgs "+js.Stringify(row), outOrError(got, err), get(row, "out"))
 	}
 
 	launchChecks(t, data)

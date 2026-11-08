@@ -14,13 +14,15 @@ import (
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/desk"
 	"github.com/claytoncasey01/conn/internal/instance"
+	"github.com/claytoncasey01/conn/internal/secret"
 )
 
 const (
 	// probePath is the route a probe asks: the server's health. It is a liveness check only: the
 	// server answers it before any other route, with no disk, process or network work, so only a
-	// server that is gone fails it, never a disk check that would make the window reload. The
-	// server's tests and conn's command tests use it too.
+	// server that is gone fails it, never a disk check that would make the window reload. It is an
+	// /api route, so the probe carries the server's secret. The server's tests and conn's command
+	// tests use it too.
 	probePath = "/api/health"
 
 	// probeTimeout bounds one probe, connection and answer together, and each step of it. It is
@@ -73,8 +75,8 @@ func (s *shell) deps(lookup config.LookupFunc, stderr io.Writer) desk.Deps {
 		Holder: func() (instance.Holder, bool, error) {
 			return instance.Running(dataDir)
 		},
-		Probe: func(ctx context.Context, url string) error {
-			return probe(ctx, client, url)
+		Probe: func(ctx context.Context, url string, key secret.Secret) error {
+			return probe(ctx, client, url, key)
 		},
 		Open:  s.open,
 		Fail:  s.fail,
@@ -82,11 +84,12 @@ func (s *shell) deps(lookup config.LookupFunc, stderr io.Writer) desk.Deps {
 	}
 }
 
-// open loads url in the window, and keeps it as the server whose pages the window's links may
-// load. SetURL runs on the main thread itself.
-func (s *shell) open(url string) {
-	s.shown.Store(&url)
-	s.window.SetURL(url)
+// open loads page in the window, and keeps it as the server whose pages the window's links may
+// load (only its origin is compared). SetURL runs on the main thread itself. The page's address
+// holds the secret in its fragment, so it is never printed.
+func (s *shell) open(page string) {
+	s.shown.Store(&page)
+	s.window.SetURL(page)
 }
 
 // shownURL is the address the window was last opened on, or "" before the first.
@@ -141,12 +144,15 @@ func newProbeClient() *http.Client {
 	}
 }
 
-// probe asks the Conn at url whether it is there: nil when it answers 200 OK.
-func probe(ctx context.Context, client *http.Client, url string) error {
+// probe asks the Conn at url, with its secret, whether it is there: nil when it answers 200 OK.
+// An error names url, which never holds the secret.
+func probe(ctx context.Context, client *http.Client, url string, key secret.Secret) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url+probePath, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("building the probe of %s: %w", url, err)
 	}
+
+	request.Header.Set(secret.Header, key.Authorization())
 
 	response, err := client.Do(request)
 	if err != nil {

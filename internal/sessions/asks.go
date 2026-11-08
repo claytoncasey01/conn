@@ -3,6 +3,7 @@ package sessions
 import (
 	"context"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/ask"
@@ -13,7 +14,7 @@ import (
 const (
 	// askLines is how much of a waiting session's screen is read for its ask: enough that the
 	// top of a long command's dialog stays in view.
-	askLines = "80"
+	askLines = 80
 	// askEveryMs is how often a waiting session's screen is read at most.
 	askEveryMs = 2000
 	// readsMax is how many waiting screens are read at once.
@@ -87,6 +88,7 @@ func SharedAsk(found *ask.Ask, stamp float64) *ask.Ask {
 // readsMax together (the longest unread first). A read that hangs holds only its own session.
 func (s *store) readAsks(ctx context.Context, now float64) {
 	s.forgetAsks()
+	s.readHostedAsks(now)
 
 	ready := s.dueReads(now)
 
@@ -143,7 +145,7 @@ func (s *store) dueReads(now float64) []dueRead {
 			continue
 		}
 
-		target := session.cmuxTarget(s.procs, s.deps.Env)
+		target := s.cmuxOf(session)
 		if target == nil {
 			continue
 		}
@@ -306,6 +308,18 @@ func (s *store) tombstone(pid string, session *Session, stamp float64) string {
 	return tomb.id
 }
 
+// justAnswered is whether askID names the prompt just answered in this session, on the same
+// status stamp: the same prompt, whatever input count its id holds (see withInputs), since the
+// answer's own key moves the count.
+func (s *store) justAnswered(pid string, session *Session, stamp float64, askID string) bool {
+	answered := s.tombstone(pid, session, stamp)
+	if answered == "" {
+		return false
+	}
+
+	return baseID(answered) == baseID(askID)
+}
+
 // record keeps what a session's screen asked, as read; the version moves when the ask appeared,
 // went or changed.
 func (s *store) record(pid string, session *Session, stamp float64, parsed *ask.Ask, now float64) {
@@ -385,7 +399,7 @@ func (s *store) askFor(pid string, session *Session, found *ask.Ask, shared *boo
 
 	if shared == nil {
 		sharing := false
-		if target := session.cmuxTarget(s.procs, s.deps.Env); target != nil {
+		if target := s.cmuxOf(session); target != nil {
 			sharing = s.sharesWorkspace(pid, target.Workspace, true)
 		}
 
@@ -436,10 +450,15 @@ func (s *store) sharesWorkspace(pid, workspace string, lookup bool) bool {
 		}
 
 		session := s.sessions[other]
+		// A hosted session runs on Conn's own terminal, in no cmux workspace.
+		if session.hosted != "" {
+			continue
+		}
+
 		target := session.cmux
 
 		if lookup {
-			target = session.cmuxTarget(s.procs, s.deps.Env)
+			target = s.cmuxOf(session)
 		} else if !session.looked {
 			return true
 		}
@@ -456,10 +475,10 @@ func (s *store) sharesWorkspace(pid, workspace string, lookup bool) bool {
 	return false
 }
 
-func readScreenArgs(target Target, lines string) []string {
+func readScreenArgs(target Target, lines int) []string {
 	return []string{
 		"read-screen", "--workspace", target.Workspace, "--surface", target.Surface,
-		"--lines", lines,
+		"--lines", strconv.Itoa(lines),
 	}
 }
 

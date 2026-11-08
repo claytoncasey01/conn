@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/modules"
+	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/server"
 	"github.com/claytoncasey01/conn/internal/settings"
 	"github.com/claytoncasey01/conn/internal/settingsapi"
@@ -70,7 +71,7 @@ func boot(t *testing.T, file string) *rig {
 	})
 
 	held.handler = &server.Server{
-		UI: bundle(), Clients: nil, Logger: log.New(io.Discard, "", 0),
+		UI: bundle(), Secret: testKey(t), Clients: nil, Logger: log.New(io.Discard, "", 0),
 		Settings: settingsapi.New(settingsapi.Deps{
 			Settings: held.store,
 			Gh: func(context.Context, []string) (string, error) {
@@ -115,6 +116,7 @@ func (r *rig) send(t *testing.T, sent request) answer {
 	incoming := httptest.NewRequestWithContext(
 		t.Context(), sent.method, sent.target, strings.NewReader(sent.body))
 	incoming.Host = "127.0.0.1:7777"
+	incoming.Header.Set(secret.Header, testKey(t).Authorization())
 
 	headers := sent.headers
 	if headers == nil {
@@ -780,7 +782,7 @@ func TestAFailingRequestIsAServerErrorAndTheReasonIsLogged(t *testing.T) {
 	var logged strings.Builder
 
 	handler := &server.Server{
-		UI: bundle(), Clients: nil, Logger: log.New(&logged, "", 0),
+		UI: bundle(), Secret: testKey(t), Clients: nil, Logger: log.New(&logged, "", 0),
 		Settings: settingsapi.New(settingsapi.Deps{Settings: &panicking{}}),
 	}
 

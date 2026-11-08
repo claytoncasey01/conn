@@ -8,15 +8,28 @@ import (
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/origin"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/repos"
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
-// newSessions is the session list over this machine: ps, the registry under $HOME, gh.
-func newSessions(ctx context.Context, cfg config.Config, store *settings.Store,
-	reader *origin.Reader, archived *historyParts, stderr io.Writer, views tabViews,
-) *sessions.Loop {
+// sessionParts are what the session list is made from.
+type sessionParts struct {
+	cfg      config.Config
+	store    *settings.Store
+	reader   *origin.Reader
+	archived *historyParts
+	stderr   io.Writer
+	// host runs the sessions Conn hosts.
+	host *pty.Host
+}
+
+// newSessions is the session list over this machine: ps, the registry under $HOME, gh, and the
+// sessions Conn hosts.
+func newSessions(ctx context.Context, parts sessionParts, views tabViews) *sessions.Loop {
+	cfg, reader, archived := parts.cfg, parts.reader, parts.archived
+
 	var archive sessions.Archive
 	if archived.archiver != nil {
 		archive = archived.archiver
@@ -37,8 +50,9 @@ func newSessions(ctx context.Context, cfg config.Config, store *settings.Store,
 		RepoOf:   reader.Of,
 		Upstream: origin.UpstreamOf,
 		Archive:  archive,
-		Hooks:    sessionHooks(store, archived.status(ctx, stderr), views),
+		Hooks:    sessionHooks(parts.store, archived.status(ctx, parts.stderr), views),
 		Now:      time.Now,
+		Host:     parts.host,
 	})
 }
 
@@ -46,6 +60,8 @@ func newSessions(ctx context.Context, cfg config.Config, store *settings.Store,
 type tabViews struct {
 	reviews, myPrs func() any
 	runs           func() []sessions.Run
+	// resumed are the sessions this launch resumed that still run, for the banner.
+	resumed func() any
 }
 
 // sessionHooks are what the rest of the server puts in the snapshot.
@@ -62,5 +78,6 @@ func sessionHooks(store *settings.Store, history func() any, views tabViews) ses
 		OpenWork:    func() bool { return jira.On(store.Get()) },
 		RepoVisible: func(repo string) bool { return repos.Allowed(repo, store.Allow()) },
 		GithubOn:    func() bool { return store.ModuleEnabled(settings.ModuleGitHub) },
+		Resumed:     views.resumed,
 	}
 }

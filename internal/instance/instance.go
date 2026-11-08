@@ -1,7 +1,9 @@
 // Package instance keeps one Conn per data folder. Two servers on one folder would both poll
 // GitHub and both archive transcripts, so a server holds a lock on a file in the folder for as
-// long as it runs, and writes into it its process id and the address it answers on: a second
-// `conn serve` points at the first, and `conn stop` stops it.
+// long as it runs, and writes into it its process id, the address it answers on and its secret:
+// a second `conn serve` or app points at the first with a page that works, and `conn stop` stops
+// it. The file is private to the user (mode 0600), because the secret is what keeps the API from
+// another user of the machine.
 package instance
 
 import (
@@ -10,9 +12,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/claytoncasey01/conn/internal/secret"
 )
 
 const (
@@ -22,7 +25,8 @@ const (
 	folderMode = 0o700
 	fileMode   = 0o600
 
-	// fileBytesMax is the most of the lock file that is read: a process id and an address.
+	// fileBytesMax is the most of the lock file that is read: a process id, an address and a
+	// secret.
 	fileBytesMax = 4 << 10
 
 	// acquireAttempts and acquireWait bound how long Acquire rides out a lock that is held for a
@@ -37,11 +41,20 @@ const (
 // ErrHeld is a data folder another Conn holds.
 var ErrHeld = errors.New("another conn is running on this data folder")
 
-// Holder is what the Conn holding a folder wrote: its process id and the address it answers on.
-// Both are zero until it has started listening.
+// Holder is what the Conn holding a folder wrote: its process id, the address it answers on and
+// the secret its API asks for. All are zero until it has started listening.
 type Holder struct {
-	PID int    `json:"pid"`
-	URL string `json:"url"`
+	PID    int
+	URL    string
+	Secret secret.Secret
+}
+
+// holderFile is a Holder as the lock file holds it. A Secret has no JSON form of its own, so that
+// no other JSON shows it; this is the one place it is written as text.
+type holderFile struct {
+	PID    int    `json:"pid"`
+	URL    string `json:"url"`
+	Secret string `json:"secret,omitempty"`
 }
 
 // Lock is a data folder this process holds. Keep it until the server stops: the lock lasts as
@@ -52,17 +65,22 @@ type Lock struct {
 
 // Acquire takes the folder's lock, creating the folder (private to the user) and the lock file
 // when they are missing. It is ErrHeld when another process holds it for the whole of a short
-// wait (acquireAttempts times acquireWait).
+// wait (acquireAttempts times acquireWait), and ErrUnsafe when the folder or the file is not
+// safe to keep the secret in (see openLockFile).
 func Acquire(folder string) (*Lock, error) {
+	return acquire(folder, os.Getuid())
+}
+
+// acquire is Acquire for a process of user uid.
+func acquire(folder string, uid int) (*Lock, error) {
 	err := os.MkdirAll(folder, folderMode)
 	if err != nil {
 		return nil, fmt.Errorf("making the data folder: %w", err)
 	}
 
-	file, err := os.OpenFile(
-		filepath.Join(folder, FileName), os.O_RDWR|os.O_CREATE, fileMode)
+	file, err := openLockFile(folder, uid, os.O_RDWR|os.O_CREATE)
 	if err != nil {
-		return nil, fmt.Errorf("opening the lock file: %w", err)
+		return nil, err
 	}
 
 	err = lockWithRetry(file)
@@ -107,9 +125,15 @@ func lock(file *os.File) error {
 	return nil
 }
 
-// Publish writes the holder's details into the lock file, replacing what was there.
+// Publish writes the holder's details into the lock file, replacing what was there. The file
+// cannot be replaced by a renamed copy, which would be written whole, because the lock is held on
+// this file: a new one at the same name would be free for a second Conn to take. So it is emptied
+// and written in one write, once per server, and a reader that comes in between reads an empty or
+// cut-off file, which does not parse and so reads as a holder that has not written yet (see read).
 func (l *Lock) Publish(holder Holder) error {
-	data, err := json.Marshal(holder)
+	data, err := json.Marshal(holderFile{
+		PID: holder.PID, URL: holder.URL, Secret: holder.Secret.String(),
+	})
 	if err != nil {
 		return fmt.Errorf("writing the lock file: %w", err)
 	}
@@ -142,15 +166,21 @@ func (l *Lock) Release() error {
 }
 
 // Running is the Conn holding the folder, and false when none does. Its Holder is zero when it
-// has not written its details yet.
+// has not written its details yet. It is ErrUnsafe when the folder or the file is not safe to
+// read the secret from (see openLockFile).
 func Running(folder string) (Holder, bool, error) {
-	file, err := os.OpenFile(filepath.Join(folder, FileName), os.O_RDWR, 0)
+	return running(folder, os.Getuid())
+}
+
+// running is Running for a process of user uid.
+func running(folder string, uid int) (Holder, bool, error) {
+	file, err := openLockFile(folder, uid, os.O_RDWR)
 	if errors.Is(err, os.ErrNotExist) {
 		return Holder{}, false, nil
 	}
 
 	if err != nil {
-		return Holder{}, false, fmt.Errorf("opening the lock file: %w", err)
+		return Holder{}, false, err
 	}
 
 	defer func() { _ = file.Close() }()
@@ -168,16 +198,28 @@ func Running(folder string) (Holder, bool, error) {
 	return read(file), true, nil
 }
 
-// read is what the holder wrote, or zero when it has written nothing readable yet.
+// read is what the holder wrote, or zero when it has written nothing readable yet: an empty or
+// cut-off file, or a secret that is not one.
 func read(file *os.File) Holder {
 	data, err := io.ReadAll(io.LimitReader(file, fileBytesMax))
 	if err != nil {
 		return Holder{}
 	}
 
-	var holder Holder
+	var written holderFile
 
-	err = json.Unmarshal(data, &holder)
+	err = json.Unmarshal(data, &written)
+	if err != nil {
+		return Holder{}
+	}
+
+	holder := Holder{PID: written.PID, URL: written.URL, Secret: secret.Secret{}}
+	if written.Secret == "" {
+		// A Conn from before the secret writes none, and asks for none.
+		return holder
+	}
+
+	holder.Secret, err = secret.Parse(written.Secret)
 	if err != nil {
 		return Holder{}
 	}

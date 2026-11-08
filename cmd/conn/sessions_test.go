@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/claytoncasey01/conn/internal/secret"
 )
 
-// serveFor starts conn with an empty home and data folder and gives its address.
-func serveFor(t *testing.T) (context.Context, string) {
+// serveFor starts conn with an empty home and data folder and gives its address and secret.
+func serveFor(t *testing.T) (context.Context, served) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -23,26 +25,30 @@ func serveFor(t *testing.T) (context.Context, string) {
 	}
 	exited := make(chan int, 1)
 
-	go func() { exited <- serve(ctx, lookupFrom(env), &stdout, &stderr) }()
+	go func() { exited <- serve(ctx, nil, lookupFrom(env), &stdout, true, &stderr) }()
 
 	t.Cleanup(func() {
 		cancel()
 		<-exited
 	})
 
-	return ctx, waitForAddress(t, &stdout)
+	return ctx, waitForPage(t, &stdout)
 }
 
-func call(ctx context.Context, t *testing.T, method, url, body string) string {
+// call sends method path to the server as its own page does: from its own origin, with Conn's
+// header and the secret.
+func call(ctx context.Context, t *testing.T, method string, page served, path, body string) string {
 	t.Helper()
 
-	request, err := http.NewRequestWithContext(ctx, method, url, strings.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, method, page.address+path,
+		strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	request.Header.Set("X-Conn", "1")
-	request.Header.Set("Origin", "http://127.0.0.1")
+	request.Header.Set("Origin", page.address)
+	request.Header.Set(secret.Header, page.key.Authorization())
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
@@ -65,12 +71,12 @@ type snapshotFlags struct {
 	Sessions []any `json:"sessions"`
 }
 
-func flags(ctx context.Context, t *testing.T, address string) snapshotFlags {
+func flags(ctx context.Context, t *testing.T, page served) snapshotFlags {
 	t.Helper()
 
 	var got snapshotFlags
 
-	err := json.Unmarshal([]byte(call(ctx, t, http.MethodGet, address+"/api/snapshot", "")), &got)
+	err := json.Unmarshal([]byte(call(ctx, t, http.MethodGet, page, "/api/snapshot", "")), &got)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,9 +89,9 @@ func flags(ctx context.Context, t *testing.T, address string) snapshotFlags {
 func TestSnapshotSetupFollowsTheAllowlist(t *testing.T) {
 	t.Parallel()
 
-	ctx, address := serveFor(t)
+	ctx, page := serveFor(t)
 
-	before := flags(ctx, t, address)
+	before := flags(ctx, t, page)
 	if !before.Setup {
 		t.Error("setup = false with no settings file")
 	}
@@ -94,13 +100,12 @@ func TestSnapshotSetupFollowsTheAllowlist(t *testing.T) {
 		t.Error("sessions is not a list")
 	}
 
-	saved := call(ctx, t, http.MethodPut, address+"/api/settings/repos",
-		`{"allow":["acme/*"]}`)
+	saved := call(ctx, t, http.MethodPut, page, "/api/settings/repos", `{"allow":["acme/*"]}`)
 	if saved != `{"ok":true}` {
 		t.Fatalf("PUT answered %s", saved)
 	}
 
-	if flags(ctx, t, address).Setup {
+	if flags(ctx, t, page).Setup {
 		t.Error("setup = true straight after the allowlist was saved")
 	}
 }

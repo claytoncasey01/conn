@@ -279,7 +279,25 @@ func (r *Reviews) refuseRestart(key string, entry *Entry) *Reply {
 		return &refusal
 	}
 
-	return nil
+	return r.refuseResuming(newest, now)
+}
+
+// refuseResuming refuses a second review beside an open launch while this launch of Conn
+// resumes its last quit's sessions, and until they have had the time to appear: its session may
+// be one the launch resumes, not yet registered. (One that is live is refused before, by name.)
+func (r *Reviews) refuseResuming(newest *Launch, now float64) *Reply {
+	if newest.ClosedAt != nil {
+		return nil
+	}
+
+	if !r.resumeHeld(now) {
+		return nil
+	}
+
+	refusal := bad(codeBusy, "a review of this PR may be resuming after Conn's launch: give it "+
+		"a few minutes")
+
+	return &refusal
 }
 
 func (r *Reviews) launch(
@@ -319,13 +337,44 @@ func (r *Reviews) launch(
 	})
 
 	if !result.OK {
+		// The session did not start, or opens as a command: the worktree and the prompt are
+		// there, and the session the command opens is this launch's, tracked like any other.
+		if launchedByHand(result) {
+			r.recordLaunch(target, model, name, result, false)
+		}
+
 		return failedReply(result), nil
 	}
 
+	r.recordLaunch(target, model, name, result, true)
+
+	return okReply("name", name), nil
+}
+
+// launchedByHand is a launch whose worktree is ready and whose session the person starts from the
+// command to paste.
+func launchedByHand(result LaunchResult) bool {
+	if result.ManualCommand == "" {
+		return false
+	}
+
+	return result.Worktree != ""
+}
+
+// recordLaunch records a launch; started is that its session really started.
+func (r *Reviews) recordLaunch(
+	target launchable, model, name string, result LaunchResult, started bool,
+) {
 	launchedAt := r.now()
 
-	// The new session owns the worktree from here.
+	// A session that really started owns the worktree from here, and the earlier launches are
+	// retired. One launched by hand has started nothing yet: the earlier session keeps its
+	// tracking, and its close after the review, until one does.
 	for _, launch := range target.entry.Launches {
+		if !started {
+			break
+		}
+
 		if launch.ClosedAt == nil {
 			r.markClosed(launch, launchedAt)
 		}
@@ -339,8 +388,6 @@ func (r *Reviews) launch(
 
 	r.save()
 	r.bump()
-
-	return okReply("name", name), nil
 }
 
 // failedReply is a launch's failure as the page shows it: the error, and the command to paste

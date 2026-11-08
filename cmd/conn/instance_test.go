@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/desk"
 	"github.com/claytoncasey01/conn/internal/instance"
+	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
@@ -24,20 +26,21 @@ const childServe = "CONN_TEST_CHILD_SERVE"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(childServe) == "1" {
-		os.Exit(realMain([]string{"serve"}, os.LookupEnv, os.Stdout, os.Stderr))
+		os.Exit(realMain([]string{"serve"}, os.LookupEnv, os.Stdout, false, os.Stderr))
 	}
 
 	os.Exit(m.Run())
 }
 
-// startChild runs `conn serve` on dataDir in a child process and waits until it says where it
-// listens.
-func startChild(t *testing.T, dataDir string) (*exec.Cmd, string) {
+// startChild runs `conn serve` on dataDir in a child process, with extra over its environment,
+// and waits until it says where it listens.
+func startChild(t *testing.T, dataDir string, extra ...string) (*exec.Cmd, string) {
 	t.Helper()
 
 	child := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^$")
 	child.Env = append(os.Environ(), childServe+"=1", "CONN_PORT=0",
 		"CONN_DATA="+dataDir, "CONN_DIST="+t.TempDir())
+	child.Env = append(child.Env, extra...)
 	child.Stdout = io.Discard
 	child.Stderr = io.Discard
 
@@ -117,13 +120,25 @@ func TestStopStopsTheServerOnItsDataFolder(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 
-	code := serve(t.Context(), env, &stdout, &stderr)
+	code := serve(t.Context(), nil, env, &stdout, false, &stderr)
 	if code != exitOK {
 		t.Fatalf("a second serve = %d %q, want 0", code, stderr.String())
 	}
 
-	if stdout.String() != "conn is already running on "+url+"\n" {
+	if stdout.String() != "conn is already running on "+url+"\n"+lockLine(url, dataDir) {
 		t.Errorf("a second serve said %q, want the first one's address %s", stdout.String(), url)
+	}
+
+	stdout.Reset()
+
+	code = serve(t.Context(), nil, env, &stdout, true, &stderr)
+	if code != exitOK {
+		t.Fatalf("a second serve on a terminal = %d %q, want 0", code, stderr.String())
+	}
+
+	holder, _ := waitHolder(t, dataDir, func(instance.Holder, bool) bool { return true })
+	if stdout.String() != "conn is already running on "+desk.PageURL(url, holder.Secret)+"\n" {
+		t.Errorf("a second serve on a terminal said %q, want the first one's page", stdout.String())
 	}
 
 	stdout.Reset()
@@ -198,7 +213,7 @@ func TestServeSaysAPortIsTaken(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 
-	code := serve(t.Context(), env, &stdout, &stderr)
+	code := serve(t.Context(), nil, env, &stdout, false, &stderr)
 	if code != exitError {
 		t.Fatalf("serve = %d, want 1", code)
 	}
@@ -229,11 +244,11 @@ func TestServeSaysWhatSettingsJSONDroppedAndServesTheSettings(t *testing.T) {
 	})
 	exited := make(chan int, 1)
 
-	go func() { exited <- serve(ctx, env, &stdout, &stderr) }()
+	go func() { exited <- serve(ctx, nil, env, &stdout, true, &stderr) }()
 
-	address := waitForAddress(t, &stdout)
+	page := waitForPage(t, &stdout)
 
-	body := fetch(t, address+"/api/settings")
+	body := fetch(t, page.address+"/api/settings", page.key)
 	if !strings.Contains(body, `"setup":true`) {
 		t.Errorf("GET /api/settings = %s, want setup", body)
 	}
@@ -263,13 +278,15 @@ func folderReleased(t *testing.T, dataDir string) {
 	}
 }
 
-func fetch(t *testing.T, url string) string {
+func fetch(t *testing.T, url string, key secret.Secret) string {
 	t.Helper()
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	request.Header.Set(secret.Header, key.Authorization())
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {

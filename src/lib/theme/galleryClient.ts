@@ -1,4 +1,5 @@
 // The Themes gallery requests. Not post() in live.svelte.ts: a refused install is an HTTP error with its reason in the body (as myPrsApi.ts does).
+import { api } from '../api.ts'
 import type { IndexEntry } from './galleryTypes.ts'
 import type { GalleryAnswer } from './galleryTypes.ts'
 import { parseEntryAction } from '../entryAction.ts'
@@ -12,7 +13,7 @@ const failed = (error: string): GalleryAnswer => ({ enabled: true, repo: null, t
 /** The index and whether the gallery is on. Never throws: a failure is an answer with an `error` and no themes. */
 export async function loadGallery(): Promise<GalleryAnswer> {
   try {
-    const r = await fetch('/api/gallery')
+    const r = await api('/api/gallery')
     const body: unknown = await r.json().catch(() => null)
     if (!r.ok) return failed(isObject(body) && typeof body.error === 'string' && body.error ? body.error : `HTTP ${r.status}`)
     if (!isObject(body) || typeof body.enabled !== 'boolean' || !Array.isArray(body.themes)) return failed('the gallery answered with something unexpected')
@@ -27,7 +28,7 @@ export async function loadGallery(): Promise<GalleryAnswer> {
 
 async function send(path: string, id: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const r = await fetch(path, {
+    const r = await api(path, {
       method: 'POST',
       headers: { 'x-conn': '1', 'content-type': 'application/json' },
       body: JSON.stringify({ id }),

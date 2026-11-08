@@ -7,6 +7,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/server"
 )
 
@@ -36,6 +37,8 @@ func get(t *testing.T, handler http.Handler, target, host, origin string) answer
 	t.Helper()
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+
+	request.Header.Set(secret.Header, testKey(t).Authorization())
 
 	request.Host = "127.0.0.1:7777"
 	if host != "" {
@@ -77,8 +80,9 @@ func TestOnlyThisMachineAndItsOwnPages(t *testing.T) {
 		{"localhost host", "localhost:7777", "", http.StatusOK},
 		{"host without port", "127.0.0.1", "", http.StatusOK},
 		{"own origin", "", "http://127.0.0.1:7777", http.StatusOK},
-		{"dev origin", "", "http://localhost:5173", http.StatusOK},
-		{"origin in capitals", "", "http://LOCALHOST:5173", http.StatusOK},
+		// An /api request's Origin must be this very origin: another loopback page is refused.
+		{"dev origin", "", "http://localhost:5173", http.StatusForbidden},
+		{"origin in capitals", "", "http://LOCALHOST:5173", http.StatusForbidden},
 		{"other host", "evil.example", "", http.StatusForbidden},
 		{"lookalike host", "127.0.0.1.evil.example:7777", "", http.StatusForbidden},
 		{"empty port", "localhost:", "", http.StatusForbidden},
@@ -93,7 +97,7 @@ func TestOnlyThisMachineAndItsOwnPages(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := &server.Server{UI: bundle(), Clients: nil}
+			handler := &server.Server{UI: bundle(), Secret: testKey(t), Clients: nil}
 
 			got := get(t, handler, "/api/health", tt.host, tt.origin)
 			if got.status != tt.want {
@@ -126,7 +130,7 @@ func TestHealthSaysHowManyPagesListen(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := &server.Server{UI: bundle(), Clients: tt.clients}
+			handler := &server.Server{UI: bundle(), Secret: testKey(t), Clients: tt.clients}
 
 			got := get(t, handler, "/api/health", "", "")
 			if got.body != tt.want {
@@ -173,7 +177,9 @@ func TestStaticFilesAndThePageShell(t *testing.T) {
 		t.Run(tt.path, func(t *testing.T) {
 			t.Parallel()
 
-			got := get(t, &server.Server{UI: bundle(), Clients: nil}, tt.path, "", "")
+			handler := &server.Server{UI: bundle(), Secret: testKey(t), Clients: nil}
+
+			got := get(t, handler, tt.path, "", "")
 			if got.status != http.StatusOK {
 				t.Fatalf("status %d", got.status)
 			}
@@ -207,7 +213,7 @@ func TestMissingDistSaysHowToBuildIt(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := &server.Server{UI: nil, Clients: nil}
+			handler := &server.Server{UI: nil, Secret: testKey(t), Clients: nil}
 			if tt.bundle != nil {
 				handler.UI = tt.bundle
 			}

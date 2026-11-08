@@ -13,13 +13,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/claytoncasey01/conn"
 	"github.com/claytoncasey01/conn/internal/config"
+	"github.com/claytoncasey01/conn/internal/drysession"
+	"github.com/claytoncasey01/conn/internal/hosted"
 	"github.com/claytoncasey01/conn/internal/instance"
+	"github.com/claytoncasey01/conn/internal/pty"
+	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/server"
+	"github.com/claytoncasey01/conn/internal/settings"
 )
 
 const (
@@ -28,13 +34,29 @@ const (
 )
 
 // ShutdownTimeout is how long a stopping server gives open requests to finish before it closes
-// them. The app waits a little longer than this at quit, so it is exported.
+// them.
 const ShutdownTimeout = 2 * time.Second
 
+// quitStopTimeout bounds the stop of the hosted sessions at quit: above the host's grace for a
+// polite stop (5 s), after which every session still running is killed at once.
+const quitStopTimeout = 7 * time.Second
+
+// quitResumeTimeout bounds a quit's wait for a launch's resume to end: one owner's check, the
+// longest a git read of a review's origin (10 s).
+const quitResumeTimeout = 10 * time.Second
+
+// QuitTimeout is the most a stopping server takes to let its data folder go: its requests'
+// shutdown, its terminals' close, the end of its launch's resume, then its hosted sessions'
+// stop. Whatever waits for it to stop waits a little longer.
+const QuitTimeout = ShutdownTimeout + server.TerminalsCloseTimeout + quitResumeTimeout +
+	quitStopTimeout
+
 // The HTTP server's limits. writeTimeout is 0 on purpose: a page's live-update stream stays open
-// for as long as the page does, and a write deadline would cut it.
+// for as long as the page does, and a write deadline would cut it. readHeaderTimeout is the
+// terminal's handshake deadline, since a WebSocket handshake is a request: its headers come from
+// this machine, so they take far less.
 const (
-	readHeaderTimeout = 10 * time.Second
+	readHeaderTimeout = server.HandshakeTimeout
 	readTimeout       = 30 * time.Second
 	writeTimeout      = 0
 	idleTimeout       = 60 * time.Second
@@ -64,15 +86,32 @@ func (e PortTakenError) Unwrap() error { return e.err }
 
 // Server is a Conn serving on a data folder, started by Start.
 type Server struct {
-	// URL is where it answers: http://127.0.0.1:PORT.
+	// URL is where it answers: http://127.0.0.1:PORT. It never holds the secret.
 	URL string
+	// Secret is what its API asks for, made for this launch.
+	Secret secret.Secret
 
 	done chan struct{}
 	err  error
+	// resumed is closed once the launch has resumed the sessions of its last quit, or given up.
+	resumed chan struct{}
+	// recorded is closed once the quit has written the record of the sessions that run;
+	// recordedOnce closes it once.
+	recorded     chan struct{}
+	recordedOnce sync.Once
 }
 
 // Done is closed after the server has shut down and let the data folder go.
 func (s *Server) Done() <-chan struct{} { return s.done }
+
+// Recorded is closed once the quit has written the record of the hosted sessions that run, the
+// quit's first step: from then on, ending the process at once loses nothing the next launch
+// resumes.
+func (s *Server) Recorded() <-chan struct{} { return s.recorded }
+
+// Resumed is closed once the server's launch has resumed the hosted sessions of the last quit,
+// or found it would resume none: it serves from the start, and resumes while it serves.
+func (s *Server) Resumed() <-chan struct{} { return s.resumed }
 
 // Err is why the server ended: nil after a clean shutdown, and nil while it still runs.
 func (s *Server) Err() error {
@@ -91,20 +130,41 @@ func Ended(url string, err error) *Server {
 	done := make(chan struct{})
 	close(done)
 
-	return &Server{URL: url, done: done, err: err}
+	return &Server{
+		URL: url, Secret: secret.Secret{}, done: done, err: err, resumed: done, recorded: done,
+		recordedOnce: sync.Once{},
+	}
 }
 
-// Start takes the data folder's lock, loads settings, listens on port(lookup), publishes
-// {PID, URL} in the lock and serves until ctx ends, then shuts down within ShutdownTimeout.
+// Start takes the data folder's lock, loads settings, makes this launch's secret, listens on
+// port(lookup), publishes {PID, URL, Secret} in the lock and serves until ctx ends, then shuts
+// down within ShutdownTimeout.
 // It returns instance.ErrHeld (wrapped) when another Conn holds the folder, and a PortTakenError
-// when another program holds the port.
+// when another program holds the port. Its hosted sessions run on real terminals, but for the dry
+// run's stand-in sessions (drysession), which run nothing.
 func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Server, error) {
+	return StartWith(ctx, lookup, stderr, pty.NewHost(pty.Config{
+		Spawner: drysession.Spawner(pty.Spawn), Limits: pty.DefaultLimits(),
+		Answers: pty.Answers{Background: defaultBackground()}, TurnWaited: nil,
+	}))
+}
+
+// StartWith is Start with host running the hosted sessions: the server serves their terminals
+// and stops every one of them when it stops, before it lets the data folder go.
+func StartWith(
+	ctx context.Context, lookup config.LookupFunc, stderr io.Writer, host *pty.Host,
+) (*Server, error) {
 	portNumber, err := port(lookup)
 	if err != nil {
 		return nil, err
 	}
 
 	cfg := config.FromEnv(lookup)
+
+	key, err := secret.New()
+	if err != nil {
+		return nil, fmt.Errorf("starting conn: %w", err)
+	}
 
 	held, err := instance.Acquire(cfg.DataDir)
 	if err != nil {
@@ -121,28 +181,204 @@ func Start(ctx context.Context, lookup config.LookupFunc, stderr io.Writer) (*Se
 		_ = held.Release()
 	}
 
-	listener, address, err := listenAndPublish(ctx, held, portNumber)
+	listener, address, err := listenAndPublish(ctx, held, portNumber, key)
 	if err != nil {
 		release()
 
 		return nil, err
 	}
 
-	serveCtx, cancel := context.WithCancel(ctx)
-	running := &Server{URL: address, done: make(chan struct{}), err: nil}
-	handler := newHandler(serveCtx, cfg, store, logger, ui(lookup))
+	// The record the last launch left, read before anything here can write it.
+	recorded := lastRecord(cfg.DataDir, store, stderr)
 
-	go running.serve(serveCtx, newHTTPServer(handler), listener, func() {
-		cancel()
-		release()
+	serveCtx, cancel := context.WithCancel(ctx)
+	running := newServer(address, key)
+	handler, life := newHandler(serveCtx, cfg, store, logger, ui(lookup), host)
+	// The terminals are closed by the quit below rather than when ctx ends, so the quit alone
+	// orders their closing and the sessions' stop.
+	terminals := server.NewTerminals(context.WithoutCancel(ctx), host)
+	completeHandler(handler, key, host, terminals)
+
+	running.serveAndResume(serveCtx, launched{
+		handler: handler, listener: listener, life: life, host: host, recorded: recorded,
+		steps: quitStepsOf(life, running.resumed, terminals.Close, cancel, func() {
+			stopHosted(context.WithoutCancel(ctx), host, stderr)
+		}, release),
 	})
 
 	return running, nil
 }
 
-// listenAndPublish opens the port and writes where it answers into the lock.
+// newServer is the Server at address, asking for key, that has neither stopped nor resumed yet.
+func newServer(address string, key secret.Secret) *Server {
+	return &Server{
+		URL: address, Secret: key, done: make(chan struct{}), err: nil,
+		resumed: make(chan struct{}), recorded: make(chan struct{}), recordedOnce: sync.Once{},
+	}
+}
+
+// launched is what a started server serves and resumes: its handler on listener, the hosted
+// sessions life records on host, the record the last launch left, and its quit's steps.
+type launched struct {
+	handler  *server.Server
+	listener net.Listener
+	life     hostedLife
+	host     *pty.Host
+	recorded launchResume
+	steps    quitSteps
+}
+
+// serveAndResume serves at once, since the launch published where it listens, and resumes the
+// last quit's sessions while it serves. The records are carried first, so a quit at any point
+// keeps them, and the quit's steps wait for the resume to end before they stop the sessions.
+func (s *Server) serveAndResume(ctx context.Context, launch launched) {
+	launch.life.recorder.Carry(launch.recorded.records)
+	launch.life.settle.recordedFrom(launch.recorded.records)
+
+	steps := launch.steps
+	record := steps.record
+	steps.record = func() {
+		record()
+		s.recordedOnce.Do(func() { close(s.recorded) })
+	}
+
+	go s.serve(ctx, newHTTPServer(launch.handler), launch.listener, steps)
+
+	go func() {
+		defer close(s.resumed)
+
+		resumeRecorded(ctx, launch.life, launch.host, launch.recorded)
+	}()
+}
+
+// waitForResume waits until resumed is closed, within timeout: once the server's context has
+// ended, the resume starts nothing more and ends within one owner's check.
+func waitForResume(resumed <-chan struct{}, timeout time.Duration) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-resumed:
+	case <-timer.C:
+	}
+}
+
+// completeHandler gives handler what it serves besides the tabs: the launch's secret, the
+// terminals, and the background the page draws them on, which the host answers with.
+func completeHandler(
+	handler *server.Server, key secret.Secret, host *pty.Host, terminals *server.Terminals,
+) {
+	handler.Secret = key
+	handler.TerminalBackground = func(colour pty.RGB) {
+		host.SetAnswers(pty.Answers{Background: colour})
+	}
+	handler.Terminals = terminals
+}
+
+// lastRecord is the record the last launch left in dataDir, with the settings now, as what a
+// launch resumes from before its owners' checks and its start are known. The temporary files of
+// writes a crash cut short are removed, and a record that cannot be read is set aside.
+func lastRecord(dataDir string, store *settings.Store, stderr io.Writer) launchResume {
+	err := hosted.RemoveTemporaries(dataDir)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
+	}
+
+	records, readErr := hosted.Read(dataDir)
+	if readErr != nil {
+		// Moved aside, not written over: a person can still recover a file refused for its
+		// mode, a read that failed, or a hand edit.
+		err = hosted.SetAside(dataDir)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
+		}
+	}
+
+	return launchResume{
+		sessions: store.Get().Sessions, records: records, readErr: readErr, checks: nil,
+		start: nil, ready: nil, stderr: stderr,
+	}
+}
+
+// resumeRecorded resumes what the record names, each as its owner's check rebuilds it and
+// started inside Conn on host, shows it on the page, writes the record of what runs now in place
+// of the last launch's, and keeps it up to date until ctx ends. A quit during the resume keeps
+// the records it did not reach, as they were, for the next launch.
+func resumeRecorded(ctx context.Context, life hostedLife, host *pty.Host, plan launchResume) {
+	plan.checks = life.checks
+	plan.start = resumeStart(insideOpener(host), life.recorder)
+	plan.ready = func(ctx context.Context) error {
+		return waitForFirstTick(ctx, life.ticked, life.tickTimeout)
+	}
+	outcome := resumeAtLaunch(ctx, plan)
+	life.recorder.Carry(outcome.Unreached)
+	life.resumed.set(outcome.Resumed)
+	life.bump()
+	life.recorder.Sync()
+	life.settle.finish(nowMs())
+
+	go life.recorder.Run(ctx)
+}
+
+// quitSteps are what a quit does, each once, in the order quit runs them. The record may be
+// taken again: the second is no change (Freeze).
+type quitSteps struct {
+	// record writes the record of the sessions that run, and stops it changing.
+	record func()
+	// closeTerminals closes every terminal's viewers as going away.
+	closeTerminals func()
+	// cancel ends the server's context.
+	cancel func()
+	// waitResume waits for the launch's resume to end, once the context has ended it.
+	waitResume func()
+	// stopSessions stops every hosted session.
+	stopSessions func()
+	// release lets the data folder go.
+	release func()
+}
+
+// quitStepsOf are the quit's steps for a server whose hosted sessions life records, and whose
+// launch's resume ends by closing resumed: the record step is the recorder's Freeze, so no stop
+// after it is recorded as an end, and the sessions stop only once the resume has ended (within
+// quitResumeTimeout), so none it starts outlives the quit.
+func quitStepsOf(life hostedLife, resumed <-chan struct{},
+	closeTerminals, cancel, stopSessions, release func(),
+) quitSteps {
+	return quitSteps{
+		record: life.recorder.Freeze, closeTerminals: closeTerminals, cancel: cancel,
+		waitResume:   func() { waitForResume(resumed, quitResumeTimeout) },
+		stopSessions: stopSessions, release: release,
+	}
+}
+
+// quit ends a server. The record comes first, so it names every session that runs at the quit
+// and none of the stops below is recorded as an end; the terminals close next, as going away,
+// so none sees its program stopped or races a reconnect against the stop; then, once the
+// launch's resume has ended, the sessions stop; then the folder is let go.
+func quit(steps quitSteps) {
+	steps.record()
+	steps.closeTerminals()
+	steps.cancel()
+	steps.waitResume()
+	steps.stopSessions()
+	steps.release()
+}
+
+// stopHosted stops every hosted session, within quitStopTimeout, and says what did not stop.
+func stopHosted(ctx context.Context, host *pty.Host, stderr io.Writer) {
+	ctx, cancel := context.WithTimeout(ctx, quitStopTimeout)
+	defer cancel()
+
+	err := host.StopAll(ctx)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "conn: hosted sessions did not all stop: %v\n", err)
+	}
+}
+
+// listenAndPublish opens the port and writes where it answers, and the secret it asks for, into
+// the lock.
 func listenAndPublish(
-	ctx context.Context, held *instance.Lock, portNumber int,
+	ctx context.Context, held *instance.Lock, portNumber int, key secret.Secret,
 ) (net.Listener, string, error) {
 	listener, err := listen(ctx, portNumber)
 	if err != nil {
@@ -151,7 +387,7 @@ func listenAndPublish(
 
 	address := "http://" + listener.Addr().String()
 
-	err = held.Publish(instance.Holder{PID: os.Getpid(), URL: address})
+	err = held.Publish(instance.Holder{PID: os.Getpid(), URL: address, Secret: key})
 	if err != nil {
 		_ = listener.Close()
 
@@ -161,13 +397,14 @@ func listenAndPublish(
 	return listener, address, nil
 }
 
-// serve serves on listener until ctx ends or the server stops by itself, then runs end and
-// closes Done. A server that outlives ShutdownTimeout (a page's live-update stream) is closed.
+// serve serves on listener until ctx ends or the server stops by itself, then quits with steps
+// and closes Done. When ctx ends, the quit's record is taken first, before the open requests'
+// drain. A server that outlives ShutdownTimeout (a page's live-update stream) is closed.
 func (s *Server) serve(
-	ctx context.Context, httpServer *http.Server, listener net.Listener, end func(),
+	ctx context.Context, httpServer *http.Server, listener net.Listener, steps quitSteps,
 ) {
 	defer close(s.done)
-	defer end()
+	defer quit(steps)
 
 	served := make(chan error, 1)
 
@@ -184,6 +421,10 @@ func (s *Server) serve(
 		return
 	case <-ctx.Done():
 	}
+
+	// The record is of what runs as the quit begins: a session that ends while open requests
+	// drain still ran at the quit.
+	steps.record()
 
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownTimeout)
 	defer cancel()

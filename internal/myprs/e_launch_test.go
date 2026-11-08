@@ -3,6 +3,7 @@ package myprs_test
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"math"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/claytoncasey01/conn/internal/claude"
@@ -67,13 +69,15 @@ type eRig struct {
 	stderr   string
 	outs     []eOut
 	opened   cmux.Opened
+	// unlinkErr is what removing a replies file answers.
+	unlinkErr error
 }
 
 func eNewRig(existing []string, outs ...eOut) *eRig {
 	return &eRig{
 		calls: nil, gits: nil, opens: nil, writes: nil, files: map[string]string{},
 		existing: eSet(existing...), fail: "", stderr: eBoom, outs: outs,
-		opened: cmux.Opened{OK: true, Error: "", ManualCommand: ""},
+		opened: cmux.Opened{OK: true, Error: "", ManualCommand: ""}, unlinkErr: nil,
 	}
 }
 
@@ -123,18 +127,24 @@ func eDefaultAnswer(args []string) string {
 func (r *eRig) deps() reviews.LaunchDeps {
 	return reviews.LaunchDeps{
 		Git: r.git,
-		Open: func(_ context.Context, name, cwd, command string) cmux.Opened {
+		Open: asCmux(func(_ context.Context, name, cwd, command string) cmux.Opened {
 			r.calls = append(r.calls, "open")
 			r.opens = append(r.opens, [3]string{name, cwd, command})
 
 			return r.opened
-		},
+		}),
+		Claude: "claude",
 		Write: func(path, content string, shared bool) error {
 			r.calls = append(r.calls, "write")
 			r.writes = append(r.writes, eWrite{path: path, text: content, shared: shared})
 			r.files[path] = content
 
 			return nil
+		},
+		Unlink: func(folder, name string) error {
+			r.calls = append(r.calls, "unlink "+filepath.Join(folder, name))
+
+			return r.unlinkErr
 		},
 		Exists: func(path string) bool {
 			if r.existing[path] {
@@ -769,8 +779,8 @@ func TestELaunchPathWithASpaceAndAQuote(t *testing.T) {
 }
 
 // eShellWorktree is a worktree whose path a shell would split or expand unquoted, holding a
-// one-line prompt full of shell syntax, and the folder it is in.
-func eShellWorktree(t *testing.T) (string, string, string) {
+// one-line prompt full of shell syntax that no shell reads, and the folder it is in.
+func eShellWorktree(t *testing.T) (string, string) {
 	t.Helper()
 
 	folder := t.TempDir()
@@ -787,7 +797,7 @@ func eShellWorktree(t *testing.T) (string, string, string) {
 		t.Fatal(err)
 	}
 
-	return folder, worktree, prompt
+	return folder, worktree
 }
 
 // eShellArgs runs script with sh in dir and answers the lines printf printed.
@@ -807,16 +817,17 @@ func eShellArgs(t *testing.T, dir, script string) []string {
 	return lines[:len(lines)-1]
 }
 
-func eExpectedArgs(prompt string) []string {
+func eExpectedArgs() []string {
 	out := append([]string{"--disallowedTools"}, myprs.SelfDisallowed()...)
 
-	return append(out, "--name", "self-web-12", "--model", "sonnet", prompt)
+	return append(out, "--name", "self-web-12", "--model", "sonnet", "--",
+		"Read .conn/prompt.md and follow it exactly.")
 }
 
 func TestELaunchCommandAsAShellRunsIt(t *testing.T) {
 	t.Parallel()
 
-	folder, worktree, prompt := eShellWorktree(t)
+	folder, worktree := eShellWorktree(t)
 	rig := eNewRig(nil)
 	eLaunchWith(rig, eOpts())
 
@@ -826,7 +837,7 @@ func TestELaunchCommandAsAShellRunsIt(t *testing.T) {
 	}
 
 	args := eShellArgs(t, worktree, "printf '%s\\n' "+strings.TrimPrefix(command, "claude "))
-	if !slices.Equal(args, eExpectedArgs(prompt)) {
+	if !slices.Equal(args, eExpectedArgs()) {
 		t.Errorf("args %q", args)
 	}
 
@@ -846,7 +857,7 @@ func TestELaunchCommandAsAShellRunsIt(t *testing.T) {
 
 	pasted := eShellArgs(t, folder,
 		strings.Replace(manual.ManualCommand, " && claude ", " && printf '%s\\n' ", 1))
-	if !slices.Equal(pasted, eExpectedArgs(prompt)) {
+	if !slices.Equal(pasted, eExpectedArgs()) {
 		t.Errorf("pasted %q", pasted)
 	}
 }
@@ -861,7 +872,10 @@ func TestELaunchOrder(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 
-	want := []string{"git", "git", "git", "git", "git", "write", "git", "write", "open"}
+	want := []string{
+		"git", "git", "git", "git", "git", "write",
+		"unlink " + filepath.Join(eWorktree, ".conn", "replies.json"), "git", "write", "open",
+	}
 	if !slices.Equal(rig.calls, want) {
 		t.Errorf("calls %v", rig.calls)
 	}
@@ -909,5 +923,28 @@ func TestELaunchTakesARelativeCommonDir(t *testing.T) {
 
 	if got != want {
 		t.Errorf("%+v", got)
+	}
+}
+
+// TestELaunchStopsWhenTheRepliesFileCannotBeRemoved: a replies file the launch could not remove
+// (one the branch committed) would end the round at once, so the launch fails with why and
+// opens no session.
+func TestELaunchStopsWhenTheRepliesFileCannotBeRemoved(t *testing.T) {
+	t.Parallel()
+
+	rig := eNewRig(nil)
+	rig.unlinkErr = &fs.PathError{Op: "unlink", Path: ".conn/replies.json", Err: syscall.EPERM}
+	got := eLaunchWith(rig, eOpts())
+
+	if got.OK {
+		t.Fatalf("launched: %+v", got)
+	}
+
+	if !strings.Contains(got.Error, "operation not permitted") {
+		t.Errorf("error %q", got.Error)
+	}
+
+	if slices.Contains(rig.calls, "open") {
+		t.Error("a session was opened")
 	}
 }

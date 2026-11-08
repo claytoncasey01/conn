@@ -1,0 +1,479 @@
+package server
+
+import (
+	"context"
+	"encoding/base64"
+	"errors"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/coder/websocket"
+
+	"github.com/claytoncasey01/conn/internal/pty"
+)
+
+// The terminal route: GET /api/term/<session id>, upgraded to a WebSocket over which a page
+// views a hosted session and types into it. The gate (gate.go) admits the handshake only from
+// the server's own page, with the secret in its subprotocols; this file then refuses everything
+// else that is not a well-formed handshake for a session the host holds, before it asks the host
+// anything, and bounds everything after.
+const (
+	// terminalPrefix is the route's path before the session's id.
+	terminalPrefix = "/api/term/"
+
+	// inputFrameBytesMax is the most input one client frame carries; it is also the most the
+	// host types in one Write.
+	inputFrameBytesMax = 64 << 10
+	// frameEnvelopeBytesMax is the most a client frame's JSON adds around its input, so
+	// frameBytesMax is the most one client frame may be: the WebSocket's read limit. A page
+	// sends a paste whole in one frame, escaped as JSON, or refuses it.
+	frameEnvelopeBytesMax = 256
+	frameBytesMax         = inputFrameBytesMax + frameEnvelopeBytesMax
+	// outputFrameBytesMax is the most one binary frame of output holds; the replay and a large
+	// batch go in several.
+	outputFrameBytesMax = 64 << 10
+	// connectionsMax is the most terminals open at once over all sessions: more than the host's
+	// sessions times their viewers, so it only refuses a flood of handshakes for ended sessions.
+	connectionsMax = 64
+	// replaysInFlightFull is how many full replays may be written at once.
+	replaysInFlightFull = 8
+	// replayBytesInFlightMax bounds the replays being written at once, in bytes: eight full
+	// replays, each a mode preamble and a full scrollback. With the viewers' queues (at most
+	// 2 MiB for each of the host's 48 viewers) it bounds what viewers that do not read can make
+	// the server hold.
+	replayBytesInFlightMax = replaysInFlightFull * pty.ReplayBytesMax
+	// inputQueueFramesMax is how many of a viewer's frames may wait for the program while it
+	// takes the one before. A frame past it is dropped, as input the program does not take is:
+	// the program is not reading, and the terminal stays open. The frames are typed on their own
+	// goroutine, so a program that is slow to take input never holds up the reading of pongs.
+	inputQueueFramesMax = 16
+
+	// frameWriteTimeout bounds the writing of each frame: a viewer that takes longer is closed.
+	frameWriteTimeout = 5 * time.Second
+	// replayWriteTimeout bounds the writing of a whole replay, so a viewer that reads it just fast
+	// enough for each frame holds its share of replayBytesInFlightMax for no longer than this.
+	// A full scrollback over loopback takes milliseconds.
+	replayWriteTimeout = 30 * time.Second
+	// pingInterval is how often a viewer is pinged, and pingTimeout how long its answer may
+	// take: a dead peer is dropped within both.
+	pingInterval = 15 * time.Second
+	pingTimeout  = 20 * time.Second
+
+	// websocketVersion is the one WebSocket version there is; keyBytes is the size of a
+	// handshake's nonce.
+	websocketVersion = "13"
+	keyBytes         = 16
+)
+
+// HandshakeTimeout is the terminal's handshake deadline: the route gives its answer this long to
+// be written, and Conn's HTTP server reads a request's headers, the handshake's included, within
+// it too.
+const HandshakeTimeout = 5 * time.Second
+
+// TerminalsCloseTimeout bounds Terminals.Close: quitting waits this long at most for the
+// terminals open to close, so it is exported for the quit's own bound.
+const TerminalsCloseTimeout = 2 * time.Second
+
+// The route's refusals, in its own words.
+const (
+	textUpgradeRequired = "this route takes a WebSocket handshake only"
+	textTooManyViewers  = "the session has too many viewers"
+	textTooManyOpen     = "too many terminals are open"
+	textStopping        = "conn is stopping"
+	textNoSession       = "no such session"
+)
+
+// TerminalHost is what the terminal route needs of the host of sessions; *pty.Host is one.
+type TerminalHost interface {
+	Subscribe(sessionID pty.ID) (pty.Viewer, error)
+	Write(sessionID pty.ID, data []byte) error
+	Resize(sessionID pty.ID, columns, rows uint16) error
+}
+
+// terminalTimes are the route's waits.
+type terminalTimes struct {
+	replayWriteTimeout time.Duration
+	handshakeTimeout   time.Duration
+	frameWriteTimeout  time.Duration
+	pingInterval       time.Duration
+	pingTimeout        time.Duration
+}
+
+// Terminals answers the terminal route for a host's sessions.
+type Terminals struct {
+	host    TerminalHost
+	times   terminalTimes
+	budgets *budgets
+	// interrupts holds when each session was last sent an interrupt.
+	interrupts *interrupts
+	// ended, when a test sets it, is told each session whose terminal has been told to end (its
+	// goroutines' context cancelled), before they have; nil does nothing.
+	ended func(pty.ID)
+	// open holds a value for each terminal open, at most connectionsMax.
+	open chan struct{}
+	// replayMu guards replayBytes, the bytes of the replays being written.
+	replayMu    sync.Mutex
+	replayBytes int
+	// stopping is closed when the terminals' context ends, or Close is called: every terminal
+	// open is closed. A connection the HTTP server has handed over outlives the server's own
+	// shutdown otherwise. stop ends that context.
+	stopping <-chan struct{}
+	stop     context.CancelFunc
+	// activeMu guards active, the terminals being served (each counted only while the terminals
+	// are not stopping), and closing, set by Close; drained is closed once closing is set and
+	// active is none.
+	activeMu      sync.Mutex
+	active        int
+	closing       bool
+	drained       chan struct{}
+	drainedClosed bool
+}
+
+// NewTerminals answers the terminal route for host's sessions until ctx ends or Close is
+// called, when it closes every terminal open.
+func NewTerminals(ctx context.Context, host TerminalHost) *Terminals {
+	if host == nil {
+		panic("server: NewTerminals needs a host")
+	}
+
+	lifetime, stop := context.WithCancel(ctx)
+
+	return &Terminals{
+		host: host,
+		times: terminalTimes{
+			replayWriteTimeout: replayWriteTimeout,
+			handshakeTimeout:   HandshakeTimeout,
+			frameWriteTimeout:  frameWriteTimeout,
+			pingInterval:       pingInterval,
+			pingTimeout:        pingTimeout,
+		},
+		budgets:     newBudgets(time.Now),
+		interrupts:  newInterrupts(time.Now),
+		ended:       nil,
+		open:        make(chan struct{}, connectionsMax),
+		replayMu:    sync.Mutex{},
+		replayBytes: 0,
+		stopping:    lifetime.Done(),
+		stop:        stop,
+		activeMu:    sync.Mutex{},
+		active:      0,
+		closing:     false,
+		drained:     make(chan struct{}),
+
+		drainedClosed: false,
+	}
+}
+
+// Close closes every terminal open, each as going away, and waits, at most
+// TerminalsCloseTimeout (a viewer that does not answer the close is not waited for longer),
+// until each has been closed; from then on none is served. Quitting calls it before the
+// sessions are stopped, so no viewer sees its program stopped instead.
+func (t *Terminals) Close() {
+	// Stopping first: a terminal not yet counted is refused from now on (enter), and a counted
+	// one is closed and waited for.
+	t.stop()
+
+	t.activeMu.Lock()
+	t.closing = true
+	t.drainIfIdle()
+	t.activeMu.Unlock()
+
+	wait := time.NewTimer(TerminalsCloseTimeout)
+	defer wait.Stop()
+
+	select {
+	case <-t.drained:
+	case <-wait.C:
+	}
+}
+
+// enter counts a terminal as served, and is false once the terminals are stopping.
+func (t *Terminals) enter() bool {
+	t.activeMu.Lock()
+	defer t.activeMu.Unlock()
+
+	select {
+	case <-t.stopping:
+		return false
+	default:
+	}
+
+	t.active++
+
+	return true
+}
+
+// leave counts a terminal as no longer served.
+func (t *Terminals) leave() {
+	t.activeMu.Lock()
+	defer t.activeMu.Unlock()
+
+	t.active--
+	t.drainIfIdle()
+}
+
+// drainIfIdle closes drained once Close has been called and no terminal is served. The caller
+// holds activeMu.
+func (t *Terminals) drainIfIdle() {
+	if !t.closing {
+		return
+	}
+
+	if t.active > 0 {
+		return
+	}
+
+	if t.drainedClosed {
+		return
+	}
+
+	t.drainedClosed = true
+	close(t.drained)
+}
+
+// terminalID is the session id a terminal route's path names, and whether it is one: exactly
+// /api/term/ and an id of the host's shape, as sent.
+func terminalID(urlPath string) (pty.ID, bool) {
+	text, found := strings.CutPrefix(urlPath, terminalPrefix)
+	if !found {
+		return "", false
+	}
+
+	sessionID, err := pty.ParseID(text)
+	if err != nil {
+		return "", false
+	}
+
+	return sessionID, true
+}
+
+// terminal answers a path under the terminal route, and is false for any other path: the
+// page's terminal background, a session's interrupt, or a session's terminal. A route that names
+// no session, or a server with no terminals, is not found.
+func (s *Server) terminal(w http.ResponseWriter, r *http.Request, urlPath string) bool {
+	if !strings.HasPrefix(urlPath, terminalPrefix) {
+		return false
+	}
+
+	if urlPath == terminalBackgroundPath {
+		s.terminalBackground(w, r)
+
+		return true
+	}
+
+	if sessionID, isInterrupt := interruptID(urlPath); isInterrupt {
+		if s.Terminals == nil {
+			sendJSON(w, http.StatusNotFound, errorBody{Error: textNotFound})
+
+			return true
+		}
+
+		s.Terminals.interrupt(w, r, sessionID)
+
+		return true
+	}
+
+	sessionID, found := terminalID(urlPath)
+	if !found {
+		sendJSON(w, http.StatusNotFound, errorBody{Error: textNotFound})
+
+		return true
+	}
+
+	if s.Terminals == nil {
+		sendJSON(w, http.StatusNotFound, errorBody{Error: textNotFound})
+
+		return true
+	}
+
+	s.Terminals.serve(w, r, sessionID)
+
+	return true
+}
+
+// serve takes a handshake for the session's terminal and runs the terminal until either side
+// ends it. Everything is refused before the host is asked anything, but for the session itself:
+// the host's Subscribe both finds it and takes one of its viewers' places, which is given back
+// on every way out.
+func (t *Terminals) serve(w http.ResponseWriter, r *http.Request, sessionID pty.ID) {
+	if !wellFormedHandshake(r) {
+		w.Header().Set("Upgrade", "websocket")
+		sendJSON(w, http.StatusUpgradeRequired, errorBody{Error: textUpgradeRequired})
+
+		return
+	}
+
+	// Stopping is looked at on its own: a select with a free place beside it could pick either.
+	if !t.enter() {
+		sendJSON(w, http.StatusServiceUnavailable, errorBody{Error: textStopping})
+
+		return
+	}
+
+	defer t.leave()
+
+	select {
+	case t.open <- struct{}{}:
+	default:
+		sendJSON(w, http.StatusServiceUnavailable, errorBody{Error: textTooManyOpen})
+
+		return
+	}
+
+	defer func() { <-t.open }()
+
+	viewer, err := t.host.Subscribe(sessionID)
+	if err != nil {
+		refuseViewer(w, err)
+
+		return
+	}
+
+	// The replay is handed on alone, so nothing here keeps it once it has been written.
+	replay := viewer.Replay
+	viewer.Replay = nil
+
+	defer func() { viewer.Close() }()
+
+	t.serveViewer(w, r, viewer, replay, sessionID)
+}
+
+// serveViewer runs the terminal for a viewer the host gave, once its replay fits within
+// replayBytesInFlightMax.
+func (t *Terminals) serveViewer(
+	w http.ResponseWriter, r *http.Request, viewer pty.Viewer, replay []byte, sessionID pty.ID,
+) {
+	replaySize := len(replay)
+	if !t.takeReplay(replaySize) {
+		sendJSON(w, http.StatusServiceUnavailable, errorBody{Error: textTooManyOpen})
+
+		return
+	}
+
+	replayWritten := sync.OnceFunc(func() { t.giveReplay(replaySize) })
+	defer replayWritten()
+
+	t.budgets.join(sessionID)
+	defer t.budgets.leave(sessionID)
+
+	conn := t.accept(w, r)
+	if conn == nil {
+		return
+	}
+
+	// Every way out ends here, so the connection is always closed; a close already made does
+	// nothing.
+	defer func() { _ = conn.CloseNow() }()
+
+	t.run(conn, viewer, sessionID, replay, replayWritten)
+}
+
+// takeReplay counts size bytes of replay as being written, if they fit.
+func (t *Terminals) takeReplay(size int) bool {
+	t.replayMu.Lock()
+	defer t.replayMu.Unlock()
+
+	if t.replayBytes+size > replayBytesInFlightMax {
+		return false
+	}
+
+	t.replayBytes += size
+
+	return true
+}
+
+// giveReplay counts size bytes of replay as written.
+func (t *Terminals) giveReplay(size int) {
+	t.replayMu.Lock()
+	defer t.replayMu.Unlock()
+
+	t.replayBytes -= size
+}
+
+// refuseViewer answers a handshake whose session the host would not give a viewer.
+func refuseViewer(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, pty.ErrNoSession):
+		sendJSON(w, http.StatusNotFound, errorBody{Error: textNoSession})
+	case errors.Is(err, pty.ErrViewersFull):
+		sendJSON(w, http.StatusServiceUnavailable, errorBody{Error: textTooManyViewers})
+	default:
+		sendJSON(w, http.StatusInternalServerError, errorBody{Error: textFailed})
+	}
+}
+
+// wellFormedHandshake says whether a request is a WebSocket handshake the library will take: a
+// GET asking to upgrade, of the one version, with one nonce of the right size. It is checked
+// here so that a malformed one is refused in the server's own words: the library's refusals
+// quote the request's headers.
+func wellFormedHandshake(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+
+	if !asksForWebSocket(r.Header) {
+		return false
+	}
+
+	versions := r.Header.Values("Sec-WebSocket-Version")
+	if len(versions) != 1 {
+		return false
+	}
+
+	if versions[0] != websocketVersion {
+		return false
+	}
+
+	keys := r.Header.Values("Sec-WebSocket-Key")
+	if len(keys) != 1 {
+		return false
+	}
+
+	nonce, err := base64.StdEncoding.DecodeString(strings.TrimSpace(keys[0]))
+	if err != nil {
+		return false
+	}
+
+	return len(nonce) == keyBytes
+}
+
+// accept completes the handshake, or answers it with a refusal and returns nil. The answer must
+// be written within HandshakeTimeout; taking the connection over clears that deadline, and any
+// the HTTP server had set, so the terminal lives as long as its viewer.
+func (t *Terminals) accept(w http.ResponseWriter, r *http.Request) *websocket.Conn {
+	err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(t.times.handshakeTimeout))
+	if err != nil {
+		sendJSON(w, http.StatusInternalServerError, errorBody{Error: textFailed})
+
+		return nil
+	}
+
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		// Only the protocol's name is offered, so it is the only one echoed: the secret's
+		// protocol is never chosen.
+		Subprotocols: []string{terminalProtocol},
+		// The gate has checked the Origin exactly; the library checks it again.
+		InsecureSkipVerify:   false,
+		OriginPatterns:       nil,
+		CompressionMode:      websocket.CompressionDisabled,
+		CompressionThreshold: 0,
+		OnPingReceived:       nil,
+		OnPongReceived:       nil,
+	})
+	if err != nil {
+		// Accept has answered the request; its error quotes the request, so it is not logged.
+		return nil
+	}
+
+	if conn.Subprotocol() != terminalProtocol {
+		_ = conn.Close(websocket.StatusPolicyViolation, reasonMalformed)
+
+		return nil
+	}
+
+	conn.SetReadLimit(frameBytesMax)
+
+	return conn
+}

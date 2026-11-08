@@ -34,6 +34,8 @@ type Loop struct {
 	// live is the live sessions as the last tick left them, for readers that must not wait on
 	// the loop's goroutine (a hook runs on it).
 	live atomic.Pointer[[]LiveSession]
+	// ticked is closed once the first tick's live sessions are published.
+	ticked chan struct{}
 }
 
 // NewLoop is a loop over the machine deps describe; it does nothing until Run.
@@ -41,6 +43,7 @@ func NewLoop(deps Deps) *Loop {
 	loop := &Loop{
 		store: nil, requests: make(chan func(*store)), hub: newHub(),
 		done: make(chan struct{}), live: atomic.Pointer[[]LiveSession]{},
+		ticked: make(chan struct{}),
 	}
 	loop.store = newStore(deps, loop.bumps.Load, loop.done)
 
@@ -65,6 +68,7 @@ func (l *Loop) Run(ctx context.Context) {
 
 	l.store.tick(ctx)
 	l.publish()
+	close(l.ticked)
 
 	for {
 		select {
@@ -145,7 +149,15 @@ func (l *Loop) AgentDetail(ctx context.Context, pid, agentID string) ([]byte, bo
 		found bool
 	)
 
-	err := l.do(ctx, func(state *store) { out, found = state.agentDetail(pid, agentID) })
+	err := l.do(ctx, func(state *store) {
+		if sessionID, hosted := hostedID(pid); hosted {
+			out, found = state.hostedAgentPage(sessionID, agentID)
+
+			return
+		}
+
+		out, found = state.agentDetail(pid, agentID)
+	})
 
 	return out, found, err
 }
@@ -173,6 +185,10 @@ func (l *Loop) Live() []LiveSession {
 
 	return slices.Clone(*live)
 }
+
+// Ticked is closed once Live holds what the first tick read: before it, Live is none, whatever
+// runs.
+func (l *Loop) Ticked() <-chan struct{} { return l.ticked }
 
 // publish keeps the live sessions for Live. It runs on the loop's goroutine.
 func (l *Loop) publish() {

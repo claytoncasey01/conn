@@ -6,9 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/drysession"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
@@ -22,9 +26,14 @@ const (
 	delegationFile = "delegation.md"
 	briefFile      = "brief.md"
 	connFolder     = ".conn"
+	// repliesFile is what a My PRs self-review session writes for Conn to read. Open work never
+	// reads it, and a run's worktree is never a My PRs one (that launch removes its own); a
+	// brief still removes one the repository left, as the P2-B ruling asked, so no file of the
+	// repository's is ever taken for a session's.
+	repliesFile = "replies.json"
 )
 
-// sessionUUID is Claude's session id shape: only that goes into a command.
+// sessionUUID is Claude's session id shape: only that goes into an argument.
 var sessionUUID = regexp.MustCompile(
 	`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`)
 
@@ -284,7 +293,7 @@ func (w *Work) launchBuild(step *task, record *Record) error {
 	record.Stage = stageBuild
 
 	if w.deps.Dry {
-		w.dryBuild(record)
+		w.dryBuild(step, record)
 
 		return nil
 	}
@@ -330,7 +339,7 @@ func (w *Work) launchBuild(step *task, record *Record) error {
 		}
 
 		markLaunched(record, slot)
-		w.openWorkspace(step, record, slot, launchCommand(record, slot), "opened")
+		w.openWorkspace(step, record, slot, LaunchSpec(w.deps.Claude, record, slot), "opened")
 	}
 
 	return nil
@@ -395,27 +404,113 @@ func legWorktrees(legs []*Leg) []string {
 	return worktrees
 }
 
-// launchCommand is the command that starts a slot's session for the first time.
-func launchCommand(record *Record, slot *Leg) string {
-	return "claude --name " + record.Key + " --model sonnet --append-system-prompt-file " +
-		".conn/delegation.md" + reachFlags(record, slot) + " --permission-mode acceptEdits " +
-		`"Read .conn/brief.md and follow it exactly."`
+// LaunchSpec is what starts a slot's session for the first time: claude in the slot's worktree,
+// named for the ticket, reaching the other legs' worktrees when it is the shared session, told to
+// read the brief. The ticket's title, description and answers are in the brief, never in an
+// argument; the key is a checked ticket key and each folder is one argument.
+func LaunchSpec(claude string, record *Record, slot *Leg) pty.Spec {
+	argv := slices.Concat([]string{
+		claude, "--name", record.Key, "--model", "sonnet",
+		"--append-system-prompt-file", ".conn/delegation.md",
+	}, reachArgs(record, slot), []string{
+		"--permission-mode", "acceptEdits",
+		// -- ends the options: nothing after it is read as one, whatever a later change puts
+		// there.
+		"--",
+		"Read .conn/brief.md and follow it exactly.",
+	})
+
+	return pty.Spec{Argv: argv, Dir: slot.Worktree, Env: nil, Name: record.Key}
 }
 
-// dryBuild opens the dry run's sessions: each slot's is busy, and every leg has commits.
-func (w *Work) dryBuild(record *Record) {
+// dryBuild opens the dry run's sessions: each slot's is busy, and every leg has commits. Inside
+// Conn, each slot also gets the dry run's stand-in session on the host (openDry).
+func (w *Work) dryBuild(step *task, record *Record) {
 	status := "busy"
 
 	for _, leg := range record.Repos {
 		leg.Ahead, leg.Dirty = dryAhead, dryDirty
 	}
 
-	for _, slot := range w.sessionSlots(record) {
+	slots := w.sessionSlots(record)
+
+	for _, slot := range slots {
 		markLaunched(record, slot)
 		slot.Session = &Session{Name: record.Key, SessionID: nil, PID: nil, Status: &status}
 
 		w.log(record, logBuild, w.sessionNamed(record, slot)+" opened (dry run)")
 	}
+
+	// The record says every slot's session first, so no one sees half of them while the host
+	// is asked.
+	for _, slot := range slots {
+		w.openDry(step, record, slot)
+	}
+}
+
+// openDry starts the dry run's stand-in session for a slot inside Conn, when sessions open
+// there: a script in this process (drysession), in the slot's worktree, so the terminal can be
+// tried with nothing run. Set to open elsewhere, the dry run opens nothing, as before.
+func (w *Work) openDry(step *task, record *Record, slot *Leg) {
+	if w.deps.Settings().Sessions.Where != settings.WhereInside {
+		return
+	}
+
+	// A press of Resume while the slot's dry session still runs opens no second one: each
+	// would take one of the host's places.
+	if w.dryStillRunning(record, slot) {
+		return
+	}
+
+	// The slot is marked as opening before the lock is let go for the host, so a press that
+	// comes meanwhile finds it taken.
+	key := slotKey(record, slot)
+	w.dryHosted[key] = dryOpening
+
+	var opened launch.Opened
+
+	spec := drysession.Spec(slot.Worktree, record.Key)
+
+	step.outside(func() { opened = w.deps.Open(w.ctx, spec) })
+
+	if !opened.OK {
+		delete(w.dryHosted, key)
+		w.log(record, logError, w.sessionNamed(record, slot)+": could not open the dry run's "+
+			"session ("+opened.Error+")")
+
+		return
+	}
+
+	// An open that names no hosted session (sessions set to open elsewhere meanwhile) leaves
+	// nothing behind: an empty id would read as still opening.
+	if opened.HostedID == "" {
+		delete(w.dryHosted, key)
+
+		return
+	}
+
+	w.dryHosted[key] = string(opened.HostedID)
+}
+
+// dryOpening marks a slot whose dry session is being opened; no hosted id is empty.
+const dryOpening = ""
+
+// dryStillRunning is whether the dry session a slot last opened still runs, or is being opened.
+func (w *Work) dryStillRunning(record *Record, slot *Leg) bool {
+	hostedID, opened := w.dryHosted[slotKey(record, slot)]
+	if !opened {
+		return false
+	}
+
+	if hostedID == dryOpening {
+		return true
+	}
+
+	if w.deps.HostedRunning == nil {
+		return false
+	}
+
+	return w.deps.HostedRunning(hostedID)
 }
 
 // briefFor is the brief a slot's session is given: its own leg's in the split layout, the run's
@@ -428,17 +523,24 @@ func briefFor(record *Record, slot *Leg) *Leg {
 	return nil
 }
 
+// writeBrief writes a slot's .conn/brief.md (for leg, or the whole run) and .conn/delegation.md,
+// private, through reviews.WriteLaunchFile: only into a .conn folder of the person's own (not a
+// link a repository committed), and never through a link at either file.
 func writeBrief(record *Record, slot, leg *Leg) error {
 	folder := filepath.Join(slot.Worktree, connFolder)
 
-	err := os.MkdirAll(folder, folderMode)
+	err := reviews.WriteLaunchFile(filepath.Join(folder, briefFile), BriefText(record, leg), false)
 	if err == nil {
-		err = os.WriteFile(filepath.Join(folder, briefFile), []byte(BriefText(record, leg)),
-			fileMode)
+		err = reviews.WriteLaunchFile(filepath.Join(folder, delegationFile), Delegation, false)
 	}
 
-	if err == nil {
-		err = os.WriteFile(filepath.Join(folder, delegationFile), []byte(Delegation), fileMode)
+	// What the session writes for Conn to read, as the repository left it (a link to a secret, a
+	// file of someone else's), goes: the session writes its own. It is removed through the
+	// folder's own descriptor, so nothing put in the folder's place since the writes is touched.
+	for _, name := range []string{prBodyFile, repliesFile} {
+		if err == nil {
+			err = reviews.UnlinkInOwnFolder(folder, name)
+		}
 	}
 
 	if err != nil {
@@ -463,7 +565,7 @@ func (w *Work) excludeDeps() reviews.LaunchDeps {
 		Git: func(_ context.Context, args []string, dir string) (string, error) {
 			return w.sh("git", args, dir, 0)
 		},
-		Open: nil,
+		Open: nil, Unlink: nil,
 		Write: func(path, content string, _ bool) error {
 			return os.WriteFile(path, []byte(content), fileMode)
 		},

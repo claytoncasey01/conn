@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/claude"
-	"github.com/claytoncasey01/conn/internal/cmux"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/modules"
 	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/origin"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
@@ -28,6 +29,10 @@ type workParts struct {
 	logger   *log.Logger
 	// myPrRepos are the repos of the My PRs rows.
 	myPrRepos func() []string
+	// open starts the build sessions where the settings say.
+	open launch.Opener
+	// host runs the sessions Conn hosts.
+	host *pty.Host
 }
 
 // cloneFoldersMax is the most folders the clone folder and ~/projects are read for when Open
@@ -35,8 +40,8 @@ type workParts struct {
 const cloneFoldersMax = 500
 
 // newWork is Open work over this machine: git and gh run without a shell, the Jira and
-// research helper runs, cmux, and the session list's last tick. It makes the runs folder, even
-// while Open work is off.
+// research helper runs, the sessions it opens, and the session list's last tick. It makes the
+// runs folder, even while Open work is off.
 func newWork(ctx context.Context, parts workParts, live *sessions.Loop) *openwork.Work {
 	cfg, store, runner := parts.cfg, parts.store, parts.runner
 
@@ -48,7 +53,7 @@ func newWork(ctx context.Context, parts workParts, live *sessions.Loop) *openwor
 			return clone.Path, found
 		},
 		SeenRepos: seenWorkRepos(parts, func() []string { return seenRepos(live, parts.reader) }),
-		OriginOf:  parts.reader.Of, Sh: shIn, Helper: runner.Run,
+		OriginOf:  parts.reader.Of, Sh: shIn, ShInput: shWithInput, Helper: runner.Run,
 		FetchSprint: func(ctx context.Context, hooks openwork.Hooks) (jira.Sprint, error) {
 			return jira.FetchSprint(ctx, jira.SprintDeps{
 				Settings: store.Get(), DataDir: cfg.DataDir, Run: runner.Run, Save: nil,
@@ -60,7 +65,8 @@ func newWork(ctx context.Context, parts workParts, live *sessions.Loop) *openwor
 				Settings: store.Get(), DataDir: cfg.DataDir, Run: runner.Run,
 			}, key, move)
 		},
-		Open: cmux.Open(cfg.CmuxBin), Record: parts.statuses.Record,
+		Open: parts.open, Claude: cfg.ClaudeBin, HostedRunning: hostedRunning(parts.host),
+		Record:      parts.statuses.Record,
 		FindSession: findSession(live),
 		Reply: func(ctx context.Context, sessionID, text string) openwork.Reply {
 			reply := live.Reply(ctx, sessionID, text)
@@ -69,6 +75,21 @@ func newWork(ctx context.Context, parts workParts, live *sessions.Loop) *openwor
 		},
 		Bump: live.Bump, Now: nowMs, Sleep: sleepFor, Logger: parts.logger,
 	})
+}
+
+// hostedRunning says whether the session host issued hostedID for still runs.
+func hostedRunning(host *pty.Host) func(hostedID string) bool {
+	return func(hostedID string) bool {
+		for _, info := range host.Live() {
+			if string(info.ID) != hostedID {
+				continue
+			}
+
+			return info.ExitCode == nil
+		}
+
+		return false
+	}
 }
 
 // findSession is the live session named name or in cwd, as the session list's last tick left
@@ -85,9 +106,14 @@ func foundIn(live []sessions.LiveSession, name, cwd string) *openwork.Found {
 			continue
 		}
 
+		// A hosted session is named by its host's id, as on the Sessions page.
+		rowID := js.Number(session.PID)
+		if session.HostedID != "" {
+			rowID = session.HostedID
+		}
+
 		return &openwork.Found{
-			ID: js.Number(session.PID), PID: session.PID, Status: session.Shown,
-			SessionID: session.SessionID,
+			ID: rowID, PID: session.PID, Status: session.Shown, SessionID: session.SessionID,
 		}
 	}
 

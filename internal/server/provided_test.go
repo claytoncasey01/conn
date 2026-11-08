@@ -42,7 +42,7 @@ func providedRig(t *testing.T) (*rig, provided.Layout) {
 
 	return &rig{
 		handler: &server.Server{
-			UI: bundle(), Logger: log.New(io.Discard, "", 0),
+			UI: bundle(), Secret: testKey(t), Logger: log.New(io.Discard, "", 0),
 			Provided: provided.New(provided.Deps{Layout: layout, Items: items, Writable: true}),
 		},
 		data: base,
@@ -138,7 +138,7 @@ func TestProvidedInstallThenRemove(t *testing.T) {
 func TestProvidedRoutesAreLeftOutWithoutAnAPI(t *testing.T) {
 	t.Parallel()
 
-	handler := &server.Server{UI: bundle(), Logger: log.New(io.Discard, "", 0)}
+	handler := &server.Server{UI: bundle(), Secret: testKey(t), Logger: log.New(io.Discard, "", 0)}
 	rig := &rig{handler: handler, data: t.TempDir()}
 
 	got := rig.get(t, "/api/provided")

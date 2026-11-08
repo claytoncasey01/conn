@@ -234,6 +234,10 @@ type world struct {
 	// searchError is why GitHub cannot run one search (by its query), "" when it can.
 	searchError func(q string) string
 	openCapped  bool
+	// resuming is a launch of Conn still resuming its recorded sessions; settledAt is when it
+	// finished (0: long before any test's clock).
+	resuming  bool
+	settledAt float64
 	// rate and fetchRate are what one call of searches, and of reads by number, cost.
 	rate, fetchRate *ghbudget.RateInfo
 	// listGate holds every search; endedGate every read by number; closeGate every close.
@@ -380,7 +384,8 @@ func newReviews(t *testing.T, fixture *world, opts setupOpts) *reviews.Reviews {
 		Gh: worldGh{w: fixture}, Scan: fixture.scan, DMScan: fixture.dmScan, File: fixture.file,
 		Settings: fixture.settings, CloneFor: fixture.cloneFor, OriginOf: fixture.origin,
 		SeenRepos: func() []string { return nil }, HasClients: fixture.hasClients,
-		Sessions: fixture.liveSessions, Bump: fixture.bump, Now: fixture.clock,
+		Sessions: fixture.liveSessions, Settled: fixture.settled, Bump: fixture.bump,
+		Now:    fixture.clock,
 		Launch: fixture.launch, Git: fixture.runGit, InputState: fixture.input,
 		CloseWorkspace: fixture.closeWorkspace, Exists: fixture.isThere,
 		WorktreeClone: fixture.worktreeClone, Record: fixture.record, Budget: opts.budget,
@@ -455,6 +460,14 @@ func (w *world) hasClients() bool {
 	defer w.mu.Unlock()
 
 	return w.clients
+}
+
+// settled is when the launch finished resuming its recorded sessions, and whether it has.
+func (w *world) settled() (float64, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.settledAt, !w.resuming
 }
 
 func (w *world) liveSessions() []sessions.LiveSession {

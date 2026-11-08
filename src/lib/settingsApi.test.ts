@@ -208,6 +208,17 @@ test('the sections the page edits are read field by field: a wrong type is the d
   assert.deepEqual(r.view.settings.reviews, { requested: true, allOpen: false })
 })
 
+test('where sessions open is read as sent, and an older server that sends none is inside Conn with resume on', async () => {
+  reply(200, { ...VIEW, settings: { ...SETTINGS, sessions: { where: 'command', terminalCommand: ['/bin/sh', '-c', '{command}'], resumeOnLaunch: false } } })
+  const sent = await getSettings()
+  assert.ok(sent.ok)
+  assert.deepEqual(sent.view.settings.sessions, { where: 'command', resumeOnLaunch: false })
+  reply(200, VIEW)
+  const old = await getSettings()
+  assert.ok(old.ok)
+  assert.deepEqual(old.view.settings.sessions, { where: 'inside', resumeOnLaunch: true })
+})
+
 test('the base branch is read as a branch name or none, and an older server that sends none is none', async () => {
   reply(200, { ...VIEW, settings: { ...SETTINGS, atlassian: { enabled: true, jira: { projects: ['PROJ'], buildRepo: null, baseBranch: 'release/2.1' } } } })
   const good = await getSettings()

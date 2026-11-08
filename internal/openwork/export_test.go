@@ -195,3 +195,21 @@ func LegRules(record *Record) *js.Object {
 
 	return out
 }
+
+// WriteBrief is writeBrief for a slot's own leg.
+func WriteBrief(record *Record, slot *Leg) error { return writeBrief(record, slot, slot) }
+
+// CheckPRBody is checkPRBody.
+func CheckPRBody(path string, data []byte) error { return checkPRBody(path, data) }
+
+// FallbackBody is fallbackBody.
+func FallbackBody(subjects string) string { return fallbackBody(subjects) }
+
+// PRBodyBytesMax is prBodyBytesMax.
+const PRBodyBytesMax = prBodyBytesMax
+
+// ReadPRBody is readPRBody.
+func ReadPRBody(path string) (string, bool, error) { return readPRBody(path) }
+
+// LegView is a leg as a run is served.
+func LegView(leg *Leg) *LegRun { return leg.view() }

@@ -15,8 +15,8 @@ import (
 
 const (
 	// stopWait bounds the wait for a stopped Conn to let its data folder go: its server gives
-	// open requests a shutdown timeout to finish.
-	stopWait = 10 * time.Second
+	// open requests a shutdown timeout to finish, then stops its hosted sessions.
+	stopWait = app.QuitTimeout + time.Second
 )
 
 var (

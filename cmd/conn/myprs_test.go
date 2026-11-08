@@ -23,7 +23,7 @@ type myPrsFlags struct {
 }
 
 func serveWith(t *testing.T, env map[string]string, settingsJSON string) (
-	context.Context, string, string,
+	context.Context, served, string,
 ) {
 	t.Helper()
 
@@ -46,22 +46,22 @@ func serveWith(t *testing.T, env map[string]string, settingsJSON string) (
 
 	exited := make(chan int, 1)
 
-	go func() { exited <- serve(ctx, lookupFrom(all), &stdout, &stderr) }()
+	go func() { exited <- serve(ctx, nil, lookupFrom(all), &stdout, true, &stderr) }()
 
 	t.Cleanup(func() {
 		cancel()
 		<-exited
 	})
 
-	return ctx, waitForAddress(t, &stdout), data
+	return ctx, waitForPage(t, &stdout), data
 }
 
-func myPrsOf(ctx context.Context, t *testing.T, address string) myPrsFlags {
+func myPrsOf(ctx context.Context, t *testing.T, page served) myPrsFlags {
 	t.Helper()
 
 	var got myPrsFlags
 
-	err := json.Unmarshal([]byte(call(ctx, t, http.MethodGet, address+"/api/snapshot", "")), &got)
+	err := json.Unmarshal([]byte(call(ctx, t, http.MethodGet, page, "/api/snapshot", "")), &got)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,8 +94,8 @@ func TestMyPrsInTheSnapshot(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, address, data := serveWith(t, tt.env, tt.settings)
-			got := myPrsOf(ctx, t, address).MyPrs
+			ctx, page, data := serveWith(t, tt.env, tt.settings)
+			got := myPrsOf(ctx, t, page).MyPrs
 
 			off := ""
 			if got.Off != nil {

@@ -23,7 +23,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/app"
 	"github.com/claytoncasey01/conn/internal/config"
+	"github.com/claytoncasey01/conn/internal/desk"
+	"github.com/claytoncasey01/conn/internal/terminal"
 )
 
 // Exit codes.
@@ -58,14 +61,18 @@ type loop struct {
 	// bin is where the API binary is built.
 	bin    string
 	stdout io.Writer
-	stderr io.Writer
+	// terminal says whether stdout is a terminal: only then is the page's secret printed.
+	terminal bool
+	stderr   io.Writer
 }
 
 func main() {
-	os.Exit(realMain(os.LookupEnv, os.Environ(), os.Stdout, os.Stderr))
+	os.Exit(realMain(os.LookupEnv, os.Environ(), os.Stdout, terminal.Is(os.Stdout), os.Stderr))
 }
 
-func realMain(lookup lookupFunc, environ []string, stdout, stderr io.Writer) int {
+func realMain(
+	lookup lookupFunc, environ []string, stdout io.Writer, stdoutTerminal bool, stderr io.Writer,
+) int {
 	root, err := os.Getwd()
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "dev:", err)
@@ -81,6 +88,7 @@ func realMain(lookup lookupFunc, environ []string, stdout, stderr io.Writer) int
 	}
 
 	settings.stdout = stdout
+	settings.terminal = stdoutTerminal
 	settings.stderr = stderr
 
 	defer func() { _ = os.Remove(settings.bin) }()
@@ -116,14 +124,15 @@ func newLoop(root string, lookup lookupFunc, environ []string) (loop, error) {
 	)
 
 	return loop{
-		root:    root,
-		apiPort: apiPort,
-		uiPort:  uiPort,
-		data:    data,
-		env:     env,
-		bin:     filepath.Join(os.TempDir(), "conn-dev-"+strconv.Itoa(os.Getpid())),
-		stdout:  io.Discard,
-		stderr:  io.Discard,
+		root:     root,
+		apiPort:  apiPort,
+		uiPort:   uiPort,
+		data:     data,
+		env:      env,
+		bin:      filepath.Join(os.TempDir(), "conn-dev-"+strconv.Itoa(os.Getpid())),
+		stdout:   io.Discard,
+		terminal: false,
+		stderr:   io.Discard,
 	}, nil
 }
 
@@ -204,7 +213,28 @@ func (l loop) startAPI(ctx context.Context) *exec.Cmd {
 		return nil
 	}
 
+	l.sayPage(ctx)
+
 	return api
+}
+
+// sayPage prints the UI's address with the new API's secret, which every start makes anew, so
+// the page is opened again after a restart. It is printed only to a terminal; elsewhere the line
+// says the secret is in the dev data folder's lock file.
+func (l loop) sayPage(ctx context.Context) {
+	holder, err := app.WaitForHolder(ctx, l.data)
+	if err != nil {
+		_, _ = fmt.Fprintln(l.stdout, "dev:", err)
+
+		return
+	}
+
+	page := "http://127.0.0.1:" + l.uiPort
+	if l.terminal {
+		page = desk.PageURL(page, holder.Secret)
+	}
+
+	_, _ = fmt.Fprintf(l.stdout, "dev: open %s (the secret is new at each API start)\n", page)
 }
 
 // command runs name in the repository folder with the loop's environment and output. Ending ctx

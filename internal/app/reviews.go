@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/claude"
-	"github.com/claytoncasey01/conn/internal/cmux"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/gh"
 	"github.com/claytoncasey01/conn/internal/ghbudget"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/modules"
 	"github.com/claytoncasey01/conn/internal/origin"
 	"github.com/claytoncasey01/conn/internal/reviews"
@@ -52,12 +52,19 @@ func gitIn(ctx context.Context, args []string, dir string, timeout time.Duration
 func shIn(ctx context.Context, name string, args []string, dir string, timeout time.Duration) (
 	string, error,
 ) {
+	return shWithInput(ctx, name, args, dir, "", timeout)
+}
+
+// shWithInput is shIn with input written to the command's standard input.
+func shWithInput(ctx context.Context, name string, args []string, dir, input string,
+	timeout time.Duration,
+) (string, error) {
 	if timeout == 0 {
 		timeout = gitTimeout
 	}
 
 	result := command.Cmd(ctx, name, args, command.Opts{
-		Dir: dir, Timeout: timeout, OutputBytesMax: gitBytesMax, Stdin: "", Env: nil,
+		Dir: dir, Timeout: timeout, OutputBytesMax: gitBytesMax, Stdin: input, Env: nil,
 	})
 	if result.Err == nil {
 		return result.Stdout, nil
@@ -82,22 +89,37 @@ type reviewsParts struct {
 	logger   *log.Logger
 	// myPrRepos are the repos of the My PRs rows.
 	myPrRepos func() []string
+	// open starts the review sessions where the settings say, and selfOpen the self-review
+	// sessions: each records its sessions under its own module.
+	open     launch.Opener
+	selfOpen launch.Opener
+	// settled is when the launch finished resuming its last quit's sessions: until then, and
+	// for a while after, Reviews and My PRs judge no session of theirs gone.
+	settled func() (float64, bool)
+	// recorded is whether the last quit's record named a session in a folder: My PRs opens no
+	// second round beside one the launch may resume.
+	recorded func(folder string) bool
 }
 
 func millis(duration time.Duration) float64 { return float64(duration.Milliseconds()) }
 
-// newReviews is the Reviews tab over this machine: gh, the Slack helper runs, git, cmux and the
-// session list's last tick.
+// newReviews is the Reviews tab over this machine: gh, the Slack helper runs, git, the sessions
+// it opens and the session list's last tick.
 func newReviews(ctx context.Context, parts reviewsParts, live *sessions.Loop) *reviews.Reviews {
+	return reviews.New(ctx, reviewsDeps(parts, live))
+}
+
+// reviewsDeps are what the Reviews tab reads and calls on this machine.
+func reviewsDeps(parts reviewsParts, live *sessions.Loop) reviews.Deps {
 	cfg := parts.cfg
 	names := reviews.Names{Pattern: cfg.ReviewNamePattern}
 	scanConfig := reviews.ScanConfig{
 		Model: cfg.ReviewScanModel, WindowDays: cfg.ReviewFirstWindowDays,
 		BudgetUSD: cfg.ReviewScanCostUSDMax, Timeout: cfg.ReviewScanTimeout,
 	}
-	launch := launchDeps(cfg, parts.reader, names)
+	launch := launchDeps(parts, names)
 
-	return reviews.New(ctx, reviews.Deps{
+	return reviews.Deps{
 		Gh: reviews.Gh{Exec: gh.GraphQL},
 		Scan: func(ctx context.Context, input reviews.ScanInput) (reviews.ScanResult, error) {
 			return reviews.RunScan(ctx, input, parts.runner.Run, scanConfig, nowMs())
@@ -119,7 +141,7 @@ func newReviews(ctx context.Context, parts reviewsParts, live *sessions.Loop) *r
 			return append(seenRepos(live, parts.reader), parts.myPrRepos()...)
 		},
 		HasClients: func() bool { return live.Hub().Count() > 0 },
-		Sessions:   live.Live, Bump: live.Bump, Now: nowMs,
+		Sessions:   live.Live, Settled: parts.settled, Bump: live.Bump, Now: nowMs,
 		Launch: func(ctx context.Context, opts reviews.LaunchOpts) reviews.LaunchResult {
 			opts.DataDir = cfg.DataDir
 
@@ -143,18 +165,20 @@ func newReviews(ctx context.Context, parts reviewsParts, live *sessions.Loop) *r
 			CloseCapMs:    millis(cfg.ReviewCloseAfterMax),
 			Me:            cfg.ReviewMe, Dry: cfg.Dry.Reviews, NamePattern: cfg.ReviewNamePattern,
 		},
-	})
+	}
 }
 
 // launchDeps are the effects of launching a review: real git (no shell, stderr as the error),
-// cmux, and files that are private to the owner.
-func launchDeps(cfg config.Config, reader *origin.Reader, names reviews.Names) reviews.LaunchDeps {
+// the session started where the settings say, and files that are private to the owner.
+func launchDeps(parts reviewsParts, names reviews.Names) reviews.LaunchDeps {
+	cfg, reader := parts.cfg, parts.reader
+
 	return reviews.LaunchDeps{
 		Git: func(ctx context.Context, args []string, dir string) (string, error) {
 			return gitIn(ctx, args, dir, 0)
 		},
-		Open:  cmux.Open(cfg.CmuxBin),
-		Write: reviews.WriteLaunchFile,
+		Open: parts.open, Claude: cfg.ClaudeBin,
+		Write: reviews.WriteLaunchFile, Unlink: reviews.UnlinkInOwnFolder,
 		Exists: func(path string) bool {
 			_, err := os.Stat(path)
 

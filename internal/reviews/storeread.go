@@ -260,6 +260,11 @@ func ReadFile(path string) Read {
 		return unreadable("it could not be read (" + code + ")")
 	}
 
+	return ReadText(data)
+}
+
+// ReadText is what data, the text of a reviews.json, holds: as ReadFile.
+func ReadText(data []byte) Read {
 	parsed, err := js.Parse([]byte(js.DecodeUTF8(data, false)))
 	if err != nil {
 		return unreadable("it is not valid JSON")
@@ -310,7 +315,15 @@ func readV1(raw *js.Object) *V1File {
 // LoadFile reads the version 2 file at path: anything else (a version 1 file included) is an
 // empty one, and a bad record is dropped alone.
 func LoadFile(path string) *File {
-	read := ReadFile(path)
+	return loaded(ReadFile(path))
+}
+
+// LoadText is the version 2 file data holds, as LoadFile.
+func LoadText(data []byte) *File {
+	return loaded(ReadText(data))
+}
+
+func loaded(read Read) *File {
 	if read.Kind == ReadV2 {
 		return read.V2
 	}

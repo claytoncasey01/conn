@@ -5,6 +5,7 @@
   import { needsSetup } from './lib/routes.ts'
   import { pruneShown } from './lib/reviewSeen.svelte.ts'
   import { archivedSource, liveSource } from './lib/source.svelte.ts'
+  import ResumedBanner from './lib/ResumedBanner.svelte'
   import Sessions from './pages/Sessions.svelte'
   import Overview from './pages/Overview.svelte'
   import AdvisorPage from './pages/AdvisorPage.svelte'
@@ -16,6 +17,8 @@
   import SettingsPage from './pages/SettingsPage.svelte'
   import ThemesPage from './pages/ThemesPage.svelte'
   import TicketRun from './pages/TicketRun.svelte'
+  import { backgroundSender } from './lib/terminalBackground.ts'
+  import { theme } from './lib/theme/theme.svelte.ts'
 
   startLive()
 
@@ -27,12 +30,25 @@
     if (setup) location.replace(href.settings())
   })
 
+  // A hosted program asks its terminal's background as it starts (OSC 11): the server answers with the one this page's theme
+  // draws the terminal on, told here once the theme list is read and whenever the look changes
+  const sendBackground = backgroundSender()
+  $effect(() => {
+    if (theme.ready) void sendBackground(theme.resolved.tokens)
+  })
+
   // A PR that stopped waiting on me can raise the tab badge again the next time it is asked for another review
   $effect(() => {
     const rows = live.snap?.reviews?.rows
     if (rows) pruneShown(rows)
   })
 </script>
+
+{#if live.locked}
+  <div role="alert" style="padding: 8px 32px; background: color-mix(in oklch, var(--bad) 10%, transparent); border-bottom: 1px var(--border-style) color-mix(in oklch, var(--bad) 35%, transparent); font-size: 11px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--bad) 55%, var(--bright))">This page has no key for this Conn. Open the address <code>conn serve</code> printed, or the app's window.</div>
+{/if}
+
+<ResumedBanner />
 
 <!-- Each page kind has its own branch, so moving between a live session and an archived one remounts the page -->
 {#if route.page === 'sessions'}

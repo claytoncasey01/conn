@@ -82,6 +82,12 @@ type Live struct {
 	// lead's last line.
 	UpdatedAt float64
 	Team      *Team
+	// Hosted is set for a session Conn hosts on a terminal of its own, whose ID is the one the
+	// host issued, never its pid.
+	Hosted bool
+	// ExitCode is a hosted session's exit status once its program has ended; nil before, and
+	// for every other session.
+	ExitCode *int
 }
 
 // Opts are how a detail is built.
@@ -145,6 +151,9 @@ type Detail struct {
 	Team          *Team                 `json:"team"`
 	// Archived is set only on an archived session.
 	Archived *Archived `json:"archived,omitempty"`
+	// Hosted and ExitCode are set only on a session Conn hosts (see Live).
+	Hosted   bool `json:"hosted,omitempty"`
+	ExitCode *int `json:"exitCode,omitempty"`
 }
 
 // Archived is where a finished session's record came from.
@@ -395,6 +404,7 @@ func Build(parts Parts, live Live, now float64, opts Opts) Detail {
 		Lead:     leadAgent(parts, live.Name, status, opts.Ended, opts.EndedAt),
 		Consults: consults, Agents: agents, Log: log, Tools: allTools(lead.Tools, agents),
 		Errors: lead.Errors + agentErrors(agents), Team: live.Team, Archived: nil,
+		Hosted: live.Hosted, ExitCode: live.ExitCode,
 	}
 
 	if opts.Trim {

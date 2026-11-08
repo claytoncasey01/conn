@@ -142,6 +142,7 @@ func build(parts snapshot.Parts, fact facts, env Env) history.Entry {
 		ID: fact.sessionID, PID: fact.pid, SessionID: fact.sessionID, Name: name, Cwd: cwd,
 		Repo: repoField, Status: snapshot.StatusIdle, WaitingFor: nil, CanReply: false, Ask: nil,
 		Shells: 0, PR: fact.pr, StartedAt: startedAt, UpdatedAt: lead.LastAt, Team: nil,
+		Hosted: false, ExitCode: nil,
 	}
 
 	detail := snapshot.Build(parts, live, endedAt, snapshot.Opts{

@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/gh"
@@ -30,18 +29,32 @@ const (
 
 var errNotRegularFile = errors.New("not a regular file")
 
+// selfLaunchDeps are My PRs' launch deps: Reviews', with each session opened through selfOpen,
+// so it is recorded under My PRs.
+func selfLaunchDeps(parts reviewsParts) reviews.LaunchDeps {
+	launch := launchDeps(parts, reviews.Names{Pattern: parts.cfg.ReviewNamePattern})
+	launch.Open = parts.selfOpen
+
+	return launch
+}
+
 // newMyPrs is the My PRs tab over this machine: gh, git, cmux, the Slack draft helper and the
 // session list's last tick. It shares Reviews' parts, the GitHub budget among them.
 func newMyPrs(ctx context.Context, parts reviewsParts, live *sessions.Loop) *myprs.MyPrs {
+	return myprs.New(ctx, myPrsDeps(parts, live))
+}
+
+// myPrsDeps are what the My PRs tab reads and calls on this machine.
+func myPrsDeps(parts reviewsParts, live *sessions.Loop) myprs.Deps {
 	cfg := parts.cfg
 	self := myprs.Self{Pattern: cfg.SelfNamePattern, Prompt: cfg.SelfReviewPrompt}
-	launch := launchDeps(cfg, parts.reader, reviews.Names{Pattern: cfg.ReviewNamePattern})
+	launch := selfLaunchDeps(parts)
 	draft := myprs.DraftConfig{
 		Model: cfg.ReviewScanModel, BudgetUSD: cfg.ReviewScanCostUSDMax,
 		Timeout: cfg.ReviewScanTimeout,
 	}
 
-	return myprs.New(ctx, myprs.Deps{
+	return myprs.Deps{
 		Gh:    myprs.Gh{Exec: gh.Large, Trigger: cfg.GreptileTrigger},
 		Scope: myprs.ScopeNow(parts.store), File: filepath.Join(cfg.DataDir, "myprs.json"),
 		HasClients: func() bool { return live.Hub().Count() > 0 },
@@ -54,7 +67,7 @@ func newMyPrs(ctx context.Context, parts reviewsParts, live *sessions.Loop) *myp
 
 			return clone.Path
 		},
-		Sessions:    live.Live,
+		Sessions: live.Live, Settled: parts.settled, Recorded: parts.recorded,
 		RepoMatches: repoMatches,
 		Launch: func(ctx context.Context, opts myprs.LaunchOpts) myprs.LaunchResult {
 			opts.DataDir = cfg.DataDir
@@ -79,7 +92,7 @@ func newMyPrs(ctx context.Context, parts reviewsParts, live *sessions.Loop) *myp
 			GreptileTrigger: cfg.GreptileTrigger, ProtectedHeads: cfg.ProtectedHeads,
 			Self: self,
 		},
-	})
+	}
 }
 
 // repoMatches is whether the clone at path has repo as its origin: a wrong clone folder in
@@ -102,10 +115,23 @@ func repoMatches(ctx context.Context, repo, path string) (bool, error) {
 }
 
 // repliesAt is the mtime (ms, floored) of <worktree>/.conn/replies.json; nil when it is not
-// there.
+// there. It is read only from a regular file reached through a .conn folder of the person's
+// own, with no link followed: a link a branch committed would give the time of what it points to.
 func repliesAt(worktree string) *float64 {
-	info, err := os.Stat(filepath.Join(worktree, ".conn", "replies.json"))
+	file, err := reviews.OpenInOwnFolder(filepath.Join(worktree, myprs.ConnFolder),
+		myprs.RepliesFile)
 	if err != nil {
+		return nil
+	}
+
+	defer func() { _ = file.Close() }()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil
+	}
+
+	if !info.Mode().IsRegular() {
 		return nil
 	}
 
@@ -115,8 +141,9 @@ func repliesAt(worktree string) *float64 {
 }
 
 // readReplies is the text of a replies file: a regular file only (not a link, a pipe or a
-// device) and never more than the limit plus one byte, so a file the session made huge, or a
-// link it pointed elsewhere, costs nothing.
+// device), in a .conn folder of the person's own (not a link a repository committed), and never
+// more than the limit plus one byte, so a file the session made huge, or a link pointed
+// elsewhere, costs nothing.
 func readReplies(path string) (string, bool) {
 	data, err := readCapped(path, myprs.RepliesFileBytesMax+1)
 	if err != nil {
@@ -126,26 +153,29 @@ func readReplies(path string) (string, bool) {
 	return js.DecodeUTF8(data, false), true
 }
 
+// readCapped reads at most bytesMax of a regular file, opened through its folder, a folder of
+// the person's own, with no link followed at either (reviews.OpenInOwnFolder).
 func readCapped(path string, bytesMax int64) ([]byte, error) {
-	info, err := os.Lstat(path)
+	file, err := reviews.OpenInOwnFolder(filepath.Dir(path), filepath.Base(path))
 	if err != nil {
-		return nil, fmt.Errorf("reading the replies file: %w", err)
-	}
-
-	if !info.Mode().IsRegular() {
-		return nil, errNotRegularFile
-	}
-
-	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return nil, fmt.Errorf("opening the replies file: %w", err)
+		return nil, fmt.Errorf("opening %s: %w", path, err)
 	}
 
 	defer func() { _ = file.Close() }()
 
+	// What was opened is what was looked at: a regular file, whatever happened in between.
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	if !opened.Mode().IsRegular() {
+		return nil, errNotRegularFile
+	}
+
 	data, err := io.ReadAll(io.LimitReader(file, bytesMax))
 	if err != nil {
-		return nil, fmt.Errorf("reading the replies file: %w", err)
+		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 
 	return data, nil

@@ -1,10 +1,10 @@
 package myprs
 
 // Launching a self-review: a worktree of the local clone on a new branch at the PR's head, the
-// prompt in a file, and a cmux workspace running claude. Only an integer PR number and round, a
-// validated repo and branch name, the fixed name and model and the constant deny rules ever
-// reach a command or the prompt. A PR title, an author, a thread or anything else from GitHub
-// or Slack is not an input of anything here.
+// prompt in a file, and a session running claude where the settings say. Only an integer PR
+// number and round, a validated repo and branch name, the fixed name and model and the constant
+// deny rules ever reach an argument or the prompt. A PR title, an author, a thread or anything
+// else from GitHub or Slack is not an input of anything here.
 
 import (
 	"context"
@@ -216,8 +216,9 @@ type LaunchOpts struct {
 }
 
 // LaunchResult is how a launch went: the worktree and the commit it was put at (read there, so
-// it is the head the round starts from, not the last poll's). When only cmux failed, the
-// worktree and the prompt are in place and the command to paste comes with both.
+// it is the head the round starts from, not the last poll's). When only the session's start
+// failed (or the settings ask for the command), the worktree and the prompt are in place and the
+// command to paste comes with both.
 type LaunchResult struct {
 	OK            bool
 	Worktree      string
@@ -230,21 +231,22 @@ func launchFailed(why string) LaunchResult {
 	return LaunchResult{OK: false, Worktree: "", HeadSha: "", Error: why, ManualCommand: ""}
 }
 
-// launchPlan is what the checks give a launch: the prompt, the command and the worktree.
+// launchPlan is what the checks give a launch: the prompt, claude's arguments and the worktree.
 type launchPlan struct {
-	prompt, command, worktree string
+	prompt, worktree string
+	args             []string
 }
 
 // Launch opens a self-review: it refuses a bad repo, number, round, ref, name or model before
 // any call; fetches the PR branch; puts the worktree (`Folder(...)/<clone-name>`) on a local
 // branch `conn-self-<n>` at it (after pruning stale worktree records); writes
-// `.conn/prompt.md`; starts the workspace. A worktree that exists is reused only when it
+// `.conn/prompt.md`; starts the session. A worktree that exists is reused only when it
 // belongs to this clone, is clean and is on that branch, and is then fast-forwarded; one left
 // holding a commit that is not on the PR branch is refused. A leftover branch with no worktree
 // is reused only when it holds nothing the PR branch lacks. Nothing here deletes or forces
 // anything. A git or write failure gives the first line of its message and opens nothing. A
-// cmux failure leaves the worktree and returns the command to paste, with the worktree and its
-// commit.
+// session that did not start leaves the worktree and returns the command to paste, with the
+// worktree and its commit.
 func (s Self) Launch(ctx context.Context, deps reviews.LaunchDeps, opts LaunchOpts) LaunchResult {
 	plan, err := s.checks(opts)
 	if err != nil {
@@ -308,15 +310,15 @@ func (s Self) checks(opts LaunchOpts) (launchPlan, error) {
 		return launchPlan{}, errNotThisRound
 	}
 
-	command, err := reviews.ClaudeCommand(opts.Name, opts.Model, s.Pattern, SelfDisallowed())
+	args, err := reviews.ClaudeArgs(opts.Name, opts.Model, s.Pattern, SelfDisallowed())
 	if err != nil {
 		return launchPlan{}, fmt.Errorf("%w", err)
 	}
 
-	return s.place(opts, clone, command)
+	return s.place(opts, clone, args)
 }
 
-func (s Self) place(opts LaunchOpts, clone, command string) (launchPlan, error) {
+func (s Self) place(opts LaunchOpts, clone string, args []string) (launchPlan, error) {
 	switch clone {
 	case "", ".", "..":
 		return launchPlan{}, errNoRepoPath
@@ -343,7 +345,7 @@ func (s Self) place(opts LaunchOpts, clone, command string) (launchPlan, error) 
 		return launchPlan{}, err
 	}
 
-	return launchPlan{prompt: prompt, command: command, worktree: worktree}, nil
+	return launchPlan{prompt: prompt, args: args, worktree: worktree}, nil
 }
 
 // launchSteps are the git steps of one launch.
@@ -539,20 +541,28 @@ func (l launchSteps) settle(ctx context.Context, folder, behind bool) (string, s
 	return headSha, "", nil
 }
 
-// open writes the prompt and starts the workspace.
+// open writes the prompt and starts the session where the settings say.
 func (l launchSteps) open(ctx context.Context, plan launchPlan, headSha string) LaunchResult {
 	if !shaShape.MatchString(headSha) {
 		return launchFailed("could not read the commit " + l.worktree + " is at")
 	}
 
-	err := l.deps.Write(filepath.Join(l.worktree, ".conn", "prompt.md"), plan.prompt, false)
+	err := l.deps.Write(filepath.Join(l.worktree, ConnFolder, "prompt.md"), plan.prompt, false)
+	if err == nil {
+		// A replies file already there, which the branch may have committed (a link to a file
+		// that changes often would end the round at once), is not this round's: it goes before
+		// the session starts, through the folder the write has just checked is the person's.
+		err = l.deps.Unlink(filepath.Join(l.worktree, ConnFolder), RepliesFile)
+	}
+
 	if err != nil {
 		return launchFailed(reviews.FirstLine(&FailureError{Message: settings.NodeError(err)}))
 	}
 
 	reviews.ExcludeConn(ctx, l.deps, l.worktree)
 
-	opened := l.deps.Open(ctx, l.opts.Name, l.worktree, plan.command)
+	opened := l.deps.Open(ctx, reviews.ReviewSpec(l.deps.Claude, plan.args, l.worktree,
+		l.opts.Name))
 	if !opened.OK {
 		return LaunchResult{
 			OK: false, Worktree: l.worktree, HeadSha: headSha, Error: opened.Error,

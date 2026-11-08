@@ -2,7 +2,8 @@
 // remove its worktree. Each rule follows the server's (internal/openwork), named in its comment, so the page offers a button
 // only where the server would take it. RESUME is the one narrower than the server: while the run builds, a slot with no captured
 // id is offered nothing, since the page cannot see whether its session is still opening.
-import type { PrStatus, Run, RunRepo } from './types.ts'
+import { runTerminalSession } from './runTerminal.ts'
+import type { PrStatus, Run, RunRepo, SessionSummary } from './types.ts'
 
 /** The legs with commits ahead of their base, in order. */
 export const legsWithCommits = (run: Run): RunRepo[] => run.repos.filter(leg => leg.ahead > 0)
@@ -75,6 +76,10 @@ export const legSessionLive = (run: Run, leg: RunRepo, sessions: readonly { name
   if (run.repos.length > 1) return sessions.some(x => x.cwd === leg.worktree)
   return sessions.some(x => x.name === run.key || run.repos.some(l => x.cwd === l.worktree))
 }
+
+/** A slot's session when Conn hosts it, found as runTerminalSession finds a run's (with several legs by the slot's folder alone): it has a terminal panel on the run page. */
+export const legHosted = (run: Run, leg: RunRepo, sessions: readonly SessionSummary[]): SessionSummary | null =>
+  runTerminalSession(sessions, { key: run.repos.length > 1 ? null : run.key, worktree: leg.worktree, sessionId: leg.session?.sessionId ?? null })
 
 /** Whether RESUME SESSION applies to a leg: it has a session slot whose session is gone, while its PR is open or the run builds with a captured id. While the first session is still opening it is not in the registry yet, and offering RESUME then would start a second one. */
 export const legResumable = (run: Run, leg: RunRepo, live: boolean): boolean => {

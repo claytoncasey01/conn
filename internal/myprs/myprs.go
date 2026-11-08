@@ -190,10 +190,17 @@ type Deps struct {
 	CloneFor func(repo string) string
 	// Sessions are the live sessions, read without waiting on the session list.
 	Sessions func() []sessions.LiveSession
+	// Settled is when this launch of Conn finished resuming the sessions of its last quit (ms),
+	// and whether it has. Until then, and for appearMs after, a round whose session is not live
+	// is not judged gone: its session may be one the launch resumes.
+	Settled func() (float64, bool)
+	// Recorded is whether the last quit's record named a session in worktree: one this launch
+	// resumes, which a press must not open a second round beside.
+	Recorded func(worktree string) bool
 	// RepoMatches is whether the clone at path has repo as its origin; an error when git
 	// cannot say.
 	RepoMatches func(ctx context.Context, repo, path string) (bool, error)
-	// Launch opens a self-review round (the worktree, the prompt file and the cmux workspace);
+	// Launch opens a self-review round (the worktree, the prompt file and the session);
 	// the data folder is the wiring's.
 	Launch func(ctx context.Context, opts LaunchOpts) LaunchResult
 	// Git runs git without a shell, in dir, stopped after timeout.

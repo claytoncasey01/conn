@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "/opt/claude/bin/claude",
+    "--continue",
+    "--name",
+    "PROJ-12",
+    "--model",
+    "sonnet",
+    "--append-system-prompt-file",
+    ".conn/delegation.md",
+    "--add-dir",
+    "/work/gadgets-proj-12",
+    "--permission-mode",
+    "acceptEdits"
+  ],
+  "dir": "/work/widgets-proj-12",
+  "name": "PROJ-12"
+}

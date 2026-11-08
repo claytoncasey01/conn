@@ -16,6 +16,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/desk"
 	"github.com/claytoncasey01/conn/internal/instance"
+	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
@@ -89,8 +90,20 @@ type reply struct {
 
 func free() reply { return reply{holder: instance.Holder{}, running: false, err: nil} }
 
+// heldKey is the secret a fake holder publishes.
+func heldKey() secret.Secret {
+	key, err := secret.Parse(strings.Repeat("k", 43))
+	if err != nil {
+		panic("heldKey: the test's secret does not parse")
+	}
+
+	return key
+}
+
 func held(url string) reply {
-	return reply{holder: instance.Holder{PID: 1, URL: url}, running: true, err: nil}
+	return reply{
+		holder: instance.Holder{PID: 1, URL: url, Secret: heldKey()}, running: true, err: nil,
+	}
 }
 
 func holderFails(err error) reply {
@@ -121,6 +134,10 @@ type scenario struct {
 	starts    int
 	endServer context.CancelFunc
 	opened    []string
+	// pages is what Open was given: the address with the secret in its fragment.
+	pages []string
+	// probeKeys is the secret each probe was given.
+	probeKeys []secret.Secret
 	started   []*app.Server
 	startDone <-chan struct{}
 	failed    []string
@@ -133,9 +150,10 @@ func (s *scenario) holder() (instance.Holder, bool, error) {
 	return s.replies[index].holder, s.replies[index].running, s.replies[index].err
 }
 
-func (s *scenario) probe(_ context.Context, _ string) error {
+func (s *scenario) probe(_ context.Context, _ string, key secret.Secret) error {
 	index := min(s.probed, len(s.probes)-1)
 	s.probed++
+	s.probeKeys = append(s.probeKeys, key)
 
 	if s.probed == s.cancelAfterProbes {
 		s.cancel()
@@ -144,7 +162,9 @@ func (s *scenario) probe(_ context.Context, _ string) error {
 	return s.probes[index]
 }
 
-func (s *scenario) open(url string) {
+func (s *scenario) open(page string) {
+	s.pages = append(s.pages, page)
+	url, _, _ := strings.Cut(page, "/#")
 	s.opened = append(s.opened, url)
 
 	if len(s.opened) == s.cancelAfterOpens {
@@ -352,8 +372,8 @@ func TestRun(t *testing.T) {
 				cancelAfterOpens: tt.cancelAfterOpens, cancelAfterProbes: tt.cancelAfterProbes,
 				endServerAfterOpens: tt.endServerAfterOpens, cancelOnWait: tt.cancelOnWait,
 				startEndedWith: tt.startEndedWith, env: environment(t), cancel: cancel,
-				asked: 0, probed: 0, starts: 0, endServer: nil, opened: nil, started: nil,
-				startDone: nil, failed: nil,
+				asked: 0, probed: 0, starts: 0, endServer: nil, opened: nil, pages: nil,
+				probeKeys: nil, started: nil, startDone: nil, failed: nil,
 			}
 
 			err := runBounded(ctx, t, cancel, world.deps())
@@ -399,17 +419,17 @@ func TestRunGivesUpOnAServerThatHangs(t *testing.T) {
 		replies: []reply{held(deadURL)}, probes: []error{errNoAnswer}, startErrs: nil,
 		cancelAfterOpens: opensMax, cancelAfterProbes: 0, endServerAfterOpens: 0,
 		cancelOnWait: false, startEndedWith: nil, env: environment(t), cancel: cancel,
-		asked: 0, probed: 0, starts: 0, endServer: nil, opened: nil, started: nil,
-		startDone: nil, failed: nil,
+		asked: 0, probed: 0, starts: 0, endServer: nil, opened: nil, pages: nil,
+		probeKeys: nil, started: nil, startDone: nil, failed: nil,
 	}
 
 	clock := &slowClock{elapsed: 0}
 	deps := world.deps()
 	deps.After = clock.after
-	deps.Probe = func(probeCtx context.Context, url string) error {
+	deps.Probe = func(probeCtx context.Context, url string, key secret.Secret) error {
 		clock.elapsed += desk.ProbeTimeout
 
-		return world.probe(probeCtx, url)
+		return world.probe(probeCtx, url, key)
 	}
 
 	err := runBounded(ctx, t, cancel, deps)
@@ -482,6 +502,70 @@ func checkWorld(
 	}
 
 	checkOpened(t, world, wantOpened)
+	checkTheSecretStaysInTheWindow(t, world)
+}
+
+// checkTheSecretStaysInTheWindow fails the test unless each page opened carries its server's
+// secret in its fragment, each probe was given the holder's secret, and no message shown names
+// a secret or a page address.
+func checkTheSecretStaysInTheWindow(t *testing.T, world *scenario) {
+	t.Helper()
+
+	startedSoFar := 0
+
+	for index, page := range world.pages {
+		key := heldKey()
+
+		if startedSoFar < len(world.started) {
+			if world.opened[index] == world.started[startedSoFar].URL {
+				key = world.started[startedSoFar].Secret
+				startedSoFar++
+			}
+		}
+
+		if page != desk.PageURL(world.opened[index], key) {
+			t.Errorf("page %d was %q, want the address and its secret", index, page)
+		}
+	}
+
+	for index, key := range world.probeKeys {
+		if key != heldKey() {
+			t.Errorf("probe %d was not given the holder's secret", index)
+		}
+	}
+
+	for _, message := range world.failed {
+		if strings.Contains(message, "#") {
+			t.Errorf("a message names a page address: %s", message)
+		}
+
+		if strings.Contains(message, heldKey().String()) {
+			t.Errorf("a message names the secret: %s", message)
+		}
+	}
+}
+
+func TestPageURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		key  secret.Secret
+		want string
+	}{
+		{"with a secret", heldKey(), "http://127.0.0.1:7777/#k=" + heldKey().String()},
+		// A Conn from before the secret publishes none and asks for none.
+		{"without one", secret.Secret{}, "http://127.0.0.1:7777"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := desk.PageURL("http://127.0.0.1:7777", tt.key); got != tt.want {
+				t.Errorf("PageURL = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }
 
 // checkOpened fails the test unless the windows opened on wantOpened, in order, each startedURL
@@ -579,13 +663,13 @@ func TestRunAttachesToARealServer(t *testing.T) {
 			return nil, errStartedOnAHeldFolder
 		},
 		Holder: func() (instance.Holder, bool, error) { return instance.Running(env["CONN_DATA"]) },
-		Probe: func(ctx context.Context, url string) error {
+		Probe: func(ctx context.Context, url string, key secret.Secret) error {
 			probes++
 			if probes == 2 {
 				defer close(checked)
 			}
 
-			return get(ctx, url+"/")
+			return get(ctx, url+"/api/health", key)
 		},
 		Open: func(url string) { opened <- url },
 		Fail: func(message string) { t.Errorf("a window was told: %s", message) },
@@ -605,8 +689,8 @@ func TestRunAttachesToARealServer(t *testing.T) {
 
 	go func() { result <- desk.Run(ctx, deps) }()
 
-	if url := <-opened; url != owner.URL {
-		t.Errorf("the window opened on %q, want the owner's %q", url, owner.URL)
+	if page := <-opened; page != desk.PageURL(owner.URL, owner.Secret) {
+		t.Errorf("the window opened on %q, want the owner's page with its secret", page)
 	}
 
 	<-checked
@@ -621,17 +705,21 @@ func TestRunAttachesToARealServer(t *testing.T) {
 		t.Errorf("Start was called %d times on a held folder, want 0", starts)
 	}
 
-	err = get(t.Context(), owner.URL+"/")
+	err = get(t.Context(), owner.URL+"/", secret.Secret{})
 	if err != nil {
 		t.Errorf("the owner does not answer after the window went: %v", err)
 	}
 }
 
-// get is one GET that succeeds on a 200.
-func get(ctx context.Context, url string) error {
+// get is one GET, with key when it is not zero, that succeeds on a 200.
+func get(ctx context.Context, url string, key secret.Secret) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("building the request: %w", err)
+	}
+
+	if !key.IsZero() {
+		request.Header.Set(secret.Header, key.Authorization())
 	}
 
 	response, err := http.DefaultClient.Do(request)

@@ -1,5 +1,6 @@
 // The theme the page wears. The server's list is the one source of themes; Default is compiled in, so the first
 // paint and any fetch failure still have a look. DOM and storage work is in apply.ts and storage.ts.
+import { api } from '../api.ts'
 import defaultTheme from '../../../themes/default/theme.json'
 import { browserEffectsHost } from '../../effects/browser.ts'
 import type { EffectsHost } from '../../effects/lib/host.ts'
@@ -10,7 +11,7 @@ import { readAccepted, remember } from './consent.ts'
 import { fallbackCss } from './css.ts'
 import { pick, resolveTheme } from './resolve.ts'
 import type { Resolved } from './resolve.ts'
-import { FALLBACK_ID, readChoice, readPin, removeCache, withPin, writeCache, writeChoice } from './storage.ts'
+import { FALLBACK_ID, readCache, readChoice, readPin, removeCache, SHEET_CHARS_MAX, withPin, writeCache, writeChoice } from './storage.ts'
 import type { Choice, Pin } from './storage.ts'
 import type { ModeSetting, ThemeEntry, ThemeManifest } from './types.ts'
 
@@ -57,6 +58,48 @@ let dom: Dom | null = null
 let effects: EffectsHost | null = null
 let started = false
 
+// The themes' own stylesheets read so far, by address (each holds its version, so a changed stylesheet is a new address).
+// At most SHEETS_MAX are kept: the one on screen and a few the person tried; the rest are read again when picked.
+const SHEETS_MAX = 8
+const sheets = new Map<string, string>()
+const reading = new Set<string>()
+
+function keepSheet(href: string, text: string) {
+  sheets.delete(href)
+  sheets.set(href, text)
+  for (const old of sheets.keys()) {
+    if (sheets.size <= SHEETS_MAX) break
+    sheets.delete(old)
+  }
+}
+
+// The stylesheet at href if it has been read; otherwise null now, and a read that applies it when it arrives (if it is still
+// the one wanted). Read through api() because it is an /api route, which needs the secret.
+function sheetFor(href: string | null): string | null {
+  if (href === null) return null
+  const known = sheets.get(href)
+  if (known !== undefined) return known
+  void readSheet(href)
+  return null
+}
+
+async function readSheet(href: string) {
+  if (reading.has(href)) return
+  reading.add(href)
+  try {
+    const res = await api(href, { cache: 'no-store' })
+    if (!res.ok) return
+    const text = await res.text()
+    if (text.length > SHEET_CHARS_MAX) return
+    keepSheet(href, text)
+    if (theme.resolved.cssUrl === href) reapply()
+  } catch {
+    // the theme paints without its own rules; the next apply reads it again
+  } finally {
+    reading.delete(href)
+  }
+}
+
 // The effects follow the look on screen (the pin included) and the choice's own switch. Auto means on unless the OS asks for less motion.
 // The same decision marks the root data-fx, which every theme's CSS motion keys off, so the two never disagree.
 function syncEffects(r: Resolved) {
@@ -72,10 +115,11 @@ function reapply() {
   const r = resolveNow(theme.list, theme.choice)
   theme.resolved = r
   if (!dom || (!theme.ready && effective(theme.choice).id !== FALLBACK_ID)) return
-  applyResolved(dom, r)
+  const sheet = sheetFor(r.cssUrl)
+  applyResolved(dom, r, sheet)
   syncEffects(r)
   // the id is the one in data-theme, so a stylesheet is never cached under another theme's name
-  writeCache(store(), r.entry.id, cacheEntryOf(r))
+  writeCache(store(), r.entry.id, cacheEntryOf(r, sheet))
 }
 
 function change(next: Choice | null) {
@@ -101,7 +145,7 @@ export function refreshThemes(): Promise<void> {
 async function load() {
   let list: ThemeEntry[]
   try {
-    const res = await fetch('/api/themes', { cache: 'no-store' })
+    const res = await api('/api/themes', { cache: 'no-store' })
     if (!res.ok) throw new Error(`the server answered ${res.status}`)
     const body: unknown = await res.json()
     if (!Array.isArray(body)) throw new Error('the list was not a list')
@@ -135,6 +179,9 @@ export function initTheme(deps: { effects?: EffectsHost } = {}): void {
   } catch {
     setPin(null)
   }
+  // the stylesheet the boot script painted from the cache is the one the app applies first, not read again
+  const cached = readCache(store(), effective(theme.choice).id)
+  if (cached?.cssUrl && cached.sheet !== null) keepSheet(cached.cssUrl, cached.sheet)
   dom = domFor(document as unknown as Parameters<typeof domFor>[0])
   installFallback(document as unknown as Parameters<typeof installFallback>[0], fallbackCss(DEFAULT))
   try {

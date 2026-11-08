@@ -14,6 +14,10 @@ const (
 	RepliesPerRead = 50
 	// RepliesFileBytesMax is the largest file that is read at all.
 	RepliesFileBytesMax = 256 * 1024
+	// ConnFolder is the worktree's folder of Conn's own files.
+	ConnFolder = ".conn"
+	// RepliesFile is the file in ConnFolder a Self-Review session writes its replies to.
+	RepliesFile = "replies.json"
 )
 
 // Accepted is an entry of the file that may become a proposal.

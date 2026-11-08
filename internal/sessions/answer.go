@@ -35,17 +35,29 @@ func (s *store) answerStart(pid string, body AnswerBody) (sendPlan, *Reply) {
 		return refuse(failure(http.StatusNotFound, textNoSession))
 	}
 
+	message, refused := answerMessage(body)
+	if refused != nil {
+		return sendPlan{}, refused
+	}
+
+	return s.answerTarget(pid, session, message)
+}
+
+// answerMessage is the text an answer would type ("" for a choice), or why the body is refused
+// before anything is looked up.
+func answerMessage(body AnswerBody) (string, *Reply) {
 	askID, named := body.AskID.(string)
 	if askID == "" {
 		named = false
 	}
 
 	if !named {
-		return refuse(failure(http.StatusBadRequest, "askId must name the prompt that was shown"))
+		return refuseText(failure(http.StatusBadRequest,
+			"askId must name the prompt that was shown"))
 	}
 
 	if body.HasChoice == body.HasText {
-		return refuse(failure(http.StatusBadRequest, "send either a choice or a text"))
+		return refuseText(failure(http.StatusBadRequest, "send either a choice or a text"))
 	}
 
 	message := ""
@@ -53,37 +65,41 @@ func (s *store) answerStart(pid string, body AnswerBody) (sendPlan, *Reply) {
 	if body.HasChoice {
 		choice, isText := body.Choice.(string)
 		if !isText {
-			return refuse(failure(http.StatusBadRequest, textNotAChoice))
+			return refuseText(failure(http.StatusBadRequest, textNotAChoice))
 		}
 
 		if !keyPattern.MatchString(choice) {
-			return refuse(failure(http.StatusBadRequest, textNotAChoice))
+			return refuseText(failure(http.StatusBadRequest, textNotAChoice))
 		}
 	} else {
 		checked, refused := replyText(body.Text)
 		if refused != nil {
-			return sendPlan{}, refused
+			return "", refused
 		}
 
 		message = checked
 	}
 
-	return s.answerTarget(pid, session, message)
+	return message, nil
 }
 
-const textNotAChoice = "choice must be the key of one of the prompt's options"
+const (
+	textNotAChoice = "choice must be the key of one of the prompt's options"
+	textNotWaiting = "the session is not waiting on a prompt, so nothing was sent"
+)
 
 func refuse(reply Reply) (sendPlan, *Reply) { return sendPlan{}, &reply }
+
+func refuseText(reply Reply) (string, *Reply) { return "", &reply }
 
 // answerTarget is the rest of answerStart: the session must be waiting, in a cmux surface, and
 // not already being sent to.
 func (s *store) answerTarget(pid string, session *Session, message string) (sendPlan, *Reply) {
 	if session.reg.Status != regWaiting {
-		return refuse(conflictAsk("the session is not waiting on a prompt, so nothing was sent",
-			nil))
+		return refuse(conflictAsk(textNotWaiting, nil))
 	}
 
-	target := session.cmuxTarget(s.procs, s.deps.Env)
+	target := s.cmuxOf(session)
 	if target == nil {
 		return refuse(failure(http.StatusConflict, "this session is not running in a cmux "+
 			"workspace, so there is no terminal to answer in"))
@@ -101,6 +117,7 @@ func (s *store) answerTarget(pid string, session *Session, message string) (send
 	return sendPlan{
 		pid: session.reg.PID, key: pid, target: *target, message: message, session: session,
 		stamp: statusStamp(session.reg), shared: s.sharesWorkspace(pid, target.Workspace, true),
+		hosted: "", inputs: 0,
 	}, nil
 }
 
@@ -154,6 +171,10 @@ func (s *store) readAgain(plan sendPlan, screen string, stamp, now float64) *ask
 	session := plan.session
 	read := s.screenAsk(plan.key, session, screen, stamp)
 
+	if plan.hosted != "" {
+		read = s.keepAnswered(plan.key, session, stamp, withInputs(read, plan.inputs))
+	}
+
 	if s.sessions[plan.key] == session {
 		if session.reg.Status == regWaiting {
 			if stamp == plan.stamp {
@@ -162,9 +183,12 @@ func (s *store) readAgain(plan sendPlan, screen string, stamp, now float64) *ask
 		}
 	}
 
+	// A hosted session has a terminal of its own: it shares no cmux workspace.
 	shared := plan.shared
-	if !shared {
-		shared = s.sharesWorkspace(plan.key, plan.target.Workspace, false)
+	if plan.hosted == "" {
+		if !shared {
+			shared = s.sharesWorkspace(plan.key, plan.target.Workspace, false)
+		}
 	}
 
 	return s.keptSince(plan.key, session, stamp, s.askFor(plan.key, session, read, &shared))
@@ -177,11 +201,17 @@ func (s *store) samePrompt(plan sendPlan, shownAsk *ask.Ask, stamp float64, askI
 	session := plan.session
 
 	switch {
-	case s.sessions[plan.key] != session, session.reg.Status != regWaiting, stamp != plan.stamp:
+	case s.sessions[plan.key] != session:
 		return textMovedOn
-	case shownAsk == nil, shownAsk.ID != askID:
+	case session.reg.Status != regWaiting:
+		return textMovedOn
+	case stamp != plan.stamp:
+		return textMovedOn
+	case shownAsk == nil:
 		return textNotShown
-	case s.tombstone(plan.key, session, stamp) == shownAsk.ID:
+	case shownAsk.ID != askID:
+		return textNotShown
+	case s.justAnswered(plan.key, session, stamp, shownAsk.ID):
 		return "this prompt was just answered and the terminal has not moved on yet, " +
 			"so nothing was sent"
 	}
@@ -285,6 +315,14 @@ func (s *store) choiceSend(found *ask.Ask, body AnswerBody,
 func (s *store) answeredAt(plan sendPlan, askID string) {
 	s.answered[plan.key] = answeredPrompt{
 		sessionID: plan.session.reg.SessionID, stamp: statusStamp(plan.session.reg), id: askID,
+	}
+}
+
+// forgetAnswer drops the record of the prompt answered as askID, when nothing of the answer was
+// typed after all.
+func (s *store) forgetAnswer(plan sendPlan, askID string) {
+	if s.answered[plan.key].id == askID {
+		delete(s.answered, plan.key)
 	}
 }
 

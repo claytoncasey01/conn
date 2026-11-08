@@ -11,12 +11,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/argv"
 	"github.com/claytoncasey01/conn/internal/claude"
-	"github.com/claytoncasey01/conn/internal/cmux"
+	"github.com/claytoncasey01/conn/internal/drysession"
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/origin"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/settings"
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
@@ -50,6 +53,14 @@ type world struct {
 	sessionsIn map[string]*openwork.Found
 	// onReply runs as text is typed into a session, before it is taken; nil does nothing.
 	onReply func()
+	// dryRunning says whether a hosted session the fake opened still runs.
+	dryRunning bool
+	// dryOpenGate, when set, holds every dry session's open until it is closed.
+	dryOpenGate chan struct{}
+	// dryOpenFails makes every dry session's open fail.
+	dryOpenFails bool
+	// dryOpenNoID makes a dry session's open succeed with no hosted id.
+	dryOpenNoID bool
 }
 
 type worldOpts struct {
@@ -159,10 +170,17 @@ func (w *world) deps(opts worldOpts) openwork.Deps {
 			return clone.Path, found
 		},
 		SeenRepos: func() []string { return opts.seen },
-		OriginOf:  reader.Of, Sh: w.fakeSh, Helper: w.fakeHelper,
+		OriginOf:  reader.Of, Sh: w.fakeSh, ShInput: w.fakeShInput, Helper: w.fakeHelper,
 		FetchSprint: w.fakeFetch, Transition: w.fakeTransition, Open: w.fakeOpen,
+		Claude: "claude",
 		Record: func(name string, ok bool, detail string) {
 			w.call("record", name, ok, detail)
+		},
+		HostedRunning: func(string) bool {
+			w.mu.Lock()
+			defer w.mu.Unlock()
+
+			return w.dryRunning
 		},
 		FindSession: func(name, cwd string) *openwork.Found {
 			w.call("findSession", name, cwd)
@@ -313,6 +331,16 @@ func (w *world) fakeSh(_ context.Context, name string, args []string, dir string
 	return "", nil
 }
 
+// fakeShInput is fakeSh that also records what was written to the command's standard input.
+func (w *world) fakeShInput(ctx context.Context, name string, args []string, dir, input string,
+	timeout time.Duration,
+) (string, error) {
+	out, err := w.fakeSh(ctx, name, args, dir, timeout)
+	w.call("stdin", input)
+
+	return out, err
+}
+
 type fakeError string
 
 func (e fakeError) Error() string { return string(e) }
@@ -396,22 +424,58 @@ func (w *world) fakeFetch(ctx context.Context, hooks openwork.Hooks) (jira.Sprin
 	return jira.Sprint{}, fakeError("cancelled")
 }
 
-func (w *world) fakeOpen(_ context.Context, name, cwd, command string) cmux.Opened {
-	w.call("cmux", name, cwd, command)
+// fakeOpen opens sessions as cmux does, where the recorded runs opened them: it records the
+// session's name, folder and one shell line, and fails as cmux does when cmuxFails is set.
+func (w *world) fakeOpen(_ context.Context, spec pty.Spec) launch.Opened {
+	if spec.Argv[0] == drysession.Program {
+		w.call("dry-session", spec.Name, spec.Dir, argv.ShellLine(spec.Argv))
 
-	failing := w.cmuxFails
-	if w.cmuxFailsIn != "" {
-		failing = w.cmuxFailsIn == cwd
-	}
+		w.mu.Lock()
+		gate := w.dryOpenGate
+		failing := w.dryOpenFails
+		hostedID := pty.ID("0123456789abcdef0123456789abcdef")
 
-	if failing {
-		return cmux.Opened{
-			OK: false, Error: "cmux is not running",
-			ManualCommand: "cd '" + cwd + "' && " + command,
+		if w.dryOpenNoID {
+			hostedID = ""
+		}
+		w.mu.Unlock()
+
+		if gate != nil {
+			<-gate
+		}
+
+		if failing {
+			return launch.Opened{
+				OK: false, Where: settings.WhereInside, HostedID: "", Place: "inside Conn",
+				Tried: "inside Conn", Error: "the host is full", ManualCommand: "",
+			}
+		}
+
+		return launch.Opened{
+			OK: true, Where: settings.WhereInside, HostedID: hostedID,
+			Place: "inside Conn", Tried: "", Error: "", ManualCommand: "",
 		}
 	}
 
-	return cmux.Opened{OK: true, Error: "", ManualCommand: ""}
+	w.call("cmux", spec.Name, spec.Dir, argv.ShellLine(spec.Argv))
+
+	failing := w.cmuxFails
+	if w.cmuxFailsIn != "" {
+		failing = w.cmuxFailsIn == spec.Dir
+	}
+
+	if failing {
+		return launch.Opened{
+			OK: false, Where: settings.WhereTerminal, HostedID: "",
+			Place: "in a new cmux workspace", Tried: "a cmux workspace",
+			Error: "cmux is not running", ManualCommand: launch.PasteLine(spec),
+		}
+	}
+
+	return launch.Opened{
+		OK: true, Where: settings.WhereTerminal, HostedID: "", Place: "in a new cmux workspace",
+		Tried: "a cmux workspace", Error: "", ManualCommand: "",
+	}
 }
 
 // files are the run files, by name.

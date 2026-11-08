@@ -29,6 +29,7 @@ function recorder() {
     setAttr: (n, v) => void calls.push(`attr ${n}=${v}`),
     style: (css) => void calls.push(`style ${css === null ? 'null' : css}`),
     link: (id, href) => void calls.push(`link ${id} ${href}`),
+    sheet: (css) => void calls.push(`sheet ${css}`),
   }
   return { calls, dom }
 }
@@ -36,7 +37,7 @@ function recorder() {
 test('applyResolved sets the five attributes and the style text', () => {
   const r = resolve([entry(make())], choice())
   const { calls, dom } = recorder()
-  applyResolved(dom, r)
+  applyResolved(dom, r, null)
   for (const a of ['attr data-theme=matrix', 'attr data-mode=dark', 'attr data-motion=power', 'attr data-led=square', 'attr data-glass=on'])
     assert.ok(calls.includes(a), a)
   assert.ok(calls.includes(`style ${r.css}`))
@@ -45,20 +46,24 @@ test('applyResolved sets the five attributes and the style text', () => {
 
 test('applyResolved links the fonts, and removes the fonts link for a theme with none', () => {
   const withFonts = recorder()
-  applyResolved(withFonts.dom, resolve([entry(make())], choice()))
+  applyResolved(withFonts.dom, resolve([entry(make())], choice()), null)
   assert.ok(withFonts.calls.some((c) => c.startsWith('link conn-theme-fonts https://fonts.googleapis.com/css2?family=Share+Tech+Mono')))
   const none = recorder()
-  applyResolved(none.dom, resolve([entry(make({ fonts: [] }))], choice()))
+  applyResolved(none.dom, resolve([entry(make({ fonts: [] }))], choice()), null)
   assert.ok(none.calls.includes('link conn-theme-fonts null'))
 })
 
-test('applyResolved: a null cssUrl removes the theme.css link, a served one sets it', () => {
+test('applyResolved: a null cssUrl removes the theme\'s stylesheet, a served one applies the text read from it', () => {
   const plain = recorder()
-  applyResolved(plain.dom, resolve([entry(make())], choice()))
-  assert.ok(plain.calls.includes('link conn-theme-css null'))
+  applyResolved(plain.dom, resolve([entry(make())], choice()), 'a{}')
+  assert.ok(plain.calls.includes('sheet null'), 'no cssUrl: nothing, whatever text is passed')
   const served = recorder()
-  applyResolved(served.dom, resolve([entry(make(), 'builtin', 'abc')], choice()))
-  assert.ok(served.calls.includes('link conn-theme-css /api/themes/matrix/theme.css?v=abc'))
+  applyResolved(served.dom, resolve([entry(make(), 'builtin', 'abc')], choice()), 'a{}')
+  assert.ok(served.calls.includes('sheet a{}'))
+  const unread = recorder()
+  applyResolved(unread.dom, resolve([entry(make(), 'builtin', 'abc')], choice()), null)
+  assert.ok(unread.calls.includes('sheet null'), 'not read yet: no other theme\'s rules stay on')
+  assert.ok(!served.calls.some((c) => c.startsWith('link conn-theme-css')), 'never a link: it is an /api route')
 })
 
 test('domFor writes the style with textContent into one #conn-theme and removes a link on null', () => {
@@ -68,116 +73,66 @@ test('domFor writes the style with textContent into one #conn-theme and removes 
   dom.style('b{}')
   assert.deepEqual(doc.order(), ['conn-theme'])
   assert.equal(doc.el('conn-theme')?.textContent, 'b{}')
-  dom.link('conn-theme-css', '/x.css')
-  assert.equal(doc.el('conn-theme-css')?.href, '/x.css')
-  assert.equal(doc.el('conn-theme-css')?.rel, 'stylesheet')
-  dom.link('conn-theme-css', null)
-  assert.equal(doc.el('conn-theme-css'), undefined)
+  dom.link('conn-theme-fonts', '/x.css')
+  assert.equal(doc.el('conn-theme-fonts')?.href, '/x.css')
+  assert.equal(doc.el('conn-theme-fonts')?.rel, 'stylesheet')
+  dom.link('conn-theme-fonts', null)
+  assert.equal(doc.el('conn-theme-fonts'), undefined)
   dom.setAttr('data-theme', 'x')
   assert.equal(doc.attrs['data-theme'], 'x')
 })
 
-test('domFor adopts the link the boot script made: same href is left alone, a new version updates it, null removes it', () => {
+test('domFor adopts the fonts link the boot script made: the same href is left alone, a new one updates it', () => {
   const doc = fakeDoc()
-  const sha = 'a'.repeat(64)
+  const href = 'https://fonts.googleapis.com/css2?family=Share+Tech+Mono:wght@400&display=swap'
   const boot = doc.createElement('link')
-  boot.id = 'conn-theme-css'
+  boot.id = 'conn-theme-fonts'
   boot.rel = 'stylesheet'
-  boot.href = `/api/themes/matrix/theme.css?v=${sha}`
+  boot.href = href
   doc.head.appendChild(boot)
   const writes = doc.hrefWrites(boot)
   const dom = domFor(doc)
-  dom.link('conn-theme-css', `/api/themes/matrix/theme.css?v=${sha}`)
-  assert.deepEqual(doc.order(), ['conn-theme-css'], 'no second link')
+  dom.link('conn-theme-fonts', href)
+  assert.deepEqual(doc.order(), ['conn-theme-fonts'], 'no second link')
   assert.equal(doc.hrefWrites(boot), writes, 'the same href is not written again (a reload of the sheet)')
-  dom.link('conn-theme-css', `/api/themes/matrix/theme.css?v=${'c'.repeat(64)}`)
+  dom.link('conn-theme-fonts', href + 'x')
+  assert.equal(boot.href, href + 'x')
+})
+
+test('domFor: the theme\'s stylesheet is one style element, its text written only when it changed, null removes it', () => {
+  const doc = fakeDoc()
+  const dom = domFor(doc)
+  dom.sheet('a{}')
+  const el = doc.el('conn-theme-css')
+  assert.equal(el?.textContent, 'a{}')
+  assert.equal(el?.href, undefined, 'a style element, never a link')
+  dom.sheet('a{}')
+  dom.sheet('b{}')
   assert.deepEqual(doc.order(), ['conn-theme-css'])
-  assert.equal(doc.el('conn-theme-css')?.href, `/api/themes/matrix/theme.css?v=${'c'.repeat(64)}`)
-  dom.link('conn-theme-css', null)
+  assert.equal(doc.el('conn-theme-css'), el)
+  assert.equal(el?.textContent, 'b{}')
+  dom.sheet(null)
   assert.deepEqual(doc.order(), [])
 })
 
-// In dev the app's own CSS is added to the head by script, after the boot script ran, so the boot link is no longer the last
-// stylesheet and Neon's rules would lose their ties with it. The loader puts an equal link last and drops the early one once it loads.
-function bootedBehind(sha = 'a'.repeat(64)) {
+// In dev the app's own CSS is added to the head by script, after the boot script ran, so the boot style is no longer the last
+// one and Neon's rules would lose their ties with it. The loader moves it to the end.
+test('domFor adopts the style the boot script painted, and keeps it last in the head', () => {
   const doc = fakeDoc()
-  const href = `/api/themes/matrix/theme.css?v=${sha}`
-  const boot = doc.createElement('link')
+  const boot = doc.createElement('style')
   boot.id = 'conn-theme-css'
-  boot.href = href
+  boot.textContent = 'a{}'
   doc.head.appendChild(boot)
   const later = doc.createElement('style')
   later.id = 'app-css'
   doc.head.appendChild(later)
-  return { doc, boot, href }
-}
-
-test('domFor: a boot link with the app\'s CSS after it is replaced by an equal link at the end, once that has loaded', () => {
-  const { doc, boot, href } = bootedBehind()
   const dom = domFor(doc)
-  dom.link('conn-theme-css', href)
-  assert.equal(doc.order().filter((i) => i === 'conn-theme-css').length, 1, 'the early link still serves until the new one has loaded')
-  assert.equal(doc.el('conn-theme-css'), boot)
-  const next = doc.head.lastElementChild as El
-  assert.notEqual(next, boot)
-  assert.equal(next.href, href)
-  assert.equal(next.rel, 'stylesheet')
-  next.onload?.()
+  dom.sheet('a{}')
   assert.deepEqual(doc.order(), ['app-css', 'conn-theme-css'])
-  assert.equal(doc.el('conn-theme-css'), next)
-  // later calls with the same href leave it alone; a new version updates it
-  const writes = doc.hrefWrites(next)
-  dom.link('conn-theme-css', href)
-  assert.equal(doc.hrefWrites(next), writes)
-  dom.link('conn-theme-css', href + 'x')
-  assert.equal(next.href, href + 'x')
-})
-
-test('domFor: the swap is dropped if the href changed or the link was removed before the new one loaded', () => {
-  const a = bootedBehind()
-  const domA = domFor(a.doc)
-  domA.link('conn-theme-css', a.href)
-  const nextA = a.doc.head.lastElementChild as El
-  domA.link('conn-theme-css', a.href + 'v2')
-  nextA.onload?.()
-  assert.deepEqual(a.doc.order(), ['conn-theme-css', 'app-css'], 'the early link stays and holds the new href')
-  assert.equal(a.doc.el('conn-theme-css')?.href, a.href + 'v2')
-  const b = bootedBehind()
-  const domB = domFor(b.doc)
-  domB.link('conn-theme-css', b.href)
-  const nextB = b.doc.head.lastElementChild as El
-  domB.link('conn-theme-css', null)
-  nextB.onload?.()
-  assert.deepEqual(b.doc.order(), ['app-css'], 'a removed link is not brought back')
-})
-
-test('domFor: a boot link that is already last (the built page) is not swapped, and the fonts link never is', () => {
-  const { doc, boot, href } = bootedBehind()
-  doc.el('app-css')?.remove()
-  const fonts = doc.createElement('link')
-  fonts.id = 'conn-theme-fonts'
-  fonts.href = 'https://fonts.googleapis.com/css2?family=Share+Tech+Mono:wght@400&display=swap'
-  doc.head.insertBefore(fonts, boot)
-  const later = doc.createElement('style')
-  later.id = 'later'
-  doc.head.appendChild(later)
-  const dom = domFor(doc)
-  dom.link('conn-theme-fonts', fonts.href as string)
-  assert.deepEqual(doc.order(), ['conn-theme-fonts', 'conn-theme-css', 'later'])
-  doc.el('later')?.remove()
-  dom.link('conn-theme-css', href)
-  assert.deepEqual(doc.order(), ['conn-theme-fonts', 'conn-theme-css'])
-})
-
-test('domFor: a link the loader made itself is never swapped, whatever is added after it', () => {
-  const doc = fakeDoc()
-  const dom = domFor(doc)
-  dom.link('conn-theme-css', '/x.css')
-  const later = doc.createElement('style')
-  later.id = 'later'
-  doc.head.appendChild(later)
-  dom.link('conn-theme-css', '/x.css')
-  assert.deepEqual(doc.order(), ['conn-theme-css', 'later'])
+  assert.equal(doc.el('conn-theme-css'), boot, 'adopted, not made again')
+  dom.link('conn-theme-fonts', 'https://fonts.googleapis.com/css2?family=Share+Tech+Mono:wght@400&display=swap')
+  dom.sheet('a{}')
+  assert.deepEqual(doc.order(), ['app-css', 'conn-theme-fonts', 'conn-theme-css'])
 })
 
 test('(a) the fallback style goes BEFORE the boot script style, so the theme wins at equal specificity', () => {
@@ -200,35 +155,37 @@ test('(a) the fallback style goes BEFORE the boot script style, so the theme win
   assert.equal(fresh.order().filter((i) => i === 'conn-theme-fallback').length, 1)
 })
 
-test('(d) the cache entry is the generated token stylesheet and nothing else', () => {
+test('(d) the cache entry is the generated token stylesheet, the fonts href and the theme\'s own stylesheet', () => {
   const r = resolve([entry(make(), 'builtin', 'abc')], choice())
   assert.ok(r.cssUrl)
-  const c = cacheEntryOf(r)
+  const c = cacheEntryOf(r, 'a{}')
   assert.equal(c.css, r.css)
   assert.deepEqual(c.attrs, r.attrs)
   assert.equal(c.only, 'dark')
-  assert.deepEqual(Object.keys(c).sort(), ['attrs', 'css', 'cssUrl', 'fontsUrl', 'only'])
+  assert.deepEqual(Object.keys(c).sort(), ['attrs', 'css', 'cssUrl', 'fontsUrl', 'only', 'sheet'])
   assert.ok(!c.css.includes('cssUrl') && !c.css.includes('/api/themes'))
 })
 
-test('the cache entry carries the links the app applied: the served stylesheet and the fonts href', () => {
+test('the cache entry carries what the app applied: the stylesheet with its address, and the fonts href', () => {
   const r = resolve([entry(make(), 'builtin', 'a'.repeat(64))], choice())
-  const c = cacheEntryOf(r)
-  assert.equal(c.cssUrl, `/api/themes/matrix/theme.css?v=${'a'.repeat(64)}`)
+  const c = cacheEntryOf(r, 'a{}')
+  assert.deepEqual([c.cssUrl, c.sheet], [`/api/themes/matrix/theme.css?v=${'a'.repeat(64)}`, 'a{}'])
   assert.equal(c.fontsUrl, 'https://fonts.googleapis.com/css2?family=Share+Tech+Mono:wght@400&display=swap')
-  const none = cacheEntryOf(resolve([entry(make({ fonts: [] }))], choice()))
-  assert.deepEqual([none.cssUrl, none.fontsUrl], [null, null])
+  const unread = cacheEntryOf(r, null)
+  assert.deepEqual([unread.cssUrl, unread.sheet], [null, null], 'an address without its text is not kept')
+  const none = cacheEntryOf(resolve([entry(make({ fonts: [] }))], choice()), 'a{}')
+  assert.deepEqual([none.cssUrl, none.sheet, none.fontsUrl], [null, null, null])
 })
 
-test('a stylesheet link is cached only for CSS the app served: a user theme asks first, a gallery theme never has one', () => {
+test('a stylesheet is cached only for CSS the app served: a user theme asks first, a gallery theme never has one', () => {
   const sha = 'b'.repeat(64)
   const user = entry(make(), 'user', sha)
-  assert.equal(cacheEntryOf(resolve([user], choice())).cssUrl, null, 'not accepted yet')
-  assert.equal(cacheEntryOf(resolve([user], choice(), { matrix: 'c'.repeat(64) })).cssUrl, null, 'accepted for other CSS')
-  assert.equal(cacheEntryOf(resolve([user], choice(), { matrix: sha })).cssUrl, `/api/themes/matrix/theme.css?v=${sha}`)
-  // a gallery install is a user folder with .source.json: the server lists no CSS for it, and even a hand-forged entry gets no link
-  assert.equal(cacheEntryOf(resolve([entry(make(), 'gallery')], choice())).cssUrl, null)
-  assert.equal(cacheEntryOf(resolve([entry(make(), 'gallery', sha)], choice(), { matrix: sha })).cssUrl, null)
+  assert.equal(cacheEntryOf(resolve([user], choice()), 'a{}').sheet, null, 'not accepted yet')
+  assert.equal(cacheEntryOf(resolve([user], choice(), { matrix: 'c'.repeat(64) }), 'a{}').sheet, null, 'accepted for other CSS')
+  assert.equal(cacheEntryOf(resolve([user], choice(), { matrix: sha }), 'a{}').cssUrl, `/api/themes/matrix/theme.css?v=${sha}`)
+  // a gallery install is a user folder with .source.json: the server lists no CSS for it, and even a hand-forged entry gets none
+  assert.equal(cacheEntryOf(resolve([entry(make(), 'gallery')], choice()), 'a{}').sheet, null)
+  assert.equal(cacheEntryOf(resolve([entry(make(), 'gallery', sha)], choice(), { matrix: sha }), 'a{}').sheet, null)
 })
 
 test('reconcile: a theme that is no longer listed becomes default and its cache is dropped', () => {

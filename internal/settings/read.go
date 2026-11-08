@@ -99,8 +99,8 @@ func ParseDetailed(raw any, present bool) Loaded {
 }
 
 // readSections reads each section, noting what it drops in the order the page reads them:
-// repos, the github and reviews sections, github's switch, slack, atlassian, then reviews'
-// switches.
+// repos, the github and reviews sections, github's switch, slack, atlassian, reviews' switches,
+// then sessions.
 func readSections(file *js.Object, found *problems) Settings {
 	reposRaw, reposPresent := file.Get("repos")
 	allowed := readRepos(reposRaw, reposPresent, found)
@@ -119,16 +119,21 @@ func readSections(file *js.Object, found *problems) Settings {
 	atlassianRaw, atlassianPresent := file.Get("atlassian")
 	atlassian := readAtlassian(atlassianRaw, atlassianPresent, allowed.Allow, true, found)
 
+	reviewsSection := Reviews{
+		Requested: boolField(reviews, "requested", true, "reviews", found),
+		AllOpen:   boolField(reviews, "allOpen", false, "reviews", found),
+	}
+
+	sessionsRaw, sessionsPresent := file.Get(SectionSessions)
+
 	return Settings{
 		Version:   fileVersion,
 		Repos:     allowed,
 		GitHub:    GitHub{Enabled: githubEnabled},
 		Slack:     slack,
 		Atlassian: atlassian,
-		Reviews: Reviews{
-			Requested: boolField(reviews, "requested", true, "reviews", found),
-			AllOpen:   boolField(reviews, "allOpen", false, "reviews", found),
-		},
+		Reviews:   reviewsSection,
+		Sessions:  readSessions(sessionsRaw, sessionsPresent, found),
 	}
 }
 

@@ -1,8 +1,11 @@
 // Package openwork is Open work: the open sprint's Jira tickets, and the runs started from them.
 // A run makes a worktree beside the clone of each repository it was started in, moves the ticket
 // into progress, has four read-only agents research it (Jira, Confluence, Slack and the code),
-// asks the person what the sources could not settle, opens a build session in cmux, and on OPEN
-// PR pushes the branch and opens the pull request, then follows it until it merges.
+// asks the person what the sources could not settle, opens a build session where the settings
+// say (inside Conn, a terminal app, or a command to paste), and on OPEN PR pushes the branch and
+// opens the pull request, then follows it until it merges. A run may build in several
+// repositories (legs), each in a worktree of its own, with one session that reaches them all or
+// one session per leg.
 //
 // Concurrency: one mutex guards the state. Every stretch of work between two calls to the outside
 // (git, gh, claude, cmux, the session list's reply) runs holding it, and every call to the
@@ -22,9 +25,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/claytoncasey01/conn/internal/cmux"
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/repos"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
@@ -48,7 +51,7 @@ const (
 
 // Found is a live session that belongs to a run: by its name or its folder.
 type Found struct {
-	// ID is the session's id on the Sessions page: its pid, as text.
+	// ID is the session's id on the Sessions page: its pid, as text, or a hosted session's id.
 	ID     string
 	PID    float64
 	Status string
@@ -84,12 +87,20 @@ type Deps struct {
 	// OriginOf is the GitHub repository of a folder ("" for none).
 	OriginOf func(folder string) string
 	Sh       Sh
+	// ShInput runs a command as Sh does, with input on its standard input.
+	ShInput ShInput
 	// Helper starts a research agent's or the synthesis's helper run.
 	Helper jira.Run
 	// FetchSprint reads the sprint; Transition moves a ticket.
 	FetchSprint func(ctx context.Context, hooks Hooks) (jira.Sprint, error)
 	Transition  func(ctx context.Context, key string, move jira.Move) (jira.Moved, error)
-	Open        cmux.Opener
+	// Open starts a session where the settings say sessions open.
+	Open launch.Opener
+	// Claude is the claude program as configured (CONN_CLAUDE): the build session's program.
+	Claude string
+	// HostedRunning says whether a session Conn hosts, by the id its host issued, still runs:
+	// the dry run reuses its running session rather than opening another.
+	HostedRunning func(hostedID string) bool
 	// Record tells the Settings cards how a Jira, Confluence or Slack run went: one short line
 	// of Conn's own, never text from those services.
 	Record func(name string, ok bool, detail string)
@@ -155,6 +166,9 @@ type state struct {
 	// CHECKS was pressed for it.
 	dryPolls map[string]int
 	dryFixed map[string]bool
+	// dryHosted is the hosted id of the dry session each slot last opened, by slotKey, or
+	// dryOpening while one is being opened.
+	dryHosted map[string]string
 }
 
 // New is Work over deps: it makes the runs folder and reads the runs and the cached list.
@@ -172,6 +186,7 @@ func New(ctx context.Context, deps Deps) *Work {
 		polling: map[string]bool{}, pollError: map[string]string{},
 		resumedAt: map[string]float64{}, reviewMoving: map[string]bool{},
 		dryPolls: map[string]int{}, dryFixed: map[string]bool{},
+		dryHosted: map[string]string{},
 	}
 
 	_ = os.MkdirAll(work.runsDir, folderMode)

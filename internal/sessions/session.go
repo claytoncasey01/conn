@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/snapshot"
 	"github.com/claytoncasey01/conn/internal/transcript"
 )
@@ -26,11 +27,8 @@ const (
 	background   = "background"
 )
 
-// cmuxID is one cmux id variable in a process's environment, as `ps eww` prints it.
-var (
-	workspaceVar = regexp.MustCompile(`\bCMUX_WORKSPACE_ID=([0-9A-Fa-f-]{36})\b`)
-	surfaceVar   = regexp.MustCompile(`\bCMUX_SURFACE_ID=([0-9A-Fa-f-]{36})\b`)
-)
+// cmuxID is the shape of a cmux id, the whole of an entry's value.
+var cmuxID = regexp.MustCompile(`^[0-9A-Fa-f-]{36}$`)
 
 // Target is the exact cmux surface a CLI runs in.
 type Target struct {
@@ -67,6 +65,10 @@ type Session struct {
 	teammates []string
 	tagRead   *tagRead
 	claim     *teamClaim
+	// hosted is the id the host issued when this is a session Conn hosts, else "". It is set
+	// from the host's own record of the process, never from what the process prints or holds,
+	// and such a session is never looked up as a cmux one.
+	hosted pty.ID
 }
 
 // tagRead is the team tag read from the head of this session's transcript, at what size, and
@@ -87,7 +89,7 @@ func newSession(reg Reg) *Session {
 	return &Session{
 		reg: reg, lead: transcript.NewLeadState(0), leadTail: nil, leadPath: "", agents: nil,
 		known: map[string]bool{}, firstAt: 0, cmux: nil, looked: false, finder: nil,
-		scannedAt: negativeInfinity(), teammates: nil, tagRead: nil, claim: nil,
+		scannedAt: negativeInfinity(), teammates: nil, tagRead: nil, claim: nil, hosted: "",
 	}
 }
 
@@ -269,7 +271,7 @@ func readMeta(path string) transcript.AgentMeta {
 
 // underCmux is whether the cmux app itself is up the process tree: the process runs in one of
 // its terminals.
-func underCmux(pid float64, procs map[float64]Proc) bool {
+func underCmux(pid float64, procs map[float64]Proc, hosted map[float64]pty.ID) bool {
 	seen := map[float64]bool{}
 
 	for proc, found := procs[pid]; found; proc, found = procs[proc.PPID] {
@@ -281,10 +283,21 @@ func underCmux(pid float64, procs map[float64]Proc) bool {
 			return true
 		}
 
+		// What a hosted session started runs on Conn's terminal, whatever Conn runs under.
+		if _, isHosted := hosted[proc.PPID]; isHosted {
+			return false
+		}
+
 		seen[proc.PPID] = true
 	}
 
 	return false
+}
+
+// cmuxOf is a session's cmux surface (see cmuxTarget), read with this machine's processes and
+// the host's running sessions.
+func (s *store) cmuxOf(session *Session) *Target {
+	return session.cmuxTarget(s.procs, s.deps.Env, s.hosts.byPID)
 }
 
 // cmuxTarget is the exact cmux surface this CLI was started in, from its own environment.
@@ -294,8 +307,13 @@ func underCmux(pid float64, procs map[float64]Proc) bool {
 // no terminal of its own, so the cmux app must also be one of its ancestors. Looked up once;
 // env reads `ps eww -p <pid>`.
 func (s *Session) cmuxTarget(
-	procs map[float64]Proc, env func(pid float64) (string, error),
+	procs map[float64]Proc, env func(pid float64) ([]string, error), hosted map[float64]pty.ID,
 ) *Target {
+	// A hosted session runs on Conn's own terminal: its environment is never read.
+	if s.hosted != "" {
+		return nil
+	}
+
 	if s.looked {
 		return s.cmux
 	}
@@ -306,29 +324,48 @@ func (s *Session) cmuxTarget(
 
 	s.looked = true
 
-	if !underCmux(s.reg.PID, procs) {
+	if !underCmux(s.reg.PID, procs, hosted) {
 		return nil
 	}
 
-	out, err := env(s.reg.PID)
+	environment, err := env(s.reg.PID)
 	if err != nil {
 		return nil
 	}
 
-	workspace := workspaceVar.FindStringSubmatch(out)
-	surface := surfaceVar.FindStringSubmatch(out)
-
-	if workspace == nil {
+	workspace, found := cmuxIDOf(environment, workspaceName)
+	if !found {
 		return nil
 	}
 
-	if surface == nil {
+	surface, found := cmuxIDOf(environment, surfaceName)
+	if !found {
 		return nil
 	}
 
-	s.cmux = &Target{Workspace: workspace[1], Surface: surface[1]}
+	s.cmux = &Target{Workspace: workspace, Surface: surface}
 
 	return s.cmux
+}
+
+// The environment entries that name a cmux pane.
+const (
+	workspaceName = "CMUX_WORKSPACE_ID"
+	surfaceName   = "CMUX_SURFACE_ID"
+)
+
+// cmuxIDOf is the cmux id an environment's entry name holds, whole, and false for none.
+func cmuxIDOf(environment []string, name string) (string, bool) {
+	value, found := environmentValue(environment, name)
+	if !found {
+		return "", false
+	}
+
+	if !cmuxID.MatchString(value) {
+		return "", false
+	}
+
+	return value, true
 }
 
 // findTeammates looks in the lead's project folder for the transcripts of the teams it spawned

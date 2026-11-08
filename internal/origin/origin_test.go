@@ -147,6 +147,24 @@ func TestASubmoduleWithNoCommondir(t *testing.T) {
 	}
 }
 
+// A .git that is a link is not followed: a folder holding one is in no repo of its own, so a
+// link to a clone's .git cannot borrow that clone's origin.
+func TestAGitLinkIsNoRepo(t *testing.T) {
+	t.Parallel()
+
+	target := clone(t, "git@github.com:acme/widgets.git", "")
+	folder := t.TempDir()
+
+	err := os.Symlink(filepath.Join(target, ".git"), filepath.Join(folder, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := origin.NewReader().Of(folder); got != "" {
+		t.Fatalf("got %q, want no repo", got)
+	}
+}
+
 func TestNoRepoAndBadArguments(t *testing.T) {
 	t.Parallel()
 

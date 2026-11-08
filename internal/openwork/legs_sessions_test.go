@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/claytoncasey01/conn/internal/argv"
 	"github.com/claytoncasey01/conn/internal/claude"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/openwork"
@@ -48,6 +49,14 @@ func legJSON(t *testing.T, repo, clone, worktree, extra string) *js.Object {
 func legsWorld(t *testing.T, layout, fields string, legExtras ...string) (*world, legsRun) {
 	t.Helper()
 
+	return legsWorldOf(t, false, layout, fields, legExtras...)
+}
+
+// legsWorldOf is legsWorld, a dry run when dry is set.
+func legsWorldOf(t *testing.T, dry bool, layout, fields string, legExtras ...string,
+) (*world, legsRun) {
+	t.Helper()
+
 	base := realTemp(t)
 	folders := legsRun{clones: []string{}, worktrees: []string{}}
 	legs := make([]any, 0, 2)
@@ -81,7 +90,7 @@ func legsWorld(t *testing.T, layout, fields string, legExtras ...string) (*world
 
 	made := newWorld(t, worldOpts{
 		base: base, settings: twoClones(folders.clones[0], folders.clones[1]),
-		runs: []any{record},
+		runs: []any{record}, dry: dry,
 	})
 
 	return made, folders
@@ -132,17 +141,21 @@ func TestTheResearchOfARunInTwoRepositoriesReadsBothWorktrees(t *testing.T) {
 	same(t, "jira reaches", len(seen["jira"].AddDirs), 0)
 }
 
-// launchLine is the cmux call that starts a build session in worktree; reach are the other
-// worktrees it is given.
+// launchLine is the cmux call that starts a build session in worktree, its arguments as one
+// shell line; reach are the other worktrees it is given, each one --add-dir argument.
 func launchLine(worktree string, reach ...string) string {
-	more := strings.Builder{}
+	words := make([]string, 0, len(reach)*2+11)
+	words = append(words, "claude", "--name", "PROJ-1", "--model", "sonnet",
+		"--append-system-prompt-file", ".conn/delegation.md")
+
 	for _, folder := range reach {
-		more.WriteString(" --add-dir '" + folder + "'")
+		words = append(words, "--add-dir", folder)
 	}
 
-	return "cmux PROJ-1 " + worktree + " claude --name PROJ-1 --model sonnet " +
-		"--append-system-prompt-file .conn/delegation.md" + more.String() + " --permission-mode " +
-		`acceptEdits "Read .conn/brief.md and follow it exactly."`
+	words = append(words, "--permission-mode", "acceptEdits",
+		"--", "Read .conn/brief.md and follow it exactly.")
+
+	return "cmux PROJ-1 " + worktree + " " + argv.ShellLine(words)
 }
 
 // cmuxLines are the cmux calls so far.
@@ -223,7 +236,9 @@ func TestACmuxFailureLeavesTheCommandOnThatSessionOnly(t *testing.T) {
 
 	record := made.record("PROJ-1")
 	same(t, "first", record.Repos[0].ManualCommand, (*string)(nil))
-	same(t, "second", *record.Repos[1].ManualCommand, "cd '"+folders.worktrees[1]+"' && "+
+	same(t, "second", *record.Repos[1].ManualCommand, argv.ShellLine([]string{
+		"cd", folders.worktrees[1],
+	})+" && "+
 		strings.TrimPrefix(launchLine(folders.worktrees[1]), "cmux PROJ-1 "+
 			folders.worktrees[1]+" "))
 	same(t, "log", made.hasLog("Could not open a cmux workspace for acme/gadgets (cmux is not "+
@@ -444,9 +459,11 @@ func TestTheSharedSessionIsResumedReachingEveryWorktree(t *testing.T) {
 
 	made, worktrees := resumable(t, "shared")
 	same(t, "resume", made.work.Resume("PROJ-1", "").Code, 200)
-	same(t, "cmux", made.cmuxLines(), []string{"cmux PROJ-1 " + worktrees[0] + " claude --resume " +
-		sessionUUIDText + " --name PROJ-1 --model sonnet --add-dir '" + worktrees[1] + "' " +
-		"--permission-mode acceptEdits"})
+	same(t, "cmux", made.cmuxLines(), []string{"cmux PROJ-1 " + worktrees[0] + " " +
+		argv.ShellLine([]string{
+			"claude", "--resume", sessionUUIDText, "--name", "PROJ-1", "--model", "sonnet",
+			"--add-dir", worktrees[1], "--permission-mode", "acceptEdits",
+		})})
 }
 
 func TestTheResumeRouteTakesTheRepository(t *testing.T) {
@@ -462,6 +479,27 @@ func TestTheResumeRouteTakesTheRepository(t *testing.T) {
 	reply, err = made.work.Handle(route, body(t, `{"repo":3}`))
 	same(t, "not a name", []any{reply.Code, errorOf(reply), err},
 		[]any{400, "repo must be a repository name", nil})
+}
+
+// dryTwoRepoRunAnswered is a dry world whose PROJ-2 was started in widgets and gadgets, laid out
+// as layout, and whose questions were answered.
+func dryTwoRepoRunAnswered(t *testing.T, layout string) *world {
+	t.Helper()
+
+	base := realTemp(t)
+	made := newWorld(t, worldOpts{
+		base: base, dry: true,
+		settings: twoClones(fakeClone(t, base, "widgets"), fakeClone(t, base, "gadgets")),
+	})
+
+	made.work.Tickets()
+	until(t, "the dry list", func() bool { return len(made.work.Tickets().Tickets) == 6 })
+	same(t, "start", made.work.Start("PROJ-2", body(t, `{"model":"haiku","repos":`+
+		`["acme/widgets","acme/gadgets"],"layout":"`+layout+`"}`)).Code, 200)
+	until(t, "the questions", func() bool { return made.state("PROJ-2") == "asking" })
+	same(t, "answers", made.work.Answer("PROJ-2", body(t, `{"q1":"c1","q2":"c2"}`)).Code, 200)
+
+	return made
 }
 
 func TestTheDryRunTakesATicketInTwoRepositoriesFromStartToItsSessions(t *testing.T) {
@@ -484,20 +522,7 @@ func TestTheDryRunTakesATicketInTwoRepositoriesFromStartToItsSessions(t *testing
 		t.Run(row.layout, func(t *testing.T) {
 			t.Parallel()
 
-			base := realTemp(t)
-			made := newWorld(t, worldOpts{
-				base: base, dry: true,
-				settings: twoClones(fakeClone(t, base, "widgets"), fakeClone(t, base, "gadgets")),
-			})
-
-			made.work.Tickets()
-			until(t, "the dry list", func() bool { return len(made.work.Tickets().Tickets) == 6 })
-			same(t, "start", made.work.Start("PROJ-2", body(t, `{"model":"haiku","repos":`+
-				`["acme/widgets","acme/gadgets"],"layout":"`+row.layout+`"}`)).Code, 200)
-			until(t, "the questions", func() bool { return made.state("PROJ-2") == "asking" })
-			same(t, "answers", made.work.Answer("PROJ-2",
-				body(t, `{"q1":"c1","q2":"c2"}`)).Code, 200)
-
+			made := dryTwoRepoRunAnswered(t, row.layout)
 			record := made.record("PROJ-2")
 			same(t, "layout", record.Layout, row.layout)
 
@@ -512,6 +537,15 @@ func TestTheDryRunTakesATicketInTwoRepositoriesFromStartToItsSessions(t *testing
 				same(t, line, slices.ContainsFunc(record.Log, func(each openwork.LogLine) bool {
 					return each.Text == line
 				}), true)
+			}
+
+			// Inside Conn, each session is the dry run's scripted one, in its own worktree.
+			made.work.Settle()
+
+			for index, want := range row.sessions {
+				prefix := "dry-session PROJ-2 " + record.Repos[index].Worktree + " "
+				same(t, "a dry session in "+record.Repos[index].Repo,
+					made.countPrefix(prefix) == 1, want)
 			}
 
 			same(t, "resume", made.work.Resume("PROJ-2", "").Code, 200)

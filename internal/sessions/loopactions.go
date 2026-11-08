@@ -14,6 +14,10 @@ import (
 
 // Stop sends SIGTERM to a session (see store.stop).
 func (l *Loop) Stop(ctx context.Context, pid string, force bool) Reply {
+	if sessionID, hosted := hostedID(pid); hosted {
+		return l.stopHosted(ctx, sessionID, force)
+	}
+
 	reply := failure(http.StatusServiceUnavailable, ErrStopped.Error())
 
 	_ = l.do(ctx, func(state *store) { reply = state.stop(pid, force, state.now()) })
@@ -25,6 +29,10 @@ func (l *Loop) Stop(ctx context.Context, pid string, force bool) Reply {
 // surface, only into an empty prompt, and never text the prompt would read as a shell escape or
 // slash command.
 func (l *Loop) Reply(ctx context.Context, pid string, text any) Reply {
+	if sessionID, hosted := hostedID(pid); hosted {
+		return l.replyHosted(ctx, sessionID, text)
+	}
+
 	ctx = context.WithoutCancel(ctx)
 
 	var (
@@ -77,6 +85,10 @@ func (l *Loop) finishSend(ctx context.Context, pid string) {
 // send and must still parse, with the session's current status stamp and the shared-workspace
 // downgrade, to that same prompt. A refusal returns the ask as it is now, and nothing is retried.
 func (l *Loop) Answer(ctx context.Context, pid string, body AnswerBody) Reply {
+	if sessionID, hosted := hostedID(pid); hosted {
+		return l.answerHosted(ctx, sessionID, body)
+	}
+
 	ctx = context.WithoutCancel(ctx)
 
 	var (
@@ -139,6 +151,10 @@ func (l *Loop) Answer(ctx context.Context, pid string, body AnswerBody) Reply {
 // OpenTerminal makes the session's cmux workspace the one in front, so its terminal can be
 // answered by hand. Nothing is typed.
 func (l *Loop) OpenTerminal(ctx context.Context, pid string) Reply {
+	if sessionID, hosted := hostedID(pid); hosted {
+		return l.openHosted(ctx, sessionID)
+	}
+
 	ctx = context.WithoutCancel(ctx)
 
 	var target *Target
@@ -151,7 +167,7 @@ func (l *Loop) OpenTerminal(ctx context.Context, pid string) Reply {
 			return
 		}
 
-		target = session.cmuxTarget(state.procs, state.deps.Env)
+		target = state.cmuxOf(session)
 		if target == nil {
 			reply = failure(http.StatusConflict, "this session is not running in a cmux "+
 				"workspace, so there is no terminal to open")
@@ -171,8 +187,13 @@ func (l *Loop) OpenTerminal(ctx context.Context, pid string) Reply {
 }
 
 // InputState is what a session's input box shows right now (ask.PromptEmpty, PromptDraft or
-// PromptNone), or "unknown" whenever it cannot be told for certain.
+// PromptNone), or "unknown" whenever it cannot be told for certain. A hosted session's is read
+// from the host's screen.
 func (l *Loop) InputState(ctx context.Context, pid string) string {
+	if sessionID, hosted := hostedID(pid); hosted {
+		return l.hostedInputState(sessionID)
+	}
+
 	var plan sendPlan
 
 	found := false
@@ -183,14 +204,14 @@ func (l *Loop) InputState(ctx context.Context, pid string) string {
 			return
 		}
 
-		target := session.cmuxTarget(state.procs, state.deps.Env)
+		target := state.cmuxOf(session)
 		if target == nil {
 			return
 		}
 
 		plan = sendPlan{
 			pid: session.reg.PID, key: pid, target: *target, message: "", session: session,
-			stamp: 0, shared: false,
+			stamp: 0, shared: false, hosted: "", inputs: 0,
 		}
 		found = true
 	})
@@ -229,10 +250,15 @@ func (s *store) readPrompt(ctx context.Context, plan sendPlan) (string, bool) {
 	return ask.PromptState(read.Stdout), true
 }
 
-// CloseWorkspace closes a session's whole cmux workspace. cmux refuses a workspace with a
+// CloseWorkspace closes a session's whole cmux workspace, or stops a hosted session through the
+// host (closeHosted). cmux refuses a workspace with a
 // running process, so this uses --force, which ends every process in it: another live session in
 // the same workspace is a refusal. The screen is read again right before the close.
 func (l *Loop) CloseWorkspace(ctx context.Context, pid string) Reply {
+	if sessionID, hosted := hostedID(pid); hosted {
+		return l.closeHosted(ctx, sessionID)
+	}
+
 	ctx = context.WithoutCancel(ctx)
 
 	var plan sendPlan
@@ -284,7 +310,7 @@ func (s *store) closeStart(pid string) (sendPlan, Reply, bool) {
 		return sendPlan{}, failure(http.StatusNotFound, textNoSession), false
 	}
 
-	target := session.cmuxTarget(s.procs, s.deps.Env)
+	target := s.cmuxOf(session)
 	if target == nil {
 		return sendPlan{}, failure(http.StatusConflict, "this session is not running in a cmux "+
 			"workspace, so there is nothing to close"), false
@@ -304,7 +330,7 @@ func (s *store) closeStart(pid string) (sendPlan, Reply, bool) {
 
 	return sendPlan{
 		pid: session.reg.PID, key: pid, target: *target, message: "", session: session,
-		stamp: 0, shared: false,
+		stamp: 0, shared: false, hosted: "", inputs: 0,
 	}, done(), true
 }
 

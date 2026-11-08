@@ -1,16 +1,22 @@
 package openwork
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"math"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
@@ -31,6 +37,9 @@ const (
 	prClosed     = "closed"
 	githubOff    = "GitHub is off. Enable it in Settings."
 	prBodyFile   = "pr-body.md"
+	// prBodyBytesMax bounds the PR body read from the session's file: GitHub takes 65,536
+	// characters.
+	prBodyBytesMax = 64 << 10
 )
 
 var (
@@ -151,18 +160,19 @@ func (w *Work) prRefusal(repo string) string {
 	return ""
 }
 
-// prBody is the PR body file: the session's own, or one made from the commit subjects.
+// prBody is the PR body: the session's own (.conn/pr-body.md, read with no link followed), or
+// one made from the commit subjects, kept there too. It is text: gh is never given a path in the
+// worktree, where a repository can commit a link to a secret.
 func (w *Work) prBody(step *task, leg *Leg) (string, error) {
 	bodyFile := filepath.Join(leg.Worktree, connFolder, prBodyFile)
-	if exists(bodyFile) {
-		return bodyFile, nil
+
+	body, found, err := readPRBody(bodyFile)
+	if err != nil {
+		return "", err
 	}
 
-	// A leg with no session of its own (shared layout, not the lead) has no brief, so no .conn/
-	// yet; the launch excluded it from git in every worktree.
-	err := os.MkdirAll(filepath.Dir(bodyFile), folderMode)
-	if err != nil {
-		return "", nodeError{err: err}
+	if found {
+		return body, nil
 	}
 
 	var subjects string
@@ -178,15 +188,123 @@ func (w *Work) prBody(step *task, leg *Leg) (string, error) {
 		return "", err
 	}
 
-	body := "## What changed and why\n\n" + subjects + "\n\n## How it was verified\n\n" +
-		"Not recorded: the session did not write .conn/pr-body.md.\n"
+	body = fallbackBody(subjects)
 
-	err = os.WriteFile(bodyFile, []byte(body), fileMode)
+	// A leg with no session of its own (shared layout, not the lead) has no brief, so no .conn/
+	// yet; the launch excluded it from git in every worktree. The write makes the folder, only
+	// one of the person's own, and never follows a link.
+	err = reviews.WriteLaunchFile(bodyFile, body, false)
 	if err != nil {
 		return "", nodeError{err: err}
 	}
 
-	return bodyFile, nil
+	return body, nil
+}
+
+// readPRBody is the text of a PR body file, and whether there is one: only a regular file, in a
+// .conn folder of the person's own, opened through that folder with no link followed at either
+// (reviews.OpenInOwnFolder), and at most prBodyBytesMax.
+func readPRBody(path string) (string, bool, error) {
+	file, err := reviews.OpenInOwnFolder(filepath.Dir(path), filepath.Base(path))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", false, nil
+	}
+
+	if errors.Is(err, reviews.ErrNotOwnFolder) {
+		return "", false, nodeError{err: err}
+	}
+
+	if err != nil {
+		return "", false, textError(path + " is not a file the PR body can be read from (a " +
+			"link is never followed): remove it, then press OPEN PR again")
+	}
+
+	defer func() { _ = file.Close() }()
+
+	info, err := file.Stat()
+	if err != nil {
+		return "", false, nodeError{err: err}
+	}
+
+	if !info.Mode().IsRegular() {
+		return "", false, textError(path + " is not a regular file: remove it, then press " +
+			"OPEN PR again")
+	}
+
+	data, err := io.ReadAll(io.LimitReader(file, prBodyBytesMax+1))
+	if err != nil {
+		return "", false, nodeError{err: err}
+	}
+
+	err = checkPRBody(path, data)
+	if err != nil {
+		return "", false, err
+	}
+
+	return string(data), true, nil
+}
+
+// checkPRBody refuses a session's body gh should not be given as it is, saying every reason at
+// once: larger than a pull request body holds, a NUL byte, or bytes that are not UTF-8 (each of
+// which would be sent changed). data is at most prBodyBytesMax plus one byte.
+func checkPRBody(path string, data []byte) error {
+	reasons := []string{}
+
+	if len(data) > prBodyBytesMax {
+		reasons = append(reasons, fmt.Sprintf("is larger than %d bytes, more than a pull "+
+			"request body holds", prBodyBytesMax))
+	}
+
+	if bytes.IndexByte(data, 0) >= 0 {
+		reasons = append(reasons, "holds a NUL byte")
+	}
+
+	if !utf8.Valid(data) {
+		reasons = append(reasons, "is not UTF-8 text")
+	}
+
+	if len(reasons) == 0 {
+		return nil
+	}
+
+	return textError(path + " " + strings.Join(reasons, ", ") + ": fix it, then press OPEN " +
+		"PR again")
+}
+
+// fallbackBodyEnd closes the body made from the commit subjects.
+const fallbackBodyEnd = "\n\n## How it was verified\n\n" +
+	"Not recorded: the session did not write .conn/pr-body.md.\n"
+
+// fallbackBodyStart opens the body made from the commit subjects.
+const fallbackBodyStart = "## What changed and why\n\n"
+
+// fallbackBody is the PR body made from the commit subjects (git log's output): UTF-8 with no
+// NUL byte, and within prBodyBytesMax, the subjects cut at a character to fit.
+func fallbackBody(subjects string) string {
+	clean := strings.ReplaceAll(strings.ToValidUTF8(subjects, "\uFFFD"), "\x00", "")
+	room := prBodyBytesMax - len(fallbackBodyStart) - len(fallbackBodyEnd)
+
+	return fallbackBodyStart + cutAtCharacter(clean, room) + fallbackBodyEnd
+}
+
+// cutAtCharacter is text cut to at most bytesMax bytes, never inside a UTF-8 character. text is
+// valid UTF-8.
+func cutAtCharacter(text string, bytesMax int) string {
+	if len(text) <= bytesMax {
+		return text
+	}
+
+	// A character is at most utf8.UTFMax bytes, so its start is at most that far back.
+	end := bytesMax
+	for range utf8.UTFMax {
+		if utf8.RuneStart(text[end]) {
+			break
+		}
+
+		end--
+	}
+
+	return text[:end]
 }
 
 func (w *Work) commitsAhead(step *task, leg *Leg) (float64, error) {

@@ -4,6 +4,7 @@
   import { ARM_MS, STUCK_MS, begin, isLocked, isStuck, mustScrollFirst, newPanel, onResult, panelView, pendingBody, plainText, pressable, readGate, shownAsk, statusLine, sync, waitedFor } from './ask.ts'
   import { dur } from './format.ts'
   import ReplyBox from './ReplyBox.svelte'
+  import { showTerminal } from './terminalPanel.svelte.ts'
   import type { Ask, SessionDetail } from './types.ts'
 
   /** `session` is the one whose terminal holds the question; `via` is set on a subagent's page, which has no terminal of its own: the page that has the answer. */
@@ -96,6 +97,11 @@
 
   async function terminal() {
     if (sending) return
+    // A hosted session's terminal is Conn's own: its panel opens on this page, and nothing is asked of the server
+    if (session.hosted) {
+      showTerminal(session.id)
+      return
+    }
     sending = true
     st = begin(st)
     const r = await openTerminal(session.id)
@@ -103,7 +109,7 @@
     st = r.ok ? { ...st, opened: true } : { ...st, error: r.error }
   }
 
-  const replyS = $derived({ id: session.id, name: session.name, status: session.status, waitingFor: session.waitingFor, canReply: session.canReply, ask: ask ?? st.last })
+  const replyS = $derived({ id: session.id, name: session.name, status: session.status, waitingFor: session.waitingFor, canReply: session.canReply, hosted: session.hosted, ask: ask ?? st.last })
 </script>
 
 {#if view.view !== 'none'}
@@ -133,7 +139,7 @@
         {/if}
 
         {#if view.view === 'nocmux'}
-          <div class="line">not running in a cmux terminal, so it cannot be answered here</div>
+          <div class="line">not running inside Conn or in a cmux terminal, so it cannot be answered here</div>
         {:else if view.view === 'pending'}
           {#if pending === 'unread'}
             <div class="line dim">The screen has not been read yet.</div>
