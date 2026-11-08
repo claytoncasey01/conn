@@ -33,6 +33,13 @@ type owner struct {
 	links   uint64
 }
 
+// widen is n as a uint64. The link count's type differs by system (16 bits on macOS, 32 or 64 on
+// Linux), so a plain conversion is needless on one and required on another; a type parameter
+// states it once for all of them.
+func widen[Count uint16 | uint32 | uint64](n Count) uint64 {
+	return uint64(n)
+}
+
 // ownerOf reads info's owner facts. A FileInfo without the system's stat is refused: the owner
 // cannot be known.
 func ownerOf(info fs.FileInfo) (owner, error) {
@@ -46,7 +53,7 @@ func ownerOf(info fs.FileInfo) (owner, error) {
 		regular: info.Mode().IsRegular(),
 		uid:     int(stat.Uid),
 		mode:    info.Mode().Perm(),
-		links:   uint64(stat.Nlink),
+		links:   widen(stat.Nlink),
 	}, nil
 }
 
