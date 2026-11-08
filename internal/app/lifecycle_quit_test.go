@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/app"
+	"github.com/claytoncasey01/conn/internal/hosted"
 	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
@@ -72,5 +74,28 @@ func TestALaunchRemovesALeftoverTemporaryRecord(t *testing.T) {
 	_, err := os.Lstat(leftover)
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the leftover is still there: %v", err)
+	}
+}
+
+// With sessions opening in a terminal app, a launch resumes nothing and keeps the record for a
+// launch whose sessions open inside Conn again, which resumes them.
+func TestALaunchWithSessionsElsewhereKeepsTheRecord(t *testing.T) {
+	t.Parallel()
+
+	world := newLifeWorld(t, `,"sessions":{"where":"terminal","resumeOnLaunch":true}`,
+		sessionOne)
+	writeRecords(t, world.data(), world.record(0))
+
+	spawned := newSpawns(world.data())
+	_, quit := launch(t, world, spawned)
+
+	if len(spawned.started()) != 0 {
+		t.Errorf("started %+v with sessions opening elsewhere", spawned.started())
+	}
+
+	quit()
+
+	if !slices.Equal(readRecords(t, world.data()), []hosted.Record{world.record(0)}) {
+		t.Errorf("the record is %+v, want it kept as it was", readRecords(t, world.data()))
 	}
 }

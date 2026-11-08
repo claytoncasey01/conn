@@ -263,9 +263,10 @@ func resumeAtLaunch(ctx context.Context, plan launchResume) hosted.Outcome {
 		_, _ = fmt.Fprintf(plan.stderr, "conn: no hosted session is resumed: %v\n", plan.readErr)
 	}
 
-	if !resumeWanted(plan.sessions) {
+	kept, wanted := resumeKept(plan)
+	if !wanted {
 		return hosted.Outcome{
-			Resumed: []hosted.Resumed{}, Skipped: len(plan.records), Unreached: nil,
+			Resumed: []hosted.Resumed{}, Skipped: len(plan.records), Unreached: kept,
 		}
 	}
 
@@ -293,14 +294,31 @@ func resumeAtLaunch(ctx context.Context, plan launchResume) hosted.Outcome {
 	return outcome
 }
 
-// resumeWanted is whether a launch resumes the recorded sessions: only when Settings resumes on
-// launch, and only while sessions open inside Conn, since the record is of sessions Conn hosted.
-func resumeWanted(current settings.Sessions) bool {
-	if !current.ResumeOnLaunch {
-		return false
+// resumeKept is whether a launch resumes the recorded sessions, and when it does not, the records
+// it keeps for a later launch. Resume on launch off drops them, as the setting asks. Sessions
+// opening elsewhere than inside Conn keep them all, untouched, for when they open inside again:
+// that setting is easily switched back, and each record is checked again when it is resumed.
+// What is kept or dropped is said on stderr.
+func resumeKept(plan launchResume) ([]hosted.Record, bool) {
+	if !plan.sessions.ResumeOnLaunch {
+		if len(plan.records) > 0 {
+			_, _ = fmt.Fprintf(plan.stderr,
+				"conn: %d hosted sessions dropped: resume on launch is off\n", len(plan.records))
+		}
+
+		return nil, false
 	}
 
-	return current.Where == settings.WhereInside
+	if plan.sessions.Where != settings.WhereInside {
+		if len(plan.records) > 0 {
+			_, _ = fmt.Fprintf(plan.stderr, "conn: %d hosted sessions kept; they resume when "+
+				"sessions open inside Conn again\n", len(plan.records))
+		}
+
+		return plan.records, false
+	}
+
+	return nil, true
 }
 
 // insideOpener opens every session inside Conn on host, whatever the settings say: a resume never
