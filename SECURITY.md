@@ -216,6 +216,12 @@ its owner, which rebuilds the command from its own state, as its own button woul
   session's process group, and a stop does not reach it. Claude Code runs a background command in
   a group of its own and ends it when it is stopped politely; if it is killed instead, such a
   command may outlive it.
+- **Zombies nobody reaps.** A session ends only once nothing is left in its process group. A
+  child that outlives the program is reparented to PID 1, which normally reaps it at once. Under
+  a PID 1 that never reaps (a container started without `--init`), it stays in the group as a
+  zombie for good. That session then never ends and keeps one of the 12 places until Conn
+  restarts. Nothing is signalled wrongly. On Linux, run Conn under an init that reaps orphans:
+  `docker run --init`, a systemd service, or a normal login session.
 - **Two identical prompts.** Two prompts that look exactly alike, queued with no change of status
   between them, get the same id, so a click meant for the first can answer the second. What is
   approved is exactly what was shown, once.

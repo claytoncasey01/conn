@@ -56,7 +56,7 @@ It listens on http://127.0.0.1:7777 and prints the page's address with a secret 
 What you need besides the binary:
 
 - Claude Code, with `claude` on your PATH. History summaries, Reviews scans and Open work run `claude -p`.
-- macOS is the platform Conn is used on: the server calls `ps`. The Linux builds are published and untried.
+- macOS is the platform Conn is used on: the server calls `ps`. The Linux builds are published and untried. On Linux, run Conn under an init that reaps orphaned processes (`docker run --init`, a systemd service, a normal login session): under a PID 1 that does not, a session whose children outlive it can keep its place until Conn restarts (see [SECURITY.md](SECURITY.md#sessions-inside-conn)).
 
 Optional:
 
