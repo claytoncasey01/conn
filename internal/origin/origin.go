@@ -402,11 +402,12 @@ func configPath(folder string) (string, bool) {
 	return "", false
 }
 
-// configAt looks for a .git directly in folder.
+// configAt looks for a .git directly in folder: a folder or a pointer file, never a link, so a link
+// to another clone's .git cannot lend folder that clone's repository.
 func configAt(folder string) (string, step) {
 	dotGit := filepath.Join(folder, ".git")
 
-	info, err := os.Stat(dotGit)
+	info, err := os.Lstat(dotGit)
 	if err != nil {
 		return "", stepUp
 	}

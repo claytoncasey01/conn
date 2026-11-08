@@ -146,7 +146,9 @@ func launchedAs(launch *Launch, worktree, name, sessionID string) bool {
 }
 
 // ownWorktree is whether worktree is <root>/<folder>/<clone name>, written plainly, with root,
-// the folder and the worktree each a real folder of the person's own, and a .git in it.
+// the folder and the worktree each a real folder of the person's own, and a .git in it that is a
+// folder or a file (a worktree's pointer), never a link: a link could lend it another clone's
+// repository.
 func ownWorktree(root, worktree string) bool {
 	if !filepath.IsAbs(worktree) {
 		return false
@@ -167,7 +169,14 @@ func ownWorktree(root, worktree string) bool {
 		}
 	}
 
-	_, err := os.Lstat(filepath.Join(worktree, ".git"))
+	info, err := os.Lstat(filepath.Join(worktree, ".git"))
+	if err != nil {
+		return false
+	}
 
-	return err == nil
+	if info.IsDir() {
+		return true
+	}
+
+	return info.Mode().IsRegular()
 }

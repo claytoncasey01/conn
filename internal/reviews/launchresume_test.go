@@ -261,6 +261,25 @@ func folderRefusals() []refusal {
 
 			return good(world)
 		}},
+		{"a .git that is a link", func(t *testing.T, world resumeWorld, _ *reviews.ResumeRule,
+		) (string, string, string) {
+			t.Helper()
+
+			dotGit := filepath.Join(world.worktree, ".git")
+			moved := filepath.Join(t.TempDir(), "git")
+
+			err := os.Rename(dotGit, moved)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			err = os.Symlink(moved, dotGit)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			return good(world)
+		}},
 		{"no git worktree", func(t *testing.T, world resumeWorld, _ *reviews.ResumeRule,
 		) (string, string, string) {
 			t.Helper()
