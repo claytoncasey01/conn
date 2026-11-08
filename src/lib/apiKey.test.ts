@@ -99,8 +99,12 @@ test('api sends nothing to a path that is not one of the server\'s own /api rout
     seen.push(url)
     return new Response('{}')
   }) as unknown as typeof fetch
-  for (const path of ['https://evil.example/api/x', '//evil.example/api/x', '/apix', '/api', 'api/x', '/themes/x.css', '', ' /api/x']) {
+  const climbs = ['/api/../x', '/api/./x', '/api/x/..', '/api/%2e%2e/x', '/api/%2E./x', '/api/.%2e?x', '/api/\\evil.example/', '/api/x\\y']
+  for (const path of ['https://evil.example/api/x', '//evil.example/api/x', '/apix', '/api', 'api/x', '/themes/x.css', '', ' /api/x', ...climbs]) {
     await assert.rejects(api(path), /not an \/api route/, path)
   }
   assert.deepEqual(seen, [])
+  // A name with dots in it is not a climb
+  await api('/api/themes/a..b/theme.css')
+  assert.deepEqual(seen, ['/api/themes/a..b/theme.css'])
 })

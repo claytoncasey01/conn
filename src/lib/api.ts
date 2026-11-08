@@ -9,11 +9,17 @@ export type ApiInit = Omit<RequestInit, 'headers'> & { headers?: Record<string, 
 const API_PATH = /^\/api\//
 
 /**
+ * A path a browser would move out of /api: a `.` or `..` segment, plain or percent-encoded, which the URL parser resolves,
+ * or a backslash, which it reads as a slash
+ */
+const CLIMBS = /(^|\/)(\.|%2e){1,2}(\/|\?|#|$)|\\/i
+
+/**
  * fetch(path) with the secret's Authorization header added to the request's own headers. A path that is not one of the
- * server's /api routes is refused before anything is sent, so the secret can never go anywhere else.
+ * server's /api routes, or that climbs out of /api, is refused before anything is sent, so the secret goes nowhere else.
  */
 export function api(path: string, init: ApiInit = {}): Promise<Response> {
-  if (!API_PATH.test(path)) return Promise.reject(new Error(`not an /api route: ${path.slice(0, 80)}`))
+  if (!API_PATH.test(path) || CLIMBS.test(path)) return Promise.reject(new Error(`not an /api route: ${path.slice(0, 80)}`))
   return globalThis.fetch(path, { ...init, headers: { ...init.headers, ...header() } })
 }
 
