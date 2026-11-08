@@ -101,15 +101,13 @@ func TestWaitForResume(t *testing.T) {
 	ended := make(chan struct{})
 	close(ended)
 
-	// A wait that must not time out has a limit far past the test's; the one that does times out
-	// at once. Neither is a wait the test makes, so neither is scaled.
 	tests := []struct {
 		name    string
 		resumed chan struct{}
 		timeout time.Duration
 	}{
-		{"a resume that ended", ended, time.Hour},
-		{"a resume that does not end", make(chan struct{}), time.Nanosecond},
+		{"a resume that ended", ended, neverTimesOut},
+		{"a resume that does not end", make(chan struct{}), timesOutAtOnce},
 	}
 
 	for _, tt := range tests {

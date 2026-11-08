@@ -58,6 +58,13 @@ func resumeChecks() hosted.Checks {
 	}
 }
 
+// Limits handed to the code under test, not waits the test makes: one is never reached and the
+// other always at once, so neither is scaled by testtime.Scaled, which would change neither.
+const (
+	neverTimesOut  = time.Hour
+	timesOutAtOnce = time.Nanosecond
+)
+
 // ticked is a session list that has ticked.
 func ticked(context.Context) error { return nil }
 
@@ -279,13 +286,6 @@ func TestWaitForTheFirstTick(t *testing.T) {
 	ticked := make(chan struct{})
 	close(ticked)
 
-	// A row that must not time out waits far longer than it takes; the one that times out
-	// waits as little as can be.
-	const (
-		long  = time.Hour
-		short = time.Nanosecond
-	)
-
 	tests := []struct {
 		name    string
 		ended   bool
@@ -293,9 +293,9 @@ func TestWaitForTheFirstTick(t *testing.T) {
 		timeout time.Duration
 		wantErr error
 	}{
-		{"ticked", false, ticked, long, nil},
-		{"never ticked", false, make(chan struct{}), short, errSessionsNotTicked},
-		{"the launch ended", true, make(chan struct{}), long, context.Canceled},
+		{"ticked", false, ticked, neverTimesOut, nil},
+		{"never ticked", false, make(chan struct{}), timesOutAtOnce, errSessionsNotTicked},
+		{"the launch ended", true, make(chan struct{}), neverTimesOut, context.Canceled},
 	}
 
 	for _, tt := range tests {
@@ -333,7 +333,7 @@ func TestResumeRecordedMovesTheSnapshotsVersion(t *testing.T) {
 	})
 	life := hostedLife{
 		recorder: openedRecorder(t), checks: resumeChecks(), resumed: newResumedSessions(host),
-		bump: func() { bumps++ }, ticked: tickedChannel, tickTimeout: time.Hour,
+		bump: func() { bumps++ }, ticked: tickedChannel, tickTimeout: neverTimesOut,
 		settle: newResumeSettle(),
 	}
 
@@ -367,7 +367,7 @@ func TestResumeRecordedWaitsForTheSessionList(t *testing.T) {
 	})
 	life := hostedLife{
 		recorder: openedRecorder(t), checks: checks, resumed: newResumedSessions(host),
-		bump: func() {}, ticked: make(chan struct{}), tickTimeout: time.Nanosecond,
+		bump: func() {}, ticked: make(chan struct{}), tickTimeout: timesOutAtOnce,
 		settle: newResumeSettle(),
 	}
 
@@ -439,7 +439,7 @@ func TestResumeRecordedSettlesTheLaunchWhenTheResumeIsDone(t *testing.T) {
 	})
 	life := hostedLife{
 		recorder: openedRecorder(t), checks: checks, resumed: newResumedSessions(host),
-		bump: func() {}, ticked: tickedChannel, tickTimeout: time.Hour, settle: settle,
+		bump: func() {}, ticked: tickedChannel, tickTimeout: neverTimesOut, settle: settle,
 	}
 
 	resumeRecorded(t.Context(), life, host, launchResume{
