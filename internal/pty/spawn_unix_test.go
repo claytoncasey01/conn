@@ -36,6 +36,9 @@ const (
 	// links can, then spawns a program on a host of its own and prints whether the program got
 	// the descriptor. It runs in a process of its own, so the descriptor reaches no other test.
 	helperRawSpawn = "raw-spawn"
+	// helperRawWalk opens such a descriptor, sweeps as a spawn does where /dev/fd cannot be
+	// listed, and prints whether the descriptor is close-on-exec now.
+	helperRawWalk = "raw-walk"
 )
 
 // rawDescriptorLowest is the lowest number the raw descriptor gets: above what the helper's
@@ -77,6 +80,10 @@ func TestHelperProcess(t *testing.T) {
 
 	if mode == helperRawSpawn {
 		spawnBesideARawDescriptor(t)
+	}
+
+	if mode == helperRawWalk {
+		walkBesideARawDescriptor(t)
 	}
 
 	_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
@@ -737,4 +744,60 @@ func spawnBesideARawDescriptor(t *testing.T) {
 
 	match := waitForOutput(t, host, sessionID, regexp.MustCompile(`raw descriptor: (\w+)`))
 	_, _ = fmt.Fprintf(os.Stdout, "raw descriptor: %s\n", match[1])
+}
+
+// Where /dev/fd cannot be listed, the sweep's walk still marks a descriptor opened without
+// close-on-exec. The descriptor is opened in a helper process, never in this one.
+func TestTheWalkMarksADescriptorOpenedWithoutCloseOnExec(t *testing.T) {
+	t.Parallel()
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	helper := exec.CommandContext(t.Context(), executable, "-test.run=^TestHelperProcess$",
+		"--", helperRawWalk)
+
+	output, err := helper.Output()
+	if err != nil {
+		t.Fatalf("the helper failed: %v", err)
+	}
+
+	if !strings.Contains(string(output), "raw descriptor: close-on-exec") {
+		t.Fatalf("the walk left the raw descriptor to be inherited: %q",
+			strings.TrimSpace(string(output)))
+	}
+}
+
+// walkBesideARawDescriptor is helperRawWalk.
+func walkBesideARawDescriptor(t *testing.T) {
+	t.Helper()
+
+	opened, err := unix.Open(os.DevNull, unix.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	descriptor, err := unix.FcntlInt(uintptr(opened), unix.F_DUPFD, rawDescriptorLowest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = pty.SweepWithoutListing()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	flags, err := unix.FcntlInt(uintptr(descriptor), unix.F_GETFD, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	said := "inherited"
+	if flags&unix.FD_CLOEXEC != 0 {
+		said = "close-on-exec"
+	}
+
+	_, _ = fmt.Fprintf(os.Stdout, "raw descriptor: %s\n", said)
 }
