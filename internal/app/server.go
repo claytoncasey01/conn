@@ -197,17 +197,20 @@ func lastRecord(dataDir string, store *settings.Store, stderr io.Writer) launchR
 
 	return launchResume{
 		sessions: store.Get().Sessions, records: records, readErr: readErr, checks: nil,
-		start: nil, stderr: stderr,
+		start: nil, carry: nil, stderr: stderr,
 	}
 }
 
 // resumeRecorded resumes what the record names, each as its owner's check rebuilds it and
 // started inside Conn on host, shows it on the page, writes the record of what runs now in place
-// of the last launch's, and keeps it up to date until ctx ends.
+// of the last launch's, and keeps it up to date until ctx ends. A quit during the resume keeps
+// the records it did not reach, as they were, for the next launch.
 func resumeRecorded(ctx context.Context, life hostedLife, host *pty.Host, plan launchResume) {
 	plan.checks = life.checks
 	plan.start = resumeStart(host, life.recorder)
+	plan.carry = life.recorder.Carry
 	outcome := resumeAtLaunch(ctx, plan)
+	life.recorder.Carry(outcome.Unreached)
 	life.resumed.set(outcome.Resumed)
 	life.bump()
 	life.recorder.Sync()

@@ -5,7 +5,9 @@
 //
 // The record is kept up to date as sessions start and end (Recorder), so a crash leaves it as it
 // was. At a quit the record is written once more, then the sessions are stopped, and their ends
-// are not recorded: the next launch finds every session that ran at the quit.
+// are not recorded: the next launch finds every session that ran at the quit. While a launch
+// resumes, the records it has not reached yet are carried in the record as they were, so a quit
+// or a crash during the resume loses none of them.
 //
 // At launch each record is only a key: Resume hands it to its owner's own check, which looks the
 // session up in the module's own state and rebuilds the program and its arguments from there,

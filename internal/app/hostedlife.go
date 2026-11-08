@@ -130,13 +130,15 @@ func (parts ownerParts) reviewRule(folder string, pattern *regexp.Regexp, disall
 }
 
 // launchResume is what a launch resumes from: the settings now, the record the last launch left
-// and why it could not be read, the owners' checks, and what starts a session.
+// and why it could not be read, the owners' checks, what starts a session, and what carries the
+// records not resumed yet in the record.
 type launchResume struct {
 	sessions settings.Sessions
 	records  []hosted.Record
 	readErr  error
 	checks   hosted.Checks
 	start    hosted.Start
+	carry    func([]hosted.Record)
 	stderr   io.Writer
 }
 
@@ -149,8 +151,13 @@ func resumeAtLaunch(ctx context.Context, plan launchResume) hosted.Outcome {
 	}
 
 	if !resumeWanted(plan.sessions) {
-		return hosted.Outcome{Resumed: []hosted.Resumed{}, Skipped: len(plan.records)}
+		return hosted.Outcome{
+			Resumed: []hosted.Resumed{}, Skipped: len(plan.records), Unreached: nil,
+		}
 	}
+
+	// Until each is resumed or refused, the record keeps the last launch's records as they were.
+	plan.carry(plan.records)
 
 	outcome := hosted.Resume(ctx, plan.records, plan.checks, plan.start)
 	if len(plan.records) > 0 {
@@ -172,7 +179,7 @@ func resumeWanted(current settings.Sessions) bool {
 }
 
 // resumeStart starts a resumed session inside Conn, whatever the settings say, and records it
-// for the record's owner, on the conversation the owner's check resumed.
+// in the record's place: for the record's owner, on the conversation the owner's check resumed.
 func resumeStart(host *pty.Host, recorder *hosted.Recorder) hosted.Start {
 	inside := launch.New(launch.Deps{
 		Sessions: func() settings.Sessions {
@@ -187,7 +194,7 @@ func resumeStart(host *pty.Host, recorder *hosted.Recorder) hosted.Start {
 			return "", false
 		}
 
-		recorder.Started(record.Owner, opened.HostedID, spec, record.ClaudeSessionID)
+		recorder.Resumed(record, opened.HostedID, spec)
 
 		return opened.HostedID, true
 	}

@@ -332,3 +332,119 @@ func TestRecorderKeepsTheConversationAResumeStartedOn(t *testing.T) {
 		t.Errorf("wrote %+v, want %+v", setting.last(), want)
 	}
 }
+
+// resumedFrom resumes the index-th carried record as the session the host issued newIndex for.
+func resumedFrom(recorder *hosted.Recorder, index, newIndex int) hosted.Record {
+	from := record(index)
+	recorder.Resumed(from, pty.ID(hostID(newIndex)), pty.Spec{
+		Argv: []string{"/opt/claude"}, Dir: from.Dir, Env: nil, Name: from.Name,
+	})
+
+	want := from
+	want.ID = hostID(newIndex)
+
+	return want
+}
+
+// The records a launch has not resumed yet are carried in the record beside the sessions that
+// run, and each one a resume starts takes its record's place.
+func TestRecorderCarriesTheRecordsNotYetResumed(t *testing.T) {
+	t.Parallel()
+
+	const newIndex = 20
+
+	setting := newWorld()
+	recorder := setting.recorder()
+	recorder.Carry(manyRecords(3))
+
+	setting.run(newIndex)
+
+	resumed := resumedFrom(recorder, 1, newIndex)
+
+	want := []hosted.Record{resumed, record(0), record(2)}
+	if !slices.Equal(setting.last(), want) {
+		t.Errorf("wrote %+v, want %+v", setting.last(), want)
+	}
+}
+
+// A quit during the resume freezes what was carried with what runs: nothing is lost.
+func TestRecorderFreezesWhatItCarries(t *testing.T) {
+	t.Parallel()
+
+	const newIndex = 20
+
+	setting := newWorld()
+	recorder := setting.recorder()
+	recorder.Carry(manyRecords(2))
+	setting.run(newIndex)
+
+	resumed := resumedFrom(recorder, 0, newIndex)
+
+	recorder.Freeze()
+	setting.end(newIndex)
+	recorder.Sync()
+
+	want := []hosted.Record{resumed, record(1)}
+	if !slices.Equal(setting.last(), want) {
+		t.Errorf("the record is %+v, want %+v", setting.last(), want)
+	}
+}
+
+// Once the resume is done, what it did not start is no longer carried.
+func TestRecorderDropsWhatItNoLongerCarries(t *testing.T) {
+	t.Parallel()
+
+	setting := newWorld()
+	recorder := setting.recorder()
+	recorder.Carry(manyRecords(2))
+	recorder.Carry(nil)
+	recorder.Sync()
+
+	if len(setting.last()) != 0 {
+		t.Errorf("wrote %+v, want no sessions", setting.last())
+	}
+}
+
+// A session started after the freeze is the quit's own: it is stopped, and not recorded.
+func TestRecorderDoesNotRecordASessionStartedAfterTheFreeze(t *testing.T) {
+	t.Parallel()
+
+	setting := newWorld()
+	recorder := setting.recorder()
+	recorder.Freeze()
+
+	writes := setting.writeCount()
+
+	setting.run(0)
+	started(recorder, 0)
+	resumedFrom(recorder, 1, 0)
+
+	if len(recorder.Records()) != 0 {
+		t.Errorf("recorded %+v after the freeze", recorder.Records())
+	}
+
+	if setting.writeCount() != writes {
+		t.Errorf("wrote %d times after the freeze", setting.writeCount()-writes)
+	}
+}
+
+// A module's own session started during the resume is recorded, and the carried records that no
+// longer fit beside it are cut, so the record is never one Write refuses.
+func TestRecorderCarriesOnlyWhatFits(t *testing.T) {
+	t.Parallel()
+
+	const ownIndex = 20
+
+	setting := newWorld()
+	recorder := setting.recorder()
+	recorder.Carry(manyRecords(hosted.RecordsMax()))
+	setting.run(ownIndex)
+
+	own := started(recorder, ownIndex)
+
+	want := slices.Concat([]hosted.Record{own}, manyRecords(hosted.RecordsMax()-1))
+	if !slices.Equal(setting.last(), want) {
+		t.Errorf("wrote %d records, want %d with the module's own first", len(setting.last()),
+			len(want))
+	}
+}

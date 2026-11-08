@@ -179,6 +179,10 @@ func TestResumeStopsWhenTheContextEnds(t *testing.T) {
 	if outcome.Skipped != 2 {
 		t.Errorf("skipped %d, want 2", outcome.Skipped)
 	}
+
+	if !slices.Equal(outcome.Unreached, manyRecords(2)) {
+		t.Errorf("unreached %+v, want both records", outcome.Unreached)
+	}
 }
 
 func TestResumeHandsTheStartItsRecord(t *testing.T) {
@@ -196,5 +200,78 @@ func TestResumeHandsTheStartItsRecord(t *testing.T) {
 
 	if got != record(0) {
 		t.Errorf("started for %+v, want %+v", got, record(0))
+	}
+}
+
+// A context that ends during the resume leaves the records not yet resumed unreached, the one
+// whose start the end refused among them, so the record can keep them for the next launch.
+func TestResumeSaysWhichRecordsItDidNotReach(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// startedBeforeEnd is whether the start that ends the context still starts its session.
+		startedBeforeEnd bool
+		wantUnreached    []hosted.Record
+	}{
+		{"the quit comes after the first start", true, manyRecords(3)[1:]},
+		{"the quit refuses the first start", false, manyRecords(3)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			start := func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) {
+				cancel()
+
+				return pty.ID(hostID(recordsTried)), tt.startedBeforeEnd
+			}
+
+			outcome := hosted.Resume(ctx, manyRecords(3), ownerChecks(), start)
+
+			if !slices.Equal(outcome.Unreached, tt.wantUnreached) {
+				t.Errorf("unreached %+v, want %+v", outcome.Unreached, tt.wantUnreached)
+			}
+		})
+	}
+}
+
+// A check that refuses because the context ended has not looked at the record: it is unreached.
+func TestResumeLeavesARecordWhoseCheckTheEndCutShortUnreached(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	checks := hosted.Checks{
+		hosted.OwnerOpenWork: func(context.Context, hosted.Record) (pty.Spec, bool) {
+			cancel()
+
+			return pty.Spec{}, false
+		},
+	}
+
+	var started starts
+
+	outcome := hosted.Resume(ctx, manyRecords(2), checks, started.start)
+
+	if !slices.Equal(outcome.Unreached, manyRecords(2)) {
+		t.Errorf("unreached %+v, want both records", outcome.Unreached)
+	}
+}
+
+func TestResumeThatFinishesLeavesNothingUnreached(t *testing.T) {
+	t.Parallel()
+
+	var started starts
+
+	outcome := hosted.Resume(t.Context(), manyRecords(2), ownerChecks(), started.start)
+
+	if len(outcome.Unreached) != 0 {
+		t.Errorf("unreached %+v after a resume that finished", outcome.Unreached)
 	}
 }

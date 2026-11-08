@@ -96,7 +96,8 @@ func TestResumeAtLaunchFollowsTheSettings(t *testing.T) {
 
 			outcome := resumeAtLaunch(t.Context(), launchResume{
 				sessions: tt.sessions, records: []hosted.Record{resumeRecord()}, readErr: nil,
-				checks: resumeChecks(), start: start, stderr: &bytes.Buffer{},
+				checks: resumeChecks(), start: start, carry: func([]hosted.Record) {},
+				stderr: &bytes.Buffer{},
 			})
 
 			if started != tt.wantStarted {
@@ -118,8 +119,8 @@ func TestResumeAtLaunchSaysWhyTheRecordWasNotRead(t *testing.T) {
 	outcome := resumeAtLaunch(t.Context(), launchResume{
 		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
 		records:  nil, readErr: errTampered, checks: resumeChecks(),
-		start:  func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) { return "", false },
-		stderr: &said,
+		start: func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) { return "", false },
+		carry: func([]hosted.Record) {}, stderr: &said,
 	})
 
 	if len(outcome.Resumed) != 0 {

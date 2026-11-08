@@ -39,6 +39,10 @@ type Recorder struct {
 
 	mu      sync.Mutex
 	records []Record
+	// carried are the last launch's records this launch has not resumed (yet): kept in the
+	// record as they were, beside the sessions that run, so a quit or a crash during the resume
+	// loses none of them.
+	carried []Record
 	// written is what the file holds, once wrote is set.
 	written []Record
 	wrote   bool
@@ -49,8 +53,8 @@ type Recorder struct {
 // whatever the file held from an earlier launch is replaced.
 func NewRecorder(deps RecorderDeps) *Recorder {
 	return &Recorder{
-		deps: deps, mu: sync.Mutex{}, records: []Record{}, written: nil, wrote: false,
-		frozen: false,
+		deps: deps, mu: sync.Mutex{}, records: []Record{}, carried: nil, written: nil,
+		wrote: false, frozen: false,
 	}
 }
 
@@ -66,23 +70,9 @@ func (r *Recorder) Opener(owner string, open launch.Opener) launch.Opener {
 	}
 }
 
-// Started records the session the host issued hostedID for, started by owner from spec, and
-// writes the record. claudeID is Claude's id of the conversation it resumes, "" for a new one
-// (the session list links it later). A session that cannot be recorded (see CheckRecord) is said
-// to Failed and runs unrecorded: it is not resumed.
-func (r *Recorder) Started(owner string, hostedID pty.ID, spec pty.Spec, claudeID string) {
-	record := Record{
-		ID: string(hostedID), Owner: owner, Name: spec.Name, Dir: spec.Dir,
-		ClaudeSessionID: claudeID,
-	}
-
-	err := CheckRecord(record)
-	if err != nil {
-		r.deps.Failed(err)
-
-		return
-	}
-
+// Carry keeps records, the last launch's that this launch has not resumed, in the record until
+// the next Carry: each one Resumed starts leaves it. It writes nothing by itself.
+func (r *Recorder) Carry(records []Record) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -90,8 +80,21 @@ func (r *Recorder) Started(owner string, hostedID pty.ID, spec pty.Spec, claudeI
 		return
 	}
 
-	r.records = append(r.records, record)
-	r.syncLocked()
+	r.carried = slices.Clone(records)
+}
+
+// Resumed records the session the host issued hostedID for, started from spec to resume from,
+// a carried record, in from's place: under its owner, on its conversation.
+func (r *Recorder) Resumed(from Record, hostedID pty.ID, spec pty.Spec) {
+	r.started(from.Owner, hostedID, spec, from.ClaudeSessionID, from.ID)
+}
+
+// Started records the session the host issued hostedID for, started by owner from spec, and
+// writes the record. claudeID is Claude's id of the conversation it resumes, "" for a new one
+// (the session list links it later). A session that cannot be recorded (see CheckRecord) is said
+// to Failed and runs unrecorded: it is not resumed.
+func (r *Recorder) Started(owner string, hostedID pty.ID, spec pty.Spec, claudeID string) {
+	r.started(owner, hostedID, spec, claudeID, "")
 }
 
 // Sync drops the sessions that have ended, takes Claude's id of each one linked since, and
@@ -136,7 +139,7 @@ func (r *Recorder) Run(ctx context.Context) {
 	}
 }
 
-// Records are the sessions recorded now.
+// Records are the sessions recorded now, not the carried records.
 func (r *Recorder) Records() []Record {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -144,26 +147,67 @@ func (r *Recorder) Records() []Record {
 	return slices.Clone(r.records)
 }
 
-// syncLocked is Sync with r.mu held. The host is read with the lock held, so a session Started
-// has just recorded is always in what it reads.
-func (r *Recorder) syncLocked() {
-	r.records = Track(r.records, r.deps.Live(), r.deps.Linked())
-
-	if r.wrote {
-		if slices.Equal(r.records, r.written) {
-			return
-		}
+// started is Started, with the carried record of id replaced ("" for none).
+func (r *Recorder) started(owner string, hostedID pty.ID, spec pty.Spec, claudeID,
+	replaced string,
+) {
+	record := Record{
+		ID: string(hostedID), Owner: owner, Name: spec.Name, Dir: spec.Dir,
+		ClaudeSessionID: claudeID,
 	}
 
-	err := r.deps.Write(r.deps.Dir, r.records)
+	err := CheckRecord(record)
 	if err != nil {
 		r.deps.Failed(err)
 
 		return
 	}
 
-	r.written = slices.Clone(r.records)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.frozen {
+		return
+	}
+
+	r.carried = slices.DeleteFunc(r.carried, func(carried Record) bool {
+		return carried.ID == replaced
+	})
+	r.records = append(r.records, record)
+	r.syncLocked()
+}
+
+// syncLocked is Sync with r.mu held. The host is read with the lock held, so a session Started
+// has just recorded is always in what it reads.
+func (r *Recorder) syncLocked() {
+	r.records = Track(r.records, r.deps.Live(), r.deps.Linked())
+	kept := r.keptLocked()
+
+	if r.wrote {
+		if slices.Equal(kept, r.written) {
+			return
+		}
+	}
+
+	err := r.deps.Write(r.deps.Dir, kept)
+	if err != nil {
+		r.deps.Failed(err)
+
+		return
+	}
+
+	r.written = kept
 	r.wrote = true
+}
+
+// keptLocked is what the record holds: the sessions that run, then as many carried records as
+// fit in RecordsMax. The host runs at most RecordsMax sessions, and a resume takes a carried
+// record's place, so the carried ones are cut only when modules start sessions of their own
+// during the resume.
+func (r *Recorder) keptLocked() []Record {
+	room := max(RecordsMax()-len(r.records), 0)
+
+	return slices.Concat(r.records, r.carried[:min(len(r.carried), room)])
 }
 
 // Track is records kept to the sessions that still run in live, each with Claude's id from

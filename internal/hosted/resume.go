@@ -26,55 +26,77 @@ type Resumed struct {
 	Name string `json:"name"`
 }
 
-// Outcome is what Resume did: the sessions it started, and how many records it did not.
+// Outcome is what Resume did: the sessions it started, how many records it did not, and the
+// records it did not reach because its context ended first (the quit came during the resume).
 type Outcome struct {
 	Resumed []Resumed
 	Skipped int
+	// Unreached are the records not resumed only because the context ended: their checks did
+	// not run, or ran or started into the end. The record keeps them for the next launch.
+	Unreached []Record
 }
 
 // Resume starts again the sessions records name, each only as its owner's check rebuilds it:
 // at most RecordsMax records are looked at (and so at most RecordsMax sessions started), a
 // record CheckRecord refuses or whose owner has no check or refuses it starts nothing, and two
-// records the owners rebuild into the same session start it once. It stops early when ctx ends.
+// records the owners rebuild into the same session start it once. It stops early when ctx ends,
+// and says which records it did not reach.
 func Resume(ctx context.Context, records []Record, checks Checks, start Start) Outcome {
 	considered := records[:min(len(records), RecordsMax())]
-	outcome := Outcome{Resumed: []Resumed{}, Skipped: len(records) - len(considered)}
+	outcome := Outcome{
+		Resumed: []Resumed{}, Skipped: len(records) - len(considered), Unreached: []Record{},
+	}
 	started := map[string]bool{}
 
 	for index, record := range considered {
 		if ctx.Err() != nil {
 			outcome.Skipped += len(considered) - index
+			outcome.Unreached = append(outcome.Unreached, considered[index:]...)
 
 			break
 		}
 
-		spec, vouched := vouch(ctx, record, checks)
-		if !vouched {
+		resumed, done := resumeOne(ctx, record, checks, start, started)
+		if !done {
 			outcome.Skipped++
+
+			// A check or start the end cut short has not decided: the record is kept.
+			if ctx.Err() != nil {
+				outcome.Unreached = append(outcome.Unreached, record)
+			}
 
 			continue
 		}
 
-		key := sessionKey(spec)
-		if started[key] {
-			outcome.Skipped++
-
-			continue
-		}
-
-		started[key] = true
-
-		hostedID, ok := start(ctx, record, spec)
-		if !ok {
-			outcome.Skipped++
-
-			continue
-		}
-
-		outcome.Resumed = append(outcome.Resumed, Resumed{ID: hostedID, Name: spec.Name})
+		outcome.Resumed = append(outcome.Resumed, resumed)
 	}
 
 	return outcome
+}
+
+// resumeOne starts the session record's owner rebuilds for it, unless one the same was started
+// already, and is it and true; or false when it started nothing.
+func resumeOne(ctx context.Context, record Record, checks Checks, start Start,
+	started map[string]bool,
+) (Resumed, bool) {
+	spec, vouched := vouch(ctx, record, checks)
+	if !vouched {
+		return Resumed{}, false
+	}
+
+	key := sessionKey(spec)
+	if started[key] {
+		return Resumed{}, false
+	}
+
+	started[key] = true
+
+	hostedID, ok := start(ctx, record, spec)
+	if !ok {
+		return Resumed{}, false
+	}
+
+	return Resumed{ID: hostedID, Name: spec.Name}, true
 }
 
 // vouch is the session record's owner rebuilds for it, and whether there is one.

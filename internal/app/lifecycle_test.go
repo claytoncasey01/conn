@@ -220,9 +220,13 @@ type spawns struct {
 	// folder when it was stopped.
 	recordAtStop []bool
 	data         string
+	// atSpawn is called at each spawn, when it is set.
+	atSpawn func()
 }
 
-func newSpawns(data string) *spawns { return &spawns{mu: sync.Mutex{}, data: data} }
+func newSpawns(data string) *spawns {
+	return &spawns{mu: sync.Mutex{}, data: data, atSpawn: func() {}}
+}
 
 func (s *spawns) host() *pty.Host {
 	return pty.NewHost(pty.Config{
@@ -244,6 +248,7 @@ func (s *spawns) spawn(spec pty.Spec) (pty.Process, error) {
 
 	s.specs = append(s.specs, spec)
 	s.programs = append(s.programs, program)
+	s.atSpawn()
 
 	return program, nil
 }
