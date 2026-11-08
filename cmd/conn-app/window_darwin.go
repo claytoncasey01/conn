@@ -130,8 +130,7 @@ func wailsLogger(stderr io.Writer) *slog.Logger {
 // window comes to the front only with all three calls.
 func (s *shell) keepInDock() {
 	s.window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
-		s.window.Hide()
-		event.Cancel()
+		s.windowClosing(func() { s.window.Hide() }, event.Cancel)
 	})
 
 	s.app.Event.OnApplicationEvent(
@@ -141,6 +140,14 @@ func (s *shell) keepInDock() {
 			s.window.Show()
 			s.window.Focus()
 		})
+}
+
+// windowClosing is what closing the window (its X, Cmd-W) does: it hides the window and cancels
+// the close, and nothing else. desk.Run goes on, so the server it owns, every hosted session and
+// the record of them are as they were; only a quit (waitForDesk) ends them.
+func (s *shell) windowClosing(hide, cancelClose func()) {
+	hide()
+	cancelClose()
 }
 
 // startDeskWhenReady reads the environment and runs desk.Run once the app has started: a dialog

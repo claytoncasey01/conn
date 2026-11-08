@@ -198,3 +198,20 @@ func offTheList(t *testing.T) (*world, string) {
 
 	return made, worktrees[0]
 }
+
+// A session resumed at launch is not in the session list until it registers: a RESUME SESSION
+// meanwhile opens no second one on the same conversation.
+func TestAResumeRightAfterTheLaunchsIsRefused(t *testing.T) {
+	t.Parallel()
+
+	made, worktrees := resumable(t, "split")
+
+	_, ok := launchSpec(made, worktrees[0])
+	if !ok {
+		t.Fatal("the session is not resumed")
+	}
+
+	reply := made.work.Resume("PROJ-1", "acme/widgets")
+	same(t, "refused", []any{reply.Code, errorOf(reply)}, []any{409, "acme/widgets: " +
+		"a session was just opened for this run: give it a few seconds to appear"})
+}

@@ -2,6 +2,7 @@ package historyapi_test
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -211,5 +212,33 @@ func removed(path func(rig *launchRig) string) func(t *testing.T, rig *launchRig
 		}
 
 		return resumedID, rig.folder
+	}
+}
+
+// A session resumed at launch is not live until it registers: a RESUME meanwhile opens no
+// second one on the same conversation.
+func TestAResumeRightAfterTheLaunchsIsRefused(t *testing.T) {
+	t.Parallel()
+
+	rig := newLaunchRig(t)
+	api := rig.api()
+
+	_, ok := api.ResumeAtLaunch(t.Context(), resumedID, rig.folder)
+	if !ok {
+		t.Fatal("not resumed")
+	}
+
+	reply, err := api.Handle(t.Context(),
+		historyapi.Route{Kind: historyapi.RouteResume, ID: resumedID, AgentID: ""}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if reply.Code != http.StatusConflict {
+		t.Errorf("RESUME answered %d, want %d", reply.Code, http.StatusConflict)
+	}
+
+	if len(rig.opened) != 0 {
+		t.Errorf("RESUME opened %d sessions", len(rig.opened))
 	}
 }

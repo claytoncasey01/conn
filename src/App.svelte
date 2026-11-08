@@ -5,6 +5,7 @@
   import { needsSetup } from './lib/routes.ts'
   import { pruneShown } from './lib/reviewSeen.svelte.ts'
   import { archivedSource, liveSource } from './lib/source.svelte.ts'
+  import ResumedBanner from './lib/ResumedBanner.svelte'
   import Sessions from './pages/Sessions.svelte'
   import Overview from './pages/Overview.svelte'
   import AdvisorPage from './pages/AdvisorPage.svelte'
@@ -46,6 +47,8 @@
 {#if live.locked}
   <div role="alert" style="padding: 8px 32px; background: color-mix(in oklch, var(--bad) 10%, transparent); border-bottom: 1px var(--border-style) color-mix(in oklch, var(--bad) 35%, transparent); font-size: 11px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--bad) 55%, var(--bright))">This page has no key for this Conn. Open the address <code>conn serve</code> printed, or the app's window.</div>
 {/if}
+
+<ResumedBanner />
 
 <!-- Each page kind has its own branch, so moving between a live session and an archived one remounts the page -->
 {#if route.page === 'sessions'}

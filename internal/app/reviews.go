@@ -89,8 +89,10 @@ type reviewsParts struct {
 	logger   *log.Logger
 	// myPrRepos are the repos of the My PRs rows.
 	myPrRepos func() []string
-	// open starts the review and self-review sessions where the settings say.
-	open launch.Opener
+	// open starts the review sessions where the settings say, and selfOpen the self-review
+	// sessions: each records its sessions under its own module.
+	open     launch.Opener
+	selfOpen launch.Opener
 }
 
 func millis(duration time.Duration) float64 { return float64(duration.Milliseconds()) }

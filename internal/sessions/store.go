@@ -102,6 +102,9 @@ type Hooks struct {
 	RepoVisible func(repo string) bool
 	// GithubOn is whether the GitHub module is on.
 	GithubOn func() bool
+	// Resumed are the sessions this launch resumed that still run, nil for none: the page says
+	// so, with a Stop all. Nil leaves the field out.
+	Resumed func() any
 }
 
 // Run is the part of an Open work run the session list reads: its key, its worktrees, and its
@@ -125,6 +128,7 @@ type Snapshot struct {
 	Setup    bool              `json:"setup"`
 	OpenWork bool              `json:"openWork"`
 	MyPrs    any               `json:"myPrs,omitempty"`
+	Resumed  any               `json:"resumed,omitempty"`
 }
 
 // LiveSession is a live session as plain fields, for the modules that must not reach into the
@@ -766,10 +770,15 @@ func (s *store) build(ctx context.Context, now float64) Snapshot {
 	snap := Snapshot{
 		At: now, Sessions: details, Runs: runs, History: hooks.History(),
 		Reviews: hooks.Reviews(), Setup: hooks.Setup(), OpenWork: hooks.OpenWork(), MyPrs: nil,
+		Resumed: nil,
 	}
 
 	if hooks.MyPrs != nil {
 		snap.MyPrs = hooks.MyPrs()
+	}
+
+	if hooks.Resumed != nil {
+		snap.Resumed = hooks.Resumed()
 	}
 
 	return snap

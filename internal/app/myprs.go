@@ -35,6 +35,7 @@ func newMyPrs(ctx context.Context, parts reviewsParts, live *sessions.Loop) *myp
 	cfg := parts.cfg
 	self := myprs.Self{Pattern: cfg.SelfNamePattern, Prompt: cfg.SelfReviewPrompt}
 	launch := launchDeps(parts, reviews.Names{Pattern: cfg.ReviewNamePattern})
+	launch.Open = parts.selfOpen
 	draft := myprs.DraftConfig{
 		Model: cfg.ReviewScanModel, BudgetUSD: cfg.ReviewScanCostUSDMax,
 		Timeout: cfg.ReviewScanTimeout,

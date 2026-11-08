@@ -1,0 +1,194 @@
+package app
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/claytoncasey01/conn/internal/hosted"
+	"github.com/claytoncasey01/conn/internal/pty"
+	"github.com/claytoncasey01/conn/internal/sessions"
+	"github.com/claytoncasey01/conn/internal/settings"
+)
+
+var errTampered = errors.New("not a hosted sessions file")
+
+func TestQuitRecordsThenClosesTerminalsThenStopsSessionsThenLetsTheFolderGo(t *testing.T) {
+	t.Parallel()
+
+	var order []string
+
+	step := func(name string) func() { return func() { order = append(order, name) } }
+
+	quit(quitSteps{
+		record: step("record"), closeTerminals: step("close terminals"), cancel: step("cancel"),
+		stopSessions: step("stop sessions"), release: step("release"),
+	})
+
+	want := []string{"record", "close terminals", "cancel", "stop sessions", "release"}
+	if !slices.Equal(order, want) {
+		t.Errorf("the quit ran %q, want %q", order, want)
+	}
+}
+
+// resumeRecord is a record any check of resumeChecks vouches for.
+func resumeRecord() hosted.Record {
+	return hosted.Record{
+		ID: "000000000000000000000000000000aa", Owner: hosted.OwnerReviews, Name: "pr-1",
+		Dir: "/data/reviews/pr-1/widgets", ClaudeSessionID: "0b6c4f7e-2d1a-4c3b-9e8f-112233445566",
+	}
+}
+
+func resumeChecks() hosted.Checks {
+	return hosted.Checks{
+		hosted.OwnerReviews: func(_ context.Context, record hosted.Record) (pty.Spec, bool) {
+			return pty.Spec{
+				Argv: []string{"/opt/claude"}, Dir: record.Dir, Env: nil,
+				Name: record.Name,
+			}, true
+		},
+	}
+}
+
+func TestResumeAtLaunchFollowsTheSettings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		sessions    settings.Sessions
+		wantStarted int
+	}{
+		{
+			"resume on launch, inside Conn",
+			settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
+			1,
+		},
+		{
+			"resume on launch off",
+			settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: false},
+			0,
+		},
+		{
+			"sessions open in a terminal app",
+			settings.Sessions{Where: settings.WhereTerminal, ResumeOnLaunch: true},
+			0,
+		},
+		{
+			"sessions open as a command",
+			settings.Sessions{Where: settings.WhereCommand, ResumeOnLaunch: true},
+			0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			started := 0
+			start := func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) {
+				started++
+
+				return "000000000000000000000000000000bb", true
+			}
+
+			outcome := resumeAtLaunch(t.Context(), launchResume{
+				sessions: tt.sessions, records: []hosted.Record{resumeRecord()}, readErr: nil,
+				checks: resumeChecks(), start: start, stderr: &bytes.Buffer{},
+			})
+
+			if started != tt.wantStarted {
+				t.Errorf("started %d, want %d", started, tt.wantStarted)
+			}
+
+			if len(outcome.Resumed) != tt.wantStarted {
+				t.Errorf("resumed %d, want %d", len(outcome.Resumed), tt.wantStarted)
+			}
+		})
+	}
+}
+
+func TestResumeAtLaunchSaysWhyTheRecordWasNotRead(t *testing.T) {
+	t.Parallel()
+
+	var said bytes.Buffer
+
+	outcome := resumeAtLaunch(t.Context(), launchResume{
+		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
+		records:  nil, readErr: errTampered, checks: resumeChecks(),
+		start:  func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) { return "", false },
+		stderr: &said,
+	})
+
+	if len(outcome.Resumed) != 0 {
+		t.Errorf("resumed %+v", outcome.Resumed)
+	}
+
+	if !strings.Contains(said.String(), errTampered.Error()) {
+		t.Errorf("said %q, want the reason", said.String())
+	}
+}
+
+func TestLinkedIDsAreOnlyHostedSessions(t *testing.T) {
+	t.Parallel()
+
+	got := linkedIDs([]sessions.LiveSession{
+		{HostedID: "000000000000000000000000000000aa", SessionID: "claude-a"},
+		{HostedID: "", SessionID: "claude-b"},
+	})
+
+	want := map[pty.ID]string{"000000000000000000000000000000aa": "claude-a"}
+	if len(got) != len(want) {
+		t.Fatalf("linked %v, want %v", got, want)
+	}
+
+	if got["000000000000000000000000000000aa"] != "claude-a" {
+		t.Errorf("linked %v, want %v", got, want)
+	}
+}
+
+// The quit's record step freezes the record: a session its stop ends stays recorded, however
+// the record is synced after.
+func TestTheQuitsRecordStaysAsItWasAtTheQuit(t *testing.T) {
+	t.Parallel()
+
+	const sessionID = pty.ID("000000000000000000000000000000aa")
+
+	exitCode := 143
+	live := []pty.Info{{ID: sessionID}}
+
+	var written [][]hosted.Record
+
+	recorder := hosted.NewRecorder(hosted.RecorderDeps{
+		Dir:    "/data",
+		Live:   func() []pty.Info { return live },
+		Linked: func() map[pty.ID]string { return nil },
+		Write: func(_ string, records []hosted.Record) error {
+			written = append(written, records)
+
+			return nil
+		},
+		Failed: func(err error) { t.Error(err) },
+	})
+	recorder.Started(hosted.OwnerReviews, sessionID, pty.Spec{
+		Argv: []string{"/opt/claude"}, Dir: "/data/reviews/pr-1/widgets", Env: nil, Name: "pr-1",
+	}, "")
+
+	stop := func() {
+		live = []pty.Info{{ID: sessionID, ExitCode: &exitCode}}
+
+		recorder.Sync()
+	}
+	none := func() {}
+
+	life := hostedLife{recorder: recorder, checks: nil, resumed: nil, bump: none}
+
+	quit(quitStepsOf(life, none, none, stop, none))
+
+	last := written[len(written)-1]
+	if len(last) != 1 {
+		t.Errorf("the record after the quit is %+v, want the session that ran", last)
+	}
+}

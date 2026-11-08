@@ -179,6 +179,14 @@ export interface Snapshot {
   setup: boolean
   /** Open work is on: the Atlassian module is enabled and lists a Jira project. Off, its nav item, route, API, ticket sessions and the ticket filter are gone. */
   openWork: boolean
+  /** The hosted sessions this launch resumed from the last quit that still run; absent when there are none */
+  resumed?: { sessions: ResumedSession[] }
+}
+
+/** A hosted session resumed at launch: the host's id for it (its row's id) and its name */
+export interface ResumedSession {
+  id: string
+  name: string
 }
 
 export interface AgentDetail {

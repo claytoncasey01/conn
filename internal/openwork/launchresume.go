@@ -11,7 +11,8 @@ import (
 // is building or has its PR open and nothing else changes it, worktree is one of its session
 // slots, launched and not cleaned up, the worktree exists, its repository is still allowed and
 // cloned, and no session runs there), and the slot's own Claude session id is a UUID: at launch
-// there is no falling back to the folder's last conversation.
+// there is no falling back to the folder's last conversation. A session it gives starts the gap
+// a reopen leaves, so a RESUME SESSION before the session shows up opens no second one.
 func (w *Work) ResumeAtLaunch(key, worktree string) (pty.Spec, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -44,6 +45,7 @@ func (w *Work) ResumeAtLaunch(key, worktree string) (pty.Spec, bool) {
 	}
 
 	spec, _ := ResumeSpec(w.deps.Claude, record, slot)
+	w.resumedAt[slotKey(record, slot)] = w.now()
 
 	return spec, true
 }

@@ -242,6 +242,7 @@ func (h *historyParts) repos(ctx context.Context) func() []string {
 // newAPI is the History API, nil while History is off.
 func (h *historyParts) newAPI(cfg config.Config, store *settings.Store,
 	liveIDs func(ctx context.Context) map[string]bool, open launch.Opener,
+	repoOf func(folder string) string,
 ) *historyapi.API {
 	if h.db == nil {
 		return nil
@@ -249,7 +250,7 @@ func (h *historyParts) newAPI(cfg config.Config, store *settings.Store,
 
 	return historyapi.New(historyapi.Deps{
 		DB: h.db, Summarizer: h.summarizer, LiveIDs: liveIDs, Allow: store.Allow,
-		Open: open, Claude: cfg.ClaudeBin,
+		RepoOf: repoOf, Open: open, Claude: cfg.ClaudeBin,
 		Dry: func() bool { return os.Getenv("CONN_WORK_DRY") == "1" },
 		Now: time.Now, ResumeCooldown: 0,
 	})

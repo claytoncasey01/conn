@@ -19,10 +19,12 @@ import (
 	"github.com/claytoncasey01/conn"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/drysession"
+	"github.com/claytoncasey01/conn/internal/hosted"
 	"github.com/claytoncasey01/conn/internal/instance"
 	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/server"
+	"github.com/claytoncasey01/conn/internal/settings"
 )
 
 const (
@@ -162,9 +164,12 @@ func StartWith(
 		return nil, err
 	}
 
+	// The record the last launch left, read before anything here can write it.
+	recorded := lastRecord(cfg.DataDir, store, stderr)
+
 	serveCtx, cancel := context.WithCancel(ctx)
 	running := &Server{URL: address, Secret: key, done: make(chan struct{}), err: nil}
-	handler := newHandler(serveCtx, cfg, store, logger, ui(lookup), host)
+	handler, life := newHandler(serveCtx, cfg, store, logger, ui(lookup), host)
 	handler.Secret = key
 	// The page says the background its theme draws the terminal on; the host answers with it.
 	handler.TerminalBackground = func(colour pty.RGB) {
@@ -175,16 +180,75 @@ func StartWith(
 	terminals := server.NewTerminals(context.WithoutCancel(ctx), host)
 	handler.Terminals = terminals
 
+	resumeRecorded(serveCtx, life, host, recorded)
+
 	go running.serve(serveCtx, newHTTPServer(handler), listener, func() {
-		// The terminals close first, as going away, so none sees its program stopped or races
-		// a reconnect against the stop; then the sessions stop; then the folder is let go.
-		terminals.Close()
-		cancel()
-		stopHosted(context.WithoutCancel(ctx), host, stderr)
-		release()
+		quit(quitStepsOf(life, terminals.Close, cancel,
+			func() { stopHosted(context.WithoutCancel(ctx), host, stderr) }, release))
 	})
 
 	return running, nil
+}
+
+// lastRecord is the record the last launch left in dataDir, with the settings now, as what a
+// launch resumes from before its owners' checks and its start are known.
+func lastRecord(dataDir string, store *settings.Store, stderr io.Writer) launchResume {
+	records, readErr := hosted.Read(dataDir)
+
+	return launchResume{
+		sessions: store.Get().Sessions, records: records, readErr: readErr, checks: nil,
+		start: nil, stderr: stderr,
+	}
+}
+
+// resumeRecorded resumes what the record names, each as its owner's check rebuilds it and
+// started inside Conn on host, shows it on the page, writes the record of what runs now in place
+// of the last launch's, and keeps it up to date until ctx ends.
+func resumeRecorded(ctx context.Context, life hostedLife, host *pty.Host, plan launchResume) {
+	plan.checks = life.checks
+	plan.start = resumeStart(host, life.recorder)
+	outcome := resumeAtLaunch(ctx, plan)
+	life.resumed.set(outcome.Resumed)
+	life.bump()
+	life.recorder.Sync()
+
+	go life.recorder.Run(ctx)
+}
+
+// quitSteps are what a quit does, each once, in the order quit runs them.
+type quitSteps struct {
+	// record writes the record of the sessions that run, and stops it changing.
+	record func()
+	// closeTerminals closes every terminal's viewers as going away.
+	closeTerminals func()
+	// cancel ends the server's context.
+	cancel func()
+	// stopSessions stops every hosted session.
+	stopSessions func()
+	// release lets the data folder go.
+	release func()
+}
+
+// quitStepsOf are the quit's steps for a server whose hosted sessions life records: the record
+// step is the recorder's Freeze, so no stop after it is recorded as an end.
+func quitStepsOf(life hostedLife, closeTerminals, cancel, stopSessions, release func(),
+) quitSteps {
+	return quitSteps{
+		record: life.recorder.Freeze, closeTerminals: closeTerminals, cancel: cancel,
+		stopSessions: stopSessions, release: release,
+	}
+}
+
+// quit ends a server. The record comes first, so it names every session that runs at the quit
+// and none of the stops below is recorded as an end; the terminals close next, as going away,
+// so none sees its program stopped or races a reconnect against the stop; then the sessions stop;
+// then the folder is let go.
+func quit(steps quitSteps) {
+	steps.record()
+	steps.closeTerminals()
+	steps.cancel()
+	steps.stopSessions()
+	steps.release()
 }
 
 // stopHosted stops every hosted session, within quitStopTimeout, and says what did not stop.

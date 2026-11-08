@@ -60,6 +60,8 @@ func newSessions(ctx context.Context, parts sessionParts, views tabViews) *sessi
 type tabViews struct {
 	reviews, myPrs func() any
 	runs           func() []sessions.Run
+	// resumed are the sessions this launch resumed that still run, for the banner.
+	resumed func() any
 }
 
 // sessionHooks are what the rest of the server puts in the snapshot.
@@ -76,5 +78,6 @@ func sessionHooks(store *settings.Store, history func() any, views tabViews) ses
 		OpenWork:    func() bool { return jira.On(store.Get()) },
 		RepoVisible: func(repo string) bool { return repos.Allowed(repo, store.Allow()) },
 		GithubOn:    func() bool { return store.ModuleEnabled(settings.ModuleGitHub) },
+		Resumed:     views.resumed,
 	}
 }

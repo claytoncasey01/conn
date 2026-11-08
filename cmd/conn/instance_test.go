@@ -32,14 +32,15 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// startChild runs `conn serve` on dataDir in a child process and waits until it says where it
-// listens.
-func startChild(t *testing.T, dataDir string) (*exec.Cmd, string) {
+// startChild runs `conn serve` on dataDir in a child process, with extra over its environment,
+// and waits until it says where it listens.
+func startChild(t *testing.T, dataDir string, extra ...string) (*exec.Cmd, string) {
 	t.Helper()
 
 	child := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^$")
 	child.Env = append(os.Environ(), childServe+"=1", "CONN_PORT=0",
 		"CONN_DATA="+dataDir, "CONN_DIST="+t.TempDir())
+	child.Env = append(child.Env, extra...)
 	child.Stdout = io.Discard
 	child.Stderr = io.Discard
 

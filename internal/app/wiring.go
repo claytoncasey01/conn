@@ -18,6 +18,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/gallery"
 	"github.com/claytoncasey01/conn/internal/gh"
 	"github.com/claytoncasey01/conn/internal/ghbudget"
+	"github.com/claytoncasey01/conn/internal/hosted"
+	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/modules"
 	"github.com/claytoncasey01/conn/internal/myprs"
 	"github.com/claytoncasey01/conn/internal/openwork"
@@ -79,68 +81,96 @@ func loadSettings(dataDir string, logger *log.Logger, stderr io.Writer) *setting
 }
 
 // newHandler builds the server and everything it reads, and starts the session list, which runs
-// until ctx ends.
+// until ctx ends. Every session a module starts is recorded through the hosted sessions' recorder
+// under that module as its owner; the hostedLife it returns resumes them at launch.
 func newHandler(
 	ctx context.Context, cfg config.Config, store *settings.Store, logger *log.Logger,
 	bundle fs.FS, host *pty.Host,
-) *server.Server {
+) (*server.Server, hostedLife) {
 	reader := origin.NewReader()
-	runner := claude.Runner{Bin: cfg.ClaudeBin}
 	opener := newOpener(cfg, store, host)
 	archived := openHistory(ctx, cfg, store, reader, logger.Writer())
-
-	// The snapshot hooks read Reviews and My PRs, which are made once the session list they
-	// read is.
-	var (
-		reviewsTab *reviews.Reviews
-		myPrsTab   *myprs.MyPrs
-		workTab    *openwork.Work
-	)
+	resumed := newResumedSessions(host)
+	running := &tabs{reviews: nil, myPrs: nil, work: nil}
 
 	live := newSessions(ctx, sessionParts{
 		cfg: cfg, store: store, reader: reader, archived: archived, stderr: logger.Writer(),
 		host: host,
 	}, tabViews{
-		reviews: func() any { return reviewsTab.Snapshot() },
-		myPrs:   func() any { return myPrsTab.Snapshot() },
-		runs:    func() []sessions.Run { return workTab.Runs() },
+		reviews: func() any { return running.reviews.Snapshot() },
+		myPrs:   func() any { return running.myPrs.Snapshot() },
+		runs:    func() []sessions.Run { return running.work.Runs() },
+		resumed: resumed.view,
 	})
 
+	recorder := newRecorder(cfg.DataDir, host, live, logger.Writer())
+	parts := newTabs(ctx, tabParts{
+		cfg: cfg, store: store, reader: reader, logger: logger, host: host, live: live,
+		opener: opener, recorder: recorder,
+	}, running)
+
+	liveIDs := liveIDsOf(live)
+
+	archived.startBackfill(ctx, cfg, store, live, func() map[string]bool { return liveIDs(ctx) })
+
+	api := newSettingsAPI(ctx, parts, live, archived, running.myPrs.Repos)
+	historyAPI := archived.newAPI(cfg, store, liveIDs,
+		recorder.Opener(hosted.OwnerHistory, opener), reader.Of)
+	library, themesAPI := newThemes(cfg, logger)
+	checks := ownerChecks(ownerParts{
+		cfg: cfg, store: store, reader: reader, work: running.work, history: historyAPI,
+	})
+
+	return &server.Server{
+		UI: bundle, Clients: live.Hub().Count, Settings: api, Logger: logger, Sessions: live,
+		History: historyAPI, HistoryOff: archived.offReason,
+		Reviews: running.reviews, MyPrs: running.myPrs, Work: running.work,
+		Themes: library, Gallery: themesAPI, Provided: newProvided(cfg, logger),
+	}, hostedLife{recorder: recorder, checks: checks, resumed: resumed, bump: live.Bump}
+}
+
+// tabParts are what the tabs beside the session list are made of: each module's sessions open
+// through opener, recorded under the module by recorder.
+type tabParts struct {
+	cfg      config.Config
+	store    *settings.Store
+	reader   *origin.Reader
+	logger   *log.Logger
+	host     *pty.Host
+	live     *sessions.Loop
+	opener   launch.Opener
+	recorder *hosted.Recorder
+}
+
+// newTabs makes Open work, Reviews and My PRs into running, starts them, and is the parts Reviews
+// was made from.
+func newTabs(ctx context.Context, made tabParts, running *tabs) reviewsParts {
+	cfg, store, live := made.cfg, made.store, made.live
+	runner := claude.Runner{Bin: cfg.ClaudeBin}
 	statuses := newStatuses(store, runner)
 	// Open work makes the runs folder at boot, even while it is off.
-	workTab = newWork(ctx, workParts{
-		cfg: cfg, store: store, reader: reader, runner: runner, statuses: statuses,
-		logger: logger, myPrRepos: func() []string { return myPrsTab.Repos() },
-		open: opener, host: host,
+	running.work = newWork(ctx, workParts{
+		cfg: cfg, store: store, reader: made.reader, runner: runner, statuses: statuses,
+		logger: made.logger, myPrRepos: func() []string { return running.myPrs.Repos() },
+		open: made.recorder.Opener(hosted.OwnerOpenWork, made.opener), host: made.host,
 	}, live)
 
 	// My PRs and Reviews poll GitHub as the same account: they share its hourly budget and a
 	// rate limit that either runs into. Reviews places an old record against the repos Conn has
 	// seen, My PRs' rows among them.
 	parts := reviewsParts{
-		cfg: cfg, store: store, reader: reader, statuses: statuses, budget: ghbudget.New(),
-		runner: runner, logger: logger, myPrRepos: func() []string { return myPrsTab.Repos() },
-		open: opener,
+		cfg: cfg, store: store, reader: made.reader, statuses: statuses, budget: ghbudget.New(),
+		runner: runner, logger: made.logger,
+		myPrRepos: func() []string { return running.myPrs.Repos() },
+		open:      made.recorder.Opener(hosted.OwnerReviews, made.opener),
+		selfOpen:  made.recorder.Opener(hosted.OwnerMyPrs, made.opener),
 	}
-	reviewsTab = newReviews(ctx, parts, live)
-	myPrsTab = newMyPrs(ctx, parts, live)
+	running.reviews = newReviews(ctx, parts, live)
+	running.myPrs = newMyPrs(ctx, parts, live)
 
-	startTabs(ctx, store, live, tabs{reviews: reviewsTab, myPrs: myPrsTab, work: workTab})
+	startTabs(ctx, store, live, *running)
 
-	liveIDs := liveIDsOf(live)
-
-	archived.startBackfill(ctx, cfg, store, live, func() map[string]bool { return liveIDs(ctx) })
-
-	api := newSettingsAPI(ctx, parts, live, archived, myPrsTab.Repos)
-
-	library, themesAPI := newThemes(cfg, logger)
-
-	return &server.Server{
-		UI: bundle, Clients: live.Hub().Count, Settings: api, Logger: logger, Sessions: live,
-		History: archived.newAPI(cfg, store, liveIDs, opener), HistoryOff: archived.offReason,
-		Reviews: reviewsTab, MyPrs: myPrsTab, Work: workTab,
-		Themes: library, Gallery: themesAPI, Provided: newProvided(cfg, logger),
-	}
+	return parts
 }
 
 // tabs are the parts of the server that tick beside the session list.
