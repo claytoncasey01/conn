@@ -139,8 +139,11 @@ func TestWriteRefusesWhatItWouldNotRead(t *testing.T) {
 		tooMany = append(tooMany, record(index))
 	}
 
-	relative := record(0)
+	relative, invalid := record(0), record(0)
 	relative.Dir = "runs/KEY-1"
+	// Each byte that is not UTF-8 is written as U+FFFD, three bytes, so the name read back is
+	// over its bound.
+	invalid.Name = strings.Repeat("\xff", hosted.NameBytesMax)
 
 	tests := []struct {
 		name    string
@@ -149,6 +152,8 @@ func TestWriteRefusesWhatItWouldNotRead(t *testing.T) {
 	}{
 		{"more than RecordsMax", tooMany, hosted.ErrBadFile},
 		{"a relative folder", []hosted.Record{relative}, hosted.ErrBadRecord},
+		{"a name that reads back longer", []hosted.Record{invalid}, hosted.ErrBadRecord},
+		{"records that write more than a file holds", escapedRecords(), hosted.ErrBadFile},
 	}
 
 	for _, tt := range tests {
@@ -167,6 +172,43 @@ func TestWriteRefusesWhatItWouldNotRead(t *testing.T) {
 				t.Errorf("a refused write left a file: %v", err)
 			}
 		})
+	}
+}
+
+// escapedRecords are RecordsMax records, each in bounds, whose folders JSON writes six bytes
+// for each of their bytes: together more than a record file holds.
+func escapedRecords() []hosted.Record {
+	records := make([]hosted.Record, 0, hosted.RecordsMax())
+	for index := range hosted.RecordsMax() {
+		each := record(index)
+		each.Dir = "/" + strings.Repeat("&", hosted.DirBytesMax-1)
+		records = append(records, each)
+	}
+
+	return records
+}
+
+// A record Write writes is one Read reads: the same records come back.
+func TestWhatWriteWritesReadsBack(t *testing.T) {
+	t.Parallel()
+
+	named := record(0)
+	named.Name = "review A & B <x>"
+
+	dir := t.TempDir()
+
+	err := hosted.Write(dir, []hosted.Record{named})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := hosted.Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.Equal(got, []hosted.Record{named}) {
+		t.Errorf("read %+v, want %+v", got, named)
 	}
 }
 
@@ -438,5 +480,61 @@ func TestRemoveTemporaries(t *testing.T) {
 	want := []string{".hosted-folder.json", hosted.FileName, "other.json"}
 	if !slices.Equal(names, want) {
 		t.Errorf("left %q, want %q", names, want)
+	}
+}
+
+// A record file Read refused is moved aside, not written over: a person can still recover it.
+func TestSetAside(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		arrange   func(t *testing.T, path string)
+		wantMoved bool
+	}{
+		{"a file of another mode", func(t *testing.T, path string) {
+			t.Helper()
+
+			err := os.WriteFile(path, []byte("records"), 0o644)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		{"a link", func(t *testing.T, path string) {
+			t.Helper()
+
+			err := os.Symlink("/etc/hosts", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		{"a folder", func(t *testing.T, path string) {
+			t.Helper()
+
+			err := os.Mkdir(path, 0o700)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"no file", func(*testing.T, string) {}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			tt.arrange(t, filepath.Join(dir, hosted.FileName))
+
+			err := hosted.SetAside(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = os.Lstat(filepath.Join(dir, hosted.FileName+hosted.RefusedSuffix))
+			if (err == nil) != tt.wantMoved {
+				t.Errorf("set aside: %v, want moved %v", err, tt.wantMoved)
+			}
+		})
 	}
 }

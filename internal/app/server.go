@@ -257,7 +257,7 @@ func completeHandler(
 
 // lastRecord is the record the last launch left in dataDir, with the settings now, as what a
 // launch resumes from before its owners' checks and its start are known. The temporary files of
-// writes a crash cut short are removed.
+// writes a crash cut short are removed, and a record that cannot be read is set aside.
 func lastRecord(dataDir string, store *settings.Store, stderr io.Writer) launchResume {
 	err := hosted.RemoveTemporaries(dataDir)
 	if err != nil {
@@ -265,6 +265,14 @@ func lastRecord(dataDir string, store *settings.Store, stderr io.Writer) launchR
 	}
 
 	records, readErr := hosted.Read(dataDir)
+	if readErr != nil {
+		// Moved aside, not written over: a person can still recover a file refused for its
+		// mode, a read that failed, or a hand edit.
+		err = hosted.SetAside(dataDir)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "conn: %v\n", err)
+		}
+	}
 
 	return launchResume{
 		sessions: store.Get().Sessions, records: records, readErr: readErr, checks: nil,

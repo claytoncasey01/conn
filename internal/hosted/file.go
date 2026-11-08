@@ -18,6 +18,8 @@ const (
 	temporaryPattern = ".hosted-*.json"
 	// fileMode is the record's mode, as CreateTemp makes it: its owner's alone.
 	fileMode os.FileMode = 0o600
+	// RefusedSuffix names, after FileName, where a record file Read refused is set aside.
+	RefusedSuffix = ".refused"
 	// folderEntriesMax bounds the entries of the data folder RemoveTemporaries looks at: far
 	// more than Conn keeps there.
 	folderEntriesMax = 1024
@@ -49,7 +51,16 @@ func Write(dir string, records []Record) error {
 		return fmt.Errorf("writing the hosted sessions: %w", err)
 	}
 
-	temporary, err := writeTemporary(dir, append(text, '\n'))
+	text = append(text, '\n')
+
+	// What Read would refuse is not written: JSON writes some bytes longer than they are (an
+	// escaped "&", a byte that is not UTF-8), so a record in bounds can read back out of them.
+	err = readsBack(text)
+	if err != nil {
+		return fmt.Errorf("writing the hosted sessions: %w", err)
+	}
+
+	temporary, err := writeTemporary(dir, text)
 	if err != nil {
 		return fmt.Errorf("writing the hosted sessions: %w", err)
 	}
@@ -88,6 +99,42 @@ func syncFolder(dir string) error {
 	}
 
 	return nil
+}
+
+// SetAside moves a record file Read refused out of the way, to FileName+RefusedSuffix (in place
+// of one set aside before), so the record written next does not destroy it: a regular file, or
+// a link as it is (never followed). Nothing else at the name is moved, and no file is no error.
+func SetAside(dir string) error {
+	path := filepath.Join(dir, FileName)
+
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("setting the refused record aside: %w", err)
+	}
+
+	if !settable(info.Mode()) {
+		return nil
+	}
+
+	err = os.Rename(path, path+RefusedSuffix)
+	if err != nil {
+		return fmt.Errorf("setting the refused record aside: %w", err)
+	}
+
+	return nil
+}
+
+// settable is whether a file of mode is set aside: a regular file or a link.
+func settable(mode os.FileMode) bool {
+	if mode.IsRegular() {
+		return true
+	}
+
+	return mode&os.ModeSymlink != 0
 }
 
 // RemoveTemporaries removes the temporary files of writes a crash cut short from dir: regular
@@ -138,6 +185,21 @@ func isTemporary(entry os.DirEntry) bool {
 	}
 
 	return matched
+}
+
+// readsBack is nil when Read reads text: no larger than a record file is, and parsed back into
+// records it would write as text again.
+func readsBack(text []byte) error {
+	if int64(len(text)) > fileBytesMax() {
+		return fmt.Errorf("%w: it would be more than %d bytes", ErrBadFile, fileBytesMax())
+	}
+
+	_, err := parse(text)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // renameCause is why a rename failed, without the paths: the temporary file's name is new at

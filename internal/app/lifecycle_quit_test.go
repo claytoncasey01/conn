@@ -146,3 +146,39 @@ func TestALaunchAnswersWhileItResumes(t *testing.T) {
 		t.Fatal("the server did not stop")
 	}
 }
+
+// A record a launch refuses (here one whose mode a copy changed) is moved aside as it was, not
+// written over: its sessions are not resumed, but nothing in it is lost.
+func TestALaunchSetsARefusedRecordAside(t *testing.T) {
+	t.Parallel()
+
+	world := newLifeWorld(t, "", sessionOne)
+	writeRecords(t, world.data(), world.record(0))
+	path := filepath.Join(world.data(), hosted.FileName)
+
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Chmod(path, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	spawned := newSpawns(world.data())
+	launch(t, world, spawned)
+
+	if len(spawned.started()) != 0 {
+		t.Errorf("started %+v from a refused record", spawned.started())
+	}
+
+	got, err := os.ReadFile(path + hosted.RefusedSuffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(got) != string(want) {
+		t.Errorf("set aside %q, want %q", got, want)
+	}
+}
