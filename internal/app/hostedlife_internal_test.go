@@ -18,6 +18,7 @@ import (
 var (
 	errTampered    = errors.New("not a hosted sessions file")
 	errNeverTicked = errors.New("the session list never ticked")
+	errNeverSpawns = errors.New("this host spawns nothing")
 )
 
 func TestQuitRecordsThenClosesTerminalsThenStopsSessionsThenLetsTheFolderGo(t *testing.T) {
@@ -310,5 +311,32 @@ func TestWaitForTheFirstTick(t *testing.T) {
 				t.Errorf("err %v, want %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// The snapshot's version moves once the resumed sessions are set, so a snapshot cached before
+// is not shown without them.
+func TestResumeRecordedMovesTheSnapshotsVersion(t *testing.T) {
+	t.Parallel()
+
+	bumps := 0
+	// No record: the host never spawns.
+	host := pty.NewHost(pty.Config{
+		Spawner: func(pty.Spec) (pty.Process, error) { return nil, errNeverSpawns },
+		Limits:  pty.DefaultLimits(), Answers: pty.Answers{}, TurnWaited: nil,
+	})
+	life := hostedLife{
+		recorder: openedRecorder(t), checks: resumeChecks(), resumed: newResumedSessions(host),
+		bump: func() { bumps++ }, ready: ticked,
+	}
+
+	resumeRecorded(t.Context(), life, host, launchResume{
+		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
+		records:  nil, readErr: nil, checks: nil, start: nil, carry: nil, ready: nil,
+		stderr: &bytes.Buffer{},
+	})
+
+	if bumps != 1 {
+		t.Errorf("moved the version %d times, want once", bumps)
 	}
 }
