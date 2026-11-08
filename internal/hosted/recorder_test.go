@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -558,5 +559,52 @@ func TestRecorderSaysAFolderAtTheRecordsNameOnce(t *testing.T) {
 
 	if len(failures) != 1 {
 		t.Errorf("said %d failures, want 1: %v", len(failures), failures)
+	}
+}
+
+// A session whose record Write could not write back as it is (a name that JSON writes longer
+// than its bound) runs unrecorded: the sessions started after it are still recorded.
+func TestRecorderRefusesARecordThatWouldNotReadBack(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	setting := newWorld()
+
+	var failures []error
+
+	recorder := hosted.NewRecorder(hosted.RecorderDeps{
+		Dir: dir, Live: func() []pty.Info { return setting.live },
+		Linked: func() map[pty.ID]string { return nil }, Write: hosted.Write,
+		Failed: func(err error) { failures = append(failures, err) },
+	})
+
+	for index := range 3 {
+		setting.run(index)
+
+		spec := pty.Spec{
+			Argv: []string{"/opt/claude"}, Dir: record(index).Dir, Env: nil,
+			Name: record(index).Name,
+		}
+		// Each byte that is not UTF-8 is written as U+FFFD, three bytes.
+		if index == 1 {
+			spec.Name = strings.Repeat("\xff", hosted.NameBytesMax/2)
+		}
+
+		recorder.Started(hosted.OwnerOpenWork, pty.ID(hostID(index)), spec, "")
+	}
+
+	recorder.Freeze()
+
+	records, err := hosted.Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(records) != 2 {
+		t.Errorf("the record holds %d sessions, want the two it can write", len(records))
+	}
+
+	if len(failures) != 1 {
+		t.Errorf("said %d failures, want the one record refused: %v", len(failures), failures)
 	}
 }

@@ -99,7 +99,8 @@ func (r *Recorder) Resumed(from Record, hostedID pty.ID, spec pty.Spec) {
 // Started records the session the host issued hostedID for, started by owner from spec, and
 // writes the record. claudeID is Claude's id of the conversation it resumes, "" for a new one
 // (the session list links it later). A session that cannot be recorded (see CheckRecord) is said
-// to Failed and runs unrecorded: it is not resumed.
+// to Failed and runs unrecorded: it is not resumed. So is one Write could not write as it is,
+// so that one session never stops the record of the others.
 func (r *Recorder) Started(owner string, hostedID pty.ID, spec pty.Spec, claudeID string) {
 	r.started(owner, hostedID, spec, claudeID, "")
 }
@@ -163,7 +164,7 @@ func (r *Recorder) started(owner string, hostedID pty.ID, spec pty.Spec, claudeI
 		ClaudeSessionID: claudeID,
 	}
 
-	err := CheckRecord(record)
+	err := checkWritable(record)
 	if err != nil {
 		r.deps.Failed(err)
 
