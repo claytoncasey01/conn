@@ -47,7 +47,8 @@ These are in scope, because Conn promises them:
   it to its window in the address's fragment, which is never sent to a server; `conn serve`
   prints it only to a terminal. The page keeps it in `sessionStorage` and removes it from the
   address bar. A browser records the address with `#k=` in its history before the page removes
-  it, and may sync that history with a browser account; this is accepted because the secret
+  it, keeps it in your browser profile's history (and may offer it again as you type an
+  address), and may sync that history with a browser account; this is accepted because the secret
   lasts one launch of Conn and the port answers on `127.0.0.1` only. Every write also needs the
   `x-conn: 1` header. The page and its files need no secret: they hold nothing of yours. The
   page's Content-Security-Policy allows scripts only from Conn (no inline script), requests only
@@ -133,8 +134,9 @@ never looks like a cmux pane), your terminal's and multiplexer's, and those of a
 session Conn may have been started from. A stop signals the whole group.
 
 **Output is untrusted.** The page's terminal is xterm.js, bundled with Conn, with no CDN.
-- It answers no query. The server answers device attributes, the cursor position and the
-  background colour from a fixed table, never with text from the program's output.
+- It answers no query. The server answers device attributes and the background colour from a
+  fixed table, never with text from the program's output. It does not answer a query for the
+  cursor position: two numbers the program chooses could spell a key.
 - It never writes the clipboard (OSC 52), sends no window reports, and never shows the title.
 - A focus report is never typed, and a mouse report only while the terminal has the focus.
 - A link opens only on Cmd-click or Ctrl-click, only for `http` or `https`, and only after you

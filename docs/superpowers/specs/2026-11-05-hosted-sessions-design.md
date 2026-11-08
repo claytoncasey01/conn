@@ -31,6 +31,8 @@ the page shows that terminal, and a reply or an answer is typing into a process 
 - Keeping sessions alive after the app is fully quit, or a detached per-session process.
 - Replacing the Claude Code interface with a custom chat view.
 - Recording or exporting terminal content.
+- A screen-reader rendering of the terminal (xterm.js's screen-reader mode is off). The ask panel,
+  the reply box and the session rows stay readable by assistive technology.
 
 ## Anti-goals
 
@@ -145,9 +147,10 @@ explicitly.
    window. A paste is cleaned of control characters and paste markers, one larger than an input
    frame is refused whole, and one whose line breaks the program would take as Enters waits for a
    confirmation. Exactly one side answers a terminal's
-   queries (device attributes, cursor position, the background colour Claude Code asks for), from a
-   fixed table, and never with text taken from the program's output; the other side is silent. The
-   builder decides which side by testing against a real `claude` start-up.
+   queries (device attributes and the background colour Claude Code asks for), from a fixed
+   table, and never with text taken from the program's output; the other side is silent. The
+   server answers; the page answers nothing. The cursor position is not answered at all: two
+   numbers the program chooses could spell a key.
 6. **A reply is checked, then typed.** The existing rule is kept: the screen is read first and
    nothing is typed if the prompt is not what the page showed. For a hosted session the screen
    comes from Conn's own model of the terminal, so the check and the typing see the same process.
