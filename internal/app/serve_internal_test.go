@@ -151,16 +151,7 @@ func TestTheRecordsAreCarriedBeforeTheLaunchServes(t *testing.T) {
 
 	var written []hosted.Record
 
-	recorder := hosted.NewRecorder(hosted.RecorderDeps{
-		Dir: "/data", Live: func() []pty.Info { return nil },
-		Linked: func() map[pty.ID]string { return nil },
-		Write: func(_ string, records []hosted.Record) error {
-			written = slices.Clone(records)
-
-			return nil
-		},
-		Failed: func(err error) { t.Error(err) },
-	})
+	recorder := writtenRecorder(t, &written)
 	host := pty.NewHost(pty.Config{
 		Spawner: func(pty.Spec) (pty.Process, error) { return nil, errNeverSpawns },
 		Limits:  pty.DefaultLimits(), Answers: pty.Answers{}, TurnWaited: nil,
@@ -198,4 +189,25 @@ func TestTheRecordsAreCarriedBeforeTheLaunchServes(t *testing.T) {
 	if !slices.Equal(written, records) {
 		t.Errorf("the quit recorded %+v, want every record carried", written)
 	}
+
+	if !life.settle.recordedIn(records[0].Dir) {
+		t.Error("the record's folder is not known as one the launch may resume")
+	}
+}
+
+// writtenRecorder is a recorder over a host with no session, which keeps its last write in
+// written.
+func writtenRecorder(t *testing.T, written *[]hosted.Record) *hosted.Recorder {
+	t.Helper()
+
+	return hosted.NewRecorder(hosted.RecorderDeps{
+		Dir: "/data", Live: func() []pty.Info { return nil },
+		Linked: func() map[pty.ID]string { return nil },
+		Write: func(_ string, records []hosted.Record) error {
+			*written = slices.Clone(records)
+
+			return nil
+		},
+		Failed: func(err error) { t.Error(err) },
+	})
 }

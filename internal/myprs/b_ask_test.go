@@ -542,3 +542,53 @@ func TestBARoundIsNotGoneWhileTheLaunchResumesIt(t *testing.T) {
 	run.poll(bMin)
 	bEqual(t, "after it", run.asks(), bAsked())
 }
+
+// While a launch resumes a round it recorded, and until it has had the time to appear, a press
+// opens no second self-review beside it; a round the record did not name is not held.
+func TestBNoSecondRoundWhileTheLaunchMayResumeOne(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		resuming bool
+		recorded bool
+		// manual is a round pasted into a terminal by hand, closed one closed before the
+		// launch: never one the launch resumes.
+		manual, closed bool
+		wantCode       int
+	}{
+		{"a round the launch resumes", true, true, false, false, 409},
+		{"a round the record did not name", true, false, false, false, 200},
+		{"a round the record named, the launch settled long ago", false, true, false, false, 200},
+		{"a round pasted by hand", true, true, true, false, 200},
+		{"a closed round", true, true, false, true, 200},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := bRound(t, bRoundOpts{launch: func(round *myprs.Launch) {
+				round.Armed = false
+				round.Manual = tt.manual
+
+				if tt.closed {
+					closedAt := float64(worldT0 - bMin)
+					round.ClosedAt = &closedAt
+				}
+			}})
+			// The PR is listed by a poll made before the launch began resuming.
+			run.poll(0)
+			run.world.Change(func(w *World) {
+				w.Resuming = tt.resuming
+				w.Recorded = map[string]bool{bAWT: tt.recorded}
+			})
+
+			reply := bStart(t, run.tab, bRepo, 7, bSonnet)
+			if reply.Code != tt.wantCode {
+				t.Errorf("the press answered %d %v, want %d", reply.Code, reply.Body,
+					tt.wantCode)
+			}
+		})
+	}
+}

@@ -279,7 +279,25 @@ func (r *Reviews) refuseRestart(key string, entry *Entry) *Reply {
 		return &refusal
 	}
 
-	return nil
+	return r.refuseResuming(newest, now)
+}
+
+// refuseResuming refuses a second review beside an open launch while this launch of Conn
+// resumes its last quit's sessions, and until they have had the time to appear: its session may
+// be one the launch resumes, not yet registered. (One that is live is refused before, by name.)
+func (r *Reviews) refuseResuming(newest *Launch, now float64) *Reply {
+	if newest.ClosedAt != nil {
+		return nil
+	}
+
+	if !r.resumeHeld(now) {
+		return nil
+	}
+
+	refusal := bad(codeBusy, "a review of this PR may be resuming after Conn's launch: give it "+
+		"a few minutes")
+
+	return &refusal
 }
 
 func (r *Reviews) launch(

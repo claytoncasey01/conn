@@ -220,6 +220,7 @@ type launched struct {
 // keeps them, and the quit's steps wait for the resume to end before they stop the sessions.
 func (s *Server) serveAndResume(ctx context.Context, launch launched) {
 	launch.life.recorder.Carry(launch.recorded.records)
+	launch.life.settle.recordedFrom(launch.recorded.records)
 
 	go s.serve(ctx, newHTTPServer(launch.handler), launch.listener, launch.steps)
 

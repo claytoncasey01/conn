@@ -51,10 +51,31 @@ type resumeSettle struct {
 	mu   sync.Mutex
 	at   float64
 	done bool
+	// recorded are the folders the last quit's record named a session in: the ones this launch
+	// may resume.
+	recorded map[string]bool
 }
 
 func newResumeSettle() *resumeSettle {
-	return &resumeSettle{mu: sync.Mutex{}, at: 0, done: false}
+	return &resumeSettle{mu: sync.Mutex{}, at: 0, done: false, recorded: map[string]bool{}}
+}
+
+// recordedFrom keeps the folders records name, as the launch about to resume them found them.
+func (s *resumeSettle) recordedFrom(records []hosted.Record) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, record := range records {
+		s.recorded[record.Dir] = true
+	}
+}
+
+// recordedIn is whether the last quit's record named a session in folder (myprs.Deps.Recorded).
+func (s *resumeSettle) recordedIn(folder string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.recorded[folder]
 }
 
 // finish says the resume was done at at.

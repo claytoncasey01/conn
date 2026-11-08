@@ -83,3 +83,48 @@ func TestBASessionNotBackAfterTheLaunchSettledIsClosed(t *testing.T) {
 	run.at(2 + bAppearMin)
 	bClosedAtMin(t, run.launch(), 2+bAppearMin)
 }
+
+// While a launch resumes, and until its sessions have had the time to appear, REVIEW opens no
+// second review beside one that may be coming back.
+func TestBNoSecondReviewWhileTheLaunchMayResumeOne(t *testing.T) {
+	t.Parallel()
+
+	run := bLaunched(t, bLaunchOpts{number: 0, sessions: nil})
+	run.at(1)
+	run.relaunch()
+	run.at(2)
+
+	reply := run.start(bModel)
+	if reply.Code != 409 {
+		t.Errorf("REVIEW answered %d %s while the launch resumed, want 409", reply.Code,
+			reply.Body)
+	}
+
+	run.settle(2.1, false)
+	run.at(3)
+
+	reply = run.start(bModel)
+	if reply.Code != 409 {
+		t.Errorf("REVIEW answered %d %s before the review could appear, want 409", reply.Code,
+			reply.Body)
+	}
+}
+
+// A review whose launch was closed before the launch of Conn is not one it resumes: REVIEW
+// opens a new one while the launch resumes.
+func TestBAClosedReviewIsNotHeldWhileTheLaunchResumes(t *testing.T) {
+	t.Parallel()
+
+	run := bLaunched(t, bLaunchOpts{number: 0, sessions: nil})
+	run.at(1)
+	run.fakes.with(func(fakes *world) { fakes.sessions = nil })
+	run.at(2)
+	bClosedAtMin(t, run.launch(), 2)
+	run.relaunch()
+	run.at(3)
+
+	reply := run.start(bModel)
+	if reply.Code != 200 {
+		t.Errorf("REVIEW answered %d %s, want a new review", reply.Code, reply.Body)
+	}
+}

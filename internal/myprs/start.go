@@ -260,6 +260,10 @@ func (m *MyPrs) tooSoon(target *startTarget, now float64) string {
 	}
 
 	newest := launches[len(launches)-1]
+	if m.resumingRound(newest, now) {
+		return "a self-review of this PR may be resuming after Conn's launch: give it a few " +
+			"minutes"
+	}
 
 	for _, settled := range []bool{
 		m.seen[newest], newest.ClosedAt != nil, now-newest.At >= appearMs,
@@ -275,6 +279,25 @@ func (m *MyPrs) tooSoon(target *startTarget, now float64) string {
 	}
 
 	return "a self-review of this PR was started a moment ago and has not appeared yet"
+}
+
+// resumingRound is whether launch's session may be one this launch of Conn resumes and has not
+// shown yet: the last quit's record named a session in its worktree, it was started inside Conn
+// and not closed, and the launch has not settled, or did less than appearMs ago.
+func (m *MyPrs) resumingRound(launch *Launch, now float64) bool {
+	if !m.resumeHeld(now) {
+		return false
+	}
+
+	if launch.Manual {
+		return false
+	}
+
+	if launch.ClosedAt != nil {
+		return false
+	}
+
+	return m.deps.Recorded(launch.Worktree)
 }
 
 // askOwed is whether the newest round is still armed with its ask possibly owed: it is armed,

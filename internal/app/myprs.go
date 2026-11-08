@@ -67,7 +67,7 @@ func myPrsDeps(parts reviewsParts, live *sessions.Loop) myprs.Deps {
 
 			return clone.Path
 		},
-		Sessions: live.Live, Settled: parts.settled,
+		Sessions: live.Live, Settled: parts.settled, Recorded: parts.recorded,
 		RepoMatches: repoMatches,
 		Launch: func(ctx context.Context, opts myprs.LaunchOpts) myprs.LaunchResult {
 			opts.DataDir = cfg.DataDir

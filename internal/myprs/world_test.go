@@ -59,6 +59,8 @@ type World struct {
 	// finished (0: long before any test's clock).
 	Resuming  bool
 	SettledAt float64
+	// Recorded are the worktrees the last quit's record named a session in.
+	Recorded map[string]bool
 	// Source answers the poll's search; Listed is what the last one answered.
 	Source  func() (myprs.Search, error)
 	Listed  []*myprs.PR
@@ -144,6 +146,7 @@ func (w *World) Deps(file string) myprs.Deps {
 	return myprs.Deps{
 		Gh: worldGh{w}, Scope: w.scope, File: file, HasClients: w.hasClients,
 		Now: w.now, Bump: w.bump, CloneFor: w.cloneFor, Sessions: w.sessions, Settled: w.settled,
+		Recorded:    w.recorded,
 		RepoMatches: w.repoMatches, Launch: w.launch, Git: w.git, DataDir: "/data",
 		Exists: w.exists, Writes: worldWrites{w}, RepliesAt: w.repliesAt, ReadFile: w.readFile,
 		Draft: w.draft, Record: w.record, Budget: nil, Logger: nil,
@@ -195,6 +198,14 @@ func (w *World) cloneFor(repo string) string {
 	defer w.mu.Unlock()
 
 	return w.Clones[repo]
+}
+
+// recorded is whether the last quit's record named a session in worktree.
+func (w *World) recorded(worktree string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.Recorded[worktree]
 }
 
 // settled is when the launch finished resuming its recorded sessions, and whether it has.

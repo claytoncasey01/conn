@@ -96,6 +96,9 @@ type reviewsParts struct {
 	// settled is when the launch finished resuming its last quit's sessions: until then, and
 	// for a while after, Reviews and My PRs judge no session of theirs gone.
 	settled func() (float64, bool)
+	// recorded is whether the last quit's record named a session in a folder: My PRs opens no
+	// second round beside one the launch may resume.
+	recorded func(folder string) bool
 }
 
 func millis(duration time.Duration) float64 { return float64(duration.Milliseconds()) }

@@ -795,12 +795,7 @@ func (m *MyPrs) roundFacts(launch *Launch, session *sessions.LiveSession, now fl
 // within appearMs. While this launch of Conn resumes its last quit's sessions, and for appearMs
 // after, it may be one the launch resumes: it is not gone yet.
 func (m *MyPrs) sessionGone(launch *Launch, now float64) bool {
-	settledAt, settled := m.deps.Settled()
-	if !settled {
-		return false
-	}
-
-	if now-settledAt < appearMs {
+	if m.resumeHeld(now) {
 		return false
 	}
 
@@ -809,6 +804,17 @@ func (m *MyPrs) sessionGone(launch *Launch, now float64) bool {
 	}
 
 	return now-launch.At >= appearMs
+}
+
+// resumeHeld is whether this launch of Conn has not finished resuming its last quit's sessions,
+// or did less than appearMs ago: a session not live may be one it resumes.
+func (m *MyPrs) resumeHeld(now float64) bool {
+	settledAt, settled := m.deps.Settled()
+	if !settled {
+		return true
+	}
+
+	return now-settledAt < appearMs
 }
 
 // askLanded is whether a try of the ask shows on the PR: my own ask made since the first try for

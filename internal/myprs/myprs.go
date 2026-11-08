@@ -194,6 +194,9 @@ type Deps struct {
 	// and whether it has. Until then, and for appearMs after, a round whose session is not live
 	// is not judged gone: its session may be one the launch resumes.
 	Settled func() (float64, bool)
+	// Recorded is whether the last quit's record named a session in worktree: one this launch
+	// resumes, which a press must not open a second round beside.
+	Recorded func(worktree string) bool
 	// RepoMatches is whether the clone at path has repo as its origin; an error when git
 	// cannot say.
 	RepoMatches func(ctx context.Context, repo, path string) (bool, error)
