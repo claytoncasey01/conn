@@ -1,6 +1,7 @@
 package openwork
 
 import (
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -466,8 +467,10 @@ func ResumeSpec(claude string, record *Record, slot *Leg) (pty.Spec, string) {
 }
 
 // ownDelegation is whether the worktree holds a delegation.md claude may be pointed at: a regular
-// file, in a .conn folder of the person's own, reached with no link followed. A repository can
-// commit .conn, or the file, as a link, and claude would read wherever it points as its rules.
+// file, in a .conn folder of the person's own, reached with no link followed, holding exactly
+// Conn's Delegation. A repository can commit .conn, or the file, as a link, and claude would read
+// wherever it points as its rules; a checkout or a stash can bring back a committed one, and the
+// session can write to it, and claude would take that text as its rules too.
 func ownDelegation(worktree string) bool {
 	file, err := reviews.OpenInOwnFolder(filepath.Join(worktree, connFolder), delegationFile)
 	if err != nil {
@@ -481,5 +484,15 @@ func ownDelegation(worktree string) bool {
 		return false
 	}
 
-	return info.Mode().IsRegular()
+	if !info.Mode().IsRegular() {
+		return false
+	}
+
+	// One byte past Conn's text is enough to tell a longer file apart.
+	text, err := io.ReadAll(io.LimitReader(file, int64(len(Delegation))+1))
+	if err != nil {
+		return false
+	}
+
+	return string(text) == Delegation
 }
