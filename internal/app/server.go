@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -94,10 +95,19 @@ type Server struct {
 	err  error
 	// resumed is closed once the launch has resumed the sessions of its last quit, or given up.
 	resumed chan struct{}
+	// recorded is closed once the quit has written the record of the sessions that run;
+	// recordedOnce closes it once.
+	recorded     chan struct{}
+	recordedOnce sync.Once
 }
 
 // Done is closed after the server has shut down and let the data folder go.
 func (s *Server) Done() <-chan struct{} { return s.done }
+
+// Recorded is closed once the quit has written the record of the hosted sessions that run, the
+// quit's first step: from then on, ending the process at once loses nothing the next launch
+// resumes.
+func (s *Server) Recorded() <-chan struct{} { return s.recorded }
 
 // Resumed is closed once the server's launch has resumed the hosted sessions of the last quit,
 // or found it would resume none: it serves from the start, and resumes while it serves.
@@ -120,7 +130,10 @@ func Ended(url string, err error) *Server {
 	done := make(chan struct{})
 	close(done)
 
-	return &Server{URL: url, Secret: secret.Secret{}, done: done, err: err, resumed: done}
+	return &Server{
+		URL: url, Secret: secret.Secret{}, done: done, err: err, resumed: done, recorded: done,
+		recordedOnce: sync.Once{},
+	}
 }
 
 // Start takes the data folder's lock, loads settings, makes this launch's secret, listens on
@@ -200,7 +213,7 @@ func StartWith(
 func newServer(address string, key secret.Secret) *Server {
 	return &Server{
 		URL: address, Secret: key, done: make(chan struct{}), err: nil,
-		resumed: make(chan struct{}),
+		resumed: make(chan struct{}), recorded: make(chan struct{}), recordedOnce: sync.Once{},
 	}
 }
 
@@ -222,7 +235,14 @@ func (s *Server) serveAndResume(ctx context.Context, launch launched) {
 	launch.life.recorder.Carry(launch.recorded.records)
 	launch.life.settle.recordedFrom(launch.recorded.records)
 
-	go s.serve(ctx, newHTTPServer(launch.handler), launch.listener, launch.steps)
+	steps := launch.steps
+	record := steps.record
+	steps.record = func() {
+		record()
+		s.recordedOnce.Do(func() { close(s.recorded) })
+	}
+
+	go s.serve(ctx, newHTTPServer(launch.handler), launch.listener, steps)
 
 	go func() {
 		defer close(s.resumed)

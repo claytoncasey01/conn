@@ -87,7 +87,7 @@ On first start every page except Themes sends you to Settings. Choose the reposi
 Open work, Reviews, My PRs and History's RESUME start Claude Code sessions. By default each one runs inside Conn: the Sessions page and the Open work run page show its terminal, which you can type into from the browser or the app. Several tabs, or the app and a browser, see the same screen, up to 4 at once. A program that floods the terminal faster than the page can draw closes the panel; **Interrupt** then sends it Ctrl-C.
 
 - Closing the app's window keeps every session running. Opening it again shows each one as it was.
-- Quitting Conn (Cmd-Q, or Ctrl-C or SIGTERM to `conn serve`) stops every session, after writing down which ones ran.
+- Quitting Conn (Cmd-Q, or Ctrl-C or SIGTERM to `conn serve`) stops every session, after writing down which ones ran. A second Ctrl-C or SIGTERM to `conn serve` while it stops them quits at once, once that list is written: the sessions still running end as their terminals hang up.
 - The next launch resumes those sessions on their own conversations. The page says how many, and offers **Stop all**. *Resume on launch* in Settings turns this off.
 
 Settings, *Where sessions open*, can send new sessions to cmux instead, or show the command to paste into any terminal. How the terminal is protected, and what is kept on disk, is in [SECURITY.md](SECURITY.md#sessions-inside-conn).

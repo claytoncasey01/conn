@@ -25,7 +25,7 @@ func serveFor(t *testing.T) (context.Context, served) {
 	}
 	exited := make(chan int, 1)
 
-	go func() { exited <- serve(ctx, lookupFrom(env), &stdout, true, &stderr) }()
+	go func() { exited <- serve(ctx, nil, lookupFrom(env), &stdout, true, &stderr) }()
 
 	t.Cleanup(func() {
 		cancel()

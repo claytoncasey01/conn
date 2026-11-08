@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/claytoncasey01/conn"
 	"github.com/claytoncasey01/conn/internal/app"
@@ -22,6 +23,14 @@ import (
 	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/terminal"
 )
+
+// signalsBuffered is how many signals wait to be heard: the first, which quits, and the second,
+// which hurries the quit.
+const signalsBuffered = 2
+
+// recordWaitMax bounds how long a hurried quit waits for the record to be written: the quit's
+// first step, which takes milliseconds.
+const recordWaitMax = 2 * time.Second
 
 // Exit codes. 2 is a usage error, as in the flag package.
 const (
@@ -60,10 +69,19 @@ func realMain(
 
 	switch args[0] {
 	case "serve":
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer stop()
+		signals := make(chan os.Signal, signalsBuffered)
 
-		return serve(ctx, lookup, stdout, stdoutTerminal, stderr)
+		signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(signals)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		hurry := make(chan struct{})
+
+		go hearSignals(ctx, signals, cancel, hurry)
+
+		return serve(ctx, hurry, lookup, stdout, stdoutTerminal, stderr)
 	case "stop":
 		return stop(context.Background(), lookup, stdout, stderr)
 	case "theme":
@@ -83,12 +101,33 @@ func realMain(
 	return exitUsage
 }
 
+// hearSignals cancels the server's context at the first of signals, which starts the quit, and
+// closes hurry at the second, which cuts it short. It returns when ctx ends after the second, or
+// once the command has returned (its deferred cancel).
+func hearSignals(
+	ctx context.Context, signals <-chan os.Signal, cancel context.CancelFunc, hurry chan<- struct{},
+) {
+	select {
+	case <-signals:
+		cancel()
+	case <-ctx.Done():
+		return
+	}
+
+	// The first signal ended ctx itself: from here the second is waited for until the process
+	// exits, which the command's own end brings.
+	<-signals
+	close(hurry)
+}
+
 // serve runs the dashboard server until ctx ends, then lets open requests finish. Another Conn
 // already running on the data folder is not an error: serve says where it is and exits. Where it
-// says the page is follows sayWhere: with the secret only on a terminal.
+// says the page is follows sayWhere: with the secret only on a terminal. When hurry closes during
+// the quit, serve returns at once, with an error, once the record of the hosted sessions is
+// written: the sessions still running end as their terminals hang up with the process.
 func serve(
-	ctx context.Context, lookup config.LookupFunc, stdout io.Writer, stdoutTerminal bool,
-	stderr io.Writer,
+	ctx context.Context, hurry <-chan struct{}, lookup config.LookupFunc, stdout io.Writer,
+	stdoutTerminal bool, stderr io.Writer,
 ) int {
 	dataDir := config.FromEnv(lookup).DataDir
 	where := place{stdout: stdout, terminal: stdoutTerminal, dataDir: dataDir}
@@ -108,9 +147,30 @@ func serve(
 
 	// Done follows ctx within the server's shutdown timeout, and comes after the folder is let
 	// go, so the process never exits while the server still holds it.
-	<-running.Done()
+	select {
+	case <-running.Done():
+		return serveEnded(running.Err(), stderr)
+	case <-hurry:
+		return hurried(running, stderr)
+	}
+}
 
-	return serveEnded(running.Err(), stderr)
+// hurried is a quit a second signal cut short: it waits, at most recordWaitMax, for the record of
+// the hosted sessions, and says what the person gave up.
+func hurried(running *app.Server, stderr io.Writer) int {
+	timer := time.NewTimer(recordWaitMax)
+	defer timer.Stop()
+
+	select {
+	case <-running.Recorded():
+	case <-running.Done():
+	case <-timer.C:
+	}
+
+	_, _ = fmt.Fprintln(stderr, "conn: quitting at once at a second signal: the hosted sessions "+
+		"still running end as their terminals hang up, and the data folder's lock is left behind")
+
+	return exitError
 }
 
 // alreadyRunning says where the Conn holding the data folder answers.

@@ -46,7 +46,7 @@ func serveWith(t *testing.T, env map[string]string, settingsJSON string) (
 
 	exited := make(chan int, 1)
 
-	go func() { exited <- serve(ctx, lookupFrom(all), &stdout, true, &stderr) }()
+	go func() { exited <- serve(ctx, nil, lookupFrom(all), &stdout, true, &stderr) }()
 
 	t.Cleanup(func() {
 		cancel()

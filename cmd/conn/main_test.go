@@ -96,7 +96,7 @@ func TestServeAnswersUntilStopped(t *testing.T) {
 	}
 	exited := make(chan int, 1)
 
-	go func() { exited <- serve(ctx, lookupFrom(env), &stdout, true, &stderr) }()
+	go func() { exited <- serve(ctx, nil, lookupFrom(env), &stdout, true, &stderr) }()
 
 	page := waitForPage(t, &stdout)
 
@@ -167,7 +167,9 @@ func TestServeShowsTheSecretOnlyToATerminal(t *testing.T) {
 			}
 			exited := make(chan int, 1)
 
-			go func() { exited <- serve(ctx, lookupFrom(env), &stdout, tt.terminal, &stderr) }()
+			go func() {
+				exited <- serve(ctx, nil, lookupFrom(env), &stdout, tt.terminal, &stderr)
+			}()
 
 			address := waitForAddress(t, &stdout)
 
@@ -224,7 +226,7 @@ func TestServeRefusesABadPort(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 
-	code := serve(t.Context(), lookupFrom(map[string]string{"CONN_PORT": "x"}), &stdout, false,
+	code := serve(t.Context(), nil, lookupFrom(map[string]string{"CONN_PORT": "x"}), &stdout, false,
 		&stderr)
 	if code != exitError {
 		t.Fatalf("exit %d", code)

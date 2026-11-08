@@ -120,7 +120,7 @@ func TestStopStopsTheServerOnItsDataFolder(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 
-	code := serve(t.Context(), env, &stdout, false, &stderr)
+	code := serve(t.Context(), nil, env, &stdout, false, &stderr)
 	if code != exitOK {
 		t.Fatalf("a second serve = %d %q, want 0", code, stderr.String())
 	}
@@ -131,7 +131,7 @@ func TestStopStopsTheServerOnItsDataFolder(t *testing.T) {
 
 	stdout.Reset()
 
-	code = serve(t.Context(), env, &stdout, true, &stderr)
+	code = serve(t.Context(), nil, env, &stdout, true, &stderr)
 	if code != exitOK {
 		t.Fatalf("a second serve on a terminal = %d %q, want 0", code, stderr.String())
 	}
@@ -213,7 +213,7 @@ func TestServeSaysAPortIsTaken(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 
-	code := serve(t.Context(), env, &stdout, false, &stderr)
+	code := serve(t.Context(), nil, env, &stdout, false, &stderr)
 	if code != exitError {
 		t.Fatalf("serve = %d, want 1", code)
 	}
@@ -244,7 +244,7 @@ func TestServeSaysWhatSettingsJSONDroppedAndServesTheSettings(t *testing.T) {
 	})
 	exited := make(chan int, 1)
 
-	go func() { exited <- serve(ctx, env, &stdout, true, &stderr) }()
+	go func() { exited <- serve(ctx, nil, env, &stdout, true, &stderr) }()
 
 	page := waitForPage(t, &stdout)
 

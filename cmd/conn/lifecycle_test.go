@@ -2,7 +2,9 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -172,5 +174,93 @@ func waitExit(t *testing.T, wait func() error) {
 		}
 	case <-time.After(testtime.Scaled(childExitWait)):
 		t.Fatal("the child did not exit")
+	}
+}
+
+const (
+	// stubbornClaude is a claude that ignores the polite stop, so a quit waits out the grace for
+	// it before the kill. It makes the file named like itself with ".ready" once it ignores it,
+	// and with ".stopping" when the polite stop comes.
+	stubbornClaude = "#!/bin/sh\ntrap ': > \"$0.stopping\"' TERM\n: > \"$0.ready\"\n" +
+		"while :; do sleep 1; done\n"
+	// hurriedExitWait bounds a hurried child's exit: well under the stop grace (5 s) a quit
+	// would wait out for stubbornClaude.
+	hurriedExitWait = 3 * time.Second
+)
+
+// A second signal hurries `conn serve` out of its quit: it exits at once, with an error, once the
+// record is written, though a session ignores the polite stop the quit would wait out; the record
+// still names that session for the next launch.
+func TestASecondSignalHurriesTheQuit(t *testing.T) {
+	t.Parallel()
+
+	dataDir, extra := signalWorld(t)
+	claude := strings.TrimPrefix(extra[1], "CONN_CLAUDE=")
+	writeFile(t, claude, stubbornClaude, scriptMode)
+	child, _ := startChild(t, dataDir, extra...)
+	resumed := resumedRecord(t, dataDir)
+	waitFile(t, claude+".ready")
+
+	// The second signal comes once the quit is waiting out the stop's grace: two signals sent
+	// together may be delivered as one.
+	sigterm(t, child)
+	waitFile(t, claude+".stopping")
+	sigterm(t, child)
+
+	exited := make(chan error, 1)
+
+	go func() { exited <- child.Wait() }()
+
+	select {
+	case err := <-exited:
+		if err == nil {
+			t.Error("a hurried quit exited 0, want an error")
+		}
+	case <-time.After(testtime.Scaled(hurriedExitWait)):
+		_ = child.Process.Kill()
+		waited := <-exited
+
+		t.Fatalf("the child did not hurry out of its quit (killed: %v)", waited)
+	}
+
+	after, err := hosted.Read(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(after) != 1 {
+		t.Fatalf("the record after the quit holds %+v, want the resumed session", after)
+	}
+
+	if after[0].ID != resumed.ID {
+		t.Errorf("the record names %q, want the resumed %q", after[0].ID, resumed.ID)
+	}
+}
+
+// waitFile waits, within lockWait, until a file is at path.
+func waitFile(t *testing.T, path string) {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(lockWait))
+
+	for time.Now().Before(deadline) {
+		_, err := os.Stat(path)
+		if err == nil {
+			return
+		}
+
+		time.Sleep(lockPoll)
+	}
+
+	t.Fatalf("%s never appeared", filepath.Base(path))
+}
+
+// sigterm sends the child SIGTERM.
+func sigterm(t *testing.T, child *exec.Cmd) {
+	t.Helper()
+
+	err := child.Process.Signal(syscall.SIGTERM)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
