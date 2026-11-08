@@ -41,6 +41,11 @@ func selfLaunchDeps(parts reviewsParts) reviews.LaunchDeps {
 // newMyPrs is the My PRs tab over this machine: gh, git, cmux, the Slack draft helper and the
 // session list's last tick. It shares Reviews' parts, the GitHub budget among them.
 func newMyPrs(ctx context.Context, parts reviewsParts, live *sessions.Loop) *myprs.MyPrs {
+	return myprs.New(ctx, myPrsDeps(parts, live))
+}
+
+// myPrsDeps are what the My PRs tab reads and calls on this machine.
+func myPrsDeps(parts reviewsParts, live *sessions.Loop) myprs.Deps {
 	cfg := parts.cfg
 	self := myprs.Self{Pattern: cfg.SelfNamePattern, Prompt: cfg.SelfReviewPrompt}
 	launch := selfLaunchDeps(parts)
@@ -49,7 +54,7 @@ func newMyPrs(ctx context.Context, parts reviewsParts, live *sessions.Loop) *myp
 		Timeout: cfg.ReviewScanTimeout,
 	}
 
-	return myprs.New(ctx, myprs.Deps{
+	return myprs.Deps{
 		Gh:    myprs.Gh{Exec: gh.Large, Trigger: cfg.GreptileTrigger},
 		Scope: myprs.ScopeNow(parts.store), File: filepath.Join(cfg.DataDir, "myprs.json"),
 		HasClients: func() bool { return live.Hub().Count() > 0 },
@@ -87,7 +92,7 @@ func newMyPrs(ctx context.Context, parts reviewsParts, live *sessions.Loop) *myp
 			GreptileTrigger: cfg.GreptileTrigger, ProtectedHeads: cfg.ProtectedHeads,
 			Self: self,
 		},
-	})
+	}
 }
 
 // repoMatches is whether the clone at path has repo as its origin: a wrong clone folder in

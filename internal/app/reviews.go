@@ -103,6 +103,11 @@ func millis(duration time.Duration) float64 { return float64(duration.Millisecon
 // newReviews is the Reviews tab over this machine: gh, the Slack helper runs, git, the sessions
 // it opens and the session list's last tick.
 func newReviews(ctx context.Context, parts reviewsParts, live *sessions.Loop) *reviews.Reviews {
+	return reviews.New(ctx, reviewsDeps(parts, live))
+}
+
+// reviewsDeps are what the Reviews tab reads and calls on this machine.
+func reviewsDeps(parts reviewsParts, live *sessions.Loop) reviews.Deps {
 	cfg := parts.cfg
 	names := reviews.Names{Pattern: cfg.ReviewNamePattern}
 	scanConfig := reviews.ScanConfig{
@@ -111,7 +116,7 @@ func newReviews(ctx context.Context, parts reviewsParts, live *sessions.Loop) *r
 	}
 	launch := launchDeps(parts, names)
 
-	return reviews.New(ctx, reviews.Deps{
+	return reviews.Deps{
 		Gh: reviews.Gh{Exec: gh.GraphQL},
 		Scan: func(ctx context.Context, input reviews.ScanInput) (reviews.ScanResult, error) {
 			return reviews.RunScan(ctx, input, parts.runner.Run, scanConfig, nowMs())
@@ -157,7 +162,7 @@ func newReviews(ctx context.Context, parts reviewsParts, live *sessions.Loop) *r
 			CloseCapMs:    millis(cfg.ReviewCloseAfterMax),
 			Me:            cfg.ReviewMe, Dry: cfg.Dry.Reviews, NamePattern: cfg.ReviewNamePattern,
 		},
-	})
+	}
 }
 
 // launchDeps are the effects of launching a review: real git (no shell, stderr as the error),
