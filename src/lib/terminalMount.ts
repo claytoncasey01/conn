@@ -72,6 +72,12 @@ export const PASTE_CONFIRM_MS = 30_000
 /** The key that leaves the terminal: the usual key for moving between a window's panes. */
 export const LEAVE_KEY = 'F6'
 
+/** What the panel says leaves the terminal: F6, or Shift-Escape where F6 is a system key (a Mac keyboard's Do Not Disturb). */
+export const LEAVE_HINT = `${LEAVE_KEY} or Shift-Esc`
+
+/** Whether a key leaves the terminal: LEAVE_KEY, or Escape with Shift */
+const leaves = (event: KeyboardEvent): boolean => event.key === LEAVE_KEY || (event.key === 'Escape' && event.shiftKey)
+
 /** The events a script could make to type or click: dropped at the host, before xterm.js sees them, unless real. */
 export const REAL_EVENTS_ONLY = [
   'keydown', 'keypress', 'keyup', 'beforeinput', 'input', 'compositionstart', 'compositionupdate', 'compositionend',
@@ -183,7 +189,7 @@ export function mount(deps: MountDeps): Panel {
 
   const keyed = (event: KeyboardEvent): boolean => {
     if (!event.isTrusted) return false
-    if (event.key !== LEAVE_KEY) return true
+    if (!leaves(event)) return true
     if (event.type === 'keydown') {
       term?.blur()
       deps.leave()

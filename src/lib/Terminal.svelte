@@ -12,7 +12,7 @@
   import { statusText } from './terminal.ts'
   import { interruptOffered } from './interrupt.ts'
   import InterruptButton from './InterruptButton.svelte'
-  import { LEAVE_KEY, mount, type Look, type Panel, type PanelView } from './terminalMount.ts'
+  import { LEAVE_HINT, mount, type Look, type Panel, type PanelView } from './terminalMount.ts'
   import { terminalFont, terminalTheme } from './terminalTheme.ts'
   import { theme } from './theme/theme.svelte.ts'
 
@@ -22,6 +22,37 @@
   let detachButton: HTMLButtonElement | undefined = $state()
   let view = $state<PanelView>({ phase: 'connecting', exitCode: null, notice: null, note: '', lagging: false, held: false, pasteClosed: false, ask: null, hover: '' })
   let panel: Panel | null = null
+
+  // The confirmation takes the keyboard while it is open: its first button has the focus, Escape cancels, and the focus
+  // goes back where it was (the terminal) once it closes, whichever way.
+  let askFirst: HTMLButtonElement | undefined = $state()
+  let askReturn: HTMLElement | null = null
+  const askTitleId = $derived(`ask-title-${sessionId}`)
+  const askTextId = $derived(`ask-text-${sessionId}`)
+  let asking = false
+  $effect(() => {
+    const open = view.ask !== null
+    if (open === asking) return
+    asking = open
+    if (open) {
+      askReturn = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      queueMicrotask(() => askFirst?.focus())
+      return
+    }
+    askReturn?.focus()
+    askReturn = null
+  })
+
+  function askKey(event: KeyboardEvent) {
+    if (event.key !== 'Escape') return
+    event.preventDefault()
+    panel?.cancel()
+  }
+
+  // Dismiss stays in place, disabled, while it has the focus and there is nothing left to dismiss, so the focus is not
+  // dropped on the page when its note goes.
+  let dismissFocused = $state(false)
+  const dismissable = $derived(view.phase === 'live' && (view.held || view.pasteClosed))
 
   const FONT_SIZE = 13
   /** The longest the panel waits for the theme's font before it opens with the fallback. */
@@ -100,10 +131,10 @@
   <div class="head">
     <div class="hud title">TERMINAL · <span data-content>{plainText(name)}</span></div>
     <div class="status" class:live={view.phase === 'live'} class:bad={view.phase === 'closed'}>{statusText(view)}</div>
-    <div class="hint">{LEAVE_KEY} leaves the terminal</div>
+    <div class="hint">{LEAVE_HINT} leaves the terminal</div>
     <div class="actions">
-      {#if view.phase === 'live' && (view.held || view.pasteClosed)}
-        <button type="button" class="btn cap" onclick={event => panel?.dismiss(event)}>Dismiss</button>
+      {#if dismissable || dismissFocused}
+        <button type="button" class="btn cap" disabled={!dismissable} onfocus={() => (dismissFocused = true)} onblur={() => (dismissFocused = false)} onclick={event => panel?.dismiss(event)}>Dismiss</button>
       {/if}
       {#if view.notice?.reconnect}
         <button type="button" class="btn cap" onclick={reconnect}>Reconnect</button>
@@ -115,18 +146,22 @@
     </div>
   </div>
   {#if view.ask}
-    <div role="alertdialog" aria-label="Confirm" class="ask">
-      {#if view.ask.kind === 'link'}
-        <div>Open a page on <strong data-content>{plainText(view.ask.host)}</strong> in your browser?</div>
-        <div class="url" data-content>{plainText(view.ask.url)}</div>
-      {:else}
-        <div>The program has not asked for pastes, so each of these {view.ask.lines} lines would be sent as Enter. Paste anyway?</div>
-      {/if}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div role="alertdialog" aria-modal="true" aria-labelledby="{askTitleId}" aria-describedby="{askTextId}" class="ask" onkeydown={askKey} tabindex="-1">
+      <div id={askTitleId} class="asktitle">{view.ask.kind === 'link' ? 'Open a link' : 'Paste lines'}</div>
+      <div id={askTextId}>
+        {#if view.ask.kind === 'link'}
+          <div>Open a page on <strong data-content>{plainText(view.ask.host)}</strong> in your browser?</div>
+          <div class="url" data-content>{plainText(view.ask.url)}</div>
+        {:else}
+          <div>The program has not asked for pastes, so each of these {view.ask.lines} lines would be sent as Enter. Paste anyway?</div>
+        {/if}
+      </div>
       <div class="actions">
         {#if view.ask.kind === 'link'}
-          <button type="button" class="btn cap" onclick={event => panel?.confirm(event)}>Open</button>
+          <button type="button" class="btn cap" bind:this={askFirst} onclick={event => panel?.confirm(event)}>Open</button>
         {:else}
-          <button type="button" class="btn cap" onclick={event => panel?.confirm(event)}>Paste</button>
+          <button type="button" class="btn cap" bind:this={askFirst} onclick={event => panel?.confirm(event)}>Paste</button>
         {/if}
         <button type="button" class="btn cap" onclick={() => panel?.cancel()}>Cancel</button>
       </div>
@@ -151,6 +186,7 @@
   .btn:hover { border-color: color-mix(in oklch, var(--edge) 70%, transparent); }
   .ask { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.5; color: var(--tx); border: 1px var(--border-style) color-mix(in oklch, var(--warn) 50%, transparent); border-radius: calc(var(--radius) * 0.75); background: color-mix(in oklch, var(--warn) 8%, transparent); }
   .ask .actions { margin-left: 0; }
+  .asktitle { font-weight: 700; }
   .url { overflow-wrap: anywhere; color: var(--mu); }
   .screen { height: min(70vh, 640px); min-height: 220px; min-width: 0; overflow: hidden; padding: 6px; box-sizing: border-box; background: var(--bg); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 22%, transparent); border-radius: calc(var(--radius) * 0.75); }
   .hover { font-size: 11px; color: var(--mu); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 1.4em; }

@@ -559,3 +559,13 @@ test('a paste asked about while already behind, then a key held and the page cau
   assert.equal(socket().typed(), '')
   assert.equal(last().note, 'The terminal is not live, so the paste was not sent.')
 })
+
+test('Shift-Escape leaves the terminal too, for a Mac keyboard whose F6 is a system key', () => {
+  const { term, left } = rig()
+  const key = term().key
+  assert.ok(key)
+  assert.equal(key({ isTrusted: true, type: 'keydown', key: 'Escape', shiftKey: true } as KeyboardEvent), false)
+  assert.equal(left(), 1)
+  assert.equal(key({ isTrusted: true, type: 'keydown', key: 'Escape', shiftKey: false } as KeyboardEvent), true)
+  assert.equal(left(), 1)
+})

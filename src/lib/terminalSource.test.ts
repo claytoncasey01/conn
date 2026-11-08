@@ -83,7 +83,7 @@ test('a reconnect is a person\'s click on the button, and nothing else calls it'
 })
 
 test('the panel says how to leave the terminal by keyboard', () => {
-  assert.match(panel, /\{LEAVE_KEY\} leaves the terminal/)
+  assert.match(panel, /\{LEAVE_HINT\} leaves the terminal/)
   assert.match(panel, /leave: \(\) => detachButton\?\.focus\(\),/)
 })
 
@@ -158,10 +158,30 @@ for (const [name, id, key] of refused) {
   })
 }
 
-test('Dismiss shows only while the terminal is live, and only for a hold or a closed paste', () => {
-  assert.match(panel, /\{#if view\.phase === 'live' && \(view\.held \|\| view\.pasteClosed\)\}\s*<button type="button" class="btn cap" onclick=\{event => panel\?\.dismiss\(event\)\}>Dismiss<\/button>/)
+test('Dismiss can act only while the terminal is live, and only for a hold or a closed paste', () => {
+  assert.match(panel, /const dismissable = \$derived\(view\.phase === 'live' && \(view\.held \|\| view\.pasteClosed\)\)/)
+  assert.match(panel, /disabled=\{!dismissable\}[\s\S]*?onclick=\{event => panel\?\.dismiss\(event\)\}>Dismiss<\/button>/)
 })
 
 test('the status line is statusText, which a closed or ended terminal answers before any lag or hold', () => {
   assert.match(panel, /\{statusText\(view\)\}/)
+})
+
+test('the confirmation takes the keyboard: focus moves to its first button, Escape cancels, and focus goes back', () => {
+  assert.match(panel, /role="alertdialog" aria-modal="true" aria-labelledby="\{askTitleId\}" aria-describedby="\{askTextId\}"/)
+  assert.match(panel, /onkeydown=\{askKey\}/)
+  assert.match(panel, /function askKey\(event: KeyboardEvent\) \{\n\s*if \(event\.key !== 'Escape'\) return/)
+  assert.match(panel, /bind:this=\{askFirst\}/)
+  assert.match(panel, /askFirst\?\.focus\(\)/)
+  assert.match(panel, /askReturn\?\.focus\(\)/)
+})
+
+test('Dismiss stays while it has the focus, disabled once there is nothing to dismiss', () => {
+  assert.match(panel, /\{#if dismissable \|\| dismissFocused\}/)
+  assert.match(panel, /disabled=\{!dismissable\}/)
+  assert.match(panel, /onfocus=\{\(\) => \(dismissFocused = true\)\} onblur=\{\(\) => \(dismissFocused = false\)\}/)
+})
+
+test('the panel names both keys that leave the terminal', () => {
+  assert.match(panel, /\{LEAVE_HINT\} leaves the terminal/)
 })
