@@ -504,3 +504,65 @@ func waitStopping(t *testing.T, host *pty.Host, sessionID pty.ID) {
 
 	t.Fatal("Live never said the stop was under way while the program ran")
 }
+
+// A group a stop could not empty is watched until it empties on its own; from then on its number
+// is never signalled, even once a new program has been given it.
+func TestAGroupThatEmptiesAfterAFailedStopIsNeverSignalledAgain(t *testing.T) {
+	t.Parallel()
+
+	limits := pty.DefaultLimits()
+	limits.StopGrace = testGrace
+	spawner := &fakes{ignoreTerminate: true, orphans: true, afterKill: killLeavesUnreachable}
+	host := pty.NewHost(pty.Config{Spawner: spawner.spawn, Limits: limits})
+
+	sessionID, err := host.Start(t.Context(), testSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	process := spawner.last(t)
+	process.finish(0)
+
+	entry := waitEndedWithin(t, host, sessionID, unreachableWait)
+	if entry.StopError == "" {
+		t.Fatal("the stop of an unreachable group did not fail")
+	}
+
+	process.empty()
+	waitStopErrorCleared(t, host, sessionID)
+
+	signalled := len(process.signalsSoFar())
+	process.reuse()
+
+	err = host.Stop(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("Stop = %v, want nil", err)
+	}
+
+	err = host.StopAll(t.Context())
+	if err != nil {
+		t.Fatalf("StopAll = %v, want nil", err)
+	}
+
+	if len(process.signalsSoFar()) != signalled {
+		t.Fatalf("a reused group number got %v", process.signalsSoFar()[signalled:])
+	}
+}
+
+// waitStopErrorCleared waits until Live no longer says the session's group could not be stopped.
+func waitStopErrorCleared(t *testing.T, host *pty.Host, sessionID pty.ID) {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(waitLimit))
+
+	for time.Now().Before(deadline) {
+		entry, _ := info(t, host, sessionID)
+		if entry.StopError == "" {
+			return
+		}
+
+		time.Sleep(waitPoll)
+	}
+
+	t.Fatal("the group emptied, and the host never noticed")
+}

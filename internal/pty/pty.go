@@ -24,12 +24,13 @@
 // (EPERM) is never taken for gone: if it is still there at the bound, the stop fails with
 // ErrGroupUnreachable, Info.StopError says so, and the session keeps its running slot and is
 // never forgotten while that is so. Once a group is known to be empty its number is never
-// signalled again, since a new program may have been given it. A descendant that calls setsid or
-// setpgid itself has left the group and is out of reach. Claude Code runs a background command
-// in a group of its own, and ends it when it is stopped politely; if it is killed instead, such a
-// command may outlive it. StopAll (which returns an error, unlike the plan's
-// signature, so quitting can say what did not stop) refuses new Starts and waits for those in
-// flight.
+// signalled again, since a new program may have been given it; a group a stop could not empty is
+// watched (every groupWatchInterval) until it empties on its own, so that holds for it too. A
+// descendant that calls setsid or setpgid itself has left the group and is out of reach. Claude
+// Code runs a background command in a group of its own, and ends it when it is stopped politely;
+// if it is killed instead, such a command may outlive it. StopAll (which returns an error, unlike
+// the plan's signature, so quitting can say what did not stop) refuses new Starts and waits for
+// those in flight.
 //
 // The environment: a program gets the one its Spec names, less what ChildEnv drops, which is a
 // deny table in env.go of exact names and prefixes, matched on names in any case and never on
@@ -137,6 +138,10 @@ const (
 	// killWait bounds how long a stop waits for the session to end after the program has gone
 	// or been killed.
 	killWait = 5 * time.Second
+	// groupWatchInterval is how often the group of a session whose stop failed is looked at,
+	// and groupWatchesMax how many times: a day's worth.
+	groupWatchInterval = time.Second
+	groupWatchesMax    = 24 * 60 * 60
 	// argumentsMax, environmentEntriesMax and nameBytesMax bound a Spec.
 	argumentsMax          = 256
 	environmentEntriesMax = 4096

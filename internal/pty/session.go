@@ -142,6 +142,47 @@ func (h *Host) awaitEnd(waiting *session, readDone <-chan struct{}) {
 	<-waiting.answered
 
 	h.finish(waiting, code, stopErr)
+
+	if stopErr != nil {
+		h.watchGroup(waiting)
+	}
+}
+
+// watchGroup watches the group of a session whose stop failed until it empties on its own, then
+// records it empty, so its number is never signalled again: an empty group's number may be given
+// to a new program. It looks every groupWatchInterval, at most groupWatchesMax times, and stops
+// early once a stop has found the group empty or the host is closed (StopAll stops the rest). A
+// number given to a new program within one interval of the group emptying is not told apart.
+func (h *Host) watchGroup(watched *session) {
+	ticker := time.NewTicker(groupWatchInterval)
+	defer ticker.Stop()
+
+	for range groupWatchesMax {
+		<-ticker.C
+
+		if h.watchOver(watched) {
+			return
+		}
+
+		if watched.process.Group() == GroupGone {
+			h.groupEmptied(watched)
+
+			return
+		}
+	}
+}
+
+// watchOver says whether a watch of the session's group has nothing left to do: a stop found the
+// group empty, or the host is closed.
+func (h *Host) watchOver(held *session) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if held.groupStopped {
+		return true
+	}
+
+	return h.closed
 }
 
 // finish records that a session's program ended with code and ends its viewers once they have

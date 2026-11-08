@@ -75,6 +75,8 @@ type fakeProcess struct {
 	afterKill          killOutcome
 	unreachableAnswers atomic.Int32
 	reused             atomic.Bool
+	// emptied says the group's last members have gone since, on their own.
+	emptied atomic.Bool
 	// background, when set, says another group has the terminal; lineMode that the terminal
 	// reads whole lines; keyboardErr, when set, is what looking at the terminal fails with.
 	background  atomic.Bool
@@ -202,6 +204,10 @@ func (f *fakeProcess) Group() pty.GroupState {
 		return pty.GroupRunning
 	}
 
+	if f.emptied.Load() {
+		return pty.GroupGone
+	}
+
 	switch f.afterKill {
 	case killLeavesUnreachable:
 		return pty.GroupUnreachable
@@ -249,6 +255,10 @@ func (f *fakeProcess) cutNextWrite(count int) {
 // reuse makes the group's number look taken again, as a new program that a reused pid made a
 // group leader would.
 func (f *fakeProcess) reuse() { f.reused.Store(true) }
+
+// empty makes the group's last members go on their own, as members no signal reached do once
+// they end.
+func (f *fakeProcess) empty() { f.emptied.Store(true) }
 
 func (f *fakeProcess) record(signal string) {
 	f.mu.Lock()
