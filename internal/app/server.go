@@ -182,7 +182,8 @@ func StartWith(
 
 	resumeRecorded(serveCtx, life, host, recorded)
 
-	go running.serve(serveCtx, newHTTPServer(handler), listener, func() {
+	// The quit records first, as it begins, while open requests still drain.
+	go running.serve(serveCtx, newHTTPServer(handler), listener, life.recorder.Freeze, func() {
 		quit(quitStepsOf(life, terminals.Close, cancel,
 			func() { stopHosted(context.WithoutCancel(ctx), host, stderr) }, release))
 	})
@@ -234,7 +235,9 @@ type quitSteps struct {
 }
 
 // quitStepsOf are the quit's steps for a server whose hosted sessions life records: the record
-// step is the recorder's Freeze, so no stop after it is recorded as an end.
+// step is the recorder's Freeze, so no stop after it is recorded as an end. A quit ctx began has
+// frozen the record already, before the drain (serve); this one is for a server that stopped by
+// itself.
 func quitStepsOf(life hostedLife, closeTerminals, cancel, stopSessions, release func(),
 ) quitSteps {
 	return quitSteps{
@@ -289,9 +292,10 @@ func listenAndPublish(
 }
 
 // serve serves on listener until ctx ends or the server stops by itself, then runs end and
-// closes Done. A server that outlives ShutdownTimeout (a page's live-update stream) is closed.
+// closes Done. When ctx ends, record runs first, before the open requests' drain. A server that
+// outlives ShutdownTimeout (a page's live-update stream) is closed.
 func (s *Server) serve(
-	ctx context.Context, httpServer *http.Server, listener net.Listener, end func(),
+	ctx context.Context, httpServer *http.Server, listener net.Listener, record, end func(),
 ) {
 	defer close(s.done)
 	defer end()
@@ -311,6 +315,10 @@ func (s *Server) serve(
 		return
 	case <-ctx.Done():
 	}
+
+	// The record is of what runs as the quit begins: a session that ends while open requests
+	// drain still ran at the quit.
+	record()
 
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownTimeout)
 	defer cancel()
