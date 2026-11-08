@@ -147,7 +147,7 @@
   </div>
   {#if view.ask}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div role="alertdialog" aria-modal="true" aria-labelledby="{askTitleId}" aria-describedby="{askTextId}" class="ask" onkeydown={askKey} tabindex="-1">
+    <div role="alertdialog" aria-labelledby="{askTitleId}" aria-describedby="{askTextId}" class="ask" onkeydown={askKey} tabindex="-1">
       <div id={askTitleId} class="asktitle">{view.ask.kind === 'link' ? 'Open a link' : 'Paste lines'}</div>
       <div id={askTextId}>
         {#if view.ask.kind === 'link'}

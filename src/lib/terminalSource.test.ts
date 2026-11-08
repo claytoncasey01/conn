@@ -168,7 +168,10 @@ test('the status line is statusText, which a closed or ended terminal answers be
 })
 
 test('the confirmation takes the keyboard: focus moves to its first button, Escape cancels, and focus goes back', () => {
-  assert.match(panel, /role="alertdialog" aria-modal="true" aria-labelledby="\{askTitleId\}" aria-describedby="\{askTextId\}"/)
+  assert.match(panel, /role="alertdialog" aria-labelledby="\{askTitleId\}" aria-describedby="\{askTextId\}"/)
+  // Not modal: it sits inside the panel, the rest of the page stays usable, and Tab may leave it, so a screen reader
+  // must not hide the page around it.
+  assert.doesNotMatch(panel, /aria-modal/)
   assert.match(panel, /onkeydown=\{askKey\}/)
   assert.match(panel, /function askKey\(event: KeyboardEvent\) \{\n\s*if \(event\.key !== 'Escape'\) return/)
   assert.match(panel, /bind:this=\{askFirst\}/)
