@@ -39,8 +39,9 @@ type Outcome struct {
 // Resume starts again the sessions records name, each only as its owner's check rebuilds it:
 // at most RecordsMax records are looked at (and so at most RecordsMax sessions started), a
 // record CheckRecord refuses or whose owner has no check or refuses it starts nothing, and two
-// records the owners rebuild into the same session start it once. It stops early when ctx ends,
-// and says which records it did not reach.
+// records the owners rebuild into the same session, or that name the same Claude session, start
+// it once: two programs on one conversation would write over each other. It stops early when ctx
+// ends, and says which records it did not reach.
 func Resume(ctx context.Context, records []Record, checks Checks, start Start) Outcome {
 	considered := records[:min(len(records), RecordsMax())]
 	outcome := Outcome{
@@ -74,8 +75,8 @@ func Resume(ctx context.Context, records []Record, checks Checks, start Start) O
 	return outcome
 }
 
-// resumeOne starts the session record's owner rebuilds for it, unless one the same was started
-// already, and is it and true; or false when it started nothing.
+// resumeOne starts the session record's owner rebuilds for it, unless one the same, or one on the
+// same Claude session, was started already, and is it and true; or false when it started nothing.
 func resumeOne(ctx context.Context, record Record, checks Checks, start Start,
 	started map[string]bool,
 ) (Resumed, bool) {
@@ -84,12 +85,20 @@ func resumeOne(ctx context.Context, record Record, checks Checks, start Start,
 		return Resumed{}, false
 	}
 
-	key := sessionKey(spec)
-	if started[key] {
-		return Resumed{}, false
+	keys := []string{sessionKey(spec)}
+	if record.ClaudeSessionID != "" {
+		keys = append(keys, claudeKey(record.ClaudeSessionID))
 	}
 
-	started[key] = true
+	for _, key := range keys {
+		if started[key] {
+			return Resumed{}, false
+		}
+	}
+
+	for _, key := range keys {
+		started[key] = true
+	}
 
 	hostedID, ok := start(ctx, record, spec)
 	if !ok {
@@ -112,6 +121,10 @@ func vouch(ctx context.Context, record Record, checks Checks) (pty.Spec, bool) {
 
 	return check(ctx, record)
 }
+
+// claudeKey is the started key of a Claude session: never a sessionKey, which starts with a folder,
+// and a folder is absolute.
+func claudeKey(sessionID string) string { return "claude\x00" + sessionID }
 
 // sessionKey is what makes two specs the same session: the folder and every argument.
 func sessionKey(spec pty.Spec) string {

@@ -58,7 +58,8 @@ func manyRecords(count int) []hosted.Record {
 func TestResume(t *testing.T) {
 	t.Parallel()
 
-	outside, notUUID, noCheck := record(0), record(0), record(0)
+	outside, notUUID, noCheck, sameClaude := record(0), record(0), record(0), record(1)
+	sameClaude.ClaudeSessionID = record(0).ClaudeSessionID
 	outside.Dir = "/etc"
 	notUUID.ClaudeSessionID = "not-a-uuid"
 	noCheck.Owner = hosted.OwnerHistory
@@ -80,6 +81,12 @@ func TestResume(t *testing.T) {
 		{
 			"the same session twice",
 			[]hosted.Record{record(0), record(0)},
+			[]pty.Spec{ownSpec(record(0))},
+			1,
+		},
+		{
+			"two records on one Claude session",
+			[]hosted.Record{record(0), sameClaude},
 			[]pty.Spec{ownSpec(record(0))},
 			1,
 		},

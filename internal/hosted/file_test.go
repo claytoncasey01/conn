@@ -20,15 +20,20 @@ const (
 	otherClaude  = "7a1e9c2b-5f3d-4e6a-8b7c-998877665544"
 	privateMode  = 0o600
 	recordsTried = 500
+	// claudeIDTail is claudeID's last group, as a number.
+	claudeIDTail = 0x112233445566
 )
 
 // hostID is a host-issued id for the index-th session.
 func hostID(index int) string { return fmt.Sprintf("%032x", index+1) }
 
+// record is the index-th session's record: the first's Claude session is claudeID, and each other
+// has one of its own.
 func record(index int) hosted.Record {
 	return hosted.Record{
 		ID: hostID(index), Owner: hosted.OwnerOpenWork, Name: "KEY-" + strconv.Itoa(index+1),
-		Dir: "/data/runs/KEY-" + strconv.Itoa(index+1), ClaudeSessionID: claudeID,
+		Dir:             "/data/runs/KEY-" + strconv.Itoa(index+1),
+		ClaudeSessionID: fmt.Sprintf("0b6c4f7e-2d1a-4c3b-9e8f-%012x", claudeIDTail+index),
 	}
 }
 
