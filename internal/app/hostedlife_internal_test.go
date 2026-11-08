@@ -259,7 +259,8 @@ func TestResumeAtLaunchResumesNothingWhenTheSessionListNeverTicked(t *testing.T)
 	var said bytes.Buffer
 
 	started := 0
-	records := []hosted.Record{resumeRecord()}
+	kept := historyRecord()
+	records := []hosted.Record{resumeRecord(), kept}
 
 	outcome := resumeAtLaunch(t.Context(), launchResume{
 		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
@@ -277,14 +278,30 @@ func TestResumeAtLaunchResumesNothingWhenTheSessionListNeverTicked(t *testing.T)
 		t.Errorf("started %d before the session list ticked", started)
 	}
 
-	if !slices.Equal(outcome.Unreached, records) {
-		t.Errorf("unreached %+v, want every record kept", outcome.Unreached)
+	// Reviews closes a review whose session has not come back once the launch settles: only
+	// the others are kept, and that is said.
+	if !slices.Equal(outcome.Unreached, []hosted.Record{kept}) {
+		t.Errorf("unreached %+v, want every record but the review kept", outcome.Unreached)
 	}
 
-	if !strings.Contains(said.String(), errNeverTicked.Error()) {
-		t.Errorf("said %q, want the reason", said.String())
+	for _, want := range []string{errNeverTicked.Error(), reviewsNotKept} {
+		if !strings.Contains(said.String(), want) {
+			t.Errorf("said %q, want %q", said.String(), want)
+		}
 	}
 }
+
+// historyRecord is a record of a History session.
+func historyRecord() hosted.Record {
+	return hosted.Record{
+		ID: "000000000000000000000000000000ab", Owner: hosted.OwnerHistory, Name: "fix widget",
+		Dir: "/work/widgets", ClaudeSessionID: "0b6c4f7e-2d1a-4c3b-9e8f-112233445566",
+	}
+}
+
+// reviewsNotKept is what a launch says of the review records it does not keep.
+const reviewsNotKept = "1 reviews not kept: Reviews closes a review whose session has not " +
+	"come back"
 
 func TestWaitForTheFirstTick(t *testing.T) {
 	t.Parallel()

@@ -276,13 +276,15 @@ func resumeAtLaunch(ctx context.Context, plan launchResume) hosted.Outcome {
 
 	// An owner's check that reads the session list before its first tick sees nothing run: a
 	// session the person runs in the folder would be missed. Without it, nothing is resumed, and
-	// every record is kept for the next launch.
+	// the records are kept for the next launch, all but the reviews (keptForLater).
 	err := plan.ready(ctx)
 	if err != nil {
-		_, _ = fmt.Fprintf(plan.stderr, "conn: no hosted session is resumed: %v\n", err)
+		kept, notKept := keptForLater(plan.records)
+		_, _ = fmt.Fprintf(plan.stderr, "conn: no hosted session is resumed: %v%s\n", err,
+			notKept)
 
 		return hosted.Outcome{
-			Resumed: []hosted.Resumed{}, Skipped: len(plan.records), Unreached: plan.records,
+			Resumed: []hosted.Resumed{}, Skipped: len(plan.records), Unreached: kept,
 		}
 	}
 
@@ -311,15 +313,38 @@ func resumeKept(plan launchResume) ([]hosted.Record, bool) {
 	}
 
 	if plan.sessions.Where != settings.WhereInside {
+		kept, notKept := keptForLater(plan.records)
 		if len(plan.records) > 0 {
 			_, _ = fmt.Fprintf(plan.stderr, "conn: %d hosted sessions kept; they resume when "+
-				"sessions open inside Conn again\n", len(plan.records))
+				"sessions open inside Conn again%s\n", len(kept), notKept)
 		}
 
-		return plan.records, false
+		return kept, false
 	}
 
 	return nil, true
+}
+
+// keptForLater are the records a launch that resumes none keeps for a later one, and what it
+// says of the ones it does not keep ("" for none). A review is not kept: once the launch has
+// settled, Reviews closes a review whose session has not come back, and a closed one is never
+// resumed.
+func keptForLater(records []hosted.Record) ([]hosted.Record, string) {
+	kept := make([]hosted.Record, 0, len(records))
+
+	for _, record := range records {
+		if record.Owner != hosted.OwnerReviews {
+			kept = append(kept, record)
+		}
+	}
+
+	dropped := len(records) - len(kept)
+	if dropped == 0 {
+		return kept, ""
+	}
+
+	return kept, fmt.Sprintf("; %d reviews not kept: Reviews closes a review whose session "+
+		"has not come back", dropped)
 }
 
 // insideOpener opens every session inside Conn on host, whatever the settings say: a resume never
