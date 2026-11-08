@@ -188,9 +188,10 @@ its owner, which rebuilds the command from its own state, as its own button woul
   resumes what the record names, inside Conn, each as its owner's check rebuilds it. The page
   says how many it resumed and which, and offers **Stop all**. A quit during the resume waits for
   it (at most 10 seconds) and keeps the records it did not reach.
-- For 5 minutes after the resume, Reviews closes no review and My PRs counts no round as over,
-  since a session may still be coming back. So a review that really ended may close up to 5
-  minutes late, and REVIEW is refused for a PR that has an open launch.
+- After every start of Conn, even one that resumes nothing, Reviews closes no review and My PRs
+  counts no round as over until the resume is done and for 5 minutes after, since a session may
+  still be coming back. So a review that really ended may close up to 5 minutes late, and REVIEW
+  is refused meanwhile for a PR that has an open review launch.
 - With *Resume on launch* off (Settings), the record is dropped at launch and nothing is
   resumed. With sessions set to open in your terminal or as a command, nothing is resumed and the
   record is kept for when they open inside Conn again, except reviews: Reviews closes a review
