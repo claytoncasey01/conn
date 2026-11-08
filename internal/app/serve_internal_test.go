@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,13 +32,21 @@ func TestTheQuitRecordsBeforeTheServerDrains(t *testing.T) {
 		writer.WriteHeader(http.StatusNoContent)
 	}))
 
+	// The first record is the quit's: one taken again at its end is no change.
 	answered := make(chan bool, 1)
-	record := func() { answered <- answers(t, address) }
+
+	var first sync.Once
+
+	none := func() {}
+	steps := quitSteps{
+		record:         func() { first.Do(func() { answered <- answers(t, address) }) },
+		closeTerminals: none, cancel: none, stopSessions: none, release: none,
+	}
 
 	ctx, cancel := context.WithCancel(t.Context())
 	running := &Server{URL: address, Secret: secret.Secret{}, done: make(chan struct{}), err: nil}
 
-	go running.serve(ctx, httpServer, listener, record, func() {})
+	go running.serve(ctx, httpServer, listener, steps)
 
 	cancel()
 
