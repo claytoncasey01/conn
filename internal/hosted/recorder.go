@@ -11,6 +11,9 @@ import (
 	"github.com/claytoncasey01/conn/internal/pty"
 )
 
+// resumeFlag is claude's option that names the conversation a session resumes.
+const resumeFlag = "--resume"
+
 // SyncInterval is how often a running Recorder looks for sessions that ended and for Claude's
 // ids of the ones that run.
 const SyncInterval = time.Second
@@ -58,12 +61,13 @@ func NewRecorder(deps RecorderDeps) *Recorder {
 	}
 }
 
-// Opener is open with each session it starts inside Conn recorded for owner.
+// Opener is open with each session it starts inside Conn recorded for owner, on the
+// conversation it resumes when it resumes one.
 func (r *Recorder) Opener(owner string, open launch.Opener) launch.Opener {
 	return func(ctx context.Context, spec pty.Spec) launch.Opened {
 		opened := open(ctx, spec)
 		if opened.HostedID != "" {
-			r.Started(owner, opened.HostedID, spec, "")
+			r.Started(owner, opened.HostedID, spec, resumedConversation(spec.Argv))
 		}
 
 		return opened
@@ -208,6 +212,25 @@ func (r *Recorder) keptLocked() []Record {
 	room := max(RecordsMax()-len(r.records), 0)
 
 	return slices.Concat(r.records, r.carried[:min(len(r.carried), room)])
+}
+
+// resumedConversation is the conversation argv resumes: the argument after the first --resume
+// when it is a UUID, else "" (a new conversation, which the session list links later).
+func resumedConversation(argv []string) string {
+	flagAt := slices.Index(argv, resumeFlag)
+	if flagAt < 0 {
+		return ""
+	}
+
+	if flagAt+1 >= len(argv) {
+		return ""
+	}
+
+	if !cmux.IsSessionID(argv[flagAt+1]) {
+		return ""
+	}
+
+	return argv[flagAt+1]
 }
 
 // Track is records kept to the sessions that still run in live, each with Claude's id from

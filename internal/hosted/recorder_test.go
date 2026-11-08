@@ -448,3 +448,50 @@ func TestRecorderCarriesOnlyWhatFits(t *testing.T) {
 			len(want))
 	}
 }
+
+// A session opened on a conversation (claude --resume <id>, as History's RESUME opens it) is
+// recorded with that id at once: a quit before the session list links it still resumes it.
+func TestRecorderOpenerRecordsTheConversationItResumes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"a resumed conversation", []string{"/opt/claude", "--resume", claudeID}, claudeID},
+		{"a resumed conversation after rules", []string{
+			"/opt/claude", "--disallowedTools", "Bash(git push:*)", "--resume", claudeID,
+			"--name", "x",
+		}, claudeID},
+		{"a new conversation", []string{"/opt/claude", "--name", "x"}, ""},
+		{"an id that is not a UUID", []string{"/opt/claude", "--resume", "--continue"}, ""},
+		{"--resume last", []string{"/opt/claude", "--resume"}, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			setting := newWorld()
+			setting.run(0)
+			recorder := setting.recorder()
+			open := func(context.Context, pty.Spec) launch.Opened {
+				return launch.Opened{OK: true, HostedID: pty.ID(hostID(0))}
+			}
+
+			recorder.Opener(hosted.OwnerHistory, open)(t.Context(), pty.Spec{
+				Argv: tt.argv, Dir: "/work/widgets", Env: nil, Name: "fix widget",
+			})
+
+			records := recorder.Records()
+			if len(records) != 1 {
+				t.Fatalf("recorded %+v, want the session", records)
+			}
+
+			if records[0].ClaudeSessionID != tt.want {
+				t.Errorf("recorded conversation %q, want %q", records[0].ClaudeSessionID, tt.want)
+			}
+		})
+	}
+}
