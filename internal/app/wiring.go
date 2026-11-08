@@ -87,6 +87,8 @@ func newHandler(
 	ctx context.Context, cfg config.Config, store *settings.Store, logger *log.Logger,
 	bundle fs.FS, host *pty.Host,
 ) (*server.Server, hostedLife) {
+	// Read before the modules run, so none has changed its store yet.
+	stores := readLaunchStores(cfg.DataDir)
 	reader := origin.NewReader()
 	opener := newOpener(cfg, store, host)
 	archived := openHistory(ctx, cfg, store, reader, logger.Writer())
@@ -122,6 +124,7 @@ func newHandler(
 		beside: func(name, folder string) bool {
 			return besideIn(live.Live(), recorder.Records(), name, folder)
 		},
+		stores: stores,
 	})
 
 	return &server.Server{

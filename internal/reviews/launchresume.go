@@ -10,8 +10,8 @@ import (
 )
 
 // resumeFixedArguments are the arguments of a resumed review session besides its rules:
-// --resume and the id, --name and the name.
-const resumeFixedArguments = 4
+// --resume and the id, --name and the name, --model and the model.
+const resumeFixedArguments = 6
 
 // ResumeRule is what a launch checks before it resumes a review or self-review session from the
 // record of the hosted sessions: where Conn makes that kind's worktrees, and what its sessions
@@ -32,21 +32,31 @@ type ResumeRule struct {
 	// Beside is whether a session named name, in any folder, or one in worktree runs now: as
 	// the module's own launch refuses a second review beside one.
 	Beside func(name, worktree string) bool
+	// Launched is the model of the kind's launch, in the module's own store, that started the
+	// session name in worktree on Claude's conversation sessionID and has not been closed, and
+	// true; or false when the module launched no such session.
+	Launched func(worktree, name, sessionID string) (string, bool)
 }
 
 // ResumeAtLaunch is the session that resumes, when Conn launches again, the review session named
 // name that ran in worktree on Claude's conversation sessionID at the last quit, and true; or
 // false when it may not be resumed: the module is off, the id is not a UUID, the name is not the
 // kind's, the worktree is not exactly two folders under Root (each, and Root, a real folder of
-// the person's own, no link), is not a git worktree, its repository is not allowed, or a session
-// of the name or in the worktree runs already. The session
-// is claude resuming that conversation under its name, with the kind's disallowed rules.
+// the person's own, no link), is not a git worktree, its repository is not allowed, a session
+// of the name or in the worktree runs already, or the module's store holds no open launch of it.
+// The session is claude resuming that conversation under its name, on the model it was launched
+// with, with the kind's disallowed rules.
 func ResumeAtLaunch(rule ResumeRule, name, worktree, sessionID string) (pty.Spec, bool) {
 	if !rule.On() {
 		return pty.Spec{}, false
 	}
 
-	args, err := ResumeArgs(sessionID, name, rule.Pattern, rule.Disallowed)
+	model, launched := rule.Launched(worktree, name, sessionID)
+	if !launched {
+		return pty.Spec{}, false
+	}
+
+	args, err := ResumeArgs(sessionID, name, model, rule.Pattern, rule.Disallowed)
 	if err != nil {
 		return pty.Spec{}, false
 	}
@@ -67,9 +77,10 @@ func ResumeAtLaunch(rule ResumeRule, name, worktree, sessionID string) (pty.Spec
 }
 
 // ResumeArgs are the arguments claude resumes a review session with, after the program: the
-// rules it can never use, then the conversation and its name, each one argument. The id must be a
-// UUID and the name the kind's.
-func ResumeArgs(sessionID, name string, pattern *regexp.Regexp, disallowed []string) (
+// rules it can never use, then the conversation, its name and its model, each one argument. The
+// id must be a UUID, the name the kind's and the model one Conn launches with: claude takes the
+// model per process, so a resume without it would run on claude's default.
+func ResumeArgs(sessionID, name, model string, pattern *regexp.Regexp, disallowed []string) (
 	[]string, error,
 ) {
 	if !cmux.IsSessionID(sessionID) {
@@ -80,13 +91,58 @@ func ResumeArgs(sessionID, name string, pattern *regexp.Regexp, disallowed []str
 		return nil, errNotReviewName
 	}
 
+	if !isModel(model) {
+		return nil, errNotModel
+	}
+
 	args, err := ruleArgs(disallowed, resumeFixedArguments)
 	if err != nil {
 		return nil, err
 	}
 
 	// The rules' list ends at --resume, the next option.
-	return append(args, "--resume", sessionID, "--name", name), nil
+	return append(args, "--resume", sessionID, "--name", name, "--model", model), nil
+}
+
+// LaunchedIn is the model of the newest launch in file that started the session name in worktree
+// and has not been closed, on Claude's conversation sessionID (or one not pinned yet), and true;
+// or false when there is none.
+func LaunchedIn(file *File, worktree, name, sessionID string) (string, bool) {
+	model, found := "", false
+
+	for _, key := range file.PRs.Keys() {
+		entry, _ := file.PRs.Get(key)
+
+		for _, launch := range entry.Launches {
+			if launchedAs(launch, worktree, name, sessionID) {
+				model, found = launch.Model, true
+			}
+		}
+	}
+
+	return model, found
+}
+
+// launchedAs is whether launch started the session name in worktree on sessionID (or on a
+// conversation not pinned yet) and has not been closed.
+func launchedAs(launch *Launch, worktree, name, sessionID string) bool {
+	if launch.ClosedAt != nil {
+		return false
+	}
+
+	if launch.Worktree != worktree {
+		return false
+	}
+
+	if launch.Name != name {
+		return false
+	}
+
+	if launch.SessionID == nil {
+		return true
+	}
+
+	return *launch.SessionID == sessionID
 }
 
 // ownWorktree is whether worktree is <root>/<folder>/<clone name>, written plainly, with root,

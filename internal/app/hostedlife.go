@@ -79,6 +79,8 @@ type ownerParts struct {
 	history *historyapi.API
 	// beside is whether a session named name, or one in folder, runs now (besideIn).
 	beside func(name, folder string) bool
+	// stores are Reviews' and My PRs' stores as the launch found them.
+	stores launchStores
 }
 
 // besideIn is whether a session named name in any folder, or one in folder or inside it, runs
@@ -111,10 +113,22 @@ func besideIn(live []sessions.LiveSession, records []hosted.Record, name, folder
 // ownerChecks are each owner's check of a record at launch: Open work's and History's own, and
 // the review kinds' worktree rules. History off resumes none of its sessions.
 func ownerChecks(parts ownerParts) hosted.Checks {
-	reviewRule := parts.reviewRule("reviews", parts.cfg.ReviewNamePattern, nil,
-		parts.cfg.Dry.Reviews)
-	selfRule := parts.reviewRule("myprs", parts.cfg.SelfNamePattern, myprs.SelfDisallowed(),
-		parts.cfg.Dry.MyPrs)
+	reviewRule := parts.reviewRule(reviewKind{
+		folder: "reviews", pattern: parts.cfg.ReviewNamePattern, disallowed: nil,
+		dry: parts.cfg.Dry.Reviews,
+		launched: func(worktree, name, sessionID string) (string, bool) {
+			return reviews.LaunchedIn(parts.stores.reviews, worktree, name, sessionID)
+		},
+	})
+	// My PRs' store keeps no conversation per round: the round binds the worktree, the name and
+	// the model, and the conversation is the record's, as the other checks bound it.
+	selfRule := parts.reviewRule(reviewKind{
+		folder: "myprs", pattern: parts.cfg.SelfNamePattern, disallowed: myprs.SelfDisallowed(),
+		dry: parts.cfg.Dry.MyPrs,
+		launched: func(worktree, name, _ string) (string, bool) {
+			return myprs.LaunchedIn(parts.stores.myPrs, worktree, name)
+		},
+	})
 
 	checks := hosted.Checks{
 		hosted.OwnerOpenWork: func(_ context.Context, record hosted.Record) (pty.Spec, bool) {
@@ -140,17 +154,26 @@ func ownerChecks(parts ownerParts) hosted.Checks {
 	return checks
 }
 
-// reviewRule is the launch rule of one review kind: its worktrees under the data folder's
-// folder, its name pattern and disallowed rules, on while GitHub is and the kind is not dry, in a
-// repository on the allowlist.
-func (parts ownerParts) reviewRule(folder string, pattern *regexp.Regexp, disallowed []string,
-	dry bool,
-) reviews.ResumeRule {
+// reviewKind is one review kind as a launch resumes it: the data folder's folder of its
+// worktrees, its name pattern and disallowed rules, whether it is dry, and its launches.
+type reviewKind struct {
+	folder     string
+	pattern    *regexp.Regexp
+	disallowed []string
+	dry        bool
+	// launched is the model of the kind's open launch of a session (reviews.ResumeRule).
+	launched func(worktree, name, sessionID string) (string, bool)
+}
+
+// reviewRule is the launch rule of kind: its worktrees under the data folder's folder, its name
+// pattern and disallowed rules, on while GitHub is and the kind is not dry, in a repository on the
+// allowlist, beside no session, and only as the kind launched it.
+func (parts ownerParts) reviewRule(kind reviewKind) reviews.ResumeRule {
 	return reviews.ResumeRule{
-		Claude: parts.cfg.ClaudeBin, Root: filepath.Join(parts.cfg.DataDir, folder),
-		Pattern: pattern, Disallowed: disallowed,
+		Claude: parts.cfg.ClaudeBin, Root: filepath.Join(parts.cfg.DataDir, kind.folder),
+		Pattern: kind.pattern, Disallowed: kind.disallowed,
 		On: func() bool {
-			if dry {
+			if kind.dry {
 				return false
 			}
 
@@ -159,7 +182,7 @@ func (parts ownerParts) reviewRule(folder string, pattern *regexp.Regexp, disall
 		Allowed: func(worktree string) bool {
 			return repos.Allowed(parts.reader.Of(worktree), parts.store.Allow())
 		},
-		Beside: parts.beside,
+		Beside: parts.beside, Launched: kind.launched,
 	}
 }
 

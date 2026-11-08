@@ -209,6 +209,11 @@ func LoadFile(path string) *File {
 		return EmptyFile()
 	}
 
+	return LoadText(data)
+}
+
+// LoadText is the file data holds, as LoadFile.
+func LoadText(data []byte) *File {
 	raw, err := js.Parse([]byte(js.DecodeUTF8(data, false)))
 	if err != nil {
 		return EmptyFile()
@@ -560,4 +565,41 @@ func Prune(file *File, open map[string]bool, now float64, covers func(key string
 			file.PRs.Delete(key)
 		}
 	}
+}
+
+// LaunchedIn is the model of the newest round in file that started the session name in worktree
+// inside Conn and has not been closed, and true; or false when there is none. A round pasted
+// into a terminal by hand (Manual) is not one Conn hosted.
+func LaunchedIn(file *File, worktree, name string) (string, bool) {
+	model, found := "", false
+
+	for _, key := range file.PRs.Keys() {
+		entry, _ := file.PRs.Get(key)
+
+		for _, launch := range entry.Launches {
+			if launchedAs(launch, worktree, name) {
+				model, found = launch.Model, true
+			}
+		}
+	}
+
+	return model, found
+}
+
+// launchedAs is whether launch started the session name in worktree inside Conn, and has not
+// been closed.
+func launchedAs(launch *Launch, worktree, name string) bool {
+	if launch.ClosedAt != nil {
+		return false
+	}
+
+	if launch.Manual {
+		return false
+	}
+
+	if launch.Worktree != worktree {
+		return false
+	}
+
+	return launch.Name == name
 }

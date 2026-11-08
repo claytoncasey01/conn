@@ -145,7 +145,7 @@ func readReplies(path string) (string, bool) {
 func readCapped(path string, bytesMax int64) ([]byte, error) {
 	file, err := reviews.OpenInOwnFolder(filepath.Dir(path), filepath.Base(path))
 	if err != nil {
-		return nil, fmt.Errorf("opening the replies file: %w", err)
+		return nil, fmt.Errorf("opening %s: %w", path, err)
 	}
 
 	defer func() { _ = file.Close() }()
@@ -153,7 +153,7 @@ func readCapped(path string, bytesMax int64) ([]byte, error) {
 	// What was opened is what was looked at: a regular file, whatever happened in between.
 	opened, err := file.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("reading the replies file: %w", err)
+		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 
 	if !opened.Mode().IsRegular() {
@@ -162,7 +162,7 @@ func readCapped(path string, bytesMax int64) ([]byte, error) {
 
 	data, err := io.ReadAll(io.LimitReader(file, bytesMax))
 	if err != nil {
-		return nil, fmt.Errorf("reading the replies file: %w", err)
+		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 
 	return data, nil

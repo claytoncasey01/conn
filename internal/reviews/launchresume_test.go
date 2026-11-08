@@ -11,10 +11,11 @@ import (
 )
 
 const (
-	resumeID   = "0b6c4f7e-2d1a-4c3b-9e8f-112233445566"
-	resumeName = "pr-12"
-	claudeBin  = "/opt/claude"
-	folderPerm = 0o700
+	resumeModel = "opus"
+	resumeID    = "0b6c4f7e-2d1a-4c3b-9e8f-112233445566"
+	resumeName  = "pr-12"
+	claudeBin   = "/opt/claude"
+	folderPerm  = 0o700
 )
 
 // resumeWorld is Conn's reviews folder with one review worktree in it.
@@ -47,6 +48,17 @@ func (w resumeWorld) rule(disallowed []string) reviews.ResumeRule {
 		Disallowed: disallowed, On: func() bool { return true },
 		Allowed: func(string) bool { return true },
 		Beside:  func(string, string) bool { return false },
+		Launched: func(worktree, name, sessionID string) (string, bool) {
+			if worktree != w.worktree {
+				return "", false
+			}
+
+			if name != resumeName {
+				return "", false
+			}
+
+			return resumeModel, sessionID == resumeID
+		},
 	}
 }
 
@@ -60,14 +72,16 @@ func TestResumeAtLaunchResumesTheConversationUnderItsName(t *testing.T) {
 	}{
 		{
 			"a review", nil,
-			[]string{claudeBin, "--resume", resumeID, "--name", resumeName},
+			[]string{
+				claudeBin, "--resume", resumeID, "--name", resumeName, "--model", resumeModel,
+			},
 		},
 		{
 			"a self-review keeps its rules",
 			[]string{"Bash(git push:*)", "Bash(gh pr merge:*)"},
 			[]string{
 				claudeBin, "--disallowedTools", "Bash(git push:*)", "Bash(gh pr merge:*)",
-				"--resume", resumeID, "--name", resumeName,
+				"--resume", resumeID, "--name", resumeName, "--model", resumeModel,
 			},
 		},
 	}
@@ -151,6 +165,22 @@ func ruleRefusals() []refusal {
 		{"a name of another kind", func(_ *testing.T, world resumeWorld, _ *reviews.ResumeRule,
 		) (string, string, string) {
 			return "--dangerously-skip-permissions", world.worktree, resumeID
+		}},
+		{"no launch of it in the module's store", func(_ *testing.T, world resumeWorld,
+			rule *reviews.ResumeRule,
+		) (string, string, string) {
+			rule.Launched = func(string, string, string) (string, bool) { return "", false }
+
+			return good(world)
+		}},
+		{"a model that is not one", func(_ *testing.T, world resumeWorld,
+			rule *reviews.ResumeRule,
+		) (string, string, string) {
+			rule.Launched = func(string, string, string) (string, bool) {
+				return "--dangerously-skip-permissions", true
+			}
+
+			return good(world)
 		}},
 		{"a session runs beside it", func(_ *testing.T, world resumeWorld,
 			rule *reviews.ResumeRule,
