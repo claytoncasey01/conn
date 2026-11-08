@@ -29,13 +29,17 @@ type ResumeRule struct {
 	On func() bool
 	// Allowed is whether the repository of a folder is on the allowlist now.
 	Allowed func(folder string) bool
+	// Beside is whether a session named name, in any folder, or one in worktree runs now: as
+	// the module's own launch refuses a second review beside one.
+	Beside func(name, worktree string) bool
 }
 
 // ResumeAtLaunch is the session that resumes, when Conn launches again, the review session named
 // name that ran in worktree on Claude's conversation sessionID at the last quit, and true; or
 // false when it may not be resumed: the module is off, the id is not a UUID, the name is not the
 // kind's, the worktree is not exactly two folders under Root (each, and Root, a real folder of
-// the person's own, no link), is not a git worktree, or its repository is not allowed. The session
+// the person's own, no link), is not a git worktree, its repository is not allowed, or a session
+// of the name or in the worktree runs already. The session
 // is claude resuming that conversation under its name, with the kind's disallowed rules.
 func ResumeAtLaunch(rule ResumeRule, name, worktree, sessionID string) (pty.Spec, bool) {
 	if !rule.On() {
@@ -52,6 +56,10 @@ func ResumeAtLaunch(rule ResumeRule, name, worktree, sessionID string) (pty.Spec
 	}
 
 	if !rule.Allowed(worktree) {
+		return pty.Spec{}, false
+	}
+
+	if rule.Beside(name, worktree) {
 		return pty.Spec{}, false
 	}
 

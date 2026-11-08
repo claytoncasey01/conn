@@ -46,6 +46,7 @@ func (w resumeWorld) rule(disallowed []string) reviews.ResumeRule {
 		Claude: claudeBin, Root: w.root, Pattern: regexp.MustCompile(`^pr-[0-9]+$`),
 		Disallowed: disallowed, On: func() bool { return true },
 		Allowed: func(string) bool { return true },
+		Beside:  func(string, string) bool { return false },
 	}
 }
 
@@ -150,6 +151,19 @@ func ruleRefusals() []refusal {
 		{"a name of another kind", func(_ *testing.T, world resumeWorld, _ *reviews.ResumeRule,
 		) (string, string, string) {
 			return "--dangerously-skip-permissions", world.worktree, resumeID
+		}},
+		{"a session runs beside it", func(_ *testing.T, world resumeWorld,
+			rule *reviews.ResumeRule,
+		) (string, string, string) {
+			rule.Beside = func(name, worktree string) bool {
+				if name != resumeName {
+					return false
+				}
+
+				return worktree == world.worktree
+			}
+
+			return good(world)
 		}},
 	}
 }

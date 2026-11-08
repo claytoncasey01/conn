@@ -71,3 +71,37 @@ func waitLive(t *testing.T, loop *sessions.Loop, count int) []sessions.LiveSessi
 
 	return nil
 }
+
+// TestTickedClosesOnceTheFirstTickIsPublished: a reader that must not miss a live session (a
+// launch's resume) waits on Ticked, after which Live holds what the first tick read.
+func TestTickedClosesOnceTheFirstTickIsPublished(t *testing.T) {
+	t.Parallel()
+
+	fake := newWorld(t)
+	folder := fake.folder("running", "")
+	fake.procs = append(fake.procs, "40 1 claude")
+	fake.register("40.json", map[string]any{
+		"pid": 40, "sessionId": "s-40", "cwd": folder, "name": "running", "status": "busy",
+		"updatedAt": float64(time.Now().UnixMilli()),
+	})
+
+	loop := sessions.NewLoop(fake.deps())
+
+	select {
+	case <-loop.Ticked():
+		t.Fatal("ticked before the loop ran")
+	default:
+	}
+
+	go loop.Run(t.Context())
+
+	select {
+	case <-loop.Ticked():
+	case <-time.After(testtime.Scaled(5 * time.Second)):
+		t.Fatal("the first tick never came")
+	}
+
+	if len(loop.Live()) != 1 {
+		t.Errorf("live %+v after the first tick, want the running session", loop.Live())
+	}
+}

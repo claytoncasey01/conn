@@ -119,6 +119,9 @@ func newHandler(
 	library, themesAPI := newThemes(cfg, logger)
 	checks := ownerChecks(ownerParts{
 		cfg: cfg, store: store, reader: reader, work: running.work, history: historyAPI,
+		beside: func(name, folder string) bool {
+			return besideIn(live.Live(), recorder.Records(), name, folder)
+		},
 	})
 
 	return &server.Server{
@@ -126,7 +129,12 @@ func newHandler(
 		History: historyAPI, HistoryOff: archived.offReason,
 		Reviews: running.reviews, MyPrs: running.myPrs, Work: running.work,
 		Themes: library, Gallery: themesAPI, Provided: newProvided(cfg, logger),
-	}, hostedLife{recorder: recorder, checks: checks, resumed: resumed, bump: live.Bump}
+	}, hostedLife{
+		recorder: recorder, checks: checks, resumed: resumed, bump: live.Bump,
+		ready: func(ctx context.Context) error {
+			return waitForFirstTick(ctx, live.Ticked(), firstTickTimeout)
+		},
+	}
 }
 
 // tabParts are what the tabs beside the session list are made of: each module's sessions open

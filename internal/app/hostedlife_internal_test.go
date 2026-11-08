@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/claytoncasey01/conn/internal/hosted"
 	"github.com/claytoncasey01/conn/internal/pty"
@@ -14,7 +15,10 @@ import (
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
-var errTampered = errors.New("not a hosted sessions file")
+var (
+	errTampered    = errors.New("not a hosted sessions file")
+	errNeverTicked = errors.New("the session list never ticked")
+)
 
 func TestQuitRecordsThenClosesTerminalsThenStopsSessionsThenLetsTheFolderGo(t *testing.T) {
 	t.Parallel()
@@ -52,6 +56,9 @@ func resumeChecks() hosted.Checks {
 		},
 	}
 }
+
+// ticked is a session list that has ticked.
+func ticked(context.Context) error { return nil }
 
 func TestResumeAtLaunchFollowsTheSettings(t *testing.T) {
 	t.Parallel()
@@ -97,7 +104,7 @@ func TestResumeAtLaunchFollowsTheSettings(t *testing.T) {
 			outcome := resumeAtLaunch(t.Context(), launchResume{
 				sessions: tt.sessions, records: []hosted.Record{resumeRecord()}, readErr: nil,
 				checks: resumeChecks(), start: start, carry: func([]hosted.Record) {},
-				stderr: &bytes.Buffer{},
+				ready: ticked, stderr: &bytes.Buffer{},
 			})
 
 			if started != tt.wantStarted {
@@ -120,7 +127,7 @@ func TestResumeAtLaunchSaysWhyTheRecordWasNotRead(t *testing.T) {
 		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
 		records:  nil, readErr: errTampered, checks: resumeChecks(),
 		start: func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) { return "", false },
-		carry: func([]hosted.Record) {}, stderr: &said,
+		carry: func([]hosted.Record) {}, ready: ticked, stderr: &said,
 	})
 
 	if len(outcome.Resumed) != 0 {
@@ -184,12 +191,124 @@ func TestTheQuitsRecordStaysAsItWasAtTheQuit(t *testing.T) {
 	}
 	none := func() {}
 
-	life := hostedLife{recorder: recorder, checks: nil, resumed: nil, bump: none}
+	life := hostedLife{recorder: recorder, checks: nil, resumed: nil, bump: none, ready: ticked}
 
 	quit(quitStepsOf(life, none, none, stop, none))
 
 	last := written[len(written)-1]
 	if len(last) != 1 {
 		t.Errorf("the record after the quit is %+v, want the session that ran", last)
+	}
+}
+
+// The owners' checks read the session list: none runs before its first tick has been published,
+// or a session the person runs in that folder would be missed.
+func TestResumeAtLaunchChecksNothingBeforeTheSessionListTicked(t *testing.T) {
+	t.Parallel()
+
+	var order []string
+
+	checks := hosted.Checks{
+		hosted.OwnerReviews: func(ctx context.Context, record hosted.Record) (pty.Spec, bool) {
+			order = append(order, "check")
+
+			return resumeChecks()[hosted.OwnerReviews](ctx, record)
+		},
+	}
+
+	resumeAtLaunch(t.Context(), launchResume{
+		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
+		records:  []hosted.Record{resumeRecord()}, readErr: nil, checks: checks,
+		start: func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) {
+			return "000000000000000000000000000000bb", true
+		},
+		carry: func([]hosted.Record) {}, stderr: &bytes.Buffer{},
+		ready: func(context.Context) error {
+			order = append(order, "ticked")
+
+			return nil
+		},
+	})
+
+	if !slices.Equal(order, []string{"ticked", "check"}) {
+		t.Errorf("ran %q, want the session list's tick before the check", order)
+	}
+}
+
+// A session list that never ticks resumes nothing, and the record keeps every record.
+func TestResumeAtLaunchResumesNothingWhenTheSessionListNeverTicked(t *testing.T) {
+	t.Parallel()
+
+	var said bytes.Buffer
+
+	started := 0
+	records := []hosted.Record{resumeRecord()}
+
+	outcome := resumeAtLaunch(t.Context(), launchResume{
+		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
+		records:  records, readErr: nil, checks: resumeChecks(),
+		start: func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) {
+			started++
+
+			return "000000000000000000000000000000bb", true
+		},
+		carry: func([]hosted.Record) {}, stderr: &said,
+		ready: func(context.Context) error { return errNeverTicked },
+	})
+
+	if started != 0 {
+		t.Errorf("started %d before the session list ticked", started)
+	}
+
+	if !slices.Equal(outcome.Unreached, records) {
+		t.Errorf("unreached %+v, want every record kept", outcome.Unreached)
+	}
+
+	if !strings.Contains(said.String(), errNeverTicked.Error()) {
+		t.Errorf("said %q, want the reason", said.String())
+	}
+}
+
+func TestWaitForTheFirstTick(t *testing.T) {
+	t.Parallel()
+
+	ticked := make(chan struct{})
+	close(ticked)
+
+	// A row that must not time out waits far longer than it takes; the one that times out
+	// waits as little as can be.
+	const (
+		long  = time.Hour
+		short = time.Nanosecond
+	)
+
+	tests := []struct {
+		name    string
+		ended   bool
+		ticked  chan struct{}
+		timeout time.Duration
+		wantErr error
+	}{
+		{"ticked", false, ticked, long, nil},
+		{"never ticked", false, make(chan struct{}), short, errSessionsNotTicked},
+		{"the launch ended", true, make(chan struct{}), long, context.Canceled},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			if tt.ended {
+				cancel()
+			}
+
+			err := waitForFirstTick(ctx, tt.ticked, tt.timeout)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("err %v, want %v", err, tt.wantErr)
+			}
+		})
 	}
 }

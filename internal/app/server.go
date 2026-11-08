@@ -197,7 +197,7 @@ func lastRecord(dataDir string, store *settings.Store, stderr io.Writer) launchR
 
 	return launchResume{
 		sessions: store.Get().Sessions, records: records, readErr: readErr, checks: nil,
-		start: nil, carry: nil, stderr: stderr,
+		start: nil, carry: nil, ready: nil, stderr: stderr,
 	}
 }
 
@@ -209,6 +209,7 @@ func resumeRecorded(ctx context.Context, life hostedLife, host *pty.Host, plan l
 	plan.checks = life.checks
 	plan.start = resumeStart(host, life.recorder)
 	plan.carry = life.recorder.Carry
+	plan.ready = life.ready
 	outcome := resumeAtLaunch(ctx, plan)
 	life.recorder.Carry(outcome.Unreached)
 	life.resumed.set(outcome.Resumed)

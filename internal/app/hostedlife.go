@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/historyapi"
@@ -35,6 +37,8 @@ type hostedLife struct {
 	// bump moves the snapshot's version, so a snapshot cached before the resumed sessions were
 	// set is not shown without them.
 	bump func()
+	// ready waits until the session list holds what runs now, for the checks to read.
+	ready func(ctx context.Context) error
 }
 
 // newRecorder is the recorder of host's sessions into the data folder, which takes Claude's id of
@@ -73,6 +77,35 @@ type ownerParts struct {
 	reader  *origin.Reader
 	work    *openwork.Work
 	history *historyapi.API
+	// beside is whether a session named name, or one in folder, runs now (besideIn).
+	beside func(name, folder string) bool
+}
+
+// besideIn is whether a session named name in any folder, or one in folder or inside it, runs
+// in live (the session list: the person's own claude too) or is in records (the sessions this
+// launch has started, before claude registers them).
+func besideIn(live []sessions.LiveSession, records []hosted.Record, name, folder string) bool {
+	for _, session := range live {
+		if session.Name == name {
+			return true
+		}
+
+		if reviews.Within(session.Cwd, folder) {
+			return true
+		}
+	}
+
+	for _, record := range records {
+		if record.Name == name {
+			return true
+		}
+
+		if reviews.Within(record.Dir, folder) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ownerChecks are each owner's check of a record at launch: Open work's and History's own, and
@@ -126,12 +159,13 @@ func (parts ownerParts) reviewRule(folder string, pattern *regexp.Regexp, disall
 		Allowed: func(worktree string) bool {
 			return repos.Allowed(parts.reader.Of(worktree), parts.store.Allow())
 		},
+		Beside: parts.beside,
 	}
 }
 
 // launchResume is what a launch resumes from: the settings now, the record the last launch left
-// and why it could not be read, the owners' checks, what starts a session, and what carries the
-// records not resumed yet in the record.
+// and why it could not be read, the owners' checks, what starts a session, what carries the
+// records not resumed yet in the record, and what waits for the session list the checks read.
 type launchResume struct {
 	sessions settings.Sessions
 	records  []hosted.Record
@@ -139,7 +173,31 @@ type launchResume struct {
 	checks   hosted.Checks
 	start    hosted.Start
 	carry    func([]hosted.Record)
-	stderr   io.Writer
+	// ready waits until the session list holds what runs now (waitForFirstTick).
+	ready  func(ctx context.Context) error
+	stderr io.Writer
+}
+
+// firstTickTimeout bounds a launch's wait for the session list's first tick: above its one ps
+// call's own limit (10 s).
+const firstTickTimeout = 15 * time.Second
+
+// errSessionsNotTicked is a session list that did not tick within firstTickTimeout.
+var errSessionsNotTicked = errors.New("the session list did not read the running sessions in time")
+
+// waitForFirstTick waits until ticked is closed, within timeout and while ctx lasts.
+func waitForFirstTick(ctx context.Context, ticked <-chan struct{}, timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-ticked:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("waiting for the session list: %w", ctx.Err())
+	case <-timer.C:
+		return fmt.Errorf("%w: %s", errSessionsNotTicked, timeout)
+	}
 }
 
 // resumeAtLaunch resumes the recorded sessions, as each owner's check rebuilds them, when the
@@ -158,6 +216,18 @@ func resumeAtLaunch(ctx context.Context, plan launchResume) hosted.Outcome {
 
 	// Until each is resumed or refused, the record keeps the last launch's records as they were.
 	plan.carry(plan.records)
+
+	// An owner's check that reads the session list before its first tick sees nothing run: a
+	// session the person runs in the folder would be missed. Without it, nothing is resumed, and
+	// every record is kept for the next launch.
+	err := plan.ready(ctx)
+	if err != nil {
+		_, _ = fmt.Fprintf(plan.stderr, "conn: no hosted session is resumed: %v\n", err)
+
+		return hosted.Outcome{
+			Resumed: []hosted.Resumed{}, Skipped: len(plan.records), Unreached: plan.records,
+		}
+	}
 
 	outcome := hosted.Resume(ctx, plan.records, plan.checks, plan.start)
 	if len(plan.records) > 0 {
