@@ -237,6 +237,13 @@ func tamperedTexts(t *testing.T) []struct {
 			hosted.ErrBadRecord,
 		},
 		{"another version", `{"version":2,"sessions":[]}`, hosted.ErrBadFile},
+		// encoding/json matches keys whatever their case, and the last of two wins.
+		{"a key in another case", `{"VERSION":1,"sessions":[]}` + "\n", hosted.ErrBadFile},
+		{
+			"a key twice", `{"version":1,"sessions":[],"sessions":[]}` + "\n",
+			hosted.ErrBadFile,
+		},
+		{"the keys in another order", `{"sessions":[],"version":1}` + "\n", hosted.ErrBadFile},
 		{"not JSON", `sessions: all`, hosted.ErrBadFile},
 		{
 			"two objects", `{"version":1,"sessions":[]}{"version":1,"sessions":[]}`,

@@ -196,12 +196,11 @@ func writeTemporary(dir string, text []byte) (string, error) {
 
 // Read is the record in dir: none when there is no file. The file is opened with no link
 // followed and without waiting (a fifo at its name opens and is refused), and is read only when
-// it is a regular file of the person running Conn, of mode 0600, at most fileBytesMax bytes, of
-// exactly the
-// shape Write writes (an unknown field, such as a command line, refuses the file), with at most
-// RecordsMax records, each of which CheckRecord passes. A file that is not is ErrBadFile, or every
-// record's problems, and no record of it is returned: Conn never writes such a file, so nothing
-// in it is trusted.
+// it is a regular file of the person running Conn, of mode 0600, at most fileBytesMax bytes,
+// with at most RecordsMax records, each of which CheckRecord passes, and exactly the bytes Write
+// writes for them (an unknown field, such as a command line, a key in another case or a key
+// twice refuses the file). A file that is not is ErrBadFile, or every record's problems, and no
+// record of it is returned: Conn never writes such a file, so nothing in it is trusted.
 func Read(dir string) ([]Record, error) {
 	return readAs(dir, os.Getuid())
 }
@@ -289,7 +288,7 @@ func readOwnFile(opened *os.File, uid int) ([]byte, error) {
 	return text, nil
 }
 
-// parse is the records in text, which must be exactly the shape Write writes.
+// parse is the records in text, which must be exactly the bytes Write writes for them.
 func parse(text []byte) ([]Record, error) {
 	decoder := json.NewDecoder(bytes.NewReader(text))
 	decoder.DisallowUnknownFields()
@@ -316,6 +315,17 @@ func parse(text []byte) ([]Record, error) {
 	err = checkAll(parsed.Sessions)
 	if err != nil {
 		return nil, err
+	}
+
+	// encoding/json matches keys whatever their case and lets the last of two win: only the
+	// bytes Write would write for these records are its shape.
+	written, err := json.Marshal(parsed)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrBadFile, err)
+	}
+
+	if !bytes.Equal(append(written, '\n'), text) {
+		return nil, fmt.Errorf("%w: it is not written as Conn writes it", ErrBadFile)
 	}
 
 	return parsed.Sessions, nil
