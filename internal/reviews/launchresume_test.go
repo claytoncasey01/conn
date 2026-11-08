@@ -48,18 +48,23 @@ func (w resumeWorld) rule(disallowed []string) reviews.ResumeRule {
 		Disallowed: disallowed, On: func() bool { return true },
 		Allowed: func(string) bool { return true },
 		Beside:  func(string, string) bool { return false },
-		Launched: func(worktree, name, sessionID string) (string, bool) {
-			if worktree != w.worktree {
-				return "", false
-			}
-
-			if name != resumeName {
-				return "", false
-			}
-
-			return resumeModel, sessionID == resumeID
-		},
+		// Every refusal row but the store's is refused by its own check alone.
+		Launched: func(string, string, string) (string, bool) { return resumeModel, true },
 	}
+}
+
+// launchedOnlyAsIs is a store whose one launch is the world's session: asked about anything
+// else, it holds none.
+func (w resumeWorld) launchedOnlyAsIs(worktree, name, sessionID string) (string, bool) {
+	if worktree != w.worktree {
+		return "", false
+	}
+
+	if name != resumeName {
+		return "", false
+	}
+
+	return resumeModel, sessionID == resumeID
 }
 
 func TestResumeAtLaunchResumesTheConversationUnderItsName(t *testing.T) {
@@ -92,8 +97,10 @@ func TestResumeAtLaunchResumesTheConversationUnderItsName(t *testing.T) {
 
 			world := newResumeWorld(t)
 
-			got, ok := reviews.ResumeAtLaunch(world.rule(tt.disallowed), resumeName,
-				world.worktree, resumeID)
+			rule := world.rule(tt.disallowed)
+			rule.Launched = world.launchedOnlyAsIs
+
+			got, ok := reviews.ResumeAtLaunch(rule, resumeName, world.worktree, resumeID)
 			if !ok {
 				t.Fatal("not resumed")
 			}

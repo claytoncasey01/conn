@@ -378,3 +378,33 @@ func TestResumeRecordedWaitsForTheSessionList(t *testing.T) {
 		t.Errorf("ran %d checks before the session list ticked", checked)
 	}
 }
+
+// The last launch's records are carried before the first start, so a crash during the resume
+// leaves the ones not reached in the record.
+func TestResumeAtLaunchCarriesTheRecordsBeforeItStarts(t *testing.T) {
+	t.Parallel()
+
+	var order []string
+
+	records := []hosted.Record{resumeRecord()}
+
+	resumeAtLaunch(t.Context(), launchResume{
+		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
+		records:  records, readErr: nil, checks: resumeChecks(),
+		start: func(context.Context, hosted.Record, pty.Spec) (pty.ID, bool) {
+			order = append(order, "start")
+
+			return "000000000000000000000000000000bb", true
+		},
+		carry: func(carried []hosted.Record) {
+			if slices.Equal(carried, records) {
+				order = append(order, "carry")
+			}
+		},
+		ready: ticked, stderr: &bytes.Buffer{},
+	})
+
+	if !slices.Equal(order, []string{"carry", "start"}) {
+		t.Errorf("ran %q, want the records carried before the start", order)
+	}
+}

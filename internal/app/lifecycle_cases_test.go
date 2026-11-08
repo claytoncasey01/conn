@@ -169,10 +169,11 @@ func tamperedRecords(t *testing.T, world lifeWorld) map[string]func() {
 			writeLifeFile(t, path, text([]hosted.Record{notUUID}))
 		},
 		"500 entries": func() { writeLifeFile(t, path, text(many)) },
+		// The link's target is a record Write wrote: only the link refuses it.
 		"a link as the file": func() {
-			target := filepath.Join(t.TempDir(), "records.json")
-			writeLifeFile(t, target, text([]hosted.Record{good}))
-			linkAt(t, target, path)
+			elsewhere := t.TempDir()
+			writeRecords(t, elsewhere, good)
+			linkAt(t, filepath.Join(elsewhere, hosted.FileName), path)
 		},
 	}
 }

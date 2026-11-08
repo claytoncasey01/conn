@@ -481,6 +481,27 @@ func TestTheResumeRouteTakesTheRepository(t *testing.T) {
 		[]any{400, "repo must be a repository name", nil})
 }
 
+// dryTwoRepoRunAnswered is a dry world whose PROJ-2 was started in widgets and gadgets, laid out
+// as layout, and whose questions were answered.
+func dryTwoRepoRunAnswered(t *testing.T, layout string) *world {
+	t.Helper()
+
+	base := realTemp(t)
+	made := newWorld(t, worldOpts{
+		base: base, dry: true,
+		settings: twoClones(fakeClone(t, base, "widgets"), fakeClone(t, base, "gadgets")),
+	})
+
+	made.work.Tickets()
+	until(t, "the dry list", func() bool { return len(made.work.Tickets().Tickets) == 6 })
+	same(t, "start", made.work.Start("PROJ-2", body(t, `{"model":"haiku","repos":`+
+		`["acme/widgets","acme/gadgets"],"layout":"`+layout+`"}`)).Code, 200)
+	until(t, "the questions", func() bool { return made.state("PROJ-2") == "asking" })
+	same(t, "answers", made.work.Answer("PROJ-2", body(t, `{"q1":"c1","q2":"c2"}`)).Code, 200)
+
+	return made
+}
+
 func TestTheDryRunTakesATicketInTwoRepositoriesFromStartToItsSessions(t *testing.T) {
 	t.Parallel()
 
@@ -501,20 +522,7 @@ func TestTheDryRunTakesATicketInTwoRepositoriesFromStartToItsSessions(t *testing
 		t.Run(row.layout, func(t *testing.T) {
 			t.Parallel()
 
-			base := realTemp(t)
-			made := newWorld(t, worldOpts{
-				base: base, dry: true,
-				settings: twoClones(fakeClone(t, base, "widgets"), fakeClone(t, base, "gadgets")),
-			})
-
-			made.work.Tickets()
-			until(t, "the dry list", func() bool { return len(made.work.Tickets().Tickets) == 6 })
-			same(t, "start", made.work.Start("PROJ-2", body(t, `{"model":"haiku","repos":`+
-				`["acme/widgets","acme/gadgets"],"layout":"`+row.layout+`"}`)).Code, 200)
-			until(t, "the questions", func() bool { return made.state("PROJ-2") == "asking" })
-			same(t, "answers", made.work.Answer("PROJ-2",
-				body(t, `{"q1":"c1","q2":"c2"}`)).Code, 200)
-
+			made := dryTwoRepoRunAnswered(t, row.layout)
 			record := made.record("PROJ-2")
 			same(t, "layout", record.Layout, row.layout)
 

@@ -17,12 +17,30 @@ func TestBesideIn(t *testing.T) {
 		worktree = "/data/reviews/pr-12/widgets"
 	)
 
-	tests := []struct {
-		name    string
-		live    []sessions.LiveSession
-		records []hosted.Record
-		want    bool
-	}{
+	tests := besideRows(name, worktree)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := besideIn(tt.live, tt.records, name, worktree)
+			if got != tt.want {
+				t.Errorf("beside %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// besideRow is one case of besideIn: what runs, what this launch started, and the answer.
+type besideRow struct {
+	name    string
+	live    []sessions.LiveSession
+	records []hosted.Record
+	want    bool
+}
+
+func besideRows(name, worktree string) []besideRow {
+	return []besideRow{
 		{"nothing runs", nil, nil, false},
 		{
 			"another session elsewhere",
@@ -57,16 +75,5 @@ func TestBesideIn(t *testing.T) {
 			[]hosted.Record{{Name: name, Dir: "/x"}},
 			true,
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := besideIn(tt.live, tt.records, name, worktree)
-			if got != tt.want {
-				t.Errorf("beside %v, want %v", got, tt.want)
-			}
-		})
 	}
 }

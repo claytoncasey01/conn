@@ -236,7 +236,8 @@ func tamperedTexts(t *testing.T) []struct {
 			"an owner that is no module", fileOf(t, []hosted.Record{unknownOwner}),
 			hosted.ErrBadRecord,
 		},
-		{"another version", `{"version":2,"sessions":[]}`, hosted.ErrBadFile},
+		// As Write writes it, but for the version: only the version check refuses it.
+		{"another version", `{"version":2,"sessions":[]}` + "\n", hosted.ErrBadFile},
 		// encoding/json matches keys whatever their case, and the last of two wins.
 		{"a key in another case", `{"VERSION":1,"sessions":[]}` + "\n", hosted.ErrBadFile},
 		{
@@ -283,12 +284,15 @@ func TestReadRefusesALinkAsTheFile(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	target := filepath.Join(t.TempDir(), "records.json")
+	// The link's target is a record Write wrote: only the link refuses it.
+	elsewhere := t.TempDir()
 
-	err := os.WriteFile(target, []byte(fileOf(t, []hosted.Record{record(0)})), privateMode)
+	err := hosted.Write(elsewhere, []hosted.Record{record(0)})
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	target := filepath.Join(elsewhere, hosted.FileName)
 
 	err = os.Symlink(target, filepath.Join(dir, hosted.FileName))
 	if err != nil {
