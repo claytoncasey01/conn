@@ -313,11 +313,20 @@ func TestRealEnvironmentHoldsNothingOfConnCmuxOrTheParent(t *testing.T) {
 		"CMUX_SOCKET_PATH=/tmp/cmux", "Cmux_Surface=2", "TERM=xterm-ghostty",
 		"COLORTERM=24bit", "TERM_PROGRAM=ghostty", "GHOSTTY_RESOURCES_DIR=/g", "TMUX=/t,1,0",
 		"CLAUDECODE=1", "CLAUDE_CODE_MESSAGING_TOKEN=secret", "CLAUDE_CODE_SESSION_ID=u",
-		"ANTHROPIC_API_KEY=kept-key",
+		"ANTHROPIC_API_KEY=kept-key", "AI_AGENT=claude-code_2_agent",
+		"__CFBundleIdentifier=com.mitchellh.ghostty",
 	}
 	sessionID := startReal(t, host, untilRead("/usr/bin/env"), env)
 
 	output := outputThrough(t, host, sessionID)
+
+	// Named here as well as in the tables, so a table that loses one is caught.
+	for _, name := range []string{"AI_AGENT", "__CFBundleIdentifier", "TERM_PROGRAM", "TMUX"} {
+		if strings.Contains(output, name+"=") {
+			t.Errorf("the child's environment holds %s", name)
+		}
+	}
+
 	denied := map[string]bool{}
 
 	for _, name := range pty.DeniedNames() {

@@ -16,7 +16,7 @@ func TestEnvironmentTablesMatchTheirDocumentation(t *testing.T) {
 	t.Parallel()
 
 	docs := functionDocs(t, "env.go")
-	listed := regexp.MustCompile(`[A-Z][A-Z0-9_]*[A-Z0-9_](=[a-z0-9-]+)?`)
+	listed := regexp.MustCompile(`_*[A-Z][A-Z0-9_]*[A-Z0-9_](=[a-z0-9-]+)?`)
 
 	tables := map[string][]string{
 		"replacedVariables":  replacedVariables(),
