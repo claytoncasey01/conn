@@ -50,21 +50,45 @@ the page shows that terminal, and a reply or an answer is typing into a process 
   is stopped (a polite stop, then a kill after `stopGrace`, all bounded). Before that, the
   sessions open or in progress at that moment are recorded.
 - **Open the app again**: every recorded session is resumed on its own conversation,
-  automatically. A session that had already ended before the quit is not. `resumeOnLaunch`
-  (Settings, default on) turns this off for people who do not want processes started at launch.
-  The page says how many were resumed.
+  automatically, inside Conn whatever the settings say (a resume never opens cmux or prints a
+  command). A session that had already ended before the quit is not. The launch serves the page
+  first, waits for the session list's first read (at most `firstTickTimeout`, 15 s; with none,
+  nothing is resumed and the records are kept), then resumes. A quit during the resume waits for
+  it (at most `quitResumeTimeout`, 10 s) and keeps the records it did not reach. The page says how
+  many were resumed and which, with Stop all; `conn serve` also says on stderr what it resumed,
+  kept or dropped.
+- **`resumeOnLaunch`** (Settings, default on) off: the launch drops the record and resumes
+  nothing. **Sessions set to open elsewhere** (*My terminal*, *Show me the command*): the launch
+  resumes nothing and keeps the record for when sessions open inside Conn again, except the
+  reviews (Reviews closes a review whose session has not come back, and a closed one is never
+  resumed). **A dry run** (`CONN_*_DRY`) resumes nothing: every owner refuses, since a resumed
+  session runs the real `claude`.
+- **The hold after a launch**: every launch, even one that resumes nothing, holds Reviews' and My
+  PRs' "the session is gone" judgements until the resume is done and for `appearMs` (5 min)
+  after: no review is closed or forgotten, no round is read as over, REVIEW is refused for a PR
+  with an open launch, and a My PRs press is refused beside an open round in a folder the record
+  named. A review that really ended may close up to 5 minutes late.
 - **A crash or `kill -9`** ends the sessions (the kernel hangs up each terminal). The record is
   kept up to date as sessions start and end, so the next launch resumes them the same way.
-- The record is `$CONN_DATA/hosted.json`, mode 0600: for each session an id, the owner (Open work
-  run and leg, review, My PRs entry or History session), the name, the folder and Claude's session
-  id. **It never holds a command line.** On launch the owner's own code rebuilds the command from
+- The record is `$CONN_DATA/hosted.json`, mode 0600, written to a temporary file and renamed:
+  for each session the host's id, the owner (`openwork`, `reviews`, `myprs` or `history`), the
+  name, the folder and Claude's session id. **It never holds a command line.** It is read only as
+  a regular file, not a link, owned by the person, of mode exactly 0600, at most `fileBytesMax`
+  (about 373 KiB), with no unknown field and exactly the bytes Conn would write; otherwise none of
+  it is used, it is moved to `hosted.json.refused`, and nothing starts. On launch the owner's own code rebuilds the command from
   those fields, re-checking everything it checks today (repository still allowed, folder still
   exists and is a worktree Conn made, session id is a UUID), so editing the file cannot start
   anything the app would not start itself. At most `sessionsMax` (12) are resumed. The checks per
   owner: **Open work**, the leg's worktree exists and its repository is allowed, and the session id
   is a UUID (a record without one is not resumed at launch; the RESUME SESSION button keeps its
-  `--continue` fallback); **Reviews and My PRs**, the worktree is under Conn's own folder; **History**,
-  the folder exists and belongs to an allowed repository. "In progress" means the session's
+  `--continue` fallback); **Reviews and My PRs**, GitHub on, the worktree is exactly a folder under
+  `$CONN_DATA/reviews` or `$CONN_DATA/myprs` (each folder on the way the person's own and not a
+  link, with a `.git`, in an allowed repository), the session id is a UUID, the name has the
+  kind's shape, the module's store holds an open launch with that worktree, name and
+  conversation (resumed on the launch's model, a self-review with its deny list), and no session
+  of that name or in that worktree runs; **History**, the archive holds the session, it is not
+  running or just resumed, its transcript and folder exist, the folder is the archive's, and it
+  belongs to an allowed repository. "In progress" means the session's
   process was alive at the quit, in any state.
 
 ## Security
@@ -80,17 +104,19 @@ explicitly.
    /api/term/<id>/interrupt` (no body, behind the secret, Origin and `X-Conn`, under the session's
    input rate cap) types the single byte a keyboard's Ctrl-C does (ETX) through the host's one
    writer, so a program flooding output faster than the page can draw it, whose viewer was
-   dropped, can still be interrupted. It is input, never a signal.
+   dropped, can still be interrupted. It is input, never a signal. A second interrupt within
+   3 seconds is refused, since two Ctrl-C close together make `claude` quit.
 2. **The network surface.** The server listens on `127.0.0.1` only (as now). **Every `/api` route**,
    not only the terminal ones (the snapshot, the event stream, the agent pages, every POST and PUT),
    requires a Host of this machine, an `Origin` that is absent only for non-browser clients and
-   otherwise equals the server's own origin exactly, and a **per-launch secret** a second local user
+   otherwise equals the server's own origin exactly (the terminal's WebSocket handshake must carry
+   it: a browser always does), and a **per-launch secret** a second local user
    cannot obtain from the port. The HTML shell and static assets need none (they hold nothing
    sensitive). The secret is 256 bits from `crypto/rand`, compared in constant time, and travels in
    an `Authorization` header from the page's memory (kept in `sessionStorage` so a reload keeps it),
    never in a cookie (cookies are not scoped by port), never in a query string. The WebSocket proves
-   it in the `Sec-WebSocket-Protocol` header or its first frame, checked before any session is
-   touched. The event stream, which `EventSource` cannot give a header, becomes a `fetch` stream.
+   it in the `Sec-WebSocket-Protocol` header, as the subprotocol `conn.key.<secret>` beside
+   `conn.term.v1` (the server echoes only `conn.term.v1`), checked before any session is touched. The event stream, which `EventSource` cannot give a header, becomes a `fetch` stream.
    Handing it over: the desktop app builds the page URL itself with the secret in the fragment;
    `conn serve` prints the URL with the secret in its fragment **only when stdout is a terminal**
    (otherwise it prints the URL without it and names the lock file); the page reads the fragment
@@ -100,8 +126,8 @@ explicitly.
    `ps`. Processes running as the same user can read `$CONN_DATA` and are out of scope: they can
    already run `claude`.
 3. **The WebSocket.** `github.com/coder/websocket` (already in the module graph through Wails;
-   promote it to a direct, allowlisted dependency). The handshake is rejected on a bad Host, Origin
-   or cookie. Frames are bounded: `inputFrameBytesMax` 64 KiB, a per-session input rate cap, one
+   promote it to a direct, allowlisted dependency). The handshake is rejected on a bad Host, a
+   missing or foreign Origin, or a missing or wrong secret. Frames are bounded: `inputFrameBytesMax` 64 KiB, a per-session input rate cap, one
    outbound queue of `viewerQueueBytesMax` per viewer (a viewer that falls behind is dropped, the
    terminal's reader is never blocked), `viewersMax` 4 per session, a handshake deadline, pings. The
    message parser is fuzzed.
@@ -112,10 +138,13 @@ explicitly.
    the group.
 5. **Terminal output is untrusted.** The page's terminal (xterm.js, bundled and pinned by the
    lockfile, no CDN) has: clipboard writes (OSC 52) off; window-manipulation reports off (they echo
-   attacker text into the input); the title shown only as a sanitised label; hyperlinks passed to
-   Conn's existing link policy (default browser, no navigation of the app window); no image
-   protocols; no addon that reads the clipboard. Terminal hyperlinks always open in the default
-   browser, never in the app window, whatever their target. Exactly one side answers a terminal's
+   attacker text into the input); the program's title never used (the panel is labelled with the
+   session's name); no image protocols; no addon that reads the clipboard. A terminal hyperlink
+   opens only for `http` or `https` of another origin than Conn's, on Cmd-click or Ctrl-click,
+   after a confirmation naming its host, and always in the default browser, never in the app
+   window. A paste is cleaned of control characters and paste markers, one larger than an input
+   frame is refused whole, and one whose line breaks the program would take as Enters waits for a
+   confirmation. Exactly one side answers a terminal's
    queries (device attributes, cursor position, the background colour Claude Code asks for), from a
    fixed table, and never with text taken from the program's output; the other side is silent. The
    builder decides which side by testing against a real `claude` start-up.
@@ -123,8 +152,8 @@ explicitly.
    nothing is typed if the prompt is not what the page showed. For a hosted session the screen
    comes from Conn's own model of the terminal, so the check and the typing see the same process.
 7. **Nothing sensitive at rest.** Scrollback (`scrollbackBytesMax` 4 MiB per session) is memory
-   only. No keystroke or screen content is logged, including on error. `hosted.json` holds ids
-   only.
+   only. No keystroke or screen content is logged, including on error. `hosted.json` holds ids,
+   names and folders, never a command line.
 8. **The page.** A Content-Security-Policy: `default-src 'self'`, no inline script (the bootstrap
    script moves to a file), `style-src 'self' 'unsafe-inline'` (Svelte and xterm.js set styles),
    the font hosts the page already uses named explicitly, a `connect-src` for this origin and its
@@ -140,14 +169,18 @@ permission prompt, and the ask panel is built from the screen. The panel never a
 an answer is always a click, and the parser reads the bottom of the live screen, not the scrollback.
 Resuming on launch restarts sessions with no one at the keyboard, in repositories whose files may
 have changed since; this is accepted, shown to the person (the page lists what was resumed, with a
-Stop all), and limited by the per-owner checks in Lifecycle.
+Stop all), and limited by the per-owner checks in Lifecycle. Also accepted: Conn checks `.conn` is
+the person's own folder before writing a brief or prompt, but `claude` reads `.conn/*.md` by path
+afterwards; and a descendant that calls `setsid` or `setpgid` leaves the group a stop reaches
+(`claude` itself ends its background commands, which run in a group of their own, when it is
+stopped politely).
 
 Tests that must exist: an `/api` request with no secret, a wrong secret, a wrong Host or a wrong
 Origin is refused on every route (a table over the route list, so a new route cannot skip it;
 as built in Task 1, the server has no route registry, so the list is written by hand in the
 test, and the gate covers every `/api` path structurally: one prefix check on the escaped and
 the decoded path in front of all dispatch, so an unlisted or future `/api` route is behind it
-too); wrong Host, wrong or missing Origin, missing or wrong cookie, an oversize
+too); wrong Host, wrong or missing Origin, missing or wrong secret, an oversize
 frame, a flood of input and a slow viewer are each refused or bounded; no terminal route creates, names or configures a
 session (the existing start routes are protected by the secret like every other); a stop kills a child that ignores SIGTERM and its own children; the secret is absent from
 the child's environment, argv and every log line; a tampered `hosted.json` (a command line, a
@@ -192,7 +225,7 @@ folder outside the allowed worktrees, a session id that is not a UUID) starts no
 
 - Which Go pseudo-terminal and screen-model libraries (or small own code over `x/sys/unix`), with
   the dependency justification.
-- Package names and layout; the WebSocket message encoding; the cookie exchange mechanics, within
+- Package names and layout; the WebSocket message encoding; how the secret is handed over and carried, within
   the Security section.
 - How the Wails app and `conn serve` each hand the secret to the page.
 - How `ask.Parse` is fed from the screen model without changing its behaviour.
