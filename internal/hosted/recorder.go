@@ -2,6 +2,7 @@ package hosted
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sync"
 	"time"
@@ -175,6 +176,16 @@ func (r *Recorder) started(owner string, hostedID pty.ID, spec pty.Spec, claudeI
 	defer r.mu.Unlock()
 
 	if r.frozen {
+		return
+	}
+
+	// The host runs at most RecordsMax sessions: one more would make a record Write refuses,
+	// and stop every write after it. It runs unrecorded instead.
+	r.records = Track(r.records, r.deps.Live(), r.deps.Linked())
+	if len(r.records) >= RecordsMax() {
+		r.deps.Failed(fmt.Errorf("%w: %d sessions are recorded already, at most %d",
+			ErrBadRecord, len(r.records), RecordsMax()))
+
 		return
 	}
 

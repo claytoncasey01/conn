@@ -80,6 +80,14 @@ func (w *world) end(index int) {
 	}
 }
 
+// liveNow is every session the host holds now.
+func (w *world) liveNow() []pty.Info {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return slices.Clone(w.live)
+}
+
 func (w *world) last() []hosted.Record {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -606,5 +614,94 @@ func TestRecorderRefusesARecordThatWouldNotReadBack(t *testing.T) {
 
 	if len(failures) != 1 {
 		t.Errorf("said %d failures, want the one record refused: %v", len(failures), failures)
+	}
+}
+
+// worstRecord is the index-th session at its bounds in the bytes JSON writes longest: every
+// byte of its name and folder written as six.
+func worstRecord(index int) (pty.ID, pty.Spec) {
+	return pty.ID(hostID(index)), pty.Spec{
+		Argv: []string{"/opt/claude"}, Dir: "/" + strings.Repeat("<", hosted.DirBytesMax-1),
+		Env: nil, Name: strings.Repeat("&", hosted.NameBytesMax),
+	}
+}
+
+// startWorst starts count worst-case sessions on setting and records them, from index first.
+func startWorst(setting *world, recorder *hosted.Recorder, first, count int) {
+	for index := first; index < first+count; index++ {
+		setting.run(index)
+
+		hostedID, spec := worstRecord(index)
+		recorder.Started(hosted.OwnerOpenWork, hostedID, spec, "")
+	}
+}
+
+// writingRecorder is a recorder over setting's host that writes the record in dir, and keeps
+// what it could not record in failures.
+func writingRecorder(dir string, setting *world, failures *[]error) *hosted.Recorder {
+	return hosted.NewRecorder(hosted.RecorderDeps{
+		Dir: dir, Live: setting.liveNow, Linked: func() map[pty.ID]string { return nil },
+		Write: hosted.Write, Failed: func(err error) { *failures = append(*failures, err) },
+	})
+}
+
+// As many sessions as a host runs always fit in the record, whatever bytes their names and
+// folders hold; one more is refused alone, and once a session ends the next is recorded.
+func TestRecorderKeepsTheMostSessionsOfTheLongestRecords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// more are the sessions started past RecordsMax; ended is one ending after them, and
+		// one more started.
+		more         int
+		ended        bool
+		wantRecords  int
+		wantFailures int
+	}{
+		{"as many as a host runs", 0, false, hosted.RecordsMax(), 0},
+		{"one more", 1, false, hosted.RecordsMax(), 1},
+		{"one more, then one ends and another starts", 1, true, hosted.RecordsMax(), 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir, setting := t.TempDir(), newWorld()
+
+			var failures []error
+
+			recorder := writingRecorder(dir, setting, &failures)
+			startWorst(setting, recorder, 0, hosted.RecordsMax()+tt.more)
+
+			if tt.ended {
+				setting.end(0)
+				startWorst(setting, recorder, recordsTried, 1)
+			}
+
+			records, err := hosted.Read(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(records) != tt.wantRecords {
+				t.Errorf("the record holds %d sessions, want %d", len(records), tt.wantRecords)
+			}
+
+			if len(failures) != tt.wantFailures {
+				t.Errorf("said %d failures, want %d: %v", len(failures), tt.wantFailures, failures)
+			}
+
+			// The one started once a session ended is recorded: the one refused stopped no
+			// write after it.
+			newest := slices.ContainsFunc(records, func(each hosted.Record) bool {
+				return each.ID == hostID(recordsTried)
+			})
+			if newest != tt.ended {
+				t.Errorf("the session started after one ended is recorded: %v, want %v", newest,
+					tt.ended)
+			}
+		})
 	}
 }

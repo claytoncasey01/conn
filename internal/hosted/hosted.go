@@ -47,9 +47,13 @@ const (
 	nameBytesMax = 1 << 10
 	// dirBytesMax bounds a session's folder in the record: PATH_MAX on Linux.
 	dirBytesMax = 4 << 10
-	// recordBytesMax bounds the JSON of one record: its fields at their most, quoted, and the
-	// keys around them.
-	recordBytesMax = 2*(nameBytesMax+dirBytesMax) + 1<<10
+	// escapedBytesMax is the most bytes JSON writes for one byte of a string: "<", ">", "&" and
+	// control bytes are written as \u00XX.
+	escapedBytesMax = 6
+	// recordBytesMax bounds the JSON of one record: its name and folder at their most, each byte
+	// written at its longest, and the keys, ids and quotes around them. RecordsMax records of it
+	// always fit in fileBytesMax.
+	recordBytesMax = escapedBytesMax*(nameBytesMax+dirBytesMax) + 1<<10
 	// fileVersion is the shape of the file this code writes and reads.
 	fileVersion = 1
 )

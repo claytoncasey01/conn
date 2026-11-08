@@ -153,7 +153,6 @@ func TestWriteRefusesWhatItWouldNotRead(t *testing.T) {
 		{"more than RecordsMax", tooMany, hosted.ErrBadFile},
 		{"a relative folder", []hosted.Record{relative}, hosted.ErrBadRecord},
 		{"a name that reads back longer", []hosted.Record{invalid}, hosted.ErrBadRecord},
-		{"records that write more than a file holds", escapedRecords(), hosted.ErrBadFile},
 	}
 
 	for _, tt := range tests {
@@ -175,40 +174,56 @@ func TestWriteRefusesWhatItWouldNotRead(t *testing.T) {
 	}
 }
 
-// escapedRecords are RecordsMax records, each in bounds, whose folders JSON writes six bytes
-// for each of their bytes: together more than a record file holds.
-func escapedRecords() []hosted.Record {
+// longestRecords are RecordsMax records at their bounds, every byte of their names and folders
+// one JSON writes as six.
+func longestRecords() []hosted.Record {
 	records := make([]hosted.Record, 0, hosted.RecordsMax())
 	for index := range hosted.RecordsMax() {
 		each := record(index)
-		each.Dir = "/" + strings.Repeat("&", hosted.DirBytesMax-1)
+		each.Name = strings.Repeat("&", hosted.NameBytesMax)
+		each.Dir = "/" + strings.Repeat("<", hosted.DirBytesMax-1)
 		records = append(records, each)
 	}
 
 	return records
 }
 
-// A record Write writes is one Read reads: the same records come back.
+// What Write writes is what Read reads: the same records come back, the longest a full host
+// records among them.
 func TestWhatWriteWritesReadsBack(t *testing.T) {
 	t.Parallel()
 
 	named := record(0)
 	named.Name = "review A & B <x>"
 
-	dir := t.TempDir()
-
-	err := hosted.Write(dir, []hosted.Record{named})
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name    string
+		records []hosted.Record
+	}{
+		{"a name JSON escapes", []hosted.Record{named}},
+		{"the longest records of a full host", longestRecords()},
 	}
 
-	got, err := hosted.Read(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	if !slices.Equal(got, []hosted.Record{named}) {
-		t.Errorf("read %+v, want %+v", got, named)
+			dir := t.TempDir()
+
+			err := hosted.Write(dir, tt.records)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := hosted.Read(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !slices.Equal(got, tt.records) {
+				t.Errorf("read %d records, want the %d written", len(got), len(tt.records))
+			}
+		})
 	}
 }
 
@@ -550,74 +565,26 @@ func writtenText(t *testing.T, records []hosted.Record) string {
 	return string(text) + "\n"
 }
 
-// sizedText is writtenText of RecordsMax valid records, padded by the last one's name to
-// exactly size bytes.
-func sizedText(t *testing.T, size int) string {
-	t.Helper()
-
-	records := make([]hosted.Record, 0, hosted.RecordsMax())
-	for index := range hosted.RecordsMax() {
-		each := record(index)
-		// JSON writes six bytes for each "&".
-		each.Dir = "/" + strings.Repeat("&", folderAmpersands)
-		records = append(records, each)
-	}
-
-	for pad := 1; pad <= hosted.NameBytesMax; pad++ {
-		records[len(records)-1].Name = strings.Repeat("a", pad)
-
-		text := writtenText(t, records)
-		if len(text) == size {
-			return text
-		}
-	}
-
-	t.Fatalf("no padding makes %d bytes", size)
-
-	return ""
-}
-
-// folderAmpersands puts RecordsMax records within a name's padding of the file's bound.
-const folderAmpersands = 1860
-
-// A record file is read only up to its bound: one byte over is refused, even when it is exactly
-// what Write would write for its records.
+// A record file is read only up to its bound. Write never writes one that long (RecordsMax of
+// the longest records fit), so a file over it is not one Conn wrote.
 func TestReadRefusesAFileOverItsSize(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name    string
-		text    func(t *testing.T) string
-		wantErr error
-	}{
-		{"the most bytes", func(t *testing.T) string {
-			t.Helper()
-
-			return sizedText(t, hosted.FileBytesMax())
-		}, nil},
-		{"a byte more", func(t *testing.T) string {
-			t.Helper()
-
-			return sizedText(t, hosted.FileBytesMax()+1)
-		}, hosted.ErrBadFile},
-		{"a byte more, then more", func(t *testing.T) string {
-			t.Helper()
-
-			return sizedText(t, hosted.FileBytesMax()+1) + `{"anything":1}`
-		}, hosted.ErrBadFile},
+	written := writtenText(t, longestRecords())
+	if len(written) > hosted.FileBytesMax() {
+		t.Fatalf("the longest records are %d bytes, over the bound %d", len(written),
+			hosted.FileBytesMax())
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	// The same records, with spaces up to a byte over the bound before the closing brace.
+	padded := written[:len(written)-2] +
+		strings.Repeat(" ", hosted.FileBytesMax()+1-len(written)) + "}\n"
 
-			dir := t.TempDir()
-			writeText(t, dir, tt.text(t))
+	dir := t.TempDir()
+	writeText(t, dir, padded)
 
-			_, err := hosted.Read(dir)
-			if !errors.Is(err, tt.wantErr) {
-				t.Errorf("Read: %v, want %v", err, tt.wantErr)
-			}
-		})
+	_, err := hosted.Read(dir)
+	if !errors.Is(err, hosted.ErrBadFile) {
+		t.Errorf("Read: %v, want %v", err, hosted.ErrBadFile)
 	}
 }

@@ -188,11 +188,23 @@ func isTemporary(entry os.DirEntry) bool {
 }
 
 // checkWritable is every problem with record, as CheckRecord says them, or as the record reads
-// back once Write has written it: JSON writes some bytes longer than they are.
+// back once Write has written it: JSON writes some bytes longer than they are. A record written
+// in more than recordBytesMax bytes is refused, so the records of a full host always fit.
 func checkWritable(record Record) error {
 	err := CheckRecord(record)
 	if err != nil {
 		return err
+	}
+
+	written, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRecord, err)
+	}
+
+	// Each record within its bound is what keeps RecordsMax of them within the file's.
+	if len(written) > recordBytesMax {
+		return fmt.Errorf("%w: it is written in %d bytes, more than %d", ErrBadRecord,
+			len(written), recordBytesMax)
 	}
 
 	text, err := json.Marshal(file{Version: fileVersion, Sessions: []Record{record}})
