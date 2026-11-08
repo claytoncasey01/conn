@@ -107,9 +107,10 @@ func newHandler(
 
 	recorder := newRecorder(cfg.DataDir, host, live, logger.Writer())
 	openers := ownedOpenersOf(recorder, opener)
+	settle := newResumeSettle()
 	parts := newTabs(ctx, tabParts{
 		cfg: cfg, store: store, reader: reader, logger: logger, host: host, live: live,
-		openers: openers,
+		openers: openers, settled: settle.settled,
 	}, running)
 
 	liveIDs := liveIDsOf(live)
@@ -134,7 +135,7 @@ func newHandler(
 		Themes: library, Gallery: themesAPI, Provided: newProvided(cfg, logger),
 	}, hostedLife{
 		recorder: recorder, checks: checks, resumed: resumed, bump: live.Bump,
-		ticked: live.Ticked(), tickTimeout: firstTickTimeout,
+		ticked: live.Ticked(), tickTimeout: firstTickTimeout, settle: settle,
 	}
 }
 
@@ -163,6 +164,8 @@ type tabParts struct {
 	host    *pty.Host
 	live    *sessions.Loop
 	openers ownedOpeners
+	// settled is when the launch finished resuming its last quit's sessions (resumeSettle).
+	settled func() (float64, bool)
 }
 
 // newTabs makes Open work, Reviews and My PRs into running, starts them, and is the parts Reviews
@@ -186,7 +189,7 @@ func newTabs(ctx context.Context, made tabParts, running *tabs) reviewsParts {
 		runner: runner, logger: made.logger,
 		myPrRepos: func() []string { return running.myPrs.Repos() },
 		open:      made.openers.reviews,
-		selfOpen:  made.openers.myPrs,
+		selfOpen:  made.openers.myPrs, settled: made.settled,
 	}
 	running.reviews = newReviews(ctx, parts, live)
 	running.myPrs = newMyPrs(ctx, parts, live)

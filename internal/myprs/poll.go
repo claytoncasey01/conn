@@ -773,10 +773,7 @@ func (m *MyPrs) roundFacts(launch *Launch, session *sessions.LiveSession, now fl
 	// A session that has not shown up yet is not gone: a push by anyone else in that wait must
 	// not read as the end of the round.
 	if session == nil {
-		facts.SessionGone = m.seen[launch]
-		if now-launch.At >= appearMs {
-			facts.SessionGone = true
-		}
+		facts.SessionGone = m.sessionGone(launch, now)
 	} else {
 		facts.SessionIdle = session.Status == sessionIdle
 		facts.SessionWaiting = session.Status == "waiting"
@@ -792,6 +789,26 @@ func (m *MyPrs) roundFacts(launch *Launch, session *sessions.LiveSession, now fl
 	}
 
 	return facts
+}
+
+// sessionGone is whether launch's session, not live now, is gone: seen before, or not shown up
+// within appearMs. While this launch of Conn resumes its last quit's sessions, and for appearMs
+// after, it may be one the launch resumes: it is not gone yet.
+func (m *MyPrs) sessionGone(launch *Launch, now float64) bool {
+	settledAt, settled := m.deps.Settled()
+	if !settled {
+		return false
+	}
+
+	if now-settledAt < appearMs {
+		return false
+	}
+
+	if m.seen[launch] {
+		return true
+	}
+
+	return now-launch.At >= appearMs
 }
 
 // askLanded is whether a try of the ask shows on the PR: my own ask made since the first try for

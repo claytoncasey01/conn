@@ -41,6 +41,36 @@ type hostedLife struct {
 	// tickTimeout bounds the launch's wait for it (firstTickTimeout).
 	ticked      <-chan struct{}
 	tickTimeout time.Duration
+	// settle is told when the resume is done: until then, and for a while after, Reviews and
+	// My PRs judge no session of theirs gone.
+	settle *resumeSettle
+}
+
+// resumeSettle is when a launch finished resuming its last quit's sessions (ms), once it has.
+type resumeSettle struct {
+	mu   sync.Mutex
+	at   float64
+	done bool
+}
+
+func newResumeSettle() *resumeSettle {
+	return &resumeSettle{mu: sync.Mutex{}, at: 0, done: false}
+}
+
+// finish says the resume was done at at.
+func (s *resumeSettle) finish(at float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.at, s.done = at, true
+}
+
+// settled is when the resume was done, and whether it is (reviews.Deps.Settled).
+func (s *resumeSettle) settled() (float64, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.at, s.done
 }
 
 // newRecorder is the recorder of host's sessions into the data folder, which takes Claude's id of

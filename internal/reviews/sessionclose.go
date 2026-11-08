@@ -336,6 +336,12 @@ func (r *Reviews) checkLaunch(key string, launch *Launch) *screenCheck {
 
 	session := r.pinned(launch, r.deps.Sessions())
 	if session == nil {
+		// While this launch of Conn resumes its last quit's sessions, and until they have had
+		// the time to appear, a session not live may be one it resumes: it is not gone yet.
+		if r.resumeHeld(now) {
+			return nil
+		}
+
 		// Gone, or not provably the same session any more: the launch is marked closed and
 		// never auto-closed afterwards.
 		if anyOf(launch.SessionID != nil, now-launch.At >= appearMs) {
@@ -374,6 +380,18 @@ func (r *Reviews) checkLaunch(key string, launch *Launch) *screenCheck {
 	return &screenCheck{
 		key: key, launch: launch, id: sessionID, pid: rowID(session), facts: facts,
 	}
+}
+
+// resumeHeld is whether a launch's session not being live does not yet say it is gone: this
+// launch of Conn has not finished resuming its last quit's sessions, or did less than appearMs
+// ago.
+func (r *Reviews) resumeHeld(now float64) bool {
+	settledAt, settled := r.deps.Settled()
+	if !settled {
+		return true
+	}
+
+	return now-settledAt < appearMs
 }
 
 // rowID is the id the session list's actions take for session: the id its host issued for a

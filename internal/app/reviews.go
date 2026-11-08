@@ -93,6 +93,9 @@ type reviewsParts struct {
 	// sessions: each records its sessions under its own module.
 	open     launch.Opener
 	selfOpen launch.Opener
+	// settled is when the launch finished resuming its last quit's sessions: until then, and
+	// for a while after, Reviews and My PRs judge no session of theirs gone.
+	settled func() (float64, bool)
 }
 
 func millis(duration time.Duration) float64 { return float64(duration.Milliseconds()) }
@@ -130,7 +133,7 @@ func newReviews(ctx context.Context, parts reviewsParts, live *sessions.Loop) *r
 			return append(seenRepos(live, parts.reader), parts.myPrRepos()...)
 		},
 		HasClients: func() bool { return live.Hub().Count() > 0 },
-		Sessions:   live.Live, Bump: live.Bump, Now: nowMs,
+		Sessions:   live.Live, Settled: parts.settled, Bump: live.Bump, Now: nowMs,
 		Launch: func(ctx context.Context, opts reviews.LaunchOpts) reviews.LaunchResult {
 			opts.DataDir = cfg.DataDir
 

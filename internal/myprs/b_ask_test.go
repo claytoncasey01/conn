@@ -522,3 +522,23 @@ func TestBFailedAskShowsTheCleanedErrorAndRetriesAfterAMinute(t *testing.T) {
 	bEqual(t, "error", bOpt(run.row().Error), nil)
 	bEqual(t, "armed", run.saved()[0].Armed, false)
 }
+
+// At a launch of Conn, a round whose session is not live yet may be one the launch resumes: it
+// is not gone, and not asked, until the launch has settled and the session has had the time to
+// appear.
+func TestBARoundIsNotGoneWhileTheLaunchResumesIt(t *testing.T) {
+	t.Parallel()
+
+	run := bRound(t, bRoundOpts{})
+	run.world.Change(func(w *World) { w.Resuming = true })
+	run.poll(0)
+	bEqual(t, "while resuming", run.asks(), []Ask{})
+	run.world.Change(func(w *World) {
+		w.Resuming = false
+		w.SettledAt = w.Now
+	})
+	run.poll(4 * bMin)
+	bEqual(t, "within the time to appear", run.asks(), []Ask{})
+	run.poll(bMin)
+	bEqual(t, "after it", run.asks(), bAsked())
+}

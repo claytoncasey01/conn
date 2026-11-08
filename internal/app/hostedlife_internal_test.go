@@ -194,6 +194,7 @@ func TestTheQuitsRecordStaysAsItWasAtTheQuit(t *testing.T) {
 
 	life := hostedLife{
 		recorder: recorder, checks: nil, resumed: nil, bump: none, ticked: nil, tickTimeout: 0,
+		settle: newResumeSettle(),
 	}
 
 	quit(quitStepsOf(life, none, none, stop, none))
@@ -333,6 +334,7 @@ func TestResumeRecordedMovesTheSnapshotsVersion(t *testing.T) {
 	life := hostedLife{
 		recorder: openedRecorder(t), checks: resumeChecks(), resumed: newResumedSessions(host),
 		bump: func() { bumps++ }, ticked: tickedChannel, tickTimeout: time.Hour,
+		settle: newResumeSettle(),
 	}
 
 	resumeRecorded(t.Context(), life, host, launchResume{
@@ -366,6 +368,7 @@ func TestResumeRecordedWaitsForTheSessionList(t *testing.T) {
 	life := hostedLife{
 		recorder: openedRecorder(t), checks: checks, resumed: newResumedSessions(host),
 		bump: func() {}, ticked: make(chan struct{}), tickTimeout: time.Nanosecond,
+		settle: newResumeSettle(),
 	}
 
 	resumeRecorded(t.Context(), life, host, launchResume{
@@ -406,5 +409,55 @@ func TestResumeAtLaunchCarriesTheRecordsBeforeItStarts(t *testing.T) {
 
 	if !slices.Equal(order, []string{"carry", "start"}) {
 		t.Errorf("ran %q, want the records carried before the start", order)
+	}
+}
+
+// Reviews and My PRs judge no session gone until the launch has settled: resumeRecorded settles
+// it once the resume is done, and not before.
+func TestResumeRecordedSettlesTheLaunchWhenTheResumeIsDone(t *testing.T) {
+	t.Parallel()
+
+	settle := newResumeSettle()
+
+	var settledAtCheck bool
+
+	checked := 0
+	checks := hosted.Checks{
+		hosted.OwnerReviews: func(ctx context.Context, record hosted.Record) (pty.Spec, bool) {
+			checked++
+			_, settledAtCheck = settle.settled()
+
+			return resumeChecks()[hosted.OwnerReviews](ctx, record)
+		},
+	}
+	tickedChannel := make(chan struct{})
+	close(tickedChannel)
+
+	host := pty.NewHost(pty.Config{
+		Spawner: func(pty.Spec) (pty.Process, error) { return nil, errNeverSpawns },
+		Limits:  pty.DefaultLimits(), Answers: pty.Answers{}, TurnWaited: nil,
+	})
+	life := hostedLife{
+		recorder: openedRecorder(t), checks: checks, resumed: newResumedSessions(host),
+		bump: func() {}, ticked: tickedChannel, tickTimeout: time.Hour, settle: settle,
+	}
+
+	resumeRecorded(t.Context(), life, host, launchResume{
+		sessions: settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true},
+		records:  []hosted.Record{resumeRecord()}, readErr: nil, checks: nil, start: nil,
+		carry: nil, ready: nil, stderr: &bytes.Buffer{},
+	})
+
+	// The session list has ticked: the check runs.
+	if checked != 1 {
+		t.Fatalf("ran %d checks, want the record's", checked)
+	}
+
+	if settledAtCheck {
+		t.Error("the launch was settled while it still resumed")
+	}
+
+	if _, settled := settle.settled(); !settled {
+		t.Error("the launch is not settled after the resume")
 	}
 }

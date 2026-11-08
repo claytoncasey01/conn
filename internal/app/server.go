@@ -229,6 +229,7 @@ func resumeRecorded(ctx context.Context, life hostedLife, host *pty.Host, plan l
 	life.resumed.set(outcome.Resumed)
 	life.bump()
 	life.recorder.Sync()
+	life.settle.finish(nowMs())
 
 	go life.recorder.Run(ctx)
 }
