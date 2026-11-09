@@ -251,7 +251,8 @@ static void openSettings(Reply reply) {
 }
 
 // A click shows the window and opens the notification's href in the page. completionHandler is
-// called on every path.
+// called on every path. The notification center does not promise which thread it calls this on,
+// and WebKit must be used on the main thread, so the page is told from there.
 - (void)userNotificationCenter:(UNUserNotificationCenter *)center
 	didReceiveNotificationResponse:(UNNotificationResponse *)response
 	withCompletionHandler:(void (^)(void))completionHandler {
@@ -263,12 +264,18 @@ static void openSettings(Reply reply) {
 	connNotificationClicked(notifyHandle);
 
 	NSString *href = stringField(response.notification.request.content.userInfo, hrefKey);
-	if (href != nil && notifyWebView != nil) {
-		[notifyWebView callAsyncJavaScript:clickScript
-			arguments:@{hrefKey : href}
-			inFrame:nil
-			inContentWorld:WKContentWorld.pageWorld
-			completionHandler:nil];
+	if (href != nil) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			if (notifyWebView == nil) {
+				return;
+			}
+
+			[notifyWebView callAsyncJavaScript:clickScript
+				arguments:@{hrefKey : href}
+				inFrame:nil
+				inContentWorld:WKContentWorld.pageWorld
+				completionHandler:nil];
+		});
 	}
 
 	completionHandler();
