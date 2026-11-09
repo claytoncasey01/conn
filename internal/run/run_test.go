@@ -48,7 +48,7 @@ func TestHowARunEnds(t *testing.T) {
 		},
 		{
 			name: "output cap", program: "sh", args: []string{"-c", "yes | head -c 5000"},
-			opts: run.Opts{OutputBytesMax: 100},
+			opts: run.Opts{MaxOutputBytes: 100},
 			want: run.Result{
 				Stdout: strings.Repeat("y\n", 50), Code: -1, Killed: true, Signal: "SIGTERM",
 				Overflowed: "stdout",
@@ -59,7 +59,7 @@ func TestHowARunEnds(t *testing.T) {
 			// The program exits 0 by itself before the stop signal can land: still a failure.
 			name: "output cap then a clean exit", program: "sh",
 			args: []string{"-c", "head -c 5000 /dev/zero | tr '\\0' z; exit 0"},
-			opts: run.Opts{OutputBytesMax: 100},
+			opts: run.Opts{MaxOutputBytes: 100},
 			want: run.Result{
 				Stdout: strings.Repeat("z", 100), Code: -1, Killed: true, Signal: "SIGTERM",
 				Overflowed: "stdout",
@@ -68,7 +68,7 @@ func TestHowARunEnds(t *testing.T) {
 		},
 		{
 			name: "error output cap", program: "sh", args: []string{"-c", "yes >&2"},
-			opts: run.Opts{OutputBytesMax: 10},
+			opts: run.Opts{MaxOutputBytes: 10},
 			want: run.Result{
 				Stderr: strings.Repeat("y\n", 5), Code: -1, Killed: true, Signal: "SIGTERM",
 				Overflowed: "stderr",

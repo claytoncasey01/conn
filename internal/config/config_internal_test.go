@@ -57,8 +57,8 @@ func TestDataDirDefault(t *testing.T) {
 				t.Errorf("DataDir = %q, want %q", got.DataDir, tt.want)
 			}
 
-			if got.DataDirDefault != tt.want {
-				t.Errorf("DataDirDefault = %q, want %q", got.DataDirDefault, tt.want)
+			if got.DefaultDataDir != tt.want {
+				t.Errorf("DataDirDefault = %q, want %q", got.DefaultDataDir, tt.want)
 			}
 		})
 	}
@@ -72,8 +72,8 @@ func TestConnDataOverridesTheDefault(t *testing.T) {
 		t.Errorf("DataDir = %q, want /scratch", got.DataDir)
 	}
 
-	if got.DataDirDefault != "/home/jane/.config/conn" {
-		t.Errorf("DataDirDefault = %q, want the default folder", got.DataDirDefault)
+	if got.DefaultDataDir != "/home/jane/.config/conn" {
+		t.Errorf("DataDirDefault = %q, want the default folder", got.DefaultDataDir)
 	}
 }
 
@@ -90,7 +90,7 @@ func TestDefaults(t *testing.T) {
 		{"themes", got.ThemesUser, "/home/jane/.config/conn/themes"},
 		{"transcripts", got.TranscriptsRoot, "/home/jane/.claude/projects"},
 		{"summary model", got.SummaryModel, Haiku},
-		{"theme index", got.ThemeIndex, themeIndexDefault},
+		{"theme index", got.ThemeIndex, defaultThemeIndex},
 		{"review poll", got.ReviewPoll, 180 * time.Second},
 		{"first window", got.ReviewFirstWindowDays, 2},
 		{"scan model", got.ReviewScanModel, Haiku},
@@ -98,7 +98,7 @@ func TestDefaults(t *testing.T) {
 		{"scan timeout", got.ReviewScanTimeout, 90 * time.Second},
 		{"dm scan", got.ReviewDMScanInterval, 600 * time.Second},
 		{"close after", got.ReviewCloseAfter, 10 * time.Minute},
-		{"close after max", got.ReviewCloseAfterMax, 60 * time.Minute},
+		{"close after max", got.MaxReviewCloseAfter, 60 * time.Minute},
 		{"greptile bot", got.GreptileBot, "greptile-apps"},
 		{"finding bots", strings.Join(got.FindingBots, ","), "greptile-apps,devin-ai-integration"},
 		{"heads", strings.Join(got.ProtectedHeads, ","), "main,master,develop,staging,release/*"},
@@ -230,10 +230,10 @@ func TestLists(t *testing.T) {
 		want  []string
 	}{
 		{"bots", parseBots, " a , b,,c ", []string{"a", "b", "c"}},
-		{"bots unset", parseBots, "", findingBotsDefault()},
-		{"bots blank", parseBots, " , ", findingBotsDefault()},
-		{"heads unset", parseHeads, "", protectedHeadsDefault()},
-		{"heads blank", parseHeads, " , ", protectedHeadsDefault()},
+		{"bots unset", parseBots, "", defaultFindingBots()},
+		{"bots blank", parseBots, " , ", defaultFindingBots()},
+		{"heads unset", parseHeads, "", defaultProtectedHeads()},
+		{"heads blank", parseHeads, " , ", defaultProtectedHeads()},
 		{"heads", parseHeads, " trunk , hotfix/* ,,", []string{"trunk", "hotfix/*"}},
 	}
 	for _, tt := range tests {
@@ -291,23 +291,23 @@ func TestThemeIndex(t *testing.T) {
 		{"disabled", ""},
 		{"Disabled", ""},
 		{"\tdisabled\n", ""},
-		{"", themeIndexDefault},
-		{"   ", themeIndexDefault},
+		{"", defaultThemeIndex},
+		{"   ", defaultThemeIndex},
 		{"me/mine", "me/mine"},
 		{" me/my.repo_1 ", "me/my.repo_1"},
 		{"none/no", "none/no"},
 		{"0/false", "0/false"},
 		// Only the whole value counts: these are not off-values, so they give the default.
-		{"nonsense", themeIndexDefault},
-		{"a/b/c", themeIndexDefault},
-		{"../x", themeIndexDefault},
-		{"me/..", themeIndexDefault},
-		{"offline", themeIndexDefault},
-		{"nope", themeIndexDefault},
-		{"00", themeIndexDefault},
-		{"on", themeIndexDefault},
-		{"true", themeIndexDefault},
-		{"1", themeIndexDefault},
+		{"nonsense", defaultThemeIndex},
+		{"a/b/c", defaultThemeIndex},
+		{"../x", defaultThemeIndex},
+		{"me/..", defaultThemeIndex},
+		{"offline", defaultThemeIndex},
+		{"nope", defaultThemeIndex},
+		{"00", defaultThemeIndex},
+		{"on", defaultThemeIndex},
+		{"true", defaultThemeIndex},
+		{"1", defaultThemeIndex},
 	}
 	for _, tt := range tests {
 		t.Run(strconv.Quote(tt.raw), func(t *testing.T) {

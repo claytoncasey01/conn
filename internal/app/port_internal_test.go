@@ -16,8 +16,8 @@ func TestPortFromEnvironment(t *testing.T) {
 		want    int
 		wantErr error
 	}{
-		{"", false, portDefault, nil},
-		{"  ", true, portDefault, nil},
+		{"", false, defaultPort, nil},
+		{"  ", true, defaultPort, nil},
 		{"8123", true, 8123, nil},
 		{" 8123 ", true, 8123, nil},
 		{"0", true, 0, nil},

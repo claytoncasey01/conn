@@ -18,11 +18,11 @@ const (
 	// request, or two when it finds a newer release.
 	checkTimeout = 5 * time.Second
 
-	// locationBytesMax is the longest Location header read. A real one is about 60 bytes.
-	locationBytesMax = 512
+	// maxLocationBytes is the longest Location header read. A real one is about 60 bytes.
+	maxLocationBytes = 512
 
-	// tagBytesMax is the longest release tag accepted, so a tag is short enough to show.
-	tagBytesMax = 64
+	// maxTagBytes is the longest release tag accepted, so a tag is short enough to show.
+	maxTagBytes = 64
 
 	// dialTimeout bounds connecting to the server.
 	dialTimeout = 3 * time.Second
@@ -45,14 +45,14 @@ const (
 	// expectContinueTimeout is zero because the request has no body to wait to send.
 	expectContinueTimeout = 0
 
-	// connectionsMax is the most connections open at once, in total and per host: the check
+	// maxConnections is the most connections open at once, in total and per host: the check
 	// makes one request at a time. For idle connections it is the smallest limit the transport
 	// takes, as zero would mean no limit.
-	connectionsMax = 1
+	maxConnections = 1
 
-	// headerBytesMax bounds all the response headers together. GitHub's security headers take a
+	// maxHeaderBytes bounds all the response headers together. GitHub's security headers take a
 	// few kilobytes, so this leaves room and still stops a flood.
-	headerBytesMax = 64 << 10
+	maxHeaderBytes = 64 << 10
 
 	// clientName is the only thing the request says about the sender.
 	clientName = "conn-app"
@@ -108,10 +108,10 @@ func NewClient() *http.Client {
 		ResponseHeaderTimeout:  responseHeaderTimeout,
 		ExpectContinueTimeout:  expectContinueTimeout,
 		IdleConnTimeout:        idleConnectionTimeout,
-		MaxIdleConns:           connectionsMax,
-		MaxIdleConnsPerHost:    connectionsMax,
-		MaxConnsPerHost:        connectionsMax,
-		MaxResponseHeaderBytes: headerBytesMax,
+		MaxIdleConns:           maxConnections,
+		MaxIdleConnsPerHost:    maxConnections,
+		MaxConnsPerHost:        maxConnections,
+		MaxResponseHeaderBytes: maxHeaderBytes,
 		DisableKeepAlives:      true,
 		ForceAttemptHTTP2:      true,
 	}
@@ -169,7 +169,7 @@ func AppAttached(ctx context.Context, client *http.Client, base, tag string) (bo
 		return false, err
 	}
 
-	if len(tag) > tagBytesMax {
+	if len(tag) > maxTagBytes {
 		return false, fmt.Errorf("asking whether the release has its app: %w", errTagTooLong)
 	}
 
@@ -307,7 +307,7 @@ func tagFrom(location string, request *url.URL, basePath string) (string, error)
 		return "", fmt.Errorf("no location: %w", errBadLocation)
 	}
 
-	if len(location) > locationBytesMax {
+	if len(location) > maxLocationBytes {
 		return "", fmt.Errorf("location too long: %w", errBadLocation)
 	}
 
@@ -350,7 +350,7 @@ func tagIn(path, basePath string) (string, error) {
 		return "", fmt.Errorf("location is not a tag of this repository: %w", errBadLocation)
 	}
 
-	if len(tag) > tagBytesMax {
+	if len(tag) > maxTagBytes {
 		return "", fmt.Errorf("tag too long: %w", errBadLocation)
 	}
 

@@ -14,16 +14,16 @@ import (
 const (
 	// gitEveryMs is how often a building run's commits and changed files are counted.
 	gitEveryMs = 5000
-	// gitLegsAtOnceMax is how many legs of a run are counted at once, two git calls each.
-	gitLegsAtOnceMax = 3
+	// maxGitLegsAtOnce is how many legs of a run are counted at once, two git calls each.
+	maxGitLegsAtOnce = 3
 	// pollDryMs, pollPendingMs and pollMs are how often a run's PR is read: the dry run's, one
 	// whose checks are running, and the rest.
 	pollDryMs     = 4000
 	pollPendingMs = 30_000
 	pollMs        = 60_000
 	pollTimeout   = 30 * time.Second
-	// pollErrorUnitsMax is how much of a poll's error the log keeps.
-	pollErrorUnitsMax = 200
+	// maxPollErrorUnits is how much of a poll's error the log keeps.
+	maxPollErrorUnits = 200
 	checksPending     = "pending"
 	checksFailing     = "failing"
 	checksPassing     = "passing"
@@ -184,7 +184,7 @@ func (w *Work) gitDue(record *Record) []*Leg {
 	return due
 }
 
-// followGit counts the legs' commits and changed files, gitLegsAtOnceMax legs at a time; a leg
+// followGit counts the legs' commits and changed files, maxGitLegsAtOnce legs at a time; a leg
 // whose git fails keeps its counts.
 func (w *Work) followGit(record *Record, legs []*Leg) {
 	slots := make([]bool, 0, len(legs))
@@ -196,7 +196,7 @@ func (w *Work) followGit(record *Record, legs []*Leg) {
 		counts := make([]legCount, len(legs))
 
 		step.outside(func() {
-			turns := make(chan struct{}, gitLegsAtOnceMax)
+			turns := make(chan struct{}, maxGitLegsAtOnce)
 			calls := sync.WaitGroup{}
 
 			for index, leg := range legs {
@@ -363,7 +363,7 @@ func (w *Work) pollFailed(record *Record, leg *Leg, number float64, err error) {
 		message = "failed"
 	}
 
-	why := js.Cut(strings.Split(message, "\n")[0], pollErrorUnitsMax)
+	why := js.Cut(strings.Split(message, "\n")[0], maxPollErrorUnits)
 
 	polled := legKey(record.Key, leg.Repo)
 	if said, found := w.pollError[polled]; found {

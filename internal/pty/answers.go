@@ -4,7 +4,7 @@ import "fmt"
 
 // Who answers a program's terminal queries: the host, never the page. A session runs with no
 // viewer at all (started by Conn, or resumed at launch), so only the host is always there; up to
-// viewersMax viewers would each answer the same query; and a viewer that joins late replays the
+// maxViewers viewers would each answer the same query; and a viewer that joins late replays the
 // scrollback, whose old queries a page's terminal would answer again, typing stale replies into
 // the program's input. So the host answers each query once, as the output is read, and the
 // page's terminal answers nothing.
@@ -20,12 +20,12 @@ import "fmt"
 // by where it puts the cursor, which can spell a key: ESC [ 1 ; 5 R is Ctrl+F3.
 
 const (
-	// queriesPendingMax bounds the queries a screen keeps between two Queries calls: the host
+	// maxQueriesPending bounds the queries a screen keeps between two Queries calls: the host
 	// takes them after every chunk of output, so more in one chunk are dropped.
-	queriesPendingMax = 8
-	// answersQueuedMax bounds the answers waiting to be typed into one session; more are
+	maxQueriesPending = 8
+	// maxAnswersQueued bounds the answers waiting to be typed into one session; more are
 	// dropped, so a program that floods queries and reads no input never holds up its reader.
-	answersQueuedMax = 8
+	maxAnswersQueued = 8
 	// deviceAttributesReply says VT220 with ANSI colour, and nothing else: no sixel graphics, no
 	// other extension a program would then use.
 	deviceAttributesReply = "\x1b[?62;22c"
@@ -148,9 +148,9 @@ func (s *Screen) oscDispatch() {
 	}
 }
 
-// note keeps a query of kind, unless queriesPendingMax are already waiting.
+// note keeps a query of kind, unless maxQueriesPending are already waiting.
 func (s *Screen) note(kind QueryKind) {
-	if len(s.queries) == queriesPendingMax {
+	if len(s.queries) == maxQueriesPending {
 		return
 	}
 

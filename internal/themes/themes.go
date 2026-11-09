@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	// shownUnitsMax is how much of a folder name an entry or a message quotes.
-	shownUnitsMax = 40
+	// maxShownUnits is how much of a folder name an entry or a message quotes.
+	maxShownUnits = 40
 
 	defaultID = "default"
 	limitID   = "_limit"
@@ -62,11 +62,11 @@ func (e Entry) MarshalJSON() ([]byte, error) {
 type clip string
 
 func (c clip) MarshalJSON() ([]byte, error) {
-	return []byte(js.QuoteClip(string(c), shownUnitsMax)), nil
+	return []byte(js.QuoteClip(string(c), maxShownUnits)), nil
 }
 
 // show quotes a name for a message, clipped.
-func show(name string) string { return js.QuoteClip(name, shownUnitsMax) }
+func show(name string) string { return js.QuoteClip(name, maxShownUnits) }
 
 // Base is what every theme is judged against: the built-in ids a user folder may not reuse, and
 // Default, which every theme's missing slots read from.
@@ -101,7 +101,7 @@ func BaseOf(builtin Shelf) Base {
 		Fonts: []string{}, Tokens: []theme.ModeTokens{}, Effects: []theme.Effect{},
 	}
 
-	data, why := builtin.Read(defaultID, ManifestFile, theme.ManifestBytesMax)
+	data, why := builtin.Read(defaultID, ManifestFile, theme.MaxManifestBytes)
 	if why == Read {
 		context := theme.Context{Source: theme.SourceBuiltin, BuiltinIDs: ids}
 
@@ -137,7 +137,7 @@ func New(builtin, user Shelf, logger *log.Logger) *Library {
 }
 
 // List is the built-in themes, then the user's, each sorted by id. A user folder past
-// theme.UserThemesMax is left out, and one entry says how many were.
+// theme.MaxUserThemes is left out, and one entry says how many were.
 func (l *Library) List() []Entry {
 	base := BaseOf(l.builtin)
 	entries := []Entry{}
@@ -166,7 +166,7 @@ func (l *Library) List() []Entry {
 
 		entries = append(entries, Entry{
 			ID: limitID, Source: theme.SourceUser,
-			Invalid: "limit of " + strconv.Itoa(theme.UserThemesMax) + " user themes reached, " +
+			Invalid: "limit of " + strconv.Itoa(theme.MaxUserThemes) + " user themes reached, " +
 				strconv.Itoa(dropped) + " folder" + plural + " not listed",
 		})
 	}
@@ -180,11 +180,11 @@ func UserFolderCount(user Shelf) int { return len(user.Folders()) }
 
 func userFolders(user Shelf) ([]Folder, int) {
 	folders := user.Folders()
-	if len(folders) <= theme.UserThemesMax {
+	if len(folders) <= theme.MaxUserThemes {
 		return folders, 0
 	}
 
-	return folders[:theme.UserThemesMax], len(folders) - theme.UserThemesMax
+	return folders[:theme.MaxUserThemes], len(folders) - theme.MaxUserThemes
 }
 
 // CSS is a valid theme's own stylesheet: a built-in's, or a user folder's without a
@@ -331,7 +331,7 @@ func (l *Library) judge(shelf Shelf, name string, source theme.Source, base Base
 }
 
 func judgeFiles(shelf Shelf, name string, kind theme.Source, gallery bool, base Base) loaded {
-	data, why := shelf.Read(name, ManifestFile, theme.ManifestBytesMax)
+	data, why := shelf.Read(name, ManifestFile, theme.MaxManifestBytes)
 	if why != Read {
 		return invalid(name, kind, manifestProblem(why))
 	}
@@ -353,7 +353,7 @@ func judgeFiles(shelf Shelf, name string, kind theme.Source, gallery bool, base 
 		return loaded{entry: entry, css: ""}
 	}
 
-	style, why := shelf.Read(name, StyleFile, theme.CSSBytesMax)
+	style, why := shelf.Read(name, StyleFile, theme.MaxCSSBytes)
 
 	switch why {
 	case Read:
@@ -368,7 +368,7 @@ func judgeFiles(shelf Shelf, name string, kind theme.Source, gallery bool, base 
 	case Missing:
 		return loaded{entry: entry, css: ""}
 	case TooBig:
-		return invalid(name, kind, "theme.css is larger than "+kb(theme.CSSBytesMax))
+		return invalid(name, kind, "theme.css is larger than "+kb(theme.MaxCSSBytes))
 	case NotFile:
 		return invalid(name, kind, "theme.css is not a regular file, so it was not read")
 	case Unreadable:
@@ -382,7 +382,7 @@ func manifestProblem(why Why) string {
 	case Missing:
 		return "folder has no theme.json"
 	case TooBig:
-		return "theme.json is larger than " + kb(theme.ManifestBytesMax)
+		return "theme.json is larger than " + kb(theme.MaxManifestBytes)
 	case NotFile:
 		return "theme.json is not a regular file, so it was not read"
 	case Read, Unreadable:

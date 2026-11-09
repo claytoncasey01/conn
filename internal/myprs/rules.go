@@ -15,29 +15,29 @@ import (
 )
 
 const (
-	// RowThreadsMax is the most threads that go to the page for one PR (GitHub's page of
+	// MaxRowThreads is the most threads that go to the page for one PR (GitHub's page of
 	// threads is the same size).
-	RowThreadsMax = 100
-	// errorUnitsMax is where a stored error is cut when shown.
-	errorUnitsMax = 300
+	MaxRowThreads = 100
+	// maxErrorUnits is where a stored error is cut when shown.
+	maxErrorUnits = 300
 	// AskGapMs is the least time between two asks (a failed one included), and how long the
 	// session must have been quiet.
 	AskGapMs = 60_000
-	// AskTriesMax is the most Greptile asks per head, the first included. gh gives up on a
+	// MaxAskTries is the most Greptile asks per head, the first included. gh gives up on a
 	// comment after 30 s whether or not GitHub took it, so a try is never known to have failed:
 	// a later list that has a comment of mine made since the try (less AskSkewMs, for the
 	// clocks) counts as the ask, and once the tries are used nothing more is posted for that
 	// head.
-	AskTriesMax = 3
+	MaxAskTries = 3
 	// AskSkewMs is how far a comment's time may be off the try's, the two clocks apart.
 	AskSkewMs = 2 * 60_000
 	// DraftRetryMs is how soon a failed Slack draft is tried again for the same head (a new head
 	// is drafted at once).
 	DraftRetryMs = 15 * 60_000
-	// DraftTriesMax is the most attempts per head, the first included. A run can report a
+	// MaxDraftTries is the most attempts per head, the first included. A run can report a
 	// failure after the draft was in fact saved, so a retry may duplicate a draft: it is
 	// bounded, and the row keeps the text to copy once the attempts are used.
-	DraftTriesMax = 3
+	MaxDraftTries = 3
 )
 
 // RowProposal is a thread's proposed reply as the page shows it.
@@ -79,7 +79,7 @@ func RowThreads(pull *PR, proposals []*Proposal) []RowThread {
 
 	slices.SortStableFunc(open, compareThreads)
 
-	shown := open[:min(len(open), RowThreadsMax)]
+	shown := open[:min(len(open), MaxRowThreads)]
 	out := make([]RowThread, 0, len(shown))
 
 	for _, thread := range shown {
@@ -113,20 +113,20 @@ func rowThread(thread Thread, proposal *Proposal) RowThread {
 	var path *string
 
 	if thread.Path != nil {
-		cleaned := Clean(*thread.Path, TextUnitsMax)
+		cleaned := Clean(*thread.Path, MaxTextUnits)
 		path = &cleaned
 	}
 
 	row := RowThread{
-		ID: thread.ID, By: Clean(thread.By, TextUnitsMax), Path: path, Line: thread.Line,
-		Text: Clean(thread.Text, TextUnitsMax), Outdated: thread.Outdated, Proposal: nil,
+		ID: thread.ID, By: Clean(thread.By, MaxTextUnits), Path: path, Line: thread.Line,
+		Text: Clean(thread.Text, MaxTextUnits), Outdated: thread.Outdated, Proposal: nil,
 	}
 
 	if proposal != nil {
 		var why *string
 
 		if proposal.Error != nil {
-			cleaned := Clean(*proposal.Error, errorUnitsMax)
+			cleaned := Clean(*proposal.Error, maxErrorUnits)
 			why = &cleaned
 		}
 

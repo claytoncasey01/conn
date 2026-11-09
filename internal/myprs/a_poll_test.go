@@ -158,8 +158,8 @@ func TestASnapshotBeforeTheFirstPoll(t *testing.T) {
 		t.Errorf("refresh = %+v, want 0 0", view.Refresh)
 	}
 
-	if view.DraftMaxTries != myprs.DraftTriesMax {
-		t.Errorf("draftMaxTries = %d, want %d", view.DraftMaxTries, myprs.DraftTriesMax)
+	if view.DraftMaxTries != myprs.MaxDraftTries {
+		t.Errorf("draftMaxTries = %d, want %d", view.DraftMaxTries, myprs.MaxDraftTries)
 	}
 }
 

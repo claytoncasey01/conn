@@ -21,7 +21,7 @@ const (
 // Procs is `ps -A -o pid=,ppid=,comm=`: every process, its parent and its executable.
 func Procs() (string, error) {
 	result := run.Cmd(context.Background(), "ps", []string{"-A", "-o", "pid=,ppid=,comm="},
-		run.Opts{Dir: "", Timeout: procsTimeout, OutputBytesMax: procsBytes, Stdin: "", Env: nil})
+		run.Opts{Dir: "", Timeout: procsTimeout, MaxOutputBytes: procsBytes, Stdin: "", Env: nil})
 
 	return result.Stdout, result.Err
 }
@@ -36,7 +36,7 @@ func Env(pid float64) ([]string, error) {
 // PRView runs gh in a folder and gives what it printed.
 func PRView(ctx context.Context, cwd string, args []string) ([]byte, error) {
 	result := run.Cmd(ctx, "gh", args, run.Opts{
-		Dir: cwd, Timeout: 0, OutputBytesMax: prViewBytes, Stdin: "", Env: nil,
+		Dir: cwd, Timeout: 0, MaxOutputBytes: prViewBytes, Stdin: "", Env: nil,
 	})
 
 	return []byte(result.Stdout), result.Err
@@ -54,7 +54,7 @@ const (
 func Cmux(bin string) func(ctx context.Context, args []string) run.Result {
 	return func(ctx context.Context, args []string) run.Result {
 		return run.Cmd(ctx, bin, args, run.Opts{
-			Dir: "", Timeout: cmuxTimeout, OutputBytesMax: cmuxBytes, Stdin: "", Env: nil,
+			Dir: "", Timeout: cmuxTimeout, MaxOutputBytes: cmuxBytes, Stdin: "", Env: nil,
 		})
 	}
 }
@@ -62,7 +62,7 @@ func Cmux(bin string) func(ctx context.Context, args []string) run.Result {
 // Stat is `ps -o stat= -p <pid>`: the process's state letters.
 func Stat(ctx context.Context, pid float64) run.Result {
 	return run.Cmd(ctx, "ps", []string{"-o", "stat=", "-p", js.Number(pid)}, run.Opts{
-		Dir: "", Timeout: statTimeout, OutputBytesMax: cmuxBytes, Stdin: "", Env: nil,
+		Dir: "", Timeout: statTimeout, MaxOutputBytes: cmuxBytes, Stdin: "", Env: nil,
 	})
 }
 

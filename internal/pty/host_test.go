@@ -25,9 +25,9 @@ func TestDefaultLimitsAreTheDesignedOnes(t *testing.T) {
 	t.Parallel()
 
 	want := pty.Limits{
-		SessionsMax:        12,
-		ScrollbackBytesMax: 4 << 20,
-		ViewersMax:         4,
+		MaxSessions:        12,
+		MaxScrollbackBytes: 4 << 20,
+		MaxViewers:         4,
 		StopGrace:          5 * time.Second,
 	}
 
@@ -44,12 +44,12 @@ func TestNewHostPanicsOnLimitsOutOfRange(t *testing.T) {
 		name   string
 		change func(limits *pty.Limits)
 	}{
-		{"no sessions", func(limits *pty.Limits) { limits.SessionsMax = 0 }},
-		{"too many sessions", func(limits *pty.Limits) { limits.SessionsMax = 13 }},
-		{"no scrollback", func(limits *pty.Limits) { limits.ScrollbackBytesMax = 0 }},
-		{"too much scrollback", func(limits *pty.Limits) { limits.ScrollbackBytesMax = 4<<20 + 1 }},
-		{"no viewers", func(limits *pty.Limits) { limits.ViewersMax = 0 }},
-		{"too many viewers", func(limits *pty.Limits) { limits.ViewersMax = 5 }},
+		{"no sessions", func(limits *pty.Limits) { limits.MaxSessions = 0 }},
+		{"too many sessions", func(limits *pty.Limits) { limits.MaxSessions = 13 }},
+		{"no scrollback", func(limits *pty.Limits) { limits.MaxScrollbackBytes = 0 }},
+		{"too much scrollback", func(limits *pty.Limits) { limits.MaxScrollbackBytes = 4<<20 + 1 }},
+		{"no viewers", func(limits *pty.Limits) { limits.MaxViewers = 0 }},
+		{"too many viewers", func(limits *pty.Limits) { limits.MaxViewers = 5 }},
 		{"no grace", func(limits *pty.Limits) { limits.StopGrace = 0 }},
 		{"too long a grace", func(limits *pty.Limits) { limits.StopGrace = 6 * time.Second }},
 	}
@@ -91,7 +91,7 @@ func TestStartRefusesPastSessionsMax(t *testing.T) {
 
 	var first pty.ID
 
-	for index := range pty.DefaultLimits().SessionsMax {
+	for index := range pty.DefaultLimits().MaxSessions {
 		sessionID, err := host.Start(t.Context(), testSpec(t))
 		if err != nil {
 			t.Fatalf("start %d: %v", index, err)
@@ -121,7 +121,7 @@ func TestStartReleasesTheSlotWhenTheSpawnerFails(t *testing.T) {
 
 	spawner := &fakes{err: errSpawnFailed}
 	limits := pty.DefaultLimits()
-	limits.SessionsMax = 1
+	limits.MaxSessions = 1
 	host := pty.NewHost(pty.Config{Spawner: spawner.spawn, Limits: limits})
 
 	for range 3 {
@@ -342,8 +342,8 @@ func TestScrollbackKeepsTheNewestBytes(t *testing.T) {
 
 	var everything []byte
 
-	scrollbackBytesMax := pty.DefaultLimits().ScrollbackBytesMax
-	for index := 0; len(everything) < scrollbackBytesMax+scrollbackBytesMax/4; index++ {
+	maxScrollbackBytes := pty.DefaultLimits().MaxScrollbackBytes
+	for index := 0; len(everything) < maxScrollbackBytes+maxScrollbackBytes/4; index++ {
 		chunk := bytes.Repeat([]byte{byte(index)}, pty.ReadBufferBytes-index%7)
 		everything = append(everything, chunk...)
 		process.feed(t, chunk)
@@ -358,7 +358,7 @@ func TestScrollbackKeepsTheNewestBytes(t *testing.T) {
 	}
 	defer viewer.Close()
 
-	want := everything[len(everything)-scrollbackBytesMax:]
+	want := everything[len(everything)-maxScrollbackBytes:]
 	if !bytes.Equal(viewer.Replay, want) {
 		t.Fatalf("replay holds %d bytes, want the newest %d", len(viewer.Replay), len(want))
 	}
@@ -439,7 +439,7 @@ func TestASlowViewerIsDroppedAndTheReaderGoesOn(t *testing.T) {
 
 	// Twice the queue, in the largest chunks a read makes.
 	chunk := bytes.Repeat([]byte{'x'}, pty.ReadBufferBytes)
-	total := 2 * pty.ViewerQueueBytesMax
+	total := 2 * pty.MaxViewerQueueBytes
 
 	for sent := 0; sent < total; sent += len(chunk) {
 		process.feed(t, chunk)
@@ -451,9 +451,9 @@ func TestASlowViewerIsDroppedAndTheReaderGoesOn(t *testing.T) {
 	}
 
 	queued := drainUntilClosed(t, slow.Output)
-	if len(queued) > pty.ViewerQueueBytesMax {
+	if len(queued) > pty.MaxViewerQueueBytes {
 		t.Fatalf("the slow viewer was handed %d bytes, more than its queue of %d",
-			len(queued), pty.ViewerQueueBytesMax)
+			len(queued), pty.MaxViewerQueueBytes)
 	}
 
 	entry, _ := info(t, host, sessionID)
@@ -520,9 +520,9 @@ func TestSubscribeRefusesPastViewersMax(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	viewers := make([]pty.Viewer, 0, pty.DefaultLimits().ViewersMax)
+	viewers := make([]pty.Viewer, 0, pty.DefaultLimits().MaxViewers)
 
-	for range pty.DefaultLimits().ViewersMax {
+	for range pty.DefaultLimits().MaxViewers {
 		viewer, err := host.Subscribe(sessionID)
 		if err != nil {
 			t.Fatal(err)
@@ -634,8 +634,8 @@ func TestWritesToASessionTakeTurns(t *testing.T) {
 	}
 
 	waited := time.Since(began)
-	if waited > pty.WriteWaitMax+testGrace {
-		t.Fatalf("the Write waited %v, more than %v", waited, pty.WriteWaitMax)
+	if waited > pty.MaxWriteWait+testGrace {
+		t.Fatalf("the Write waited %v, more than %v", waited, pty.MaxWriteWait)
 	}
 
 	close(spawner.writeGate)
@@ -679,7 +679,7 @@ func TestWriteRefusesMoreThanAFrame(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = host.Write(sessionID, make([]byte, pty.WriteBytesMax+1))
+	err = host.Write(sessionID, make([]byte, pty.MaxWriteBytes+1))
 	if !errors.Is(err, pty.ErrInputTooLarge) {
 		t.Fatalf("Write = %v, want ErrInputTooLarge", err)
 	}
@@ -721,8 +721,8 @@ func TestResizeRefusesSizesOutOfRange(t *testing.T) {
 	}{
 		{"no columns", 0, 24},
 		{"no rows", 80, 0},
-		{"too many columns", pty.ColumnsMax + 1, 24},
-		{"too many rows", 80, pty.RowsMax + 1},
+		{"too many columns", pty.MaxColumns + 1, 24},
+		{"too many rows", 80, pty.MaxRows + 1},
 	}
 
 	for _, tt := range tests {
@@ -847,9 +847,9 @@ func TestEndedSessionsAreBounded(t *testing.T) {
 
 	host, spawner := newFakeHost(t, pty.DefaultLimits())
 
-	ids := make([]pty.ID, 0, pty.EndedMax+3)
+	ids := make([]pty.ID, 0, pty.MaxEnded+3)
 
-	for range pty.EndedMax + 3 {
+	for range pty.MaxEnded + 3 {
 		sessionID, err := host.Start(t.Context(), testSpec(t))
 		if err != nil {
 			t.Fatal(err)
@@ -862,8 +862,8 @@ func TestEndedSessionsAreBounded(t *testing.T) {
 	}
 
 	live := host.Live()
-	if len(live) != pty.EndedMax {
-		t.Fatalf("Live holds %d ended sessions, want %d", len(live), pty.EndedMax)
+	if len(live) != pty.MaxEnded {
+		t.Fatalf("Live holds %d ended sessions, want %d", len(live), pty.MaxEnded)
 	}
 
 	_, found := info(t, host, ids[0])
@@ -894,10 +894,10 @@ func TestAReplayStartsWithTheModesTheProgramSet(t *testing.T) {
 	process.feed(t, []byte("\x1b[?2004h\x1b[?1h\x1b[?1003;1006h"))
 
 	// Enough plain output that the mode switches leave the scrollback.
-	scrollbackBytesMax := pty.DefaultLimits().ScrollbackBytesMax
+	maxScrollbackBytes := pty.DefaultLimits().MaxScrollbackBytes
 
 	var everything []byte
-	for len(everything) < scrollbackBytesMax+pty.ReadBufferBytes {
+	for len(everything) < maxScrollbackBytes+pty.ReadBufferBytes {
 		chunk := bytes.Repeat([]byte{'x'}, pty.ReadBufferBytes)
 		everything = append(everything, chunk...)
 		process.feed(t, chunk)
@@ -905,7 +905,7 @@ func TestAReplayStartsWithTheModesTheProgramSet(t *testing.T) {
 
 	const preamble = "\x1b[?1h\x1b[?2004h\x1b[?1003h\x1b[?1006h"
 
-	want := append([]byte(preamble), everything[len(everything)-scrollbackBytesMax:]...)
+	want := append([]byte(preamble), everything[len(everything)-maxScrollbackBytes:]...)
 
 	viewer := subscribeAfter(t, host, sessionID, want)
 	viewer.Close()
@@ -923,7 +923,7 @@ func TestAReplayStartsWithTheModesTheProgramSet(t *testing.T) {
 	defer ended.Close()
 
 	everything = append(everything, off...)
-	if !bytes.Equal(ended.Replay, everything[len(everything)-scrollbackBytesMax:]) {
+	if !bytes.Equal(ended.Replay, everything[len(everything)-maxScrollbackBytes:]) {
 		t.Fatalf("an ended session's replay holds more than the newest output, %d bytes",
 			len(ended.Replay))
 	}
@@ -965,16 +965,16 @@ func TestAReplayStartsOnTheAlternateScreenWhenItsSwitchHasLeft(t *testing.T) {
 	process := spawner.last(t)
 	process.feed(t, []byte("MAIN\r\n\x1b[?1049h"))
 
-	scrollbackBytesMax := pty.DefaultLimits().ScrollbackBytesMax
+	maxScrollbackBytes := pty.DefaultLimits().MaxScrollbackBytes
 
 	var everything []byte
-	for len(everything) < scrollbackBytesMax {
+	for len(everything) < maxScrollbackBytes {
 		chunk := bytes.Repeat([]byte{'v'}, pty.ReadBufferBytes)
 		everything = append(everything, chunk...)
 		process.feed(t, chunk)
 	}
 
-	want := append([]byte("\x1b[?1049h"), everything[len(everything)-scrollbackBytesMax:]...)
+	want := append([]byte("\x1b[?1049h"), everything[len(everything)-maxScrollbackBytes:]...)
 
 	viewer := subscribeAfter(t, host, sessionID, want)
 	viewer.Close()

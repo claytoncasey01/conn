@@ -14,13 +14,13 @@ import (
 )
 
 const (
-	// ticketsMax is how many tickets the sprint read collects; past this the list says it was
+	// maxTickets is how many tickets the sprint read collects; past this the list says it was
 	// cut.
-	ticketsMax = 100
+	maxTickets = 100
 	// pageTickets is how many tickets one search page asks for.
 	pageTickets = 10
-	// descUnitsMax is how much of a ticket's description is kept, in UTF-16 units.
-	descUnitsMax = 500
+	// maxDescUnits is how much of a ticket's description is kept, in UTF-16 units.
+	maxDescUnits = 500
 
 	sprintBudgetUSD    = 1.5
 	sprintTimeout      = 240 * time.Second
@@ -244,7 +244,7 @@ func sprintPrompt(site *Site, projects []string) string {
 		`"issuetype","priority","assignee","issuelinks"]. Nothing else: a larger result gets ` +
 		"saved to a file you cannot read, which is why pages are this small. If the result has " +
 		"a nextPageToken, fetch the next page the same way, up to " +
-		strconv.Itoa(ticketsMax/pageTickets) + " pages. Never use Bash or Read.\n" +
+		strconv.Itoa(maxTickets/pageTickets) + " pages. Never use Bash or Read.\n" +
 		"Return the tickets in the order Jira returns them (highest priority first). For each: " +
 		"key, title (the summary), type (issue type name), status (status name), statusCategory " +
 		"(the key of the status's category: new, indeterminate or done), priority (name), " +

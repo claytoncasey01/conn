@@ -31,14 +31,14 @@ func onlyFocusReports(data []byte) bool {
 	return len(data) > 0
 }
 
-// redrawsWaitedMax bounds how many redraws one WaitScreen looks at: well above what a program
+// maxRedrawsWaited bounds how many redraws one WaitScreen looks at: well above what a program
 // draws within any wait Conn makes (Claude Code's spinner redraws about ten times a second).
-const redrawsWaitedMax = 1 << 16
+const maxRedrawsWaited = 1 << 16
 
 // WaitScreen waits until the bottom count lines of the session's screen pass still, and returns
 // them. It looks again each time what the screen shows changes, so it returns as soon as the
 // program has drawn what was waited for. It ends with ctx's error when ctx ends first, with
-// ErrEnded when the session ends first, and with ErrScreenChanged after redrawsWaitedMax
+// ErrEnded when the session ends first, and with ErrScreenChanged after maxRedrawsWaited
 // redraws. ctx must have a deadline: a wait without one is a mistake in the code.
 func (h *Host) WaitScreen(
 	ctx context.Context, sessionID ID, count int, still func(lines []string) bool,
@@ -52,7 +52,7 @@ func (h *Host) WaitScreen(
 		return nil, err
 	}
 
-	for range redrawsWaitedMax {
+	for range maxRedrawsWaited {
 		held.screenMu.Lock()
 		lines := held.screen.Lines(count)
 		redrawn := held.redrawn
@@ -71,5 +71,5 @@ func (h *Host) WaitScreen(
 		}
 	}
 
-	return nil, fmt.Errorf("%w: %d redraws waited for", ErrScreenChanged, redrawsWaitedMax)
+	return nil, fmt.Errorf("%w: %d redraws waited for", ErrScreenChanged, maxRedrawsWaited)
 }

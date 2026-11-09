@@ -37,9 +37,9 @@ const (
 	prClosed     = "closed"
 	githubOff    = "GitHub is off. Enable it in Settings."
 	prBodyFile   = "pr-body.md"
-	// prBodyBytesMax bounds the PR body read from the session's file: GitHub takes 65,536
+	// maxPRBodyBytes bounds the PR body read from the session's file: GitHub takes 65,536
 	// characters.
-	prBodyBytesMax = 64 << 10
+	maxPRBodyBytes = 64 << 10
 )
 
 var (
@@ -203,7 +203,7 @@ func (w *Work) prBody(step *task, leg *Leg) (string, error) {
 
 // readPRBody is the text of a PR body file, and whether there is one: only a regular file, in a
 // .conn folder of the person's own, opened through that folder with no link followed at either
-// (reviews.OpenInOwnFolder), and at most prBodyBytesMax.
+// (reviews.OpenInOwnFolder), and at most maxPRBodyBytes.
 func readPRBody(path string) (string, bool, error) {
 	file, err := reviews.OpenInOwnFolder(filepath.Dir(path), filepath.Base(path))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -231,7 +231,7 @@ func readPRBody(path string) (string, bool, error) {
 			"OPEN PR again")
 	}
 
-	data, err := io.ReadAll(io.LimitReader(file, prBodyBytesMax+1))
+	data, err := io.ReadAll(io.LimitReader(file, maxPRBodyBytes+1))
 	if err != nil {
 		return "", false, nodeError{err: err}
 	}
@@ -246,13 +246,13 @@ func readPRBody(path string) (string, bool, error) {
 
 // checkPRBody refuses a session's body gh should not be given as it is, saying every reason at
 // once: larger than a pull request body holds, a NUL byte, or bytes that are not UTF-8 (each of
-// which would be sent changed). data is at most prBodyBytesMax plus one byte.
+// which would be sent changed). data is at most maxPRBodyBytes plus one byte.
 func checkPRBody(path string, data []byte) error {
 	reasons := []string{}
 
-	if len(data) > prBodyBytesMax {
+	if len(data) > maxPRBodyBytes {
 		reasons = append(reasons, fmt.Sprintf("is larger than %d bytes, more than a pull "+
-			"request body holds", prBodyBytesMax))
+			"request body holds", maxPRBodyBytes))
 	}
 
 	if bytes.IndexByte(data, 0) >= 0 {
@@ -279,23 +279,23 @@ const fallbackBodyEnd = "\n\n## How it was verified\n\n" +
 const fallbackBodyStart = "## What changed and why\n\n"
 
 // fallbackBody is the PR body made from the commit subjects (git log's output): UTF-8 with no
-// NUL byte, and within prBodyBytesMax, the subjects cut at a character to fit.
+// NUL byte, and within maxPRBodyBytes, the subjects cut at a character to fit.
 func fallbackBody(subjects string) string {
 	clean := strings.ReplaceAll(strings.ToValidUTF8(subjects, "\uFFFD"), "\x00", "")
-	room := prBodyBytesMax - len(fallbackBodyStart) - len(fallbackBodyEnd)
+	room := maxPRBodyBytes - len(fallbackBodyStart) - len(fallbackBodyEnd)
 
 	return fallbackBodyStart + cutAtCharacter(clean, room) + fallbackBodyEnd
 }
 
-// cutAtCharacter is text cut to at most bytesMax bytes, never inside a UTF-8 character. text is
+// cutAtCharacter is text cut to at most maxBytes bytes, never inside a UTF-8 character. text is
 // valid UTF-8.
-func cutAtCharacter(text string, bytesMax int) string {
-	if len(text) <= bytesMax {
+func cutAtCharacter(text string, maxBytes int) string {
+	if len(text) <= maxBytes {
 		return text
 	}
 
 	// A character is at most utf8.UTFMax bytes, so its start is at most that far back.
-	end := bytesMax
+	end := maxBytes
 	for range utf8.UTFMax {
 		if utf8.RuneStart(text[end]) {
 			break

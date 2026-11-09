@@ -110,8 +110,8 @@ func (w *Work) touch(record *Record) {
 // log adds a line to a run's log, keeping the last 200, and saves it.
 func (w *Work) log(record *Record, kind, text string) {
 	record.Log = append(record.Log, LogLine{At: w.now(), Kind: kind, Text: text})
-	if len(record.Log) > logLinesMax {
-		record.Log = append([]LogLine{}, record.Log[len(record.Log)-logLinesMax:]...)
+	if len(record.Log) > maxLogLines {
+		record.Log = append([]LogLine{}, record.Log[len(record.Log)-maxLogLines:]...)
 	}
 
 	w.touch(record)

@@ -18,15 +18,15 @@ func ServeWith(s *Server, next func(http.ResponseWriter, *http.Request, string))
 
 // The terminal route's limits a test goes up to or past.
 const (
-	InputFrameBytesMax = inputFrameBytesMax
-	FrameBytesMax      = frameBytesMax
+	MaxInputFrameBytes = maxInputFrameBytes
+	MaxFrameBytes      = maxFrameBytes
 	InputBytesBurst    = inputBytesBurst
 	InputFramesBurst   = inputFramesBurst
-	ConnectionsMax     = connectionsMax
+	MaxConnections     = maxConnections
 	// The bounds of fix round 1.
-	InputQueueFramesMax    = inputQueueFramesMax
+	MaxInputQueueFrames    = maxInputQueueFrames
 	InputResizesBurst      = inputResizesBurst
-	ReplayBytesInFlightMax = replayBytesInFlightMax
+	MaxReplayBytesInFlight = maxReplayBytesInFlight
 )
 
 // TerminalTimes are the terminal route's waits and its clock, which a test shortens or stops.

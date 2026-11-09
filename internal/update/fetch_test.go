@@ -606,7 +606,7 @@ func TestAppAttachedRefusesATagThatIsNotAVersion(t *testing.T) {
 		{"path", "v1.2.3/../../evil"},
 		{"query", "v1.2.3?x=1"},
 		{"not a version", "latest"},
-		{"too long", "v1.2.3-" + strings.Repeat("a", update.TagBytesMax)},
+		{"too long", "v1.2.3-" + strings.Repeat("a", update.MaxTagBytes)},
 	}
 
 	for _, tt := range tests {

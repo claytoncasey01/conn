@@ -14,7 +14,7 @@ export const KEY_PROTOCOL_PREFIX = 'conn.key.'
 /** A hosted session's id, as the host issues it: anything else is never put in a URL. */
 export const SESSION_ID = /^[0-9a-f]{32}$/
 
-/** The server's inputFrameBytesMax: the text one input frame may type. */
+/** The server's maxInputFrameBytes: the text one input frame may type. */
 export const INPUT_BYTES_MAX = 64 << 10
 /** The server's read limit: an input frame's text plus its JSON envelope. */
 export const FRAME_BYTES_MAX = INPUT_BYTES_MAX + 256

@@ -37,13 +37,13 @@ type Outcome struct {
 }
 
 // Resume starts again the sessions records name, each only as its owner's check rebuilds it:
-// at most RecordsMax records are looked at (and so at most RecordsMax sessions started), a
+// at most MaxRecords records are looked at (and so at most MaxRecords sessions started), a
 // record CheckRecord refuses or whose owner has no check or refuses it starts nothing, and two
 // records the owners rebuild into the same session, or that name the same Claude session, start
 // it once: two programs on one conversation would write over each other. It stops early when ctx
 // ends, and says which records it did not reach.
 func Resume(ctx context.Context, records []Record, checks Checks, start Start) Outcome {
-	considered := records[:min(len(records), RecordsMax())]
+	considered := records[:min(len(records), MaxRecords())]
 	outcome := Outcome{
 		Resumed: []Resumed{}, Skipped: len(records) - len(considered), Unreached: []Record{},
 	}

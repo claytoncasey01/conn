@@ -54,15 +54,15 @@ func TestSplashText(t *testing.T) {
 func TestNoticeCapsALongReason(t *testing.T) {
 	t.Parallel()
 
-	reason := strings.Repeat("é", 10*desk.ReasonRunesMax)
+	reason := strings.Repeat("é", 10*desk.MaxReasonRunes)
 
 	got := desk.Notice(reason)
 
 	want := "Conn could not read your shell's environment (" +
-		strings.Repeat("é", desk.ReasonRunesMax) + "…" +
+		strings.Repeat("é", desk.MaxReasonRunes) + "…" +
 		"), so it is using the app's own: claude, gh and git may not be found."
 	if got != want {
 		t.Errorf("Notice of %d runes = %q, want the reason cut to %d runes and …",
-			utf8.RuneCountInString(reason), got, desk.ReasonRunesMax)
+			utf8.RuneCountInString(reason), got, desk.MaxReasonRunes)
 	}
 }

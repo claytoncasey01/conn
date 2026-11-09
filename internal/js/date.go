@@ -7,8 +7,8 @@ import (
 	"unicode/utf16"
 )
 
-// timeMax is the largest time a JavaScript Date holds, in ms either side of the epoch.
-const timeMax = 8.64e15
+// maxTime is the largest time a JavaScript Date holds, in ms either side of the epoch.
+const maxTime = 8.64e15
 
 // The parts of a date-time string, as the ECMAScript format writes them.
 const (
@@ -16,13 +16,13 @@ const (
 	yearDigitsLong  = 6
 	fieldDigits     = 2
 	fractionDigits  = 3
-	monthMax        = 12
-	dayMax          = 31
-	hourMax         = 24
-	minuteMax       = 59
-	secondMax       = 59
+	maxMonth        = 12
+	maxDay          = 31
+	maxHour         = 24
+	maxMinute       = 59
+	maxSecond       = 59
 	msPerSecond     = 1000
-	offsetMinuteMax = 59
+	maxOffsetMinute = 59
 	minutesPerHour  = 60
 	digitBase       = 10
 )
@@ -210,7 +210,7 @@ func (r *dateReader) date() (dateParts, bool) {
 		return parts, true
 	}
 
-	parts.month, valid = r.field('-', 1, monthMax)
+	parts.month, valid = r.field('-', 1, maxMonth)
 	if !valid {
 		return parts, false
 	}
@@ -219,7 +219,7 @@ func (r *dateReader) date() (dateParts, bool) {
 		return parts, true
 	}
 
-	parts.day, valid = r.field('-', 1, dayMax)
+	parts.day, valid = r.field('-', 1, maxDay)
 
 	return parts, valid
 }
@@ -241,13 +241,13 @@ func (r *dateReader) clock(parts dateParts) (dateParts, bool, bool) {
 
 	parts.hour = hour
 
-	parts.minute, valid = r.field(':', 0, minuteMax)
+	parts.minute, valid = r.field(':', 0, maxMinute)
 	if !valid {
 		return parts, false, false
 	}
 
 	if r.peek() == ':' {
-		parts.second, valid = r.field(':', 0, secondMax)
+		parts.second, valid = r.field(':', 0, maxSecond)
 		if !valid {
 			return parts, false, false
 		}
@@ -264,11 +264,11 @@ func (r *dateReader) clock(parts dateParts) (dateParts, bool, bool) {
 
 // validHour allows 24 only as 24:00:00.000, the end of the day.
 func validHour(parts dateParts) bool {
-	if parts.hour < hourMax {
+	if parts.hour < maxHour {
 		return true
 	}
 
-	if parts.hour > hourMax {
+	if parts.hour > maxHour {
 		return false
 	}
 
@@ -337,11 +337,11 @@ func (r *dateReader) zone(parts dateParts) (dateParts, bool, bool) {
 		return parts, false, false
 	}
 
-	if hours >= hourMax {
+	if hours >= maxHour {
 		return parts, false, false
 	}
 
-	if minutes > offsetMinuteMax {
+	if minutes > maxOffsetMinute {
 		return parts, false, false
 	}
 
@@ -362,7 +362,7 @@ func utcMs(parts dateParts) float64 {
 }
 
 func inRange(ms float64) float64 {
-	if math.Abs(ms) > timeMax {
+	if math.Abs(ms) > maxTime {
 		return math.NaN()
 	}
 

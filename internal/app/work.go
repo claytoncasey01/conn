@@ -35,9 +35,9 @@ type workParts struct {
 	host *pty.Host
 }
 
-// cloneFoldersMax is the most folders the clone folder and ~/projects are read for when Open
+// maxCloneFolders is the most folders the clone folder and ~/projects are read for when Open
 // work looks for the repositories cloned on this machine.
-const cloneFoldersMax = 500
+const maxCloneFolders = 500
 
 // newWork is Open work over this machine: git and gh run without a shell, the Jira and
 // research helper runs, the sessions it opens, and the session list's last tick. It makes the
@@ -156,7 +156,7 @@ func seenWorkRepos(parts workParts, sessionRepos func() []string) func() []strin
 
 		parents = append(parents, filepath.Join(parts.cfg.Home, "projects"))
 
-		found := parts.reader.ClonesIn(parents, cloneFoldersMax)
+		found := parts.reader.ClonesIn(parents, maxCloneFolders)
 		found = append(found, sessionRepos()...)
 
 		if parts.myPrRepos != nil {

@@ -27,11 +27,11 @@ const (
 	// registry entry for a dry session. The host signals only through the Process, never by
 	// the number.
 	pidFirst = 1 << 30
-	// outputChunksMax bounds the output a dry session holds for the host's reader; more is
+	// maxOutputChunks bounds the output a dry session holds for the host's reader; more is
 	// dropped, so a write never waits for the reader.
-	outputChunksMax = 64
-	// lineBytesMax bounds the line a dry session keeps of what is typed; more is not echoed.
-	lineBytesMax = 4 << 10
+	maxOutputChunks = 64
+	// maxLineBytes bounds the line a dry session keeps of what is typed; more is not echoed.
+	maxLineBytes = 4 << 10
 	// terminatedCode and killedCode are the exit codes a stop leaves, as a signal would.
 	terminatedCode = 143
 	killedCode     = 137
@@ -91,7 +91,7 @@ type script struct {
 
 func newScript(pid int, name string) *script {
 	started := &script{
-		pid: pid, output: make(chan []byte, outputChunksMax), closed: make(chan struct{}),
+		pid: pid, output: make(chan []byte, maxOutputChunks), closed: make(chan struct{}),
 		exited: make(chan struct{}), closeOnce: sync.Once{}, exitOnce: sync.Once{},
 		mu: sync.Mutex{}, line: nil, escaping: false, exitCode: 0,
 	}
@@ -248,7 +248,7 @@ func (s *script) key(key byte) {
 		s.line = s.line[:0]
 	case key < printFirst:
 	default:
-		if len(s.line) < lineBytesMax {
+		if len(s.line) < maxLineBytes {
 			s.line = append(s.line, key)
 			s.say(string([]byte{key}))
 		}

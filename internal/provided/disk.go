@@ -18,8 +18,8 @@ const (
 	fileMode      = 0o600
 	scriptMode    = 0o700
 
-	// linksMax is the most entries of one Claude folder looked at for a stale link.
-	linksMax = 4096
+	// maxLinks is the most entries of one Claude folder looked at for a stale link.
+	maxLinks = 4096
 
 	scriptStart = "#!"
 	tempPrefix  = ".conn-tmp-"
@@ -128,7 +128,7 @@ func copyIsCurrent(layout Layout, item Item) (bool, error) {
 	return count == len(item.Files), nil
 }
 
-// countFiles is how many files are under root, at most filesPerSkillMax+1 of them looked at.
+// countFiles is how many files are under root, at most maxFilesPerSkill+1 of them looked at.
 func countFiles(root string) (int, error) {
 	count := 0
 
@@ -142,7 +142,7 @@ func countFiles(root string) (int, error) {
 		}
 
 		count++
-		if count > filesPerSkillMax {
+		if count > maxFilesPerSkill {
 			return fs.SkipAll
 		}
 
@@ -252,7 +252,7 @@ func RemoveLink(layout Layout, item Item) error {
 	return nil
 }
 
-// LinksIn are the links in Claude's folder for a kind: at most linksMax entries are looked at.
+// LinksIn are the links in Claude's folder for a kind: at most maxLinks entries are looked at.
 func LinksIn(layout Layout, kind Kind) ([]LinkEntry, error) {
 	folder := layout.LinksDir(kind)
 
@@ -268,7 +268,7 @@ func LinksIn(layout Layout, kind Kind) ([]LinkEntry, error) {
 	links := []LinkEntry{}
 
 	for index, entry := range entries {
-		if index == linksMax {
+		if index == maxLinks {
 			break
 		}
 

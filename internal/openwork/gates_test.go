@@ -59,7 +59,7 @@ func realSh(ctx context.Context, name string, args []string, dir string,
 	timeout time.Duration,
 ) (string, error) {
 	result := command.Cmd(ctx, name, args, command.Opts{
-		Dir: dir, Timeout: timeout, OutputBytesMax: 8 << 20, Stdin: "", Env: gitEnv(),
+		Dir: dir, Timeout: timeout, MaxOutputBytes: 8 << 20, Stdin: "", Env: gitEnv(),
 	})
 	if result.Err == nil {
 		return result.Stdout, nil

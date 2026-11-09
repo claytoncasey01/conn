@@ -33,7 +33,7 @@ const (
 
 // parameter is the index'th parameter, or fallback when it is absent or 0.
 func (s *Screen) parameter(index, fallback int) int {
-	if index >= min(s.parser.parameterCount, parametersMax) {
+	if index >= min(s.parser.parameterCount, maxParameters) {
 		return fallback
 	}
 
@@ -253,15 +253,15 @@ func (s *Screen) privateModes(final byte) {
 		return
 	}
 
-	for index := range min(s.parser.parameterCount, parametersMax) {
+	for index := range min(s.parser.parameterCount, maxParameters) {
 		s.privateMode(s.parser.parameters[index], set)
 	}
 
-	// The modes past parametersMax are not read, so whether the program turned a mode on or off
+	// The modes past maxParameters are not read, so whether the program turned a mode on or off
 	// among them is not known: every mode a viewer sends input by counts as off. A viewer's focus
 	// reports then count as input, and a paste with a line break is held back by the page, the
 	// safe sides.
-	if s.parser.parameterCount > parametersMax {
+	if s.parser.parameterCount > maxParameters {
 		s.resetInputModes()
 	}
 }
@@ -319,7 +319,7 @@ func (s *Screen) alternateWithCursor(set bool) {
 
 // graphicRendition reads SGR for concealment only.
 func (s *Screen) graphicRendition() {
-	count := min(s.parser.parameterCount, parametersMax)
+	count := min(s.parser.parameterCount, maxParameters)
 	if count == 0 {
 		s.cursor.concealed = false
 
@@ -340,7 +340,7 @@ func (s *Screen) graphicRendition() {
 
 // colourLength is how many parameters from index belong to an extended colour.
 func (s *Screen) colourLength(index int) int {
-	if index >= min(s.parser.parameterCount, parametersMax) {
+	if index >= min(s.parser.parameterCount, maxParameters) {
 		return 0
 	}
 

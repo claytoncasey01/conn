@@ -39,8 +39,8 @@ const feedRuns = 5
 // counts.
 const countRounds = 3
 
-// timeAttemptsMax bounds how many times the fastest feed is taken before it is out of budget.
-const timeAttemptsMax = 5
+// maxTimeAttempts bounds how many times the fastest feed is taken before it is out of budget.
+const maxTimeAttempts = 5
 
 // costUnit is a sequence repeated to fill a chunk: each is a way to make the model work hard.
 type costUnit struct {
@@ -105,7 +105,7 @@ func filledScreen(tb testing.TB) *pty.Screen {
 // TestFeedingAChunkCostsLittleAtFullSize is the package's one test: for every costly sequence,
 // feeding a chunk of it to the largest screen in its steady state (after one feed of it, not
 // counted) allocates nothing, and stays in the budget. The time is the fastest of feedRuns
-// feeds, taken again up to timeAttemptsMax times: a machine busy with other tests slows some
+// feeds, taken again up to maxTimeAttempts times: a machine busy with other tests slows some
 // attempts, but a feed that is too slow is slow in every one.
 func TestFeedingAChunkCostsLittleAtFullSize(t *testing.T) {
 	t.Parallel()
@@ -160,13 +160,13 @@ func allocationsFeeding(screen *pty.Screen, chunk []byte) uint64 {
 	return fewest
 }
 
-// fastestFeedWithin is fastestFeed, taken again, up to timeAttemptsMax times, until it is
+// fastestFeedWithin is fastestFeed, taken again, up to maxTimeAttempts times, until it is
 // within budget; the last one taken.
 func fastestFeedWithin(t *testing.T, chunk []byte, budget time.Duration) time.Duration {
 	t.Helper()
 
 	fastest := fastestFeed(t, chunk)
-	for range timeAttemptsMax - 1 {
+	for range maxTimeAttempts - 1 {
 		if fastest <= budget {
 			return fastest
 		}

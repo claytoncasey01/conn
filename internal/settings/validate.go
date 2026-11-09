@@ -19,8 +19,8 @@ const (
 	SectionReviews = "reviews"
 )
 
-// problemsShownMax is how many problems a refusal names before it counts the rest.
-const problemsShownMax = 5
+// maxProblemsShown is how many problems a refusal names before it counts the rest.
+const maxProblemsShown = 5
 
 // Checked is a section as a PUT sent it: the normalised value, or why it is refused.
 type Checked struct {
@@ -112,8 +112,8 @@ func validateRepos(object *js.Object, found *problems) (any, string) {
 		return nil, "repos.allow must be a list of patterns: choose at least one repository"
 	}
 
-	if len(list) > PatternsMax {
-		return nil, fmt.Sprintf("repos.allow holds %d patterns: at most %d", len(list), PatternsMax)
+	if len(list) > MaxPatterns {
+		return nil, fmt.Sprintf("repos.allow holds %d patterns: at most %d", len(list), MaxPatterns)
 	}
 
 	value := readRepos(object, true, found)
@@ -170,9 +170,9 @@ func objectAt(object *js.Object, key string) (*js.Object, bool) {
 
 // summary is the first few problems, and how many more there are.
 func summary(list []string) string {
-	text := strings.Join(list[:min(problemsShownMax, len(list))], "; ")
-	if len(list) > problemsShownMax {
-		text += fmt.Sprintf("; and %d more", len(list)-problemsShownMax)
+	text := strings.Join(list[:min(maxProblemsShown, len(list))], "; ")
+	if len(list) > maxProblemsShown {
+		text += fmt.Sprintf("; and %d more", len(list)-maxProblemsShown)
 	}
 
 	return text

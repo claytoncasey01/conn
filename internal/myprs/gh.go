@@ -25,8 +25,8 @@ const (
 	// read.
 	CommentsLast  = 50
 	CommentsFirst = 5
-	// titleUnitsMax is where a PR title is cut.
-	titleUnitsMax = 300
+	// maxTitleUnits is where a PR title is cut.
+	maxTitleUnits = 300
 )
 
 // searchText is the start of every search: the open PRs of one author.
@@ -96,7 +96,7 @@ type Thread struct {
 	Line *float64 `json:"line"`
 	// At is when the first comment was posted (ms).
 	At float64 `json:"at"`
-	// Text is the first comment, cleaned and cut to TextUnitsMax.
+	// Text is the first comment, cleaned and cut to MaxTextUnits.
 	Text string `json:"text"`
 }
 
@@ -107,7 +107,7 @@ type Review struct {
 	At  float64 `json:"at"`
 }
 
-// Comment is an issue comment; Body is cleaned and cut to TextUnitsMax.
+// Comment is an issue comment; Body is cleaned and cut to MaxTextUnits.
 type Comment struct {
 	By       string   `json:"by"`
 	At       float64  `json:"at"`
@@ -269,7 +269,7 @@ func parseThread(value any) *Thread {
 	return &Thread{
 		ID: threadID, Resolved: resolved, Outdated: outdated, By: loginOf(field(first, "author")),
 		Path: textOrNil(field(thread, "path")), Line: line, At: postedAt,
-		Text: Clean(body, TextUnitsMax),
+		Text: Clean(body, MaxTextUnits),
 	}
 }
 
@@ -312,7 +312,7 @@ func parseComment(value any) *Comment {
 
 	return &Comment{
 		By: loginOf(field(comment, "author")), At: madeAt, EditedAt: editedAt,
-		Body: Clean(body, TextUnitsMax),
+		Body: Clean(body, MaxTextUnits),
 	}
 }
 

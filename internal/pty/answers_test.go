@@ -225,11 +225,11 @@ func TestQueriesWaitingAreBounded(t *testing.T) {
 	t.Parallel()
 
 	screen := newScreen(t, 80, 24)
-	screen.Feed([]byte(strings.Repeat("\x1b[c", 10*pty.QueriesPendingMax)))
+	screen.Feed([]byte(strings.Repeat("\x1b[c", 10*pty.MaxQueriesPending)))
 
 	got := len(screen.Queries())
-	if got != pty.QueriesPendingMax {
-		t.Errorf("%d queries waiting, want %d", got, pty.QueriesPendingMax)
+	if got != pty.MaxQueriesPending {
+		t.Errorf("%d queries waiting, want %d", got, pty.MaxQueriesPending)
 	}
 }
 
@@ -286,7 +286,7 @@ func checkScreen(t *testing.T, screen *pty.Screen, size pty.Size, grammar *regex
 	checkLines(t, screen, size)
 
 	queries := screen.Queries()
-	if len(queries) > pty.QueriesPendingMax {
+	if len(queries) > pty.MaxQueriesPending {
 		t.Fatalf("%d queries waiting", len(queries))
 	}
 

@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	// shownUnitsMax is how much of a name from the disk a line quotes.
-	shownUnitsMax = 40
+	// maxShownUnits is how much of a name from the disk a line quotes.
+	maxShownUnits = 40
 	kibibyte      = 1024
 )
 
@@ -32,7 +32,7 @@ func quoted(name string) string {
 		return name
 	}
 
-	return js.QuoteClip(name, shownUnitsMax)
+	return js.QuoteClip(name, maxShownUnits)
 }
 
 func kb(size int) string { return strconv.Itoa(size/kibibyte) + " KB" }
@@ -86,7 +86,7 @@ func checkGalleryFolder(shelf themes.Shelf, name string, base themes.Base) check
 		return bad(extra...)
 	}
 
-	data, why := shelf.Read(name, themes.ManifestFile, theme.ManifestBytesMax)
+	data, why := shelf.Read(name, themes.ManifestFile, theme.MaxManifestBytes)
 	if why != themes.Read {
 		return bad(galleryManifestProblem(why))
 	}
@@ -152,7 +152,7 @@ func galleryManifestProblem(why themes.Why) string {
 	case themes.Missing:
 		return "theme.json is missing"
 	case themes.TooBig:
-		return "theme.json is larger than " + kb(theme.ManifestBytesMax)
+		return "theme.json is larger than " + kb(theme.MaxManifestBytes)
 	case themes.NotFile:
 		return "theme.json is not a regular file, so it was not read"
 	case themes.Read, themes.Unreadable:

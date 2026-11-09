@@ -22,9 +22,9 @@ import (
 	"unicode/utf8"
 )
 
-// depthMax bounds how deeply JSON may nest. Conn's files and request bodies nest a few levels;
+// maxDepth bounds how deeply JSON may nest. Conn's files and request bodies nest a few levels;
 // text nesting deeper is refused rather than followed.
-const depthMax = 512
+const maxDepth = 512
 
 // SpaceClass is JavaScript's \s as the inside of a Go regexp character class: Go's own \s is
 // ASCII only.
@@ -32,8 +32,8 @@ const SpaceClass = `\t\n\v\f\r \x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x
 	`\x{3000}\x{feff}`
 
 const (
-	// indexDigitsMax is how many digits the largest array index, 2^32 - 2, has.
-	indexDigitsMax = 10
+	// maxIndexDigits is how many digits the largest array index, 2^32 - 2, has.
+	maxIndexDigits = 10
 
 	// controlEnd is the first character JSON.stringify writes as it is.
 	controlEnd = 0x20
@@ -43,7 +43,7 @@ const (
 	surrogateLowFirst  = 0xdc00
 
 	// The fixed notation range of Number.prototype.toString; outside it, exponent notation.
-	fixedMin = 1e-6
+	minFixed = 1e-6
 	fixedEnd = 1e21
 
 	hexDigits = "0123456789abcdef"
@@ -190,7 +190,7 @@ func arrayIndex(key string) (uint64, bool) {
 		return 0, false
 	}
 
-	if len(key) > indexDigitsMax {
+	if len(key) > maxIndexDigits {
 		return 0, false
 	}
 
@@ -244,7 +244,7 @@ func Parse(data []byte) (any, error) {
 
 // readValue reads the next value; every failure is ErrSyntax.
 func readValue(decoder *json.Decoder, depth int) (any, error) {
-	if depth > depthMax {
+	if depth > maxDepth {
 		return nil, ErrSyntax
 	}
 
@@ -366,10 +366,10 @@ func StringifyIndent(value any, indent string) string {
 	return out.String()
 }
 
-// write appends value's JSON. A value nesting deeper than depthMax is a program error (only a
+// write appends value's JSON. A value nesting deeper than maxDepth is a program error (only a
 // cycle gets there), so it panics rather than writing something wrong.
 func write(builder *strings.Builder, value any, depth int) {
-	if depth > depthMax {
+	if depth > maxDepth {
 		panic("js: a value nests deeper than depthMax; is it a cycle?")
 	}
 
@@ -545,7 +545,7 @@ func Number(value float64) string {
 }
 
 func fixedNotation(magnitude float64) bool {
-	if magnitude < fixedMin {
+	if magnitude < minFixed {
 		return false
 	}
 
@@ -631,7 +631,7 @@ func String(value any) string {
 }
 
 func stringAt(value any, depth int) string {
-	if depth > depthMax {
+	if depth > maxDepth {
 		panic("js.String: nesting deeper than depthMax, so the value has a cycle")
 	}
 

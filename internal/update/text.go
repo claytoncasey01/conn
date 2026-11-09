@@ -61,8 +61,8 @@ type failureRow struct {
 	reason string
 }
 
-// failureReasonDefault is the reason for a failure no row of failureReasons names.
-const failureReasonDefault = "The check failed for an unexpected reason."
+// defaultFailureReason is the reason for a failure no row of failureReasons names.
+const defaultFailureReason = "The check failed for an unexpected reason."
 
 // failureReasons maps what went wrong to what the person is told, first match wins. The reason
 // is fixed text, never the error's own, so nothing the server sent can reach the screen.
@@ -90,7 +90,7 @@ func failureReason(err error) string {
 		}
 	}
 
-	return failureReasonDefault
+	return defaultFailureReason
 }
 
 // availableLabel is the menu item's label once latest is known to be available.
@@ -243,7 +243,7 @@ func tellPublishing(event Event) Notice {
 // releaseTag returns tag when it is a release tag short enough to show. Run reports only such
 // tags, so any other is a bug in this package, not something the network sent.
 func releaseTag(tag string) string {
-	if len(tag) > tagBytesMax {
+	if len(tag) > maxTagBytes {
 		panic("update: a release tag longer than tagBytesMax reached the text")
 	}
 

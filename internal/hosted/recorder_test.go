@@ -481,12 +481,12 @@ func TestRecorderCarriesOnlyWhatFits(t *testing.T) {
 
 	setting := newWorld()
 	recorder := setting.recorder()
-	recorder.Carry(manyRecords(hosted.RecordsMax()))
+	recorder.Carry(manyRecords(hosted.MaxRecords()))
 	setting.run(ownIndex)
 
 	own := started(recorder, ownIndex)
 
-	want := slices.Concat([]hosted.Record{own}, manyRecords(hosted.RecordsMax()-1))
+	want := slices.Concat([]hosted.Record{own}, manyRecords(hosted.MaxRecords()-1))
 	if !slices.Equal(setting.last(), want) {
 		t.Errorf("wrote %d records, want %d with the module's own first", len(setting.last()),
 			len(want))
@@ -628,7 +628,7 @@ func TestRecorderRefusesARecordThatWouldNotReadBack(t *testing.T) {
 		}
 		// Each byte that is not UTF-8 is written as U+FFFD, three bytes.
 		if index == 1 {
-			spec.Name = strings.Repeat("\xff", hosted.NameBytesMax/2)
+			spec.Name = strings.Repeat("\xff", hosted.MaxNameBytes/2)
 		}
 
 		recorder.Started(hosted.OwnerOpenWork, pty.ID(hostID(index)), spec, "")
@@ -654,8 +654,8 @@ func TestRecorderRefusesARecordThatWouldNotReadBack(t *testing.T) {
 // byte of its name and folder written as six.
 func worstRecord(index int) (pty.ID, pty.Spec) {
 	return pty.ID(hostID(index)), pty.Spec{
-		Argv: []string{"/opt/claude"}, Dir: "/" + strings.Repeat("<", hosted.DirBytesMax-1),
-		Env: nil, Name: strings.Repeat("&", hosted.NameBytesMax),
+		Argv: []string{"/opt/claude"}, Dir: "/" + strings.Repeat("<", hosted.MaxDirBytes-1),
+		Env: nil, Name: strings.Repeat("&", hosted.MaxNameBytes),
 	}
 }
 
@@ -685,16 +685,16 @@ func TestRecorderKeepsTheMostSessionsOfTheLongestRecords(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// more are the sessions started past RecordsMax; ended is one ending after them, and
+		// more are the sessions started past MaxRecords; ended is one ending after them, and
 		// one more started.
 		more         int
 		ended        bool
 		wantRecords  int
 		wantFailures int
 	}{
-		{"as many as a host runs", 0, false, hosted.RecordsMax(), 0},
-		{"one more", 1, false, hosted.RecordsMax(), 1},
-		{"one more, then one ends and another starts", 1, true, hosted.RecordsMax(), 1},
+		{"as many as a host runs", 0, false, hosted.MaxRecords(), 0},
+		{"one more", 1, false, hosted.MaxRecords(), 1},
+		{"one more, then one ends and another starts", 1, true, hosted.MaxRecords(), 1},
 	}
 
 	for _, tt := range tests {
@@ -706,7 +706,7 @@ func TestRecorderKeepsTheMostSessionsOfTheLongestRecords(t *testing.T) {
 			var failures []error
 
 			recorder := writingRecorder(dir, setting, &failures)
-			startWorst(setting, recorder, 0, hosted.RecordsMax()+tt.more)
+			startWorst(setting, recorder, 0, hosted.MaxRecords()+tt.more)
 
 			if tt.ended {
 				setting.end(0)

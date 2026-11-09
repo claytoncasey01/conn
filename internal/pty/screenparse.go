@@ -3,15 +3,15 @@ package pty
 import "unicode/utf8"
 
 // The parser follows the DEC VT500 state machine that xterm and xterm.js follow, with every part
-// of a sequence it keeps bounded: at most parametersMax parameters, each at most
-// parameterValueMax, intermediatesMax intermediates, and the first oscBytesMax bytes of an
+// of a sequence it keeps bounded: at most maxParameters parameters, each at most
+// maxParameterValue, maxIntermediates intermediates, and the first maxOSCBytes bytes of an
 // operating system command, which is all that telling a query apart needs. Anything past a bound
 // is dropped or makes the sequence one that is skipped; nothing grows with the input.
 const (
-	parametersMax     = 16
-	parameterValueMax = 65535
-	intermediatesMax  = 2
-	oscBytesMax       = 16
+	maxParameters     = 16
+	maxParameterValue = 65535
+	maxIntermediates  = 2
+	maxOSCBytes       = 16
 	// decimalBase is what each digit of a parameter multiplies the ones before it by.
 	decimalBase = 10
 )
@@ -69,9 +69,9 @@ type parser struct {
 	// A control sequence's private marker (< = > ?), intermediates and parameters. A parameter
 	// with sub-parameters (38:5:1) keeps its first part; subparameters says one was seen.
 	marker            byte
-	intermediates     [intermediatesMax]byte
+	intermediates     [maxIntermediates]byte
 	intermediateCount int
-	parameters        [parametersMax]int
+	parameters        [maxParameters]int
 	parameterCount    int
 	inSubparameter    bool
 	subparameters     bool
@@ -80,7 +80,7 @@ type parser struct {
 	// escapeIntermediate is the intermediate of an escape sequence (the ( of ESC ( 0).
 	escapeIntermediate byte
 	// osc is the start of an operating system command; oscOverflow says there was more.
-	osc         [oscBytesMax]byte
+	osc         [maxOSCBytes]byte
 	oscCount    int
 	oscOverflow bool
 }
@@ -318,7 +318,7 @@ func (s *Screen) beginControlSequence() {
 	s.parser.state = stateCSI
 	s.parser.marker = 0
 	s.parser.intermediateCount = 0
-	s.parser.parameters = [parametersMax]int{}
+	s.parser.parameters = [maxParameters]int{}
 	s.parser.parameterCount = 0
 	s.parser.inSubparameter = false
 	s.parser.subparameters = false
@@ -350,7 +350,7 @@ func (s *Screen) controlSequence(current byte) {
 }
 
 func (s *Screen) collectIntermediate(current byte) {
-	if s.parser.intermediateCount == intermediatesMax {
+	if s.parser.intermediateCount == maxIntermediates {
 		s.parser.ignoring = true
 
 		return
@@ -376,12 +376,12 @@ func (s *Screen) collectDigit(current byte) {
 	}
 
 	index := s.parser.parameterCount - 1
-	if index >= parametersMax {
+	if index >= maxParameters {
 		return
 	}
 
 	value := s.parser.parameters[index]*decimalBase + int(current-'0')
-	s.parser.parameters[index] = min(value, parameterValueMax)
+	s.parser.parameters[index] = min(value, maxParameterValue)
 }
 
 // separate reads : (a sub-parameter follows) or ; (the next parameter follows).
@@ -410,7 +410,7 @@ func (s *Screen) nextParameter() {
 	}
 
 	// One past the bound is enough to know there were too many.
-	s.parser.parameterCount = min(s.parser.parameterCount+1, parametersMax+1)
+	s.parser.parameterCount = min(s.parser.parameterCount+1, maxParameters+1)
 }
 
 func (s *Screen) collectMarker(current byte) {
@@ -452,9 +452,9 @@ func (s *Screen) operatingSystemCommand(current byte) {
 	}
 }
 
-// collectOSC keeps a byte of an OSC, up to oscBytesMax.
+// collectOSC keeps a byte of an OSC, up to maxOSCBytes.
 func (s *Screen) collectOSC(current byte) {
-	if s.parser.oscCount == oscBytesMax {
+	if s.parser.oscCount == maxOSCBytes {
 		s.parser.oscOverflow = true
 
 		return

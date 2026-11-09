@@ -332,7 +332,7 @@ func TestAGroupNoSignalReachesIsNotTakenForGone(t *testing.T) {
 
 			limits := pty.DefaultLimits()
 			limits.StopGrace = testGrace
-			limits.SessionsMax = 1
+			limits.MaxSessions = 1
 			spawner := &fakes{ignoreTerminate: true, afterKill: tt.afterKill}
 			host := pty.NewHost(pty.Config{Spawner: spawner.spawn, Limits: limits})
 
@@ -405,7 +405,7 @@ func TestAnUnreachableGroupKeepsItsSession(t *testing.T) {
 	spawner.afterKill = killClears
 	spawner.orphans = false
 
-	for range pty.EndedMax + 1 {
+	for range pty.MaxEnded + 1 {
 		sessionID, err := host.Start(t.Context(), testSpec(t))
 		if err != nil {
 			t.Fatal(err)

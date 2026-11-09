@@ -13,7 +13,7 @@
 // session up in the module's own state and rebuilds the program and its arguments from there,
 // re-checking everything the module checks today. A record no owner vouches for starts nothing,
 // so an edited file cannot start anything the app would not start itself, and at most
-// pty's sessionsMax are resumed.
+// pty's maxSessions are resumed.
 package hosted
 
 import (
@@ -43,33 +43,33 @@ const (
 	// FileName is the record's file in the data folder.
 	FileName = "hosted.json"
 
-	// nameBytesMax bounds a session's name in the record.
-	nameBytesMax = 1 << 10
-	// dirBytesMax bounds a session's folder in the record: PATH_MAX on Linux.
-	dirBytesMax = 4 << 10
-	// escapedBytesMax is the most bytes JSON writes for one byte of a string: "<", ">", "&" and
+	// maxNameBytes bounds a session's name in the record.
+	maxNameBytes = 1 << 10
+	// maxDirBytes bounds a session's folder in the record: PATH_MAX on Linux.
+	maxDirBytes = 4 << 10
+	// maxEscapedBytes is the most bytes JSON writes for one byte of a string: "<", ">", "&" and
 	// control bytes are written as \u00XX.
-	escapedBytesMax = 6
-	// recordBytesMax bounds the JSON of one record: its name and folder at their most, each byte
-	// written at its longest, and the keys, ids and quotes around them. RecordsMax records of it
-	// always fit in fileBytesMax.
-	recordBytesMax = escapedBytesMax*(nameBytesMax+dirBytesMax) + 1<<10
+	maxEscapedBytes = 6
+	// maxRecordBytes bounds the JSON of one record: its name and folder at their most, each byte
+	// written at its longest, and the keys, ids and quotes around them. MaxRecords records of it
+	// always fit in maxFileBytes.
+	maxRecordBytes = maxEscapedBytes*(maxNameBytes+maxDirBytes) + 1<<10
 	// fileVersion is the shape of the file this code writes and reads.
 	fileVersion = 1
 )
 
-// RecordsMax is the most records the file holds, and the most sessions Resume starts: the most a
+// MaxRecords is the most records the file holds, and the most sessions Resume starts: the most a
 // host runs at once.
-func RecordsMax() int { return pty.DefaultLimits().SessionsMax }
+func MaxRecords() int { return pty.DefaultLimits().MaxSessions }
 
-// fileBytesMax bounds the file: RecordsMax records at their most, and the object around them.
-func fileBytesMax() int64 { return int64(RecordsMax()*recordBytesMax + 1<<10) }
+// maxFileBytes bounds the file: MaxRecords records at their most, and the object around them.
+func maxFileBytes() int64 { return int64(MaxRecords()*maxRecordBytes + 1<<10) }
 
 var (
 	// ErrBadRecord is a record Conn would not have written; each problem wraps it.
 	ErrBadRecord = errors.New("not a hosted session record")
 	// ErrBadFile is a record file Conn would not have written: a link, not a regular file,
-	// another user's, too large, not the shape it writes, or more than RecordsMax records.
+	// another user's, too large, not the shape it writes, or more than MaxRecords records.
 	ErrBadFile = errors.New("not a hosted sessions file")
 )
 
@@ -122,18 +122,18 @@ func checkName(name string) []error {
 		return []error{fmt.Errorf("%w: the session has no name", ErrBadRecord)}
 	}
 
-	if len(name) > nameBytesMax {
+	if len(name) > maxNameBytes {
 		return []error{fmt.Errorf("%w: the name is %d bytes, more than %d", ErrBadRecord,
-			len(name), nameBytesMax)}
+			len(name), maxNameBytes)}
 	}
 
 	return nil
 }
 
 func checkDir(dir string) []error {
-	if len(dir) > dirBytesMax {
+	if len(dir) > maxDirBytes {
 		return []error{fmt.Errorf("%w: the folder is %d bytes, more than %d", ErrBadRecord,
-			len(dir), dirBytesMax)}
+			len(dir), maxDirBytes)}
 	}
 
 	if !filepath.IsAbs(dir) {

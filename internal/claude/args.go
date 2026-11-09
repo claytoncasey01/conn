@@ -24,11 +24,11 @@ const (
 	// budgetUSDDefault is the cost cap of a run whose Opts set none.
 	budgetUSDDefault = 1.0
 
-	// timeoutDefault is how long a run whose Opts set no limit may take.
-	timeoutDefault = 10 * time.Minute
+	// defaultTimeout is how long a run whose Opts set no limit may take.
+	defaultTimeout = 10 * time.Minute
 
-	// stepArgumentMax is the most of a tool's argument a progress line shows, in UTF-16 units.
-	stepArgumentMax = 70
+	// maxStepArgument is the most of a tool's argument a progress line shows, in UTF-16 units.
+	maxStepArgument = 70
 
 	mcpToolPrefix = "mcp__"
 )
@@ -85,7 +85,7 @@ func (o Opts) budgetUSD() float64 {
 
 func (o Opts) timeout() time.Duration {
 	if o.Timeout == 0 {
-		return timeoutDefault
+		return defaultTimeout
 	}
 
 	return o.Timeout
@@ -175,7 +175,7 @@ func StepLabel(tool string, input any) string {
 		return strings.TrimSuffix(match[1], "_MCP") + ": " + match[2]
 	}
 
-	argument := js.Slice(js.CollapseSpace(stepArgument(input)), stepArgumentMax)
+	argument := js.Slice(js.CollapseSpace(stepArgument(input)), maxStepArgument)
 	if argument == "" {
 		return tool
 	}

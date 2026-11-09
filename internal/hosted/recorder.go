@@ -179,12 +179,12 @@ func (r *Recorder) started(owner string, hostedID pty.ID, spec pty.Spec, claudeI
 		return
 	}
 
-	// The host runs at most RecordsMax sessions: one more would make a record Write refuses,
+	// The host runs at most MaxRecords sessions: one more would make a record Write refuses,
 	// and stop every write after it. It runs unrecorded instead.
 	r.records = Track(r.records, r.deps.Live(), r.deps.Linked())
-	if len(r.records) >= RecordsMax() {
+	if len(r.records) >= MaxRecords() {
 		r.deps.Failed(fmt.Errorf("%w: %d sessions are recorded already, at most %d",
-			ErrBadRecord, len(r.records), RecordsMax()))
+			ErrBadRecord, len(r.records), MaxRecords()))
 
 		return
 	}
@@ -232,11 +232,11 @@ func (r *Recorder) writeFailedLocked(err error) {
 }
 
 // keptLocked is what the record holds: the sessions that run, then as many carried records as
-// fit in RecordsMax. The host runs at most RecordsMax sessions, and a resume takes a carried
+// fit in MaxRecords. The host runs at most MaxRecords sessions, and a resume takes a carried
 // record's place, so the carried ones are cut only when modules start sessions of their own
 // during the resume.
 func (r *Recorder) keptLocked() []Record {
-	room := max(RecordsMax()-len(r.records), 0)
+	room := max(MaxRecords()-len(r.records), 0)
 
 	return slices.Concat(r.records, r.carried[:min(len(r.carried), room)])
 }

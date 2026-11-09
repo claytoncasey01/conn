@@ -269,9 +269,9 @@ func TestNewScreenRefusesSizesOutOfRange(t *testing.T) {
 	}{
 		{"no columns", pty.Size{Columns: 0, Rows: 24}},
 		{"no rows", pty.Size{Columns: 80, Rows: 0}},
-		{"too many columns", pty.Size{Columns: pty.ColumnsMax + 1, Rows: 24}},
-		{"too many rows", pty.Size{Columns: 80, Rows: pty.RowsMax + 1}},
-		{"too many cells", pty.Size{Columns: pty.ColumnsMax, Rows: pty.RowsMax}},
+		{"too many columns", pty.Size{Columns: pty.MaxColumns + 1, Rows: 24}},
+		{"too many rows", pty.Size{Columns: 80, Rows: pty.MaxRows + 1}},
+		{"too many cells", pty.Size{Columns: pty.MaxColumns, Rows: pty.MaxRows}},
 	}
 
 	for _, tt := range tests {

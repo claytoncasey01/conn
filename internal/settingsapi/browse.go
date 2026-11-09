@@ -18,14 +18,14 @@ import (
 // Browse's limits: the owners it lists (the signed-in user and their organizations), the
 // repositories listed for each, and how many owners are listed at once.
 const (
-	BrowseOwnersMax = 30
-	BrowseReposMax  = 100
+	MaxBrowseOwners = 30
+	MaxBrowseRepos  = 100
 	browseParallel  = 4
 
-	// reasonShownMax is the most of a gh failure an answer shows, in UTF-16 units.
-	reasonShownMax = 300
-	// loginShownMax is the most of an unusable login an answer quotes, in UTF-16 units.
-	loginShownMax = 60
+	// maxReasonShown is the most of a gh failure an answer shows, in UTF-16 units.
+	maxReasonShown = 300
+	// maxLoginShown is the most of an unusable login an answer quotes, in UTF-16 units.
+	maxLoginShown = 60
 
 	jqFlag = "--jq"
 )
@@ -89,7 +89,7 @@ func (a *API) browse(ctx context.Context) Reply {
 }
 
 // owners are the signed-in login, then its organizations, each a valid login, once, at most
-// BrowseOwnersMax.
+// MaxBrowseOwners.
 func (a *API) owners(ctx context.Context) ([]string, error) {
 	signedIn, err := a.deps.Gh(ctx, []string{"api", "user", jqFlag, ".login"})
 	if err != nil {
@@ -126,14 +126,14 @@ func (a *API) owners(ctx context.Context) ([]string, error) {
 		owners = append(owners, name)
 	}
 
-	return owners[:min(len(owners), BrowseOwnersMax)], nil
+	return owners[:min(len(owners), MaxBrowseOwners)], nil
 }
 
 // unusableLoginError quotes the start of a login gh reported that Conn cannot pass on.
 type unusableLoginError string
 
 func (u unusableLoginError) Error() string {
-	quoted := js.Stringify(js.Slice(string(u), loginShownMax))
+	quoted := js.Stringify(js.Slice(string(u), maxLoginShown))
 
 	return "gh reported a login conn cannot use: " + quoted
 }
@@ -188,7 +188,7 @@ func (a *API) listAll(ctx context.Context, owners []string) ([]*Owner, []error) 
 // GitHub spelled it.
 func (a *API) listOwner(ctx context.Context, owner string) ([]string, error) {
 	out, err := a.deps.Gh(ctx, []string{
-		"repo", "list", owner, "--limit", strconv.Itoa(BrowseReposMax), "--json", "nameWithOwner",
+		"repo", "list", owner, "--limit", strconv.Itoa(MaxBrowseRepos), "--json", "nameWithOwner",
 		jqFlag, ".[].nameWithOwner",
 	})
 	if err != nil {
@@ -210,7 +210,7 @@ func (a *API) listOwner(ctx context.Context, owner string) ([]string, error) {
 		found = append(found, name)
 	}
 
-	return found[:min(len(found), BrowseReposMax)], nil
+	return found[:min(len(found), MaxBrowseRepos)], nil
 }
 
 // lines are the non-blank lines of out, trimmed.
@@ -227,7 +227,7 @@ func lines(out string) []string {
 	return found
 }
 
-// reason is the first line of an error, cut to reasonShownMax.
+// reason is the first line of an error, cut to maxReasonShown.
 func reason(err error) string {
-	return js.Slice(run.FirstLine(err.Error()), reasonShownMax)
+	return js.Slice(run.FirstLine(err.Error()), maxReasonShown)
 }

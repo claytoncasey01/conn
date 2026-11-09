@@ -86,7 +86,7 @@ func TestScreenModePreambleSwitchesScreensOnlyForASwitchThatHasLeft(t *testing.T
 	}
 }
 
-// The longest preamble, every mode on at once, is within PreambleBytesMax.
+// The longest preamble, every mode on at once, is within MaxPreambleBytes.
 func TestScreenModePreambleIsWithinItsBound(t *testing.T) {
 	t.Parallel()
 
@@ -94,8 +94,8 @@ func TestScreenModePreambleIsWithinItsBound(t *testing.T) {
 	screen.Feed([]byte("\x1b[?1049;1;66;2004;1004;1003;1016h"))
 
 	got := screen.ModePreamble(1 << 20)
-	if len(got) > pty.PreambleBytesMax {
-		t.Fatalf("preamble of %d bytes, over %d", len(got), pty.PreambleBytesMax)
+	if len(got) > pty.MaxPreambleBytes {
+		t.Fatalf("preamble of %d bytes, over %d", len(got), pty.MaxPreambleBytes)
 	}
 
 	const want = "\x1b[?1049h\x1b[?1h\x1b=\x1b[?2004h\x1b[?1004h\x1b[?1003h\x1b[?1016h"

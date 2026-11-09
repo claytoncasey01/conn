@@ -7,11 +7,11 @@ import (
 	"github.com/claytoncasey01/conn/internal/pty"
 )
 
-// The largest screen the host runs: as many columns as it allows, and as many rows as cellsMax
+// The largest screen the host runs: as many columns as it allows, and as many rows as maxCells
 // leaves.
 const (
-	fullColumns = pty.ColumnsMax
-	fullRows    = pty.CellsMax / pty.ColumnsMax
+	fullColumns = pty.MaxColumns
+	fullRows    = pty.MaxCells / pty.MaxColumns
 )
 
 // fullSizeSeeds are sequences that make the model work hardest, the costtest package's among

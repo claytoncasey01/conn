@@ -19,20 +19,20 @@ const (
 )
 
 func text(params url.Values, key string) string {
-	return js.Cut(js.Trim(params.Get(key)), textMax)
+	return js.Cut(js.Trim(params.Get(key)), maxText)
 }
 
 func list(params url.Values, key string) []string {
 	out := []string{}
 
 	for item := range strings.SplitSeq(params.Get(key), ",") {
-		trimmed := js.Cut(js.Trim(item), textMax)
+		trimmed := js.Cut(js.Trim(item), maxText)
 		if trimmed != "" {
 			out = append(out, trimmed)
 		}
 	}
 
-	return out[:min(len(out), listMax)]
+	return out[:min(len(out), maxList)]
 }
 
 // number is a finite number from a non-blank parameter, else nil: Number(”) is 0 and must not
@@ -188,11 +188,11 @@ func minCostParam(params url.Values) *float64 {
 }
 
 func limitParam(params url.Values) *float64 {
-	limit := float64(limitDefault)
+	limit := float64(defaultLimit)
 
 	if asked := number(params, "limit"); asked != nil {
 		if *asked >= 1 {
-			limit = math.Min(math.Trunc(*asked), limitMax)
+			limit = math.Min(math.Trunc(*asked), maxLimit)
 		}
 	}
 

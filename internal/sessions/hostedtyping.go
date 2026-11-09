@@ -29,9 +29,9 @@ const (
 	pasteEnd   = "\x1b[201~"
 	enterKey   = "\r"
 
-	// enterWaitMax bounds the wait for the typed message to show in the box before Enter. The
+	// maxEnterWait bounds the wait for the typed message to show in the box before Enter. The
 	// wait ends as soon as the program draws it.
-	enterWaitMax = 2 * time.Second
+	maxEnterWait = 2 * time.Second
 
 	// pastedPrefix starts what Claude Code shows in its box for a long paste instead of the text.
 	pastedPrefix = "[Pasted text"
@@ -142,7 +142,7 @@ func messageKeys(message string, bracketedPaste bool) ([]byte, *Reply) {
 }
 
 // pressEnter presses Enter as soon as the screen shows message in the input box and no dialog,
-// within enterWaitMax, and only if nothing was typed after it (typed is the mark of its own
+// within maxEnterWait, and only if nothing was typed after it (typed is the mark of its own
 // write). The message is in the box by then: every refusal but the session ending says so.
 func (l *Loop) pressEnter(
 	ctx context.Context, sessionID pty.ID, typed pty.ScreenMark, message string,
@@ -150,7 +150,7 @@ func (l *Loop) pressEnter(
 	host := l.store.deps.Host
 	shown := draftOf(message)
 
-	ctx, cancel := context.WithTimeout(ctx, enterWaitMax)
+	ctx, cancel := context.WithTimeout(ctx, maxEnterWait)
 	defer cancel()
 
 	_, err := host.WaitScreen(ctx, sessionID, replyLines, shown)

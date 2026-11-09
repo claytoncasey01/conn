@@ -13,21 +13,21 @@ import (
 // The UTF-8 decoder's byte ranges (WHATWG Encoding, "UTF-8 decoder").
 const (
 	asciiEnd        = 0x80
-	continuationMin = 0x80
-	continuationMax = 0xbf
-	leadTwoMin      = 0xc2
-	leadTwoMax      = 0xdf
-	leadThreeMin    = 0xe0
-	leadThreeMax    = 0xef
-	leadFourMin     = 0xf0
-	leadFourMax     = 0xf4
+	minContinuation = 0x80
+	maxContinuation = 0xbf
+	minLeadTwo      = 0xc2
+	maxLeadTwo      = 0xdf
+	minLeadThree    = 0xe0
+	maxLeadThree    = 0xef
+	minLeadFour     = 0xf0
+	maxLeadFour     = 0xf4
 
 	// A three-byte lead of 0xe0 needs 0xa0 or more next (no overlong form); 0xed needs 0x9f or
 	// less (no surrogate). A four-byte lead of 0xf0 needs 0x90 or more; 0xf4 needs 0x8f or less.
-	afterE0Min = 0xa0
+	minAfterE0 = 0xa0
 	afterEDMax = 0x9f
-	afterF0Min = 0x90
-	afterF4Max = 0x8f
+	minAfterF0 = 0x90
+	maxAfterF4 = 0x8f
 	leadE0     = 0xe0
 	leadED     = 0xed
 	leadF0     = 0xf0
@@ -54,7 +54,7 @@ type utf8State struct {
 
 func newUTF8State() utf8State {
 	return utf8State{
-		codePoint: 0, needed: 0, seen: 0, lower: continuationMin, upper: continuationMax,
+		codePoint: 0, needed: 0, seen: 0, lower: minContinuation, upper: maxContinuation,
 	}
 }
 
@@ -120,7 +120,7 @@ func (s *utf8State) step(current byte) (rune, bool) {
 		return utf8.RuneError, false
 	}
 
-	s.lower, s.upper = continuationMin, continuationMax
+	s.lower, s.upper = minContinuation, maxContinuation
 	s.codePoint = s.codePoint<<continuationSize | rune(current&continuationBits)
 	s.seen++
 
@@ -140,12 +140,12 @@ func (s *utf8State) lead(current byte) rune {
 	switch {
 	case current < asciiEnd:
 		return rune(current)
-	case within(current, leadTwoMin, leadTwoMax):
+	case within(current, minLeadTwo, maxLeadTwo):
 		s.needed, s.codePoint = 1, rune(current&leadTwoBits)
-	case within(current, leadThreeMin, leadThreeMax):
+	case within(current, minLeadThree, maxLeadThree):
 		s.needed, s.codePoint = 2, rune(current&leadThreeBits)
 		s.narrow(current)
-	case within(current, leadFourMin, leadFourMax):
+	case within(current, minLeadFour, maxLeadFour):
 		s.needed, s.codePoint = 3, rune(current&leadFourBits)
 		s.narrow(current)
 	default:
@@ -167,13 +167,13 @@ func within(current, lowest, highest byte) bool {
 func (s *utf8State) narrow(lead byte) {
 	switch lead {
 	case leadE0:
-		s.lower = afterE0Min
+		s.lower = minAfterE0
 	case leadED:
 		s.upper = afterEDMax
 	case leadF0:
-		s.lower = afterF0Min
+		s.lower = minAfterF0
 	case leadF4:
-		s.upper = afterF4Max
+		s.upper = maxAfterF4
 	}
 }
 

@@ -30,14 +30,14 @@ import (
 )
 
 const (
-	// configBytesMax: a config larger than this is not read. A real one is a few hundred bytes.
-	configBytesMax = 1_000_000
-	// pointerBytesMax bounds a .git pointer file and a commondir file.
-	pointerBytesMax = 4096
-	// foldersUpMax is how many folders up the search for a .git goes.
-	foldersUpMax = 64
-	// cacheEntriesMax is how many configs are remembered before the cache starts over.
-	cacheEntriesMax = 1000
+	// maxConfigBytes: a config larger than this is not read. A real one is a few hundred bytes.
+	maxConfigBytes = 1_000_000
+	// maxPointerBytes bounds a .git pointer file and a commondir file.
+	maxPointerBytes = 4096
+	// maxFoldersUp is how many folders up the search for a .git goes.
+	maxFoldersUp = 64
+	// maxCacheEntries is how many configs are remembered before the cache starts over.
+	maxCacheEntries = 1000
 
 	// headRefPrefix starts the merge ref of a branch that tracks a branch.
 	headRefPrefix = "refs/heads/"
@@ -128,7 +128,7 @@ func (r *Reader) Of(folder string) string {
 
 	repo := originRepo(config, info.Size())
 
-	if len(r.cache) >= cacheEntriesMax {
+	if len(r.cache) >= maxCacheEntries {
 		clear(r.cache)
 	}
 
@@ -177,11 +177,11 @@ func (r *Reader) CloneFor(repo string, current settings.Settings, home string) (
 // ClonesIn are the repositories cloned directly in parents (a clone folder, ~/projects), parent
 // by parent and by folder name within one, as CloneFor would find them there: a repo root whose
 // origin is on GitHub and whose folder is named for the repository, in any case. At most
-// foldersMax folders are listed in all, so a huge folder is never read whole (which ones a cut
+// maxFolders folders are listed in all, so a huge folder is never read whole (which ones a cut
 // listing holds is the file system's order); a parent that cannot be listed holds none.
-func (r *Reader) ClonesIn(parents []string, foldersMax int) []string {
+func (r *Reader) ClonesIn(parents []string, maxFolders int) []string {
 	found := []string{}
-	left := foldersMax
+	left := maxFolders
 
 	for _, parent := range parents {
 		if left <= 0 {
@@ -201,9 +201,9 @@ func (r *Reader) ClonesIn(parents []string, foldersMax int) []string {
 	return found
 }
 
-// listNames are the names of at most countMax entries of folder, sorted; none when it cannot be
+// listNames are the names of at most maxCount entries of folder, sorted; none when it cannot be
 // opened or read.
-func listNames(folder string, countMax int) []string {
+func listNames(folder string, maxCount int) []string {
 	dir, err := os.Open(folder)
 	if err != nil {
 		return nil
@@ -212,7 +212,7 @@ func listNames(folder string, countMax int) []string {
 	// Only read: nothing useful can be done with a failed close.
 	defer func() { _ = dir.Close() }()
 
-	names, err := dir.Readdirnames(countMax)
+	names, err := dir.Readdirnames(maxCount)
 	if err != nil {
 		return nil
 	}
@@ -380,7 +380,7 @@ const (
 func configPath(folder string) (string, bool) {
 	current := folder
 
-	for range foldersUpMax {
+	for range maxFoldersUp {
 		config, outcome := configAt(current)
 
 		switch outcome {
@@ -457,14 +457,14 @@ func firstLine(path string) (string, bool) {
 
 	defer func() { _ = file.Close() }()
 
-	buffer := make([]byte, pointerBytesMax+1)
+	buffer := make([]byte, maxPointerBytes+1)
 
 	size, err := io.ReadFull(file, buffer)
 	if !wholeRead(err) {
 		return "", false
 	}
 
-	if size > pointerBytesMax {
+	if size > maxPointerBytes {
 		return "", false
 	}
 
@@ -497,7 +497,7 @@ func resolve(base, path string) string {
 
 // originRepo is the GitHub repo of a config file's origin, or "".
 func originRepo(config string, size int64) string {
-	if size > configBytesMax {
+	if size > maxConfigBytes {
 		return ""
 	}
 
@@ -520,7 +520,7 @@ func readConfig(config string) (string, bool) {
 		return "", false
 	}
 
-	if info.Size() > configBytesMax {
+	if info.Size() > maxConfigBytes {
 		return "", false
 	}
 

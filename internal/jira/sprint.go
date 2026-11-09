@@ -239,9 +239,9 @@ func descOf(desc any) (any, error) {
 	case nil:
 		return "", nil
 	case string:
-		return js.Cut(value, descUnitsMax), nil
+		return js.Cut(value, maxDescUnits), nil
 	case []any:
-		return value[:min(len(value), descUnitsMax)], nil
+		return value[:min(len(value), maxDescUnits)], nil
 	}
 
 	return nil, textError(`(t.desc ?? "").slice is not a function. (In '(t.desc ?? "")` +

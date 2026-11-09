@@ -159,22 +159,22 @@ func TestEBotReviewedBoundaries(t *testing.T) {
 func TestERowThreadsBounds(t *testing.T) {
 	t.Parallel()
 
-	if myprs.RowThreadsMax != 100 {
-		t.Errorf("RowThreadsMax %d", myprs.RowThreadsMax)
+	if myprs.MaxRowThreads != 100 {
+		t.Errorf("RowThreadsMax %d", myprs.MaxRowThreads)
 	}
 
 	t.Run("current ahead of outdated", func(t *testing.T) {
 		t.Parallel()
 
-		threads := make([]myprs.Thread, 0, myprs.RowThreadsMax+1)
-		for index := range myprs.RowThreadsMax {
+		threads := make([]myprs.Thread, 0, myprs.MaxRowThreads+1)
+		for index := range myprs.MaxRowThreads {
 			threads = append(threads, eThreadAt("o"+strconv.Itoa(index), float64(index), true))
 		}
 
 		threads = append(threads, eThreadAt("now", 10_000, false))
 		rows := myprs.RowThreads(eWithThreads(threads...), nil)
 
-		if len(rows) != myprs.RowThreadsMax {
+		if len(rows) != myprs.MaxRowThreads {
 			t.Fatalf("%d rows", len(rows))
 		}
 
@@ -186,14 +186,14 @@ func TestERowThreadsBounds(t *testing.T) {
 	t.Run("bounded", func(t *testing.T) {
 		t.Parallel()
 
-		threads := make([]myprs.Thread, 0, myprs.RowThreadsMax+20)
-		for index := range myprs.RowThreadsMax + 20 {
+		threads := make([]myprs.Thread, 0, myprs.MaxRowThreads+20)
+		for index := range myprs.MaxRowThreads + 20 {
 			threads = append(threads, eThreadAt("t"+strconv.Itoa(index), float64(index), false))
 		}
 
 		rows := myprs.RowThreads(eWithThreads(threads...), nil)
 
-		if len(rows) != myprs.RowThreadsMax {
+		if len(rows) != myprs.MaxRowThreads {
 			t.Fatalf("%d rows", len(rows))
 		}
 

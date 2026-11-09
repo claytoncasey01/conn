@@ -182,7 +182,7 @@ func TestTooManyBaseBranchesKeepsTheFirstOnes(t *testing.T) {
 	t.Parallel()
 
 	object := js.NewObject()
-	for index := range settings.BaseBranchesMax + 3 {
+	for index := range settings.MaxBaseBranches + 3 {
 		object.Set("acme/r"+js.Stringify(float64(index)), "main")
 	}
 
@@ -195,7 +195,7 @@ func TestTooManyBaseBranchesKeepsTheFirstOnes(t *testing.T) {
 
 	loaded := settings.ParseDetailed(wrap("atlassian", section), true)
 
-	if got := len(loaded.Settings.Atlassian.Jira.BaseBranches); got != settings.BaseBranchesMax {
+	if got := len(loaded.Settings.Atlassian.Jira.BaseBranches); got != settings.MaxBaseBranches {
 		t.Errorf("kept %d", got)
 	}
 
@@ -208,7 +208,7 @@ func TestAPutOverTheBaseBranchesCapIsRefusedNotTruncated(t *testing.T) {
 	t.Parallel()
 
 	object := js.NewObject()
-	for index := range settings.BaseBranchesMax + 1 {
+	for index := range settings.MaxBaseBranches + 1 {
 		object.Set("acme/r"+js.Stringify(float64(index)), "main")
 	}
 

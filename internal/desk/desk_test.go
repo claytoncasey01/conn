@@ -71,13 +71,13 @@ func TestDecide(t *testing.T) {
 func TestAddressWait(t *testing.T) {
 	t.Parallel()
 
-	if desk.AddressWait() < desk.AddressWaitMax {
-		t.Errorf("the polls wait %s, want at least %s", desk.AddressWait(), desk.AddressWaitMax)
+	if desk.AddressWait() < desk.MaxAddressWait {
+		t.Errorf("the polls wait %s, want at least %s", desk.AddressWait(), desk.MaxAddressWait)
 	}
 
-	if desk.AddressWait() >= desk.AddressWaitMax+desk.ProbeEvery {
+	if desk.AddressWait() >= desk.MaxAddressWait+desk.ProbeEvery {
 		t.Errorf("the polls wait %s, want less than one poll more than %s",
-			desk.AddressWait(), desk.AddressWaitMax)
+			desk.AddressWait(), desk.MaxAddressWait)
 	}
 }
 
@@ -294,7 +294,7 @@ func TestRun(t *testing.T) {
 			name:    "an attached server that never answers again gives up after too many restarts",
 			replies: []reply{held(deadURL)}, probes: []error{errNoAnswer},
 			cancelAfterOpens: 0, wantErr: desk.ErrGaveUp,
-			wantOpened: repeatedURLs(deadURL, desk.RestartsMax+1), wantStarts: 0, wantFails: 1,
+			wantOpened: repeatedURLs(deadURL, desk.MaxRestarts+1), wantStarts: 0, wantFails: 1,
 			wantFailHas: []string{deadURL},
 		},
 		{
@@ -314,8 +314,8 @@ func TestRun(t *testing.T) {
 			name:    "an owned server that keeps ending with an error is given up on, saying why",
 			replies: []reply{free()}, startEndedWith: errServing, cancelAfterOpens: 0,
 			wantErr:    desk.ErrGaveUp,
-			wantOpened: repeatedURLs(deadURL, desk.RestartsMax+1),
-			wantStarts: desk.RestartsMax + 1, wantFails: 1,
+			wantOpened: repeatedURLs(deadURL, desk.MaxRestarts+1),
+			wantStarts: desk.MaxRestarts + 1, wantFails: 1,
 			wantFailHas: []string{"ended with: " + errServing.Error(), deadURL},
 		},
 		{
@@ -414,10 +414,10 @@ func TestRunGivesUpOnAServerThatHangs(t *testing.T) {
 	defer cancel()
 
 	// Three times the opens a give-up allows: a Run that is still opening then never gives up.
-	opensMax := 3 * (desk.RestartsMax + 1)
+	maxOpens := 3 * (desk.MaxRestarts + 1)
 	world := &scenario{
 		replies: []reply{held(deadURL)}, probes: []error{errNoAnswer}, startErrs: nil,
-		cancelAfterOpens: opensMax, cancelAfterProbes: 0, endServerAfterOpens: 0,
+		cancelAfterOpens: maxOpens, cancelAfterProbes: 0, endServerAfterOpens: 0,
 		cancelOnWait: false, startEndedWith: nil, env: environment(t), cancel: cancel,
 		asked: 0, probed: 0, starts: 0, endServer: nil, opened: nil, pages: nil,
 		probeKeys: nil, started: nil, startDone: nil, failed: nil,
@@ -437,7 +437,7 @@ func TestRunGivesUpOnAServerThatHangs(t *testing.T) {
 		t.Errorf("Run error = %v after %d opens, want %v", err, len(world.opened), desk.ErrGaveUp)
 	}
 
-	checkWorld(t, world, repeatedURLs(deadURL, desk.RestartsMax+1), 0, 1, []string{deadURL})
+	checkWorld(t, world, repeatedURLs(deadURL, desk.MaxRestarts+1), 0, 1, []string{deadURL})
 
 	// A minute is the window the count once used; restarts this slow never filled it.
 	if clock.elapsed <= time.Minute {

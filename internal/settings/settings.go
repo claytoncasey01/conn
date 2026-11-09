@@ -21,8 +21,8 @@ const (
 	ModuleAtlassian = "atlassian"
 )
 
-// PatternsMax is the most patterns the allowlist holds: My PRs makes one search per pattern.
-const PatternsMax = 25
+// MaxPatterns is the most patterns the allowlist holds: My PRs makes one search per pattern.
+const MaxPatterns = 25
 
 // fileVersion is the only settings.json version this Conn reads and writes.
 const fileVersion = 1

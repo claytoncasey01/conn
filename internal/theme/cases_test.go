@@ -153,9 +153,9 @@ func TestDerivedFontsEffectsAndLimitsMatch(t *testing.T) {
 	}
 
 	limits := js.NewObject()
-	limits.Set("manifestBytes", theme.ManifestBytesMax)
-	limits.Set("cssBytes", theme.CSSBytesMax)
-	limits.Set("userThemes", theme.UserThemesMax)
+	limits.Set("manifestBytes", theme.MaxManifestBytes)
+	limits.Set("cssBytes", theme.MaxCSSBytes)
+	limits.Set("userThemes", theme.MaxUserThemes)
 
 	tests := []struct {
 		key string
@@ -219,7 +219,7 @@ func colorText(color theme.RGBA) string {
 func TestContrastMatchesWhereItCounts(t *testing.T) {
 	t.Parallel()
 
-	const ulpsMax = 4
+	const maxUlps = 4
 
 	for _, row := range rows(t, readCases(t), "pairs") {
 		front, _ := row[0].(string)
@@ -230,7 +230,7 @@ func TestContrastMatchesWhereItCounts(t *testing.T) {
 		bg, _ := theme.ParseColor(back)
 
 		got := theme.Contrast(fg, bg)
-		if ulps(got, want) > ulpsMax {
+		if ulps(got, want) > maxUlps {
 			t.Errorf("contrast(%s, %s) = %v, want %v", front, back, got, want)
 		}
 

@@ -1,4 +1,4 @@
 package settings
 
-// BaseBranchesMax is baseBranchesMax for the tests.
-const BaseBranchesMax = baseBranchesMax
+// MaxBaseBranches is maxBaseBranches for the tests.
+const MaxBaseBranches = maxBaseBranches

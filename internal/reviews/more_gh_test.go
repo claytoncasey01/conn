@@ -92,7 +92,7 @@ func TestDSearchCutsAFullAllowlistIntoChunks(t *testing.T) {
 			`"pageInfo":{"hasNextPage":false},"nodes":[]}`)
 	}
 
-	calls := (2*settings.PatternsMax + reviews.SearchesPerQuery - 1) / reviews.SearchesPerQuery
+	calls := (2*settings.MaxPatterns + reviews.SearchesPerQuery - 1) / reviews.SearchesPerQuery
 	source := &dGh{steps: nil, calls: nil}
 
 	for range calls {
@@ -100,8 +100,8 @@ func TestDSearchCutsAFullAllowlistIntoChunks(t *testing.T) {
 			dStep{out: `{"data":{` + strings.Join(empty, ",") + `}}`, failed: nil})
 	}
 
-	queries := make([]reviews.Query, 0, 2*settings.PatternsMax)
-	for index := range 2 * settings.PatternsMax {
+	queries := make([]reviews.Query, 0, 2*settings.MaxPatterns)
+	for index := range 2 * settings.MaxPatterns {
 		queries = append(queries, reviews.Query{Q: "q" + strconv.Itoa(index), Limit: 200})
 	}
 

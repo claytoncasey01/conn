@@ -21,7 +21,7 @@ import (
 func factsOf(change func(facts *dryseed.Facts)) dryseed.Facts {
 	facts := dryseed.Facts{
 		Dry: true, SeedFlag: "", Setup: true, HasFile: false, DataEnv: "/scratch/data",
-		DataDir: "/scratch/data", DataDirDefault: "/home/jane/.config/conn",
+		DataDir: "/scratch/data", DefaultDataDir: "/home/jane/.config/conn",
 	}
 	if change != nil {
 		change(&facts)
@@ -141,7 +141,7 @@ func TestALinkToTheRealFolderIsTheRealFolder(t *testing.T) {
 			t.Parallel()
 
 			got := dryseed.Decide(factsOf(func(f *dryseed.Facts) {
-				f.DataDirDefault = filepath.Join(tt.home, ".config", "conn")
+				f.DefaultDataDir = filepath.Join(tt.home, ".config", "conn")
 				f.DataEnv, f.DataDir = tt.data, tt.data
 			}))
 			if got.Seed != tt.seed {

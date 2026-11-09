@@ -28,9 +28,9 @@ import (
 // which hurries the quit.
 const signalsBuffered = 2
 
-// recordWaitMax bounds how long a hurried quit waits for the record to be written: the quit's
+// maxRecordWait bounds how long a hurried quit waits for the record to be written: the quit's
 // first step, which takes milliseconds.
-const recordWaitMax = 2 * time.Second
+const maxRecordWait = 2 * time.Second
 
 // Exit codes. 2 is a usage error, as in the flag package.
 const (
@@ -155,10 +155,10 @@ func serve(
 	}
 }
 
-// hurried is a quit a second signal cut short: it waits, at most recordWaitMax, for the record of
+// hurried is a quit a second signal cut short: it waits, at most maxRecordWait, for the record of
 // the hosted sessions, and says what the person gave up.
 func hurried(running *app.Server, stderr io.Writer) int {
-	timer := time.NewTimer(recordWaitMax)
+	timer := time.NewTimer(maxRecordWait)
 	defer timer.Stop()
 
 	select {

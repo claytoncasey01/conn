@@ -50,15 +50,15 @@ func numbered(count int, extra func(index int) string) string {
 	return builder.String()
 }
 
-// drain reads in budgets of bytesMax until the tail is at its end.
-func drain(t *testing.T, tail *transcript.Tail, bytesMax int64) ([]any, int) {
+// drain reads in budgets of maxBytes until the tail is at its end.
+func drain(t *testing.T, tail *transcript.Tail, maxBytes int64) ([]any, int) {
 	t.Helper()
 
 	got := []any{}
 	calls := 0
 
 	for {
-		got = append(got, tail.Read(bytesMax)...)
+		got = append(got, tail.Read(maxBytes)...)
 		calls++
 
 		if tail.AtEnd() {

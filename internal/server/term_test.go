@@ -191,7 +191,7 @@ func (rig *terminalRig) dial(
 
 	if conn != nil {
 		// The server's output frames are larger than the library's default read limit.
-		conn.SetReadLimit(clientReadBytesMax)
+		conn.SetReadLimit(maxClientReadBytes)
 		t.Cleanup(func() { _ = conn.CloseNow() })
 	}
 
@@ -261,7 +261,7 @@ func readOutputUntilText(t *testing.T, conn *websocket.Conn) ([]byte, string) {
 
 	var output []byte
 
-	for range messagesMax {
+	for range maxMessages {
 		kind, data := read(t, conn)
 		if kind == websocket.MessageText {
 			return output, string(data)
@@ -270,16 +270,16 @@ func readOutputUntilText(t *testing.T, conn *websocket.Conn) ([]byte, string) {
 		output = append(output, data...)
 	}
 
-	t.Fatalf("no text message in %d messages", messagesMax)
+	t.Fatalf("no text message in %d messages", maxMessages)
 
 	return nil, ""
 }
 
-// messagesMax bounds how many messages a test reads looking for one.
-const messagesMax = 100_000
+// maxMessages bounds how many messages a test reads looking for one.
+const maxMessages = 100_000
 
-// clientReadBytesMax is the test client's read limit: more than an output frame holds.
-const clientReadBytesMax = 1 << 20
+// maxClientReadBytes is the test client's read limit: more than an output frame holds.
+const maxClientReadBytes = 1 << 20
 
 // screenLinesRead is how many of a screen's lines a test reads: more than a new terminal has.
 const screenLinesRead = 100
@@ -290,7 +290,7 @@ func readOutputUntil(t *testing.T, conn *websocket.Conn, want string) {
 
 	var output []byte
 
-	for range messagesMax {
+	for range maxMessages {
 		kind, data := read(t, conn)
 		if kind == websocket.MessageText {
 			t.Fatalf("a text message before the output: %s", data)
@@ -321,7 +321,7 @@ func closeReason(t *testing.T, conn *websocket.Conn) (websocket.StatusCode, stri
 	ctx, cancel := context.WithTimeout(t.Context(), testtime.Scaled(waitLimit))
 	defer cancel()
 
-	for range messagesMax {
+	for range maxMessages {
 		_, _, err := conn.Read(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -337,7 +337,7 @@ func closeReason(t *testing.T, conn *websocket.Conn) (websocket.StatusCode, stri
 		}
 	}
 
-	t.Fatalf("the connection was still open after %d messages", messagesMax)
+	t.Fatalf("the connection was still open after %d messages", maxMessages)
 
 	return 0, ""
 }

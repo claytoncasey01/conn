@@ -36,8 +36,8 @@ const (
 )
 
 const (
-	apiPortDefault = "7778"
-	uiPortDefault  = "5173"
+	defaultAPIPort = "7778"
+	defaultUIPort  = "5173"
 
 	// pollInterval is how often the Go files are checked for a change.
 	pollInterval = 500 * time.Millisecond
@@ -100,8 +100,8 @@ func realMain(
 }
 
 func newLoop(root string, lookup lookupFunc, environ []string) (loop, error) {
-	apiPort := valueOr(lookup, "CONN_PORT", apiPortDefault)
-	uiPort := valueOr(lookup, "CONN_DEV_PORT", uiPortDefault)
+	apiPort := valueOr(lookup, "CONN_PORT", defaultAPIPort)
+	uiPort := valueOr(lookup, "CONN_DEV_PORT", defaultUIPort)
 
 	data := valueOr(lookup, "CONN_DATA", "")
 	if data == "" {
@@ -110,7 +110,7 @@ func newLoop(root string, lookup lookupFunc, environ []string) (loop, error) {
 			return loop{}, errNoHome
 		}
 
-		data = config.DataDirDefault(config.LookupFunc(lookup)) + "-dev"
+		data = config.DefaultDataDir(config.LookupFunc(lookup)) + "-dev"
 	}
 
 	env := append([]string{}, environ...)

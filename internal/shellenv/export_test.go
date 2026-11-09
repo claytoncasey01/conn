@@ -11,8 +11,8 @@ const Marker = marker
 // MarkerEnd is the text that follows the last entry.
 const MarkerEnd = markerEnd
 
-// OutputBytesMax is the cap on what the shell may print.
-const OutputBytesMax = outputBytesMax
+// MaxOutputBytes is the cap on what the shell may print.
+const MaxOutputBytes = maxOutputBytes
 
 // Script is the command the login shell is asked to run.
 const Script = script

@@ -21,8 +21,8 @@ import (
 const (
 	// originTimeout stops the read of a clone's origin.
 	originTimeout = 10 * time.Second
-	// originBytesMax caps what that read may print.
-	originBytesMax = 64 << 10
+	// maxOriginBytes caps what that read may print.
+	maxOriginBytes = 64 << 10
 	// nanosPerMs turns a file time into ms.
 	nanosPerMs = 1e6
 )
@@ -100,7 +100,7 @@ func myPrsDeps(parts reviewsParts, live *sessions.Loop) myprs.Deps {
 func repoMatches(ctx context.Context, repo, path string) (bool, error) {
 	result := command.Cmd(ctx, "git", []string{"-C", path, "remote", "get-url", "origin"},
 		command.Opts{
-			Dir: "", Timeout: originTimeout, OutputBytesMax: originBytesMax, Stdin: "", Env: nil,
+			Dir: "", Timeout: originTimeout, MaxOutputBytes: maxOriginBytes, Stdin: "", Env: nil,
 		})
 	if result.Err != nil {
 		why := command.FirstLine(js.Trim(result.Stderr))
@@ -145,7 +145,7 @@ func repliesAt(worktree string) *float64 {
 // more than the limit plus one byte, so a file the session made huge, or a link pointed
 // elsewhere, costs nothing.
 func readReplies(path string) (string, bool) {
-	data, err := readCapped(path, myprs.RepliesFileBytesMax+1)
+	data, err := readCapped(path, myprs.MaxRepliesFileBytes+1)
 	if err != nil {
 		return "", false
 	}
@@ -153,9 +153,9 @@ func readReplies(path string) (string, bool) {
 	return js.DecodeUTF8(data, false), true
 }
 
-// readCapped reads at most bytesMax of a regular file, opened through its folder, a folder of
+// readCapped reads at most maxBytes of a regular file, opened through its folder, a folder of
 // the person's own, with no link followed at either (reviews.OpenInOwnFolder).
-func readCapped(path string, bytesMax int64) ([]byte, error) {
+func readCapped(path string, maxBytes int64) ([]byte, error) {
 	file, err := reviews.OpenInOwnFolder(filepath.Dir(path), filepath.Base(path))
 	if err != nil {
 		return nil, fmt.Errorf("opening %s: %w", path, err)
@@ -173,7 +173,7 @@ func readCapped(path string, bytesMax int64) ([]byte, error) {
 		return nil, errNotRegularFile
 	}
 
-	data, err := io.ReadAll(io.LimitReader(file, bytesMax))
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes))
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}

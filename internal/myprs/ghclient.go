@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	// failureUnitsMax is how much of a search's failure is kept.
-	failureUnitsMax = 200
-	// shownUnitsMax is how much of a login or a pattern an error repeats.
-	shownUnitsMax = 60
+	// maxFailureUnits is how much of a search's failure is kept.
+	maxFailureUnits = 200
+	// maxShownUnits is how much of a login or a pattern an error repeats.
+	maxShownUnits = 60
 	// ghAPI and ghGraphQL are gh's api command and its GraphQL endpoint.
 	ghAPI     = "api"
 	ghGraphQL = "graphql"
@@ -89,7 +89,7 @@ func (g Gh) Login(ctx context.Context) (string, error) {
 // fails only when every search failed (the first failure, pattern in front), or with
 // *ghbudget.RateLimitError as soon as GitHub says the limit is used up (the reset time from `gh
 // api rate_limit` when it answers). It fails before gh is touched when me is not a login, when
-// there are more than settings.PatternsMax patterns or one is not a pattern. No patterns is no
+// there are more than settings.MaxPatterns patterns or one is not a pattern. No patterns is no
 // PRs and no call.
 func (g Gh) PRs(ctx context.Context, login string, patterns []string) (Search, error) {
 	queries, err := checkSearch(login, patterns)
@@ -108,7 +108,7 @@ func (g Gh) PRs(ctx context.Context, login string, patterns []string) (Search, e
 			}
 
 			out.Failed = append(out.Failed, SearchFailure{
-				Pattern: query.pattern, Error: Clean(err.Error(), failureUnitsMax),
+				Pattern: query.pattern, Error: Clean(err.Error(), maxFailureUnits),
 			})
 
 			continue
@@ -158,12 +158,12 @@ type patternQuery struct {
 func checkSearch(login string, patterns []string) ([]patternQuery, error) {
 	if login != "@me" {
 		if !loginShape.MatchString(login) {
-			return nil, fmt.Errorf("%w: %s", errNotLogin, Clean(login, shownUnitsMax))
+			return nil, fmt.Errorf("%w: %s", errNotLogin, Clean(login, maxShownUnits))
 		}
 	}
 
-	if len(patterns) > settings.PatternsMax {
-		return nil, fmt.Errorf("more than %d repository patterns: %w", settings.PatternsMax,
+	if len(patterns) > settings.MaxPatterns {
+		return nil, fmt.Errorf("more than %d repository patterns: %w", settings.MaxPatterns,
 			errRemoveSome)
 	}
 
@@ -172,7 +172,7 @@ func checkSearch(login string, patterns []string) ([]patternQuery, error) {
 	for _, pattern := range SearchPatterns(patterns) {
 		query, ok := SearchFor(login, pattern)
 		if !ok {
-			return nil, fmt.Errorf("%w: %s", errNotPattern, Clean(pattern, shownUnitsMax))
+			return nil, fmt.Errorf("%w: %s", errNotPattern, Clean(pattern, maxShownUnits))
 		}
 
 		queries = append(queries, patternQuery{pattern: pattern, text: query})

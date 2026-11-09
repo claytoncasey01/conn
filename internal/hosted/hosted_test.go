@@ -19,16 +19,16 @@ func TestCheckRecord(t *testing.T) {
 	}{
 		{"a record Conn writes", func(*hosted.Record) {}, nil},
 		{"a name of the most bytes", func(record *hosted.Record) {
-			record.Name = strings.Repeat("n", hosted.NameBytesMax)
+			record.Name = strings.Repeat("n", hosted.MaxNameBytes)
 		}, nil},
 		{"a name of a byte more", func(record *hosted.Record) {
-			record.Name = strings.Repeat("n", hosted.NameBytesMax+1)
+			record.Name = strings.Repeat("n", hosted.MaxNameBytes+1)
 		}, hosted.ErrBadRecord},
 		{"a folder of the most bytes", func(record *hosted.Record) {
-			record.Dir = "/" + strings.Repeat("d", hosted.DirBytesMax-1)
+			record.Dir = "/" + strings.Repeat("d", hosted.MaxDirBytes-1)
 		}, nil},
 		{"a folder of a byte more", func(record *hosted.Record) {
-			record.Dir = "/" + strings.Repeat("d", hosted.DirBytesMax)
+			record.Dir = "/" + strings.Repeat("d", hosted.MaxDirBytes)
 		}, hosted.ErrBadRecord},
 		{"a folder with a slash after it", func(record *hosted.Record) {
 			record.Dir += "/"

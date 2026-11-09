@@ -26,8 +26,8 @@ const (
 	// timeout bounds the whole shell run: a profile that waits for input must not hold the app.
 	timeout = 10 * time.Second
 
-	// outputBytesMax caps what the shell may print, banner and environment together.
-	outputBytesMax = 1 << 20
+	// maxOutputBytes caps what the shell may print, banner and environment together.
+	maxOutputBytes = 1 << 20
 
 	// marker starts the environment in the output. Its NUL bytes cannot be in a banner, so it
 	// finds where the entries begin whatever the shell's startup files printed first.
@@ -52,7 +52,7 @@ var (
 	// ErrNoEnvironment is a shell whose output holds no complete environment: no marker (it did
 	// not run the app), or no end marker (the app's output was cut short).
 	ErrNoEnvironment = errors.New("printed no environment")
-	// ErrOutputTooLarge is a shell that printed more than outputBytesMax.
+	// ErrOutputTooLarge is a shell that printed more than maxOutputBytes.
 	ErrOutputTooLarge = errors.New("printed too much")
 	// ErrTimedOut is a shell that did not finish within the time limit.
 	ErrTimedOut = errors.New("timed out")
@@ -190,13 +190,13 @@ func loadWith(
 	result := run.Cmd(ctx, shell, loginShellArgs(), run.Opts{
 		Dir:            "",
 		Timeout:        limit,
-		OutputBytesMax: outputBytesMax,
+		MaxOutputBytes: maxOutputBytes,
 		Stdin:          "",
 		Env:            append(slices.Clone(base), exeVariable+"="+exe),
 	})
 	if result.Overflowed != "" {
 		return base, reason(shell, fmt.Errorf("%w (more than %d bytes)", ErrOutputTooLarge,
-			outputBytesMax))
+			maxOutputBytes))
 	}
 
 	fromShell, parseErr := parse([]byte(result.Stdout))

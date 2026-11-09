@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	// waitMax bounds every wait for something that must happen: a Run that does not do it in
+	// maxWait bounds every wait for something that must happen: a Run that does not do it in
 	// this long has hung, and the test fails instead of hanging the binary.
-	waitMax = 10 * time.Second
+	maxWait = 10 * time.Second
 
 	// quietWait is how long a test watches for something that must not happen. It only costs
 	// time when the code is right, and a wrong Run shows the event well inside it.
@@ -201,15 +201,15 @@ func (w *world) awaitFetch() {
 	receive(w.t, w.started, "a Fetch to start")
 }
 
-// receive is the next value on channel, or a failed test when none comes within waitMax.
+// receive is the next value on channel, or a failed test when none comes within maxWait.
 func receive[T any](t *testing.T, channel <-chan T, what string) T {
 	t.Helper()
 
 	select {
 	case value := <-channel:
 		return value
-	case <-time.After(testtime.Scaled(waitMax)):
-		t.Fatalf("no %s within %s", what, testtime.Scaled(waitMax))
+	case <-time.After(testtime.Scaled(maxWait)):
+		t.Fatalf("no %s within %s", what, testtime.Scaled(maxWait))
 
 		var zero T
 
@@ -243,7 +243,7 @@ func start(t *testing.T, deps update.Deps) *running {
 	return run
 }
 
-// stop ends the context and fails the test when Run has not returned within waitMax.
+// stop ends the context and fails the test when Run has not returned within maxWait.
 func (r *running) stop() {
 	r.t.Helper()
 
@@ -251,8 +251,8 @@ func (r *running) stop() {
 
 	select {
 	case <-r.done:
-	case <-time.After(testtime.Scaled(waitMax)):
-		r.t.Fatalf("Run did not return within %s of its context ending", testtime.Scaled(waitMax))
+	case <-time.After(testtime.Scaled(maxWait)):
+		r.t.Fatalf("Run did not return within %s of its context ending", testtime.Scaled(maxWait))
 	}
 }
 

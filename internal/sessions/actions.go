@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	replyUnitsMax = 4000
+	maxReplyUnits = 4000
 	// replyLines is how much of the screen is read to see the input box.
 	replyLines = 40
 
@@ -98,7 +98,7 @@ func replyText(text any) (string, *Reply) {
 	switch {
 	case message == "":
 		refused = failure(http.StatusBadRequest, "nothing to send")
-	case js.Len(message) > replyUnitsMax:
+	case js.Len(message) > maxReplyUnits:
 		refused = failure(http.StatusBadRequest, "too long (4000 characters at most)")
 	case controlChars.MatchString(message):
 		refused = failure(http.StatusBadRequest, textControl)

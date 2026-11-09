@@ -121,8 +121,8 @@ func RepoOf(work *Work, key string) string {
 	return work.repoOf(record.lead())
 }
 
-// BuildReposMax is the most repositories the list of places to build offers.
-const BuildReposMax = buildReposMax
+// MaxBuildRepos is the most repositories the list of places to build offers.
+const MaxBuildRepos = maxBuildRepos
 
 // LegFor is the leg of a record in repo, in any case.
 func LegFor(record *Record, repo string) (*Leg, bool) { return record.legFor(repo) }
@@ -205,8 +205,8 @@ func CheckPRBody(path string, data []byte) error { return checkPRBody(path, data
 // FallbackBody is fallbackBody.
 func FallbackBody(subjects string) string { return fallbackBody(subjects) }
 
-// PRBodyBytesMax is prBodyBytesMax.
-const PRBodyBytesMax = prBodyBytesMax
+// MaxPRBodyBytes is maxPRBodyBytes.
+const MaxPRBodyBytes = maxPRBodyBytes
 
 // ReadPRBody is readPRBody.
 func ReadPRBody(path string) (string, bool, error) { return readPRBody(path) }

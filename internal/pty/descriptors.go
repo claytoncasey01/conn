@@ -15,9 +15,9 @@ import (
 const (
 	// descriptorsFolder lists the descriptors this process holds, by number.
 	descriptorsFolder = "/dev/fd"
-	// descriptorsSweptMax bounds the descriptors a spawn looks at, listed or walked: far above
+	// maxDescriptorsSwept bounds the descriptors a spawn looks at, listed or walked: far above
 	// what Conn's process holds. Past it the rest are left as they are.
-	descriptorsSweptMax = 1 << 16
+	maxDescriptorsSwept = 1 << 16
 	// firstInherited is the first descriptor past stdin, stdout and stderr.
 	firstInherited = 3
 )
@@ -62,7 +62,7 @@ func sweepDescriptors(sources descriptorSources) error {
 	return nil
 }
 
-// listDescriptors names the descriptors open now, at most descriptorsSweptMax of them.
+// listDescriptors names the descriptors open now, at most maxDescriptorsSwept of them.
 func listDescriptors() ([]string, error) {
 	folder, err := os.Open(descriptorsFolder)
 	if err != nil {
@@ -72,7 +72,7 @@ func listDescriptors() ([]string, error) {
 	// A listing only read: nothing is lost if it fails to close.
 	defer func() { _ = folder.Close() }()
 
-	names, err := folder.Readdirnames(descriptorsSweptMax)
+	names, err := folder.Readdirnames(maxDescriptorsSwept)
 	if err != nil {
 		if !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("listing the open descriptors: %w", err)
@@ -83,14 +83,14 @@ func listDescriptors() ([]string, error) {
 }
 
 // walkedDescriptors names every descriptor number past stderr below the limit, the limit capped
-// at descriptorsSweptMax: the sweep passes over those that are not open.
+// at maxDescriptorsSwept: the sweep passes over those that are not open.
 func walkedDescriptors(limit func() (int, error)) ([]string, error) {
 	highest, err := limit()
 	if err != nil {
 		return nil, err
 	}
 
-	highest = min(max(highest, firstInherited), descriptorsSweptMax)
+	highest = min(max(highest, firstInherited), maxDescriptorsSwept)
 	names := make([]string, 0, highest-firstInherited)
 
 	for descriptor := firstInherited; descriptor < highest; descriptor++ {
@@ -101,7 +101,7 @@ func walkedDescriptors(limit func() (int, error)) ([]string, error) {
 }
 
 // descriptorLimit is the process's soft limit on descriptors (RLIMIT_NOFILE), which every
-// descriptor it holds is below, capped at descriptorsSweptMax.
+// descriptor it holds is below, capped at maxDescriptorsSwept.
 func descriptorLimit() (int, error) {
 	var limit unix.Rlimit
 
@@ -110,7 +110,7 @@ func descriptorLimit() (int, error) {
 		return 0, fmt.Errorf("reading the descriptor limit: %w", err)
 	}
 
-	return int(min(limit.Cur, uint64(descriptorsSweptMax))), nil
+	return int(min(limit.Cur, uint64(maxDescriptorsSwept))), nil
 }
 
 // markOneCloseOnExec sets close-on-exec on the descriptor named name in descriptorsFolder, unless

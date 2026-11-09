@@ -19,8 +19,8 @@ const (
 
 // The color functions' scales: a percentage of a channel, of OKLCH chroma and of a hue turn.
 const (
-	channelMax   = 255
-	chromaMax    = 0.4
+	maxChannel   = 255
+	maxChroma    = 0.4
 	percent      = 100
 	degreesHalf  = 180
 	degreesTurn  = 360
@@ -152,7 +152,7 @@ func hexColor(digits string) RGBA {
 
 	opacity := 1.0
 	if len(digits) == withAlphaDigits {
-		opacity = byteAt(alphaAt) / channelMax
+		opacity = byteAt(alphaAt) / maxChannel
 	}
 
 	return RGBA{R: byteAt(redAt), G: byteAt(greenAt), B: byteAt(blueAt), A: opacity}
@@ -232,12 +232,12 @@ func rgbColor(parts []string, opacity float64) (RGBA, bool) {
 	channels := [3]float64{}
 
 	for index := range channels {
-		value, ok := component(parts[index], channelMax)
+		value, ok := component(parts[index], maxChannel)
 		if !ok {
 			return RGBA{}, false
 		}
 
-		channels[index] = round(clampTo(value, channelMax))
+		channels[index] = round(clampTo(value, maxChannel))
 	}
 
 	return RGBA{R: channels[0], G: channels[1], B: channels[2], A: opacity}, true
@@ -280,7 +280,7 @@ func hsl(hue, saturation, lightness, opacity float64) RGBA {
 		at := sector(offset)
 		step := math.Max(-1, math.Min(at-hslKneeLow, math.Min(hslKneeHigh-at, 1)))
 
-		return round((lightness - float64(chroma*step)) * channelMax)
+		return round((lightness - float64(chroma*step)) * maxChannel)
 	}
 
 	return RGBA{
@@ -294,7 +294,7 @@ func oklchColor(parts []string, opacity float64) (RGBA, bool) {
 		return RGBA{}, false
 	}
 
-	chroma, read := component(parts[1], chromaMax)
+	chroma, read := component(parts[1], maxChroma)
 	if !read {
 		return RGBA{}, false
 	}
@@ -317,7 +317,7 @@ func oklch(lightness, chroma, hue, opacity float64) RGBA {
 	short := math.Pow(lightness-float64(labS1*labA)-float64(labS2*labB), cube)
 
 	channel := func(linear float64) float64 {
-		return round(gamma(clampTo(linear, 1)) * channelMax)
+		return round(gamma(clampTo(linear, 1)) * maxChannel)
 	}
 
 	return RGBA{
@@ -350,7 +350,7 @@ func Composite(fg, bg RGBA) RGBA {
 
 func luminance(color RGBA) float64 {
 	linear := func(channel float64) float64 {
-		value := channel / channelMax
+		value := channel / maxChannel
 		if value <= linearKnee {
 			return value / gammaSlope
 		}

@@ -30,7 +30,7 @@ const (
 	// agentToolCalls is how many of an agent's last tool calls its page shows.
 	agentToolCalls = 400
 
-	waitingDefault = "input needed"
+	defaultWaiting = "input needed"
 	nul            = "\x00"
 )
 
@@ -206,7 +206,7 @@ func newStore(deps Deps, bumps func() int64, stopped <-chan struct{}) *store {
 		prDone: make(chan prResult, prQueue), stopped: stopped, cache: nil,
 		sending: map[string]bool{}, closing: map[string]bool{}, reading: map[string]bool{},
 		asks: map[string]seen{}, answered: map[string]answeredPrompt{},
-		askDone: make(chan askRead, readsMax), leads: NewLeads(), lastProc: 0, lastReg: 0,
+		askDone: make(chan askRead, maxReads), leads: NewLeads(), lastProc: 0, lastReg: 0,
 		projects: filepath.Join(claudeDir, "projects"),
 		registry: filepath.Join(claudeDir, "sessions"), bumpCount: bumps,
 		hosts: newHostedState(),
@@ -812,7 +812,7 @@ func (s *store) detail(
 	var waitingFor *string
 
 	if status == regWaiting {
-		value := waitingDefault
+		value := defaultWaiting
 		if reg.WaitingFor != nil {
 			value = *reg.WaitingFor
 		}

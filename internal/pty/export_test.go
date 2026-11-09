@@ -6,16 +6,16 @@ func NewID() (ID, error) { return newID() }
 // The limits a test needs to go past.
 const (
 	ReadBufferBytes     = readBufferBytes
-	ViewerQueueBytesMax = viewerQueueBytesMax
-	WriteWaitMax        = writeWaitMax
+	MaxViewerQueueBytes = maxViewerQueueBytes
+	MaxWriteWait        = maxWriteWait
 	KillWait            = killWait
-	WriteBytesMax       = writeBytesMax
-	EndedMax            = endedMax
-	ColumnsMax          = columnsMax
-	RowsMax             = rowsMax
-	QueriesPendingMax   = queriesPendingMax
-	AnswersQueuedMax    = answersQueuedMax
-	CellsMax            = cellsMax
+	MaxWriteBytes       = maxWriteBytes
+	MaxEnded            = maxEnded
+	MaxColumns          = maxColumns
+	MaxRows             = maxRows
+	MaxQueriesPending   = maxQueriesPending
+	MaxAnswersQueued    = maxAnswersQueued
+	MaxCells            = maxCells
 )
 
 // DeniedNames and DeniedPrefixes are the deny tables, so a test can try every entry.

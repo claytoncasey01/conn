@@ -137,7 +137,7 @@ func safeInteger(value any) (int64, bool) {
 		return 0, false
 	}
 
-	if found > safeIntegerMax {
+	if found > maxSafeInteger {
 		return 0, false
 	}
 

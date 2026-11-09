@@ -22,8 +22,8 @@ const (
 	// The window's first size and the smallest it may be made, in points.
 	windowWidth     = 1280
 	windowHeight    = 820
-	windowWidthMin  = 720
-	windowHeightMin = 480
+	minWindowWidth  = 720
+	minWindowHeight = 480
 
 	// environmentTitle is the title of the dialog that says the shell's environment is missing.
 	environmentTitle = "Conn is using the app's own environment"
@@ -94,8 +94,8 @@ func run(proc process) int {
 		Title:     appName,
 		Width:     windowWidth,
 		Height:    windowHeight,
-		MinWidth:  windowWidthMin,
-		MinHeight: windowHeightMin,
+		MinWidth:  minWindowWidth,
+		MinHeight: minWindowHeight,
 		HTML:      splashPage(proc.splash, desk.SplashText("")),
 	})
 

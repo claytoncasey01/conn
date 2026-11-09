@@ -1226,10 +1226,10 @@ func TestEveryDownloadHasTimeLimits(t *testing.T) {
 	}
 
 	// The latest tag, the archive, its checksums, the app's checksums and the app.
-	const callsMin = 5
-	if len(got.curlCalls) < callsMin {
+	const minCalls = 5
+	if len(got.curlCalls) < minCalls {
 		t.Fatalf("curl was called %d times, want at least %d: %q",
-			len(got.curlCalls), callsMin, got.curlCalls)
+			len(got.curlCalls), minCalls, got.curlCalls)
 	}
 
 	for _, call := range got.curlCalls {

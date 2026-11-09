@@ -344,17 +344,17 @@ func TestBuildTargetsOfferTheAllowedRepositoriesFoundOnThisMachine(t *testing.T)
 func TestBuildTargetsListAtMostBuildReposMax(t *testing.T) {
 	t.Parallel()
 
-	seen := make([]string, 0, openwork.BuildReposMax+1)
-	for index := range openwork.BuildReposMax + 1 {
+	seen := make([]string, 0, openwork.MaxBuildRepos+1)
+	for index := range openwork.MaxBuildRepos + 1 {
 		seen = append(seen, "acme/r"+strconv.Itoa(index))
 	}
 
-	same(t, "listed", len(seenWorld([]string{"acme/*"}, seen).targets()), openwork.BuildReposMax)
+	same(t, "listed", len(seenWorld([]string{"acme/*"}, seen).targets()), openwork.MaxBuildRepos)
 
 	// The cap keeps the allowlist's order, not the order found: other/a, found first, is under
 	// the second pattern, after every acme repository.
 	world := seenWorld([]string{"acme/*", "other/*"}, append([]string{"other/a"}, seen...))
 	listed := world.targets()
-	same(t, "capped", len(listed), openwork.BuildReposMax)
-	same(t, "last", listed[len(listed)-1].Repo, "acme/r"+strconv.Itoa(openwork.BuildReposMax-1))
+	same(t, "capped", len(listed), openwork.MaxBuildRepos)
+	same(t, "last", listed[len(listed)-1].Repo, "acme/r"+strconv.Itoa(openwork.MaxBuildRepos-1))
 }

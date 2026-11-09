@@ -13,15 +13,15 @@ import (
 const (
 	// timeout stops one gh call.
 	timeout = 30 * time.Second
-	// outputBytesMax caps what one gh call may print: the largest answers are PR lists with
+	// maxOutputBytes caps what one gh call may print: the largest answers are PR lists with
 	// their checks.
-	outputBytesMax = 8 << 20
-	// errorShownMax is the most of a failure's text an error carries, in UTF-16 units.
-	errorShownMax = 400
+	maxOutputBytes = 8 << 20
+	// maxErrorShown is the most of a failure's text an error carries, in UTF-16 units.
+	maxErrorShown = 400
 	// graphqlTimeout stops one GraphQL call: a search of several patterns takes a while.
 	graphqlTimeout = 60 * time.Second
-	// graphqlBytesMax caps what one GraphQL call may print: a page of 100 PRs with their checks.
-	graphqlBytesMax = 32 << 20
+	// maxGraphQLBytes caps what one GraphQL call may print: a page of 100 PRs with their checks.
+	maxGraphQLBytes = 32 << 20
 )
 
 // Exec runs gh with args and answers what it printed. A test passes its own.
@@ -43,7 +43,7 @@ func (e *Error) Unwrap() error { return e.Err }
 // Run runs gh with args, with a time limit and a cap on its output.
 func Run(ctx context.Context, args []string) (string, error) {
 	result := run.Cmd(ctx, "gh", args, run.Opts{
-		Dir: "", Timeout: timeout, OutputBytesMax: outputBytesMax, Stdin: "", Env: nil,
+		Dir: "", Timeout: timeout, MaxOutputBytes: maxOutputBytes, Stdin: "", Env: nil,
 	})
 	if result.Err == nil {
 		return result.Stdout, nil
@@ -58,7 +58,7 @@ func Run(ctx context.Context, args []string) (string, error) {
 // On a failure the output is returned beside the error.
 func GraphQL(ctx context.Context, args []string) (string, error) {
 	result := run.Cmd(ctx, "gh", args, run.Opts{
-		Dir: "", Timeout: graphqlTimeout, OutputBytesMax: graphqlBytesMax, Stdin: "", Env: nil,
+		Dir: "", Timeout: graphqlTimeout, MaxOutputBytes: maxGraphQLBytes, Stdin: "", Env: nil,
 	})
 	if result.Err == nil {
 		return result.Stdout, nil
@@ -72,7 +72,7 @@ func GraphQL(ctx context.Context, args []string) (string, error) {
 // carries errors (one organization's SAML rule) still prints the PRs that did resolve.
 func Large(ctx context.Context, args []string) (string, error) {
 	result := run.Cmd(ctx, "gh", args, run.Opts{
-		Dir: "", Timeout: timeout, OutputBytesMax: graphqlBytesMax, Stdin: "", Env: nil,
+		Dir: "", Timeout: timeout, MaxOutputBytes: maxGraphQLBytes, Stdin: "", Env: nil,
 	})
 	if result.Err == nil {
 		return result.Stdout, nil
@@ -89,5 +89,5 @@ func Message(result run.Result) string {
 		message = result.Err.Error()
 	}
 
-	return js.Slice(message, errorShownMax)
+	return js.Slice(message, maxErrorShown)
 }

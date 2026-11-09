@@ -25,9 +25,9 @@ import (
 // and how many index entries are read.
 const (
 	Timeout         = 10 * time.Second
-	IndexBytesMax   = 512 * kibibyte
-	ThemeBytesMax   = theme.ManifestBytesMax
-	IndexEntriesMax = 500
+	MaxIndexBytes   = 512 * kibibyte
+	MaxThemeBytes   = theme.MaxManifestBytes
+	MaxIndexEntries = 500
 
 	kibibyte = 1024
 	rawHost  = "https://raw.githubusercontent.com/"
@@ -109,9 +109,9 @@ func (g *Gallery) client() *http.Client {
 }
 
 // get is one GET and its body as text, all under one deadline. An error status's body is never
-// read; a declared length over bytesMax is refused unread, and a body is cut off the moment it
-// passes bytesMax. The error is errTimedOut when the deadline passed.
-func (g *Gallery) get(ctx context.Context, url string, bytesMax int64) (got, error) {
+// read; a declared length over maxBytes is refused unread, and a body is cut off the moment it
+// passes maxBytes. The error is errTimedOut when the deadline passed.
+func (g *Gallery) get(ctx context.Context, url string, maxBytes int64) (got, error) {
 	ctx, cancel := context.WithTimeoutCause(ctx, g.deps.Timeout, errTimedOut)
 	defer cancel()
 
@@ -137,16 +137,16 @@ func (g *Gallery) get(ctx context.Context, url string, bytesMax int64) (got, err
 		return got{ok: false, status: response.StatusCode}, nil
 	}
 
-	if response.ContentLength > bytesMax {
+	if response.ContentLength > maxBytes {
 		return got{ok: true, status: response.StatusCode, tooBig: true}, nil
 	}
 
-	data, err := io.ReadAll(io.LimitReader(response.Body, bytesMax+1))
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
 	if err != nil {
 		return got{}, timedOut(ctx, err)
 	}
 
-	if int64(len(data)) > bytesMax {
+	if int64(len(data)) > maxBytes {
 		return got{ok: true, status: response.StatusCode, tooBig: true}, nil
 	}
 
@@ -179,7 +179,7 @@ func (g *Gallery) fetchIndex(ctx context.Context, base themes.Base) (Index, stri
 		return Index{}, "The theme index repo is not a GitHub owner/repo name"
 	}
 
-	reply, err := g.get(ctx, rawHost+g.deps.Repo+"/main/index.json", IndexBytesMax)
+	reply, err := g.get(ctx, rawHost+g.deps.Repo+"/main/index.json", MaxIndexBytes)
 	if errors.Is(err, errTimedOut) {
 		return Index{}, "The theme index timed out after " + seconds()
 	}
@@ -193,7 +193,7 @@ func (g *Gallery) fetchIndex(ctx context.Context, base themes.Base) (Index, stri
 	}
 
 	if reply.tooBig {
-		return Index{}, "The theme index is larger than " + kb(IndexBytesMax)
+		return Index{}, "The theme index is larger than " + kb(MaxIndexBytes)
 	}
 
 	parsed, err := js.Parse([]byte(reply.body))
@@ -210,7 +210,7 @@ func (g *Gallery) fetchIndex(ctx context.Context, base themes.Base) (Index, stri
 	seen := map[string]bool{}
 
 	// Entries past the cap are dropped unread.
-	for _, raw := range listed[:min(len(listed), IndexEntriesMax)] {
+	for _, raw := range listed[:min(len(listed), MaxIndexEntries)] {
 		entry, keep := keepEntry(raw, base, seen)
 		if keep {
 			kept = append(kept, entry)

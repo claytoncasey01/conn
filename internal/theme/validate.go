@@ -12,26 +12,26 @@ import (
 
 // Limits on a manifest's text fields, lists and values.
 const (
-	nameUnitsMax        = 80
-	versionUnitsMax     = 40
-	authorUnitsMax      = 200
-	licenseUnitsMax     = 100
-	descriptionUnitsMax = 1000
-	valueUnitsMax       = 300
-	variantNameUnitsMax = 40
-	variantsMax         = 8
-	fontsMax            = 8
-	effectsMax          = 8
-	optionUnitsMax      = 64
-	shadowLayersMax     = 4
-	shadowLengthsMin    = 2
-	shadowLengthsMax    = 4
-	shadowPxMax         = 64
-	familiesMax         = 8
-	modesMax            = 2
+	maxNameUnits        = 80
+	maxVersionUnits     = 40
+	maxAuthorUnits      = 200
+	maxLicenseUnits     = 100
+	maxDescriptionUnits = 1000
+	maxValueUnits       = 300
+	maxVariantNameUnits = 40
+	maxVariants         = 8
+	maxFonts            = 8
+	maxEffects          = 8
+	maxOptionUnits      = 64
+	maxShadowLayers     = 4
+	minShadowLengths    = 2
+	maxShadowLengths    = 4
+	maxShadowPx         = 64
+	maxFamilies         = 8
+	maxModes            = 2
 
-	// shownUnitsMax is how much of a name from the file a message quotes.
-	shownUnitsMax = 40
+	// maxShownUnits is how much of a name from the file a message quotes.
+	maxShownUnits = 40
 
 	remPx = 16
 )
@@ -69,7 +69,7 @@ type Context struct {
 }
 
 // show quotes a name from the file, clipped.
-func show(text string) string { return js.QuoteClip(text, shownUnitsMax) }
+func show(text string) string { return js.QuoteClip(text, maxShownUnits) }
 
 // validator gathers a manifest's problems, in the order validateManifest finds them.
 type validator struct {
@@ -90,9 +90,9 @@ func (v *validator) fail(problem string) { v.errors = append(v.errors, problem) 
 
 // ParseManifest reads theme.json text and validates it. The errors are empty when it passed.
 func ParseManifest(text string, context Context) (Manifest, []string) {
-	if len(text) > ManifestBytesMax {
+	if len(text) > MaxManifestBytes {
 		return Manifest{}, []string{
-			"theme.json is larger than " + strconv.Itoa(ManifestBytesMax/kibibyte) + " KB",
+			"theme.json is larger than " + strconv.Itoa(MaxManifestBytes/kibibyte) + " KB",
 		}
 	}
 
@@ -118,11 +118,11 @@ func ValidateManifest(raw any, context Context) (Manifest, []string) {
 		ID: check.id(object, context),
 	}
 
-	manifest.Name = check.text(object, "name", nameUnitsMax, true)
-	manifest.Version = check.text(object, "version", versionUnitsMax, true)
-	manifest.Author = check.text(object, "author", authorUnitsMax, false)
-	manifest.License = check.text(object, "license", licenseUnitsMax, false)
-	manifest.Description = check.text(object, "description", descriptionUnitsMax, false)
+	manifest.Name = check.text(object, "name", maxNameUnits, true)
+	manifest.Version = check.text(object, "version", maxVersionUnits, true)
+	manifest.Author = check.text(object, "author", maxAuthorUnits, false)
+	manifest.License = check.text(object, "license", maxLicenseUnits, false)
+	manifest.Description = check.text(object, "description", maxDescriptionUnits, false)
 	manifest.Modes = check.modes(object)
 	manifest.Accent = check.accent(object)
 	manifest.Fonts = check.fonts(object)
@@ -162,7 +162,7 @@ func (v *validator) id(object *js.Object, context Context) string {
 	return given
 }
 
-func (v *validator) text(object *js.Object, key string, unitsMax int, required bool) string {
+func (v *validator) text(object *js.Object, key string, maxUnits int, required bool) string {
 	raw, _ := object.Get(key)
 
 	value, ok := raw.(string)
@@ -178,8 +178,8 @@ func (v *validator) text(object *js.Object, key string, unitsMax int, required b
 		}
 	}
 
-	if js.Len(value) > unitsMax {
-		v.fail(key + " is longer than " + strconv.Itoa(unitsMax) + " characters")
+	if js.Len(value) > maxUnits {
+		v.fail(key + " is longer than " + strconv.Itoa(maxUnits) + " characters")
 	}
 
 	return value
@@ -211,7 +211,7 @@ func modeList(list []any) ([]string, bool) {
 		return nil, false
 	}
 
-	if len(list) > modesMax {
+	if len(list) > maxModes {
 		return nil, false
 	}
 
@@ -286,7 +286,7 @@ func variantList(raw any) ([]any, bool) {
 		return nil, false
 	}
 
-	return list, len(list) <= variantsMax
+	return list, len(list) <= maxVariants
 }
 
 func (v *validator) variant(item any, index int, before []Variant) (Variant, bool) {
@@ -331,7 +331,7 @@ func variantName(item any) (string, bool) {
 		return "", false
 	}
 
-	return name, js.Len(name) <= variantNameUnitsMax
+	return name, js.Len(name) <= maxVariantNameUnits
 }
 
 func (v *validator) fonts(object *js.Object) []string {
@@ -344,7 +344,7 @@ func (v *validator) fonts(object *js.Object) []string {
 		return []string{}
 	}
 
-	if len(list) > fontsMax {
+	if len(list) > maxFonts {
 		v.fail("fonts must be a list of at most 8 names")
 
 		return []string{}
@@ -461,13 +461,13 @@ func (v *validator) effects(object *js.Object) []Effect {
 		return []Effect{}
 	}
 
-	if len(list) > effectsMax {
+	if len(list) > maxEffects {
 		v.fail("effects lists more than 8")
 	}
 
 	effects := []Effect{}
 
-	for _, item := range list[:min(len(list), effectsMax)] {
+	for _, item := range list[:min(len(list), maxEffects)] {
 		effect, ok := v.effect(item)
 		if ok {
 			effects = append(effects, effect)
@@ -569,7 +569,7 @@ func optionValue(value any) bool {
 	case bool:
 		return true
 	case string:
-		if js.Len(typed) > optionUnitsMax {
+		if js.Len(typed) > maxOptionUnits {
 			return false
 		}
 
@@ -586,7 +586,7 @@ func valueProblem(slot Slot, value string) string {
 		return "contains " + show(bad)
 	}
 
-	if js.Len(value) > valueUnitsMax {
+	if js.Len(value) > maxValueUnits {
 		return "is too long"
 	}
 
@@ -763,7 +763,7 @@ func shadowProblem(value string) string {
 		return "needs 1 to 4 shadows"
 	}
 
-	if len(layers) > shadowLayersMax {
+	if len(layers) > maxShadowLayers {
 		return "needs 1 to 4 shadows"
 	}
 
@@ -819,19 +819,19 @@ func layerShape(inset, colors int, lengths []float64) string {
 		return "each shadow needs exactly one color"
 	}
 
-	if len(lengths) < shadowLengthsMin {
+	if len(lengths) < minShadowLengths {
 		return "each shadow needs 2 to 4 lengths"
 	}
 
-	if len(lengths) > shadowLengthsMax {
+	if len(lengths) > maxShadowLengths {
 		return "each shadow needs 2 to 4 lengths"
 	}
 
 	beyond := slices.ContainsFunc(lengths, func(px float64) bool {
-		return math.Abs(px) > shadowPxMax
+		return math.Abs(px) > maxShadowPx
 	})
 	if beyond {
-		return "a length is beyond " + strconv.Itoa(shadowPxMax) + "px"
+		return "a length is beyond " + strconv.Itoa(maxShadowPx) + "px"
 	}
 
 	const blurIndex = 2
@@ -852,7 +852,7 @@ func fontProblem(slot Slot, value string) string {
 		return "needs 1 to 8 families"
 	}
 
-	if len(parts) > familiesMax {
+	if len(parts) > maxFamilies {
 		return "needs 1 to 8 families"
 	}
 

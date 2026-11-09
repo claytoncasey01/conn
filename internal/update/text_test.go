@@ -179,7 +179,7 @@ func TestFailureReason(t *testing.T) {
 	t.Parallel()
 
 	noRelease := "GitHub's answer did not name a release."
-	tooLong := update.Evaluate("v1.0.0", longTag(update.TagBytesMax+1), nil).Err
+	tooLong := update.Evaluate("v1.0.0", longTag(update.MaxTagBytes+1), nil).Err
 
 	tests := []struct {
 		name string

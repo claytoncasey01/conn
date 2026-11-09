@@ -22,8 +22,8 @@ const (
 	exitCodeUnknown = -1
 	// exitCodeSignalBase is added to the signal that ended a program, as a shell reports it.
 	exitCodeSignalBase = 128
-	// hostOpenAttemptsMax bounds the tries at opening /dev/ptmx, and openRetryPause spaces them.
-	hostOpenAttemptsMax = 8
+	// maxHostOpenAttempts bounds the tries at opening /dev/ptmx, and openRetryPause spaces them.
+	maxHostOpenAttempts = 8
 	openRetryPause      = time.Millisecond
 	// childMode is the program side's permissions: read and write for its owner only.
 	childMode = 0o600
@@ -75,7 +75,7 @@ func Spawn(requested Spec) (Process, error) {
 
 // startOn sizes the new terminal and starts spec's program on it.
 func startOn(spec Spec, hostSide, childSide *os.File) (*exec.Cmd, error) {
-	err := setSize(hostSide, Size{Columns: columnsDefault, Rows: rowsDefault})
+	err := setSize(hostSide, Size{Columns: defaultColumns, Rows: defaultRows})
 	if err != nil {
 		return nil, err
 	}
@@ -335,12 +335,12 @@ func finishTerminal(hostDescriptor, childDescriptor int, path string) (*os.File,
 // openHostSide opens a new pseudo-terminal's host side, close-on-exec and not as a controlling
 // terminal for Conn. macOS sometimes refuses to open /dev/ptmx while another goroutine of the same
 // process forks (an odd errno, -6); a second attempt succeeds, so it tries up to
-// hostOpenAttemptsMax times, openRetryPause apart. Measured: 40 of 300 concurrent spawns needed a
+// maxHostOpenAttempts times, openRetryPause apart. Measured: 40 of 300 concurrent spawns needed a
 // second attempt, none a third; separate processes never collide.
 func openHostSide() (int, error) {
 	var err error
 
-	for attempt := range hostOpenAttemptsMax {
+	for attempt := range maxHostOpenAttempts {
 		if attempt > 0 {
 			time.Sleep(openRetryPause)
 		}

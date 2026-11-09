@@ -524,7 +524,7 @@ func (m *MyPrs) repliesOf(entry *Entry) (any, *Launch) {
 		return nil, nil
 	}
 
-	if len(content) > RepliesFileBytesMax {
+	if len(content) > MaxRepliesFileBytes {
 		return nil, nil
 	}
 
@@ -561,7 +561,7 @@ func (m *MyPrs) askRounds() {
 // success the launch records the head and the time and is disarmed. Each try is saved on the
 // launch before the call, since a failure (gh gives up after 30 s) may be a comment GitHub took:
 // a later list with a comment of mine made since the try settles the round without posting, a
-// failed try is made again no sooner than a minute later, and after AskTriesMax for one head
+// failed try is made again no sooner than a minute later, and after MaxAskTries for one head
 // nothing more is posted for it.
 func (m *MyPrs) askOne(key string, pull *PR, entry *Entry) {
 	if entry == nil {
@@ -725,7 +725,7 @@ func (m *MyPrs) askIfDue(key string, pull *PR, launch *Launch, tried *AskTry,
 	}
 
 	if tried != nil {
-		if tried.Tries >= AskTriesMax {
+		if tried.Tries >= MaxAskTries {
 			return
 		}
 	}

@@ -10,20 +10,20 @@ import (
 
 // The look can lay color under text: a card's wash, a glass card over the page, the backdrop's
 // pattern and orbs. tx and mu are measured over the worst of each: the strongest wash any card
-// paints (WashMax of its state color) and the page where the pattern's line and the strongest
-// orb meet (an orb is at most OrbMax of its hue).
+// paints (MaxWash of its state color) and the page where the pattern's line and the strongest
+// orb meet (an orb is at most MaxOrb of its hue).
 const (
-	WashMax = 0.16
-	OrbMax  = 0.22
+	MaxWash = 0.16
+	MaxOrb  = 0.22
 
 	glassAlpha  = 0.55
 	bloomShare  = 0.2
 	fixedPlaces = 2
 
 	// The least contrast text, muted text and the strong line need.
-	textContrastMin  = 4.5
-	mutedContrastMin = 3
-	lineContrastMin  = 1.5
+	minTextContrast  = 4.5
+	minMutedContrast = 3
+	minLineContrast  = 1.5
 
 	// How strong an orb is, and how strongly the backdrop's pattern draws its line.
 	orbSoft      = 0.5
@@ -50,12 +50,12 @@ var varReference = regexp.MustCompile(`var\(--([a-z-]+)\)`)
 func minimum(name string) float64 {
 	switch name {
 	case slotLine2:
-		return lineContrastMin
+		return minLineContrast
 	case slotMu:
-		return mutedContrastMin
+		return minMutedContrast
 	}
 
-	return textContrastMin
+	return minTextContrast
 }
 
 // pair is a token measured on a surface.
@@ -272,7 +272,7 @@ func gate(tokens map[string]string, mode, where string) []string {
 func paint(read func(string) (RGBA, bool), mode string) surfaces {
 	floor := RGBA{R: 0, G: 0, B: 0, A: 1}
 	if mode == ModeLight {
-		floor = RGBA{R: channelMax, G: channelMax, B: channelMax, A: 1}
+		floor = RGBA{R: maxChannel, G: maxChannel, B: maxChannel, A: 1}
 	}
 
 	var surface surfaces
@@ -432,7 +432,7 @@ func lookContrast(tokens map[string]string, where string, read func(string) (RGB
 
 			washed := make([]RGBA, 0, len(ons))
 			for _, on := range ons {
-				washed = append(washed, Composite(withAlpha(color, WashMax), on))
+				washed = append(washed, Composite(withAlpha(color, MaxWash), on))
 			}
 
 			measure.check(washed, "the strongest card wash ("+name+")")
@@ -504,7 +504,7 @@ func (l *look) pages(page RGBA) []RGBA {
 		label := backdrop
 
 		if orb > 0 {
-			lit = Composite(withAlpha(color, OrbMax*orb), page)
+			lit = Composite(withAlpha(color, MaxOrb*orb), page)
 			label += ", " + name + " orb"
 		}
 

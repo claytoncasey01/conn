@@ -51,7 +51,7 @@ func (r *Reviews) plan(now float64, current settings.Settings) *scanPlan {
 	})
 
 	keys := []string{}
-	for _, item := range unmatched[:min(len(unmatched), unmatchedMax)] {
+	for _, item := range unmatched[:min(len(unmatched), maxUnmatched)] {
 		keys = append(keys, item.key)
 	}
 
@@ -439,7 +439,7 @@ func (r *Reviews) track(key string, pull *PR, found *Found, now float64) {
 func (r *Reviews) remember(key string, now float64, slack *FoundSlack, direct *FoundDM) {
 	have, found := r.file.Found.Get(key)
 	if !found {
-		if r.file.Found.Len() >= FoundMax {
+		if r.file.Found.Len() >= MaxFound {
 			return
 		}
 

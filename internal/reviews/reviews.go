@@ -57,8 +57,8 @@ const (
 	OpenLimit = 200
 	// FetchPerScan is the most PRs a scan named that are read from GitHub per scan.
 	FetchPerScan = 30
-	// unmatchedMax is the most PRs without a post named in one scan prompt.
-	unmatchedMax = 40
+	// maxUnmatched is the most PRs without a post named in one scan prompt.
+	maxUnmatched = 40
 	// cloneTTLMs is how long a clone lookup's answer is kept.
 	cloneTTLMs = 10_000
 	// signedOutDelayMaxMs is the longest a signed-out Slack waits before it is asked again.

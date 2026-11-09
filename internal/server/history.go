@@ -60,7 +60,7 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request, urlPath string)
 
 // historyBody is a POST body: the first 64 KB or so, read as a JSON object, else {}.
 func historyBody(r *http.Request) *js.Object {
-	data, err := io.ReadAll(io.LimitReader(r.Body, bodyBytesMax))
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
 	if err != nil {
 		return js.NewObject()
 	}

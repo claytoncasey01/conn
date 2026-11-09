@@ -362,7 +362,7 @@ func (w *Work) targetsNow(chosen []string) []Target {
 	current := w.settings()
 	all := BuildTargets(current, w.seen(), w.deps.CloneFor, DefaultBranch)
 
-	for _, name := range chosen[:min(len(chosen), legsMax)] {
+	for _, name := range chosen[:min(len(chosen), maxLegs)] {
 		if slices.ContainsFunc(all, func(each Target) bool {
 			return js.Lower(each.Repo) == js.Lower(name)
 		}) {

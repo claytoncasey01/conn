@@ -1,5 +1,5 @@
 // Package guard checks the repository's own tracked files, as tests: no organization names
-// anywhere, and no compound conditions in the Go code.
+// anywhere.
 //
 // No tracked file, and no tracked file name, may hold a name of the organization a checkout is
 // used at: company values are settings, chosen on first launch. The names are the person's own
@@ -28,9 +28,9 @@ import (
 // self is this file, which names the list's syntax and so is never scanned for terms.
 const self = "internal/guard/guard_internal_test.go"
 
-// trackedFilesMin is fewer files than the repository has ever had: a listing this short means git
+// minTrackedFiles is fewer files than the repository has ever had: a listing this short means git
 // did not really list them.
-const trackedFilesMin = 100
+const minTrackedFiles = 100
 
 var (
 	errEmptyExpression = errors.New("an empty re: term")
@@ -198,7 +198,7 @@ func tracked(t *testing.T, dir string) []string {
 		return f == ""
 	})
 
-	if len(files) < trackedFilesMin {
+	if len(files) < minTrackedFiles {
 		t.Fatalf("the tracked files were not listed (%d)", len(files))
 	}
 

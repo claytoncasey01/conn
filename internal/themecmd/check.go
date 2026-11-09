@@ -288,10 +288,10 @@ func judgeFolder(each target, base themes.Base) verdict {
 	case themes.MarkerAbsent:
 	}
 
-	data, why := shelf.Read(name, themes.ManifestFile, theme.ManifestBytesMax)
+	data, why := shelf.Read(name, themes.ManifestFile, theme.MaxManifestBytes)
 	if why != themes.Read {
 		return verdict{
-			problems: []string{"theme.json: " + readProblem(why, theme.ManifestBytesMax)},
+			problems: []string{"theme.json: " + readProblem(why, theme.MaxManifestBytes)},
 		}
 	}
 
@@ -322,7 +322,7 @@ func judgeStyle(judged verdict, each target, gallery bool) verdict {
 		return judged
 	}
 
-	_, why := each.shelf.Read(each.name, themes.StyleFile, theme.CSSBytesMax)
+	_, why := each.shelf.Read(each.name, themes.StyleFile, theme.MaxCSSBytes)
 
 	switch why {
 	case themes.Read:
@@ -332,18 +332,18 @@ func judgeStyle(judged verdict, each target, gallery bool) verdict {
 		}
 	case themes.Missing:
 	case themes.TooBig, themes.NotFile, themes.Unreadable:
-		judged.problems = append(judged.problems, "theme.css: "+readProblem(why, theme.CSSBytesMax))
+		judged.problems = append(judged.problems, "theme.css: "+readProblem(why, theme.MaxCSSBytes))
 	}
 
 	return judged
 }
 
-func readProblem(why themes.Why, bytesMax int) string {
+func readProblem(why themes.Why, maxBytes int) string {
 	switch why {
 	case themes.Missing:
 		return "is missing"
 	case themes.TooBig:
-		return "is larger than " + kb(bytesMax)
+		return "is larger than " + kb(maxBytes)
 	case themes.NotFile:
 		return "is not a regular file, so it was not read"
 	case themes.Read, themes.Unreadable:

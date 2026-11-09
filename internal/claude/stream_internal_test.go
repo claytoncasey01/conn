@@ -128,8 +128,8 @@ func TestOutcomeCutsAReportedError(t *testing.T) {
 	reading := readAll(Opts{}, `{"type":"result","is_error":true,"result":"`+long+`"}`)
 
 	_, err := outcome(reading.final, Opts{}, "0", "")
-	if len(err.Error()) != reportedShownMax {
-		t.Errorf("len(error) = %d, want %d", len(err.Error()), reportedShownMax)
+	if len(err.Error()) != maxReportedShown {
+		t.Errorf("len(error) = %d, want %d", len(err.Error()), maxReportedShown)
 	}
 }
 
@@ -209,7 +209,7 @@ func TestLineWriterSplitsLinesAndSkipsOverlongOnes(t *testing.T) {
 
 	_, _ = writer.Write([]byte("one\ntw"))
 	_, _ = writer.Write([]byte("o\n"))
-	_, _ = writer.Write([]byte(strings.Repeat("x", lineBytesMax)))
+	_, _ = writer.Write([]byte(strings.Repeat("x", maxLineBytes)))
 	_, _ = writer.Write([]byte("y\nthree"))
 	writer.flush()
 

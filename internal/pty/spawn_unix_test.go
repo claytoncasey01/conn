@@ -45,11 +45,11 @@ const (
 // program opens itself, so the two cannot be taken for each other.
 const rawDescriptorLowest = 200
 
-// descriptorsScanMax is how many descriptors the helper looks at.
-const descriptorsScanMax = 1024
+// maxDescriptorsScan is how many descriptors the helper looks at.
+const maxDescriptorsScan = 1024
 
-// readsMax bounds the reads of one spawned program's output.
-const readsMax = 1024
+// maxReads bounds the reads of one spawned program's output.
+const maxReads = 1024
 
 // TestHelperProcess is not a test: started by helperArgs, it is a small program the real
 // spawner's tests run on a terminal. It prints its answer, then waits for a line of input, so it
@@ -129,7 +129,7 @@ func helperMode(args []string) string {
 func printTerminalDescriptors() {
 	count := 0
 
-	for descriptor := 3; descriptor < descriptorsScanMax; descriptor++ {
+	for descriptor := 3; descriptor < maxDescriptorsScan; descriptor++ {
 		var status unix.Stat_t
 
 		err := unix.Fstat(descriptor, &status)
@@ -439,7 +439,7 @@ func readThrough(t *testing.T, process pty.Process) string {
 
 	buffer := make([]byte, pty.ReadBufferBytes)
 
-	for range readsMax {
+	for range maxReads {
 		count, err := process.Read(buffer)
 		output = append(output, buffer[:count]...)
 

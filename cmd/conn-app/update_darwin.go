@@ -13,10 +13,10 @@ import (
 	"github.com/claytoncasey01/conn/internal/update"
 )
 
-// updateEventsMax is how many checks may wait to be told while the main thread is busy. A check
+// maxUpdateEvents is how many checks may wait to be told while the main thread is busy. A check
 // runs at most once a day plus once per ask, so a full queue means the screen is stuck, and a
 // further result is dropped rather than letting update.Run wait for the screen.
-const updateEventsMax = 4
+const maxUpdateEvents = 4
 
 // runUpdates checks for a newer release until ctx ends, or hides the menu item when the check
 // is off. It runs after the login shell's environment is set, because the check reads the
@@ -34,7 +34,7 @@ func (s *shell) runUpdates(ctx context.Context, lookup config.LookupFunc) {
 	base := update.BaseFrom(raw)
 	client := update.NewClient()
 	current := conn.Version()
-	events := make(chan update.Event, updateEventsMax)
+	events := make(chan update.Event, maxUpdateEvents)
 
 	go s.tellUpdates(ctx, events, current)
 

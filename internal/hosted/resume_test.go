@@ -91,8 +91,8 @@ func TestResume(t *testing.T) {
 			1,
 		},
 		{
-			"500 records", manyRecords(recordsTried), specsOf(manyRecords(hosted.RecordsMax())),
-			recordsTried - hosted.RecordsMax(),
+			"500 records", manyRecords(recordsTried), specsOf(manyRecords(hosted.MaxRecords())),
+			recordsTried - hosted.MaxRecords(),
 		},
 	}
 
