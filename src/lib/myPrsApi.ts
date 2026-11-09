@@ -1,15 +1,16 @@
 // The My PRs REFRESH request. Not post() in live.svelte.ts: the answer carries the press number the page waits on (as reviewsApi.ts does).
+import { withAdvisor, type AdvisorPick } from './advisor.ts'
 import { api } from './api.ts'
 import { parseEntryAction } from './entryAction.ts'
 import type { ReviewStartResult } from './reviewsApi.ts'
 
 /** SELF-REVIEW or RE-REVIEW: start a round for one PR. A launch whose session did not start (or opens as a command) is HTTP 200 {ok:false, error, manualCommand}, so the body is read. Never throws. */
-export async function startSelf(repo: string, number: number, model: 'sonnet' | 'opus'): Promise<ReviewStartResult> {
+export async function startSelf(repo: string, number: number, model: 'sonnet' | 'opus', advisor: AdvisorPick = ''): Promise<ReviewStartResult> {
   try {
     const r = await api('/api/myprs/start', {
       method: 'POST',
       headers: { 'x-conn': '1', 'content-type': 'application/json' },
-      body: JSON.stringify({ repo, number, model }),
+      body: JSON.stringify(withAdvisor({ repo, number, model }, advisor)),
     })
     const { ok, error, manualCommand } = parseEntryAction(r.status, await r.json().catch(() => null))
     return { ok, ...(error && { error }), ...(manualCommand && { manualCommand }) }

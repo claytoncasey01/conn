@@ -58,6 +58,11 @@ test('a start sends the name only when one was typed, trimmed', () => {
   assert.deepEqual(startBody('acme/widgets', ' fix it '), { repo: 'acme/widgets', name: 'fix it' })
 })
 
+test('a start sends the advisor only when one was picked: Settings’ choice is the server’s to fill in', () => {
+  assert.deepEqual(startBody('acme/widgets', '', ''), { repo: 'acme/widgets' })
+  assert.deepEqual(startBody('acme/widgets', 'fix', 'fable'), { repo: 'acme/widgets', name: 'fix', advisor: 'fable' })
+})
+
 test('the empty page points at New session only while sessions open inside Conn', () => {
   assert.equal(emptyHint('inside'), 'new-session')
   assert.equal(emptyHint('terminal'), 'terminal')

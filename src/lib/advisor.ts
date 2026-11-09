@@ -22,3 +22,14 @@ export const advisorOf = (v: unknown): AdvisorChoice => (VALUES.includes(v) ? (v
 
 /** A choice's label; the default's for anything else. */
 export const advisorLabel = (v: unknown): string => ADVISOR_CHOICES.find((c) => c.value === advisorOf(v))!.label
+
+/** What a start picks for its one session: a choice, or '' for Settings' choice, which the server fills in (nothing is sent). */
+export type AdvisorPick = AdvisorChoice | ''
+
+/** What a start's picker offers: Settings' choice first, then each choice. */
+export const ADVISOR_PICKS: readonly { value: AdvisorPick; label: string }[] = [{ value: '', label: 'As in Settings' }, ...ADVISOR_CHOICES]
+
+/** body with the advisor a start picked; unchanged for Settings' choice, so an older server is sent nothing it does not read. */
+export function withAdvisor<T extends object>(body: T, pick: AdvisorPick): T | (T & { advisor: AdvisorChoice }) {
+  return pick === '' ? body : { ...body, advisor: pick }
+}

@@ -56,3 +56,8 @@ test('START sends the repositories in order, and the layout only when there are 
   assert.deepEqual(startBody('haiku', false, ['acme/widgets'], 'split'), { model: 'haiku', force: undefined, repos: ['acme/widgets'] })
   assert.deepEqual(startBody('sonnet', true, ['acme/widgets', 'acme/gadgets'], 'split'), { model: 'sonnet', force: true, repos: ['acme/widgets', 'acme/gadgets'], layout: 'split' })
 })
+
+test('START sends the advisor only when one was picked', () => {
+  assert.deepEqual(startBody('haiku', false, ['acme/widgets'], 'shared', ''), { model: 'haiku', force: undefined, repos: ['acme/widgets'] })
+  assert.deepEqual(startBody('haiku', false, ['acme/widgets'], 'shared', 'opus'), { model: 'haiku', force: undefined, repos: ['acme/widgets'], advisor: 'opus' })
+})

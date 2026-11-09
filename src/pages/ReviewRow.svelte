@@ -3,6 +3,8 @@
   import { dur } from '../lib/format.ts'
   import { safeUrl } from '../lib/reviewGroups.ts'
   import { loadModel, saveModel, startReview } from '../lib/reviewsApi.ts'
+  import AdvisorPick from '../lib/AdvisorPick.svelte'
+  import type { AdvisorPick as Pick } from '../lib/advisor.ts'
   import type { ReviewRow, ReviewState } from '../lib/types.ts'
 
   // Everything in `row` came from GitHub or Slack: it is only ever shown as text, and a link is used only when it is https.
@@ -20,6 +22,8 @@
     model = m
     saveModel(m)
   }
+  // The advisor for this one review: Settings' unless picked here, and not remembered
+  let advisor = $state<Pick>('')
 
   let copied = $state(false)
   let copyFailed = $state(false)
@@ -32,7 +36,7 @@
     started = false
     copied = false
     copyFailed = false
-    const r = await startReview(row.repo, row.number, model)
+    const r = await startReview(row.repo, row.number, model, advisor)
     busy = false
     if (r.ok) started = true
     else failure = { error: r.error ?? 'the review did not start', manualCommand: r.manualCommand }
@@ -123,6 +127,7 @@
           >{m.charAt(0).toUpperCase() + m.slice(1)}</button>
         {/each}
       </span>
+      <AdvisorPick bind:value={advisor} label="Advisor for PR {row.repo}#{row.number}" disabled={busy} />
       <button
         type="button"
         class="rb rb-go cap"

@@ -1,5 +1,6 @@
 // The REVIEW button's request, and the remembered model choice. Not post() in live.svelte.ts: a review whose session did not start (or opens as a command) is HTTP 200 {ok:false, error, manualCommand},
 // which post() would take for success, so the body is read here (the same parse as History's RESUME).
+import { withAdvisor, type AdvisorPick } from './advisor.ts'
 import { api } from './api.ts'
 import { parseEntryAction } from './entryAction.ts'
 
@@ -10,13 +11,13 @@ export interface ReviewStartResult {
   manualCommand?: string
 }
 
-/** REVIEW on PR `n` of `repo` (`owner/repo`; the server checks both). Never throws: a network failure is `{ ok: false, error }`. */
-export async function startReview(repo: string, n: number, model: 'sonnet' | 'opus'): Promise<ReviewStartResult> {
+/** REVIEW on PR `n` of `repo` (`owner/repo`; the server checks both), on the advisor picked ('' for Settings'). Never throws: a network failure is `{ ok: false, error }`. */
+export async function startReview(repo: string, n: number, model: 'sonnet' | 'opus', advisor: AdvisorPick = ''): Promise<ReviewStartResult> {
   try {
     const r = await api('/api/reviews/start', {
       method: 'POST',
       headers: { 'x-conn': '1', 'content-type': 'application/json' },
-      body: JSON.stringify({ repo, number: Math.trunc(n), model }),
+      body: JSON.stringify(withAdvisor({ repo, number: Math.trunc(n), model }, advisor)),
     })
     const { ok, error, manualCommand } = parseEntryAction(r.status, await r.json().catch(() => null))
     return { ok, ...(error && { error }), ...(manualCommand && { manualCommand }) }

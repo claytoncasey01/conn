@@ -7,6 +7,8 @@
   import { ignoredNote } from './threadPanel.ts'
   import { safeUrl } from './reviewGroups.ts'
   import { loadModel, saveModel } from './reviewsApi.ts'
+  import AdvisorPick from './AdvisorPick.svelte'
+  import type { AdvisorPick as Pick } from './advisor.ts'
   import type { MyPrRow, MyPrStatus } from './types.ts'
 
   // Everything in `row` came from GitHub: it is only ever shown as text, and a link is used only when it is https.
@@ -41,6 +43,8 @@
     model = m
     saveModel(m)
   }
+  // The advisor for this one round: Settings' unless picked here, and not remembered
+  let advisor = $state<Pick>('')
 
   let busy = $state(false)
   // What the row looked like when a press started a round: the note goes once the row no longer looks so
@@ -62,7 +66,7 @@
     copied = false
     copyFailed = false
     const at = { status: row.status, round: row.round }
-    const r = await startSelf(row.repo, row.number, model)
+    const r = await startSelf(row.repo, row.number, model, advisor)
     busy = false
     if (r.ok) started = at
     else failure = { error: r.error ?? 'the round did not start', manualCommand: r.manualCommand }
@@ -134,6 +138,7 @@
           >{m.charAt(0).toUpperCase() + m.slice(1)}</button>
         {/each}
       </span>
+      <AdvisorPick bind:value={advisor} label="Advisor for PR {row.number}" disabled={busy} />
       <button
         type="button"
         class="rb rb-go cap"

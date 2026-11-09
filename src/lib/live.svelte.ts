@@ -5,6 +5,7 @@ import { answerBody, parseAnswer, parseOk, type AnswerResult } from './ask.ts'
 import { parseEntryAction, type EntryActionResult } from './entryAction.ts'
 import { fetchEntry as readEntry } from './entry.ts'
 import { repoBody } from './runLegs.ts'
+import type { AdvisorChoice } from './advisor.ts'
 import type { AgentDetail, HistoryEntry, HistoryList, ResearchModel, RunLayout, SessionDetail, Snapshot, WorkList } from './types.ts'
 
 /**
@@ -148,7 +149,8 @@ export async function refreshWork(): Promise<ActionResult> {
   return r
 }
 
-export const startRun = (key: string, o: { model: ResearchModel; force?: boolean; repos: string[]; layout?: RunLayout }) => post(`/api/work/${key}/start`, o)
+export const startRun = (key: string, o: { model: ResearchModel; force?: boolean; repos: string[]; layout?: RunLayout; advisor?: AdvisorChoice }) =>
+  post(`/api/work/${key}/start`, o)
 export const answerRun = (key: string, answers: Record<string, string>) => post(`/api/runs/${key}/answers`, { answers })
 export const openPr = (key: string, repo?: string) => post(`/api/runs/${key}/pr`, repoBody(repo))
 export const cancelRun = (key: string) => post(`/api/runs/${key}/cancel`, {})

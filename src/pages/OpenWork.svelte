@@ -8,6 +8,8 @@
   import Brand from '../lib/Brand.svelte'
   import Nav from '../lib/Nav.svelte'
   import { loadChoice, preselect, saveChoice, startBody, toggleRepo } from '../lib/repoChoice.ts'
+  import AdvisorPick from '../lib/AdvisorPick.svelte'
+  import type { AdvisorPick as Pick } from '../lib/advisor.ts'
   import { runPrStatus } from '../lib/runLegs.ts'
   import type { ResearchModel, Run, RunLayout, RunState, Ticket, WorkBuild } from '../lib/types.ts'
 
@@ -122,6 +124,8 @@
   }
 
   let model = $state<ResearchModel>('haiku')
+  // The advisor of this run's build sessions: Settings' unless picked here, and not remembered
+  let advisor = $state<Pick>('')
   const MODELS: { id: ResearchModel; label: string; hint: string }[] = [
     { id: 'haiku', label: 'HAIKU', hint: 'fast, cheap sweep' },
     { id: 'sonnet', label: 'SONNET 5.5', hint: 'slower, deeper reading' },
@@ -201,7 +205,7 @@
     }
     step = 'working'
     startError = ''
-    const r = await startRun(t.key, startBody(model, force, chosenReady, layout))
+    const r = await startRun(t.key, startBody(model, force, chosenReady, layout, advisor))
     if (r.ok) {
       step = 'idle'
       location.hash = href.run(t.key)
@@ -493,6 +497,11 @@
                     </button>
                   {/each}
                 </div>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <div id="build-advisor" style="font-size: 10px; letter-spacing: calc(var(--tracking) * 1.1429); color: color-mix(in oklab, var(--mu) 85%, var(--panel))" class="cap">Build advisor</div>
+                <AdvisorPick bind:value={advisor} label="Advisor for the build sessions of {sel.key}" prefix="" disabled={step === 'working'} style="width: 100%" />
               </div>
 
               <!-- pipeline preview -->
