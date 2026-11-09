@@ -470,13 +470,13 @@ func TestCheckNameIsChecksRuleForTheName(t *testing.T) {
 		refused           bool
 	}{
 		{"a plain name", "fix the widget", false},
-		{"an emoji", "\U0001f469‍\U0001f4bb notes", false},
+		{"an emoji", "\U0001f469\u200d\U0001f4bb notes", false},
 		{"no name", "", true},
 		{"a NUL", "a\x00b", true},
 		{"an escape", "a\x1b[31mb", true},
 		{"a line break", "a\nb", true},
-		{"a bidi override", "a‮b", true},
-		{"a zero-width space", "a​b", true},
+		{"a bidi override", "a\u202eb", true},
+		{"a zero-width space", "a\u200bb", true},
 		{"bytes that are not UTF-8", "a\xffb", true},
 	}
 
