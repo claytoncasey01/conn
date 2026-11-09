@@ -127,8 +127,12 @@ program, an argument or a variable, and the server reads none: the repository is
 - Conn chooses the conversation id itself (a random UUID from `crypto/rand`), so the command is
   always exactly `claude --session-id <uuid>`, plus `--name <name>` when a name was given, run as
   a list of arguments with no shell. It opens where Settings say, like every other session.
-- The route needs the gate below, `x-conn: 1` and the page's own `Origin`: unlike the other
-  writes, a request with no `Origin` is refused, since a start runs a program. A second start in
+- The route needs the gate below, `x-conn: 1` and the page's own `Origin`: a request with no
+  `Origin` is refused, as for the Settings and agents-and-skills writes, the terminal's
+  background and Interrupt. The session actions (stop, reply, answer, terminal), History's
+  summary and RESUME, Reviews, My PRs, Open work and the theme gallery's writes take `x-conn: 1`
+  without requiring an `Origin` (a browser always sends one on a POST, and the gate refuses one
+  that is not this server's). A second start in
   the same repository within 10 seconds is refused, and so is a session inside Conn while 12 run
   or are starting. A dry run starts nothing.
 - Inside Conn the session is recorded as a History session on the id Conn chose. At the next
