@@ -680,7 +680,7 @@ func TestDSettingsStartAndClickRefused(t *testing.T) {
 			rig.scope(tt.change)
 
 			want := `{"error":` + dJSON(t, tt.why) + `}`
-			started := rig.m.Start(context.Background(), "acme/widgets", 7.0, "sonnet")
+			started := rig.m.Start(context.Background(), "acme/widgets", 7.0, "sonnet", nil)
 			dSame(t, "start code", started.Code, 409)
 			dSame(t, "start", dBody(started), want)
 
@@ -766,7 +766,7 @@ func TestDSettingsNoCloneCannotStart(t *testing.T) {
 	dSame(t, "canStart", row.CanStart, false)
 	dSame(t, "reason", row.Reason, why)
 
-	started := rig.m.Start(context.Background(), "acme/widgets", 7.0, "sonnet")
+	started := rig.m.Start(context.Background(), "acme/widgets", 7.0, "sonnet", nil)
 	dSame(t, "code", started.Code, 409)
 	dSame(t, "body", dBody(started), `{"error":`+dJSON(t, why)+`}`)
 	world.Change(func(w *World) { dSame(t, "launches", len(w.Launched), 0) })
@@ -805,7 +805,7 @@ func TestDSettingsDryRunCallsNothing(t *testing.T) {
 	})
 	dSame(t, "off", rig.m.Snapshot().Off, nil)
 
-	started := rig.m.Start(context.Background(), "acme/widgets", 7.0, "sonnet")
+	started := rig.m.Start(context.Background(), "acme/widgets", 7.0, "sonnet", nil)
 	dSame(t, "code", started.Code, 200)
 	dSame(t, "body", dBody(started), `{"ok":true,"dry":true}`)
 }
@@ -946,7 +946,7 @@ func TestDSettingsOnePatternFailing(t *testing.T) {
 	dSame(t, "not stamped", rig.entry(dTools).SeenAt, stamped)
 	dOnePatternRows(t, view)
 
-	started := rig.m.Start(context.Background(), "jane/tools", 5.0, "sonnet")
+	started := rig.m.Start(context.Background(), "jane/tools", 5.0, "sonnet", nil)
 	dSame(t, "start", dBody(started), `{"error":"jane/tools could not be searched `+
 		`(gh: HTTP 422): its PRs may be out of date"}`)
 	world.Change(func(w *World) { dSame(t, "launches", len(w.Launched), 0) })

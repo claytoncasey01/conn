@@ -140,8 +140,9 @@ func (r *dLaunchRig) launch(
 	t.Helper()
 
 	opts := reviews.LaunchOpts{
-		Repo: dRepo, Number: 412, BaseRef: "release/1.2", Model: "sonnet", Name: dName,
-		RepoPath: dClone, DataDir: "/data/conn", ReReviewSha: nil,
+		Repo: dRepo, Number: 412, BaseRef: "release/1.2", Model: "sonnet",
+		Advisor: "claude-code", Name: dName, RepoPath: dClone, DataDir: "/data/conn",
+		ReReviewSha: nil,
 	}
 	if change != nil {
 		change(&opts)

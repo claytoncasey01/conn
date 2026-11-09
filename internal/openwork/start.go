@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/settings"
@@ -98,12 +99,13 @@ func (w *Work) Start(key string, body *js.Object) Reply {
 }
 
 // choice is what a START chose: the repositories by name, in order (none: the default
-// repository), and the layout of their sessions; with the places a run may build now, which
-// the choice is checked against.
+// repository), the layout of their sessions and their advisor ("" when the START chose none);
+// with the places a run may build now, which the choice is checked against.
 type choice struct {
-	repos  []string
-	layout string
-	all    []Target
+	repos   []string
+	layout  string
+	advisor string
+	all     []Target
 }
 
 // namesIn are the repository names a START's body lists, its other entries left out; choiceOf
@@ -157,7 +159,12 @@ func (w *Work) choiceOf(body *js.Object) (choice, Reply, bool) {
 		}
 	}
 
-	return choice{repos: chosen, layout: layout, all: nil}, Reply{}, false
+	chosenAdvisor, isChoice := advisor.Requested(field(body, "advisor"))
+	if !isChoice {
+		return choice{}, badRequest("advisor must be " + advisor.List()), true
+	}
+
+	return choice{repos: chosen, layout: layout, advisor: chosenAdvisor, all: nil}, Reply{}, false
 }
 
 func modelOf(value any) string {
@@ -216,7 +223,7 @@ func (w *Work) startTicket(key, model string, had *Record, force bool, chose cho
 		return conflict(strings.Join(moved, " "))
 	}
 
-	record := w.newRecord(key, model, ticket, targets, chose.layout)
+	record := w.newRecord(key, model, ticket, targets, chose)
 	w.runs.Set(key, record)
 	w.log(record, logStatus, startedLine(record)+w.leftAsItWas(had, targets))
 	w.pipeline(record)
@@ -369,8 +376,9 @@ func text(ticket *js.Object, key string) string {
 }
 
 func (w *Work) newRecord(key, model string, ticket *js.Object, targets []Target,
-	layout string,
+	chose choice,
 ) *Record {
+	layout := chose.layout
 	now := w.now()
 	title := text(ticket, "title")
 
@@ -406,7 +414,7 @@ func (w *Work) newRecord(key, model string, ticket *js.Object, targets []Target,
 		StartedAt: now, UpdatedAt: now, JiraStatus: text(ticket, "status"),
 		Agents: newAgents(), Answered: []Answered{}, Questions: []*Question{}, Log: []LogLine{},
 		Error: nil, Brief: "", Desc: text(ticket, "desc"), TicketStatus: text(ticket, "status"),
-		TicketCategory: &category, Repos: legs, Layout: layout,
+		TicketCategory: &category, Repos: legs, Layout: layout, Advisor: chose.advisor,
 	}
 }
 

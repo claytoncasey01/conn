@@ -95,7 +95,7 @@ func bStart(t *testing.T, tab *myprs.MyPrs, repo string, number float64, model s
 ) reviews.Reply {
 	t.Helper()
 
-	return tab.Start(t.Context(), repo, number, model)
+	return tab.Start(t.Context(), repo, number, model, nil)
 }
 
 // bBody is a reply's body as JSON.

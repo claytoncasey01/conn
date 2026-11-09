@@ -76,6 +76,8 @@ type Scope struct {
 	GitHub       bool
 	Slack        bool
 	DraftChannel *string
+	// Advisor is the advisor a round's session starts with when the press chose none.
+	Advisor string
 }
 
 // offOf is why nothing is read: no allowlist (setup, or an empty one), or GitHub is off; "" when

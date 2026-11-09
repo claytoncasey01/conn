@@ -213,3 +213,13 @@ func ReadPRBody(path string) (string, bool, error) { return readPRBody(path) }
 
 // LegView is a leg as a run is served.
 func LegView(leg *Leg) *LegRun { return leg.view() }
+
+// AdvisorOf is the advisor key's build sessions would start with now.
+func AdvisorOf(work *Work, key string) string {
+	work.mu.Lock()
+	defer work.mu.Unlock()
+
+	record, _ := work.runs.Get(key)
+
+	return work.advisorOf(record)
+}

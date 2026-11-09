@@ -59,8 +59,9 @@ func (r *Reviews) Handle(ctx context.Context, route string, body *js.Object) (Re
 		repo, _ := body.Get("repo")
 		number, _ := body.Get("number")
 		model, _ := body.Get("model")
+		chosenAdvisor, _ := body.Get("advisor")
 
-		return r.Start(ctx, repo, number, model)
+		return r.Start(ctx, repo, number, model, chosenAdvisor)
 	}
 
 	return bad(codeNotFound, "not found"), nil

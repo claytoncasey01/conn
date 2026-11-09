@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/pty"
 )
@@ -102,14 +103,20 @@ func TestTheBuildSessionsArgvIsGolden(t *testing.T) {
 	gadgets := hostileLeg("acme/gadgets", folders[1])
 
 	one := hostileRecord("shared", widgets)
-	goldenSpec(t, "argv-build.json", base, openwork.LaunchSpec(goldenClaude, one, widgets))
+	goldenSpec(t, "argv-build.json", base,
+		openwork.LaunchSpec(goldenClaude, one, widgets, advisor.ClaudeCode))
 
 	shared := hostileRecord("shared", widgets, gadgets)
 	goldenSpec(t, "argv-build-shared.json", base,
-		openwork.LaunchSpec(goldenClaude, shared, widgets))
+		openwork.LaunchSpec(goldenClaude, shared, widgets, advisor.ClaudeCode))
 
 	split := hostileRecord("split", widgets, gadgets)
-	goldenSpec(t, "argv-build-split.json", base, openwork.LaunchSpec(goldenClaude, split, gadgets))
+	goldenSpec(t, "argv-build-split.json", base,
+		openwork.LaunchSpec(goldenClaude, split, gadgets, advisor.ClaudeCode))
+
+	// An advisor of its own: its settings go after the model, and nothing else moves.
+	goldenSpec(t, "argv-build-advisor.json", base,
+		openwork.LaunchSpec(goldenClaude, one, widgets, advisor.Fable))
 }
 
 // TestTheResumeSessionsArgvIsGolden: resumed on its conversation when the id is a UUID, and on
@@ -175,7 +182,8 @@ func TestNothingFromTheTicketOrTheFolderIsAnArgument(t *testing.T) {
 	record := hostileRecord("shared", lead, other)
 	resumed, _ := openwork.ResumeSpec(goldenClaude, record, lead)
 
-	for _, spec := range []pty.Spec{openwork.LaunchSpec(goldenClaude, record, lead), resumed} {
+	launched := openwork.LaunchSpec(goldenClaude, record, lead, advisor.Opus)
+	for _, spec := range []pty.Spec{launched, resumed} {
 		if spec.Dir != lead.Worktree {
 			t.Errorf("folder %q", spec.Dir)
 		}
@@ -192,7 +200,7 @@ func checkArguments(t *testing.T, spec pty.Spec, record *openwork.Record, reach 
 	hostile := []string{record.Title, record.Desc, record.Repos[0].Branch, record.Repos[0].Worktree}
 	options := []string{
 		"--name", "--model", "--append-system-prompt-file", "--permission-mode", "--resume",
-		"--add-dir", "--",
+		"--add-dir", "--settings", "--",
 	}
 
 	for index, argument := range spec.Argv[1:] {

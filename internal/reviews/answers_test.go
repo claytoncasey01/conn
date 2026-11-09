@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/claude"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/ghbudget"
@@ -524,9 +525,11 @@ func TestLaunchNamesMatchTheRecording(t *testing.T) {
 		check(t, "buildPrompt "+js.Stringify(row), outOrError(got, err), get(row, "out"))
 	}
 
+	// The recorded rows were made before the advisor: each runs Claude Code's own, which adds
+	// nothing (advisor_test.go has the choices that do).
 	for _, row := range section(t, data, "claudeArgs") {
 		got, err := reviews.ClaudeArgs(str(get(row, "name")), str(get(row, "model")),
-			cfg.ReviewNamePattern, strs(get(row, "disallowed")))
+			advisor.ClaudeCode, cfg.ReviewNamePattern, strs(get(row, "disallowed")))
 		check(t, "claudeArgs "+js.Stringify(row), outOrError(got, err), get(row, "out"))
 	}
 
@@ -617,7 +620,8 @@ func TestDryViewMatchesTheRecording(t *testing.T) {
 	check(t, "after", tab.Snapshot(), get(dry, "after"))
 
 	for _, row := range items(get(dry, "starts")) {
-		reply, err := tab.Start(t.Context(), get(row, "repo"), get(row, "n"), get(row, "model"))
+		reply, err := tab.Start(t.Context(), get(row, "repo"), get(row, "n"), get(row, "model"),
+			nil)
 		if err != nil {
 			t.Fatal(err)
 		}

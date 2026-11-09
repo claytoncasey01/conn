@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/launch"
@@ -326,6 +327,12 @@ func (t *task) finish() {
 }
 
 func (w *Work) settings() settings.Settings { return w.deps.Settings() }
+
+// advisorOf is the advisor record's build sessions start with: the one its START chose, else the
+// one Settings has now.
+func (w *Work) advisorOf(record *Record) string {
+	return advisor.Or(record.Advisor, w.settings().Sessions.Advisor)
+}
 
 func (w *Work) now() float64 { return w.deps.Now() }
 

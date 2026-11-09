@@ -100,7 +100,7 @@ func TestTwoClicksAtOnceLaunchOnce(t *testing.T) {
 	first := make(chan aStarted, 1)
 
 	go func() {
-		reply, err := tab.Start(t.Context(), worldRepo, "7", aSonnet)
+		reply, err := tab.Start(t.Context(), worldRepo, "7", aSonnet, nil)
 		first <- aStarted{reply: reply, err: err}
 	}()
 
@@ -133,8 +133,9 @@ func TestSuccessfulStartLaunchesAndSaves(t *testing.T) {
 	// The launch is made in the repo's own clone.
 	fakes.with(func(fakes *world) {
 		aEqual(t, "launches", fakes.launches, []reviews.LaunchOpts{{
-			Repo: worldRepo, Number: 7, BaseRef: "staging", Model: aOpus, Name: aName7,
-			RepoPath: aClone, DataDir: "", ReReviewSha: nil,
+			Repo: worldRepo, Number: 7, BaseRef: "staging", Model: aOpus,
+			Advisor: "claude-code", Name: aName7, RepoPath: aClone, DataDir: "",
+			ReReviewSha: nil,
 		}})
 	})
 	aEqual(t, "saved", aLaunches(t, fakes), []*reviews.Launch{{
@@ -296,7 +297,7 @@ func TestFailedOrThrowingLaunchLeavesStartFree(t *testing.T) {
 	})
 
 	thrown := aPanicked(func() {
-		_, _ = tab.Start(t.Context(), worldRepo, "7", aSonnet)
+		_, _ = tab.Start(t.Context(), worldRepo, "7", aSonnet, nil)
 	})
 	aEqual(t, "thrown", thrown, "boom")
 	// Nothing was saved, so a 409 now can only be the start still marked as running.

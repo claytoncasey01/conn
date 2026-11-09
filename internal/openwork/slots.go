@@ -398,7 +398,8 @@ func (w *Work) launchFresh(record *Record, slot *Leg) error {
 
 	w.resumedAt[slotKey(record, slot)] = w.now()
 	markLaunched(record, slot)
-	w.openWorkspace(w.held(), record, slot, LaunchSpec(w.deps.Claude, record, slot), "opened")
+	w.openWorkspace(w.held(), record, slot,
+		LaunchSpec(w.deps.Claude, record, slot, w.advisorOf(record)), "opened")
 
 	return nil
 }

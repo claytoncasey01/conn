@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"slices"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/repos"
 	"github.com/claytoncasey01/conn/internal/reviews"
@@ -77,7 +78,7 @@ func prOf(repo, number any) (string, float64, *reviews.Reply) {
 // else launches the next round. The origin of the clone must be the PR's repo, so a wrong clone
 // entry never pushes another repo's branch. Nothing is recorded unless the launch opened, or cmux
 // alone failed and the command to paste was given (that round is recorded, marked manual).
-func (m *MyPrs) Start(ctx context.Context, repo, number, model any) reviews.Reply {
+func (m *MyPrs) Start(ctx context.Context, repo, number, model, chosenAdvisor any) reviews.Reply {
 	name, count, refusal := prOf(repo, number)
 	if refusal != nil {
 		return *refusal
@@ -86,6 +87,11 @@ func (m *MyPrs) Start(ctx context.Context, repo, number, model any) reviews.Repl
 	chosen, _ := model.(string)
 	if !isModel(chosen) {
 		return bad(http.StatusBadRequest, "model must be sonnet or opus")
+	}
+
+	advisorChoice, isChoice := advisor.Requested(chosenAdvisor)
+	if !isChoice {
+		return bad(http.StatusBadRequest, "advisor must be "+advisor.List())
 	}
 
 	m.mu.Lock()
@@ -105,7 +111,9 @@ func (m *MyPrs) Start(ctx context.Context, repo, number, model any) reviews.Repl
 		return *refused
 	}
 
-	return m.launch(ctx, target, chosen)
+	advisorChoice = advisor.Or(advisorChoice, m.deps.Scope().Advisor)
+
+	return m.launch(ctx, target, chosen, advisorChoice)
 }
 
 // startTarget is the PR a press names when a round may start on it: listed, read at the last
@@ -344,7 +352,9 @@ func (m *MyPrs) headRefusal(pull *PR) string {
 	return Clean(why, maxMessageUnits)
 }
 
-func (m *MyPrs) launch(ctx context.Context, target startTarget, model string) reviews.Reply {
+func (m *MyPrs) launch(
+	ctx context.Context, target startTarget, model, advisorChoice string,
+) reviews.Reply {
 	m.starting[target.key] = true
 	defer delete(m.starting, target.key)
 
@@ -372,7 +382,8 @@ func (m *MyPrs) launch(ctx context.Context, target startTarget, model string) re
 	m.outside(func() {
 		result = m.deps.Launch(ctx, LaunchOpts{
 			Repo: pull.Repo, Number: pull.Number, HeadRef: pull.HeadRef, Model: model,
-			Name: target.name, RepoPath: target.clone, DataDir: "", Round: target.round,
+			Advisor: advisorChoice, Name: target.name, RepoPath: target.clone, DataDir: "",
+			Round: target.round,
 		})
 	})
 

@@ -3,6 +3,7 @@ package settings
 import (
 	"slices"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/js"
 )
 
@@ -22,22 +23,28 @@ const (
 
 	whereRule = "set it to inside, terminal or command"
 
+	// keyAdvisor is the section's key for the advisor of the sessions Conn starts.
+	keyAdvisor = "advisor"
+
 	// retiredTerminalCommand is a key an earlier build read: a program of the person's own to
 	// open sessions with. No setting may name a program, so it is never read, and a file that
 	// holds it says so.
 	retiredTerminalCommand = "terminalCommand"
 )
 
-// Sessions is where the sessions Conn starts open, and whether the sessions open at a quit are
-// resumed at the next launch. No field names a program: a terminal app is cmux (CONN_CMUX).
+// Sessions is where the sessions Conn starts open, whether the sessions open at a quit are
+// resumed at the next launch, and the advisor the sessions Conn starts run unless a start picks
+// another (one of advisor.Choices). No field names a program: a terminal app is cmux (CONN_CMUX).
 type Sessions struct {
 	Where          string `json:"where"`
 	ResumeOnLaunch bool   `json:"resumeOnLaunch"`
+	Advisor        string `json:"advisor"`
 }
 
-// sessionsDefaults are a fresh install's: inside Conn, resume on launch.
+// sessionsDefaults are a fresh install's: inside Conn, resume on launch, Claude Code's own
+// advisor.
 func sessionsDefaults() Sessions {
-	return Sessions{Where: WhereInside, ResumeOnLaunch: true}
+	return Sessions{Where: WhereInside, ResumeOnLaunch: true, Advisor: advisor.Default}
 }
 
 // wheres are the choices of Sessions.Where.
@@ -66,6 +73,17 @@ func readSessions(raw any, present bool, found *problems) Sessions {
 	}
 
 	value.ResumeOnLaunch = boolField(object, "resumeOnLaunch", true, SectionSessions, found)
+
+	chosen, choicePresent := object.Get(keyAdvisor)
+	if choicePresent {
+		choice, isChoice := advisorOf(chosen)
+		if !isChoice {
+			found.addf("sessions.advisor %s is not a choice: using %s", show(chosen),
+				advisor.Default)
+		}
+
+		value.Advisor = choice
+	}
 
 	return value
 }
@@ -97,6 +115,17 @@ func validateSessions(object *js.Object, found *problems) Sessions {
 		value.ResumeOnLaunch = typed
 	}
 
+	chosen, choicePresent := object.Get(keyAdvisor)
+	if choicePresent {
+		choice, isChoice := advisorOf(chosen)
+		if !isChoice {
+			found.addf("sessions.advisor %s is not a choice: set it to %s", show(chosen),
+				advisor.List())
+		}
+
+		value.Advisor = choice
+	}
+
 	return value
 }
 
@@ -109,6 +138,20 @@ func whereOf(raw any) (string, bool) {
 
 	if !slices.Contains(wheres(), text) {
 		return WhereInside, false
+	}
+
+	return text, true
+}
+
+// advisorOf is raw when it is one of advisor.Choices, else advisor.Default and false.
+func advisorOf(raw any) (string, bool) {
+	text, isText := raw.(string)
+	if !isText {
+		return advisor.Default, false
+	}
+
+	if !advisor.IsChoice(text) {
+		return advisor.Default, false
 	}
 
 	return text, true

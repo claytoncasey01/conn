@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/pty"
@@ -48,6 +49,7 @@ var (
 	errNotLaunchCount = errors.New("not a launch count")
 	errNotReviewName  = errors.New("not a review name")
 	errNotModel       = errors.New("not a review model")
+	errNotAdvisor     = errors.New("not an advisor choice")
 	errNotToolRule    = errors.New("not a tool rule")
 	errNotSha         = errors.New("not a commit sha")
 
@@ -241,12 +243,13 @@ func (p Prompts) BuildPrompt(number int64, reReviewSha *string, repo string) (st
 }
 
 // ClaudeArgs are the arguments claude starts a review session with, after the program: the
-// rules it can never use, its name, its model, and the one instruction to read the prompt from
-// its file, each one argument, never a shell string. The prompt itself is only in the file, so no
-// text of it is ever in an argument or a command line. pattern is the name shape the session
+// rules it can never use, its name, its model, its advisor (advisor.Args of advisorChoice), and
+// the one instruction to read the prompt from its file, each one argument, never a shell string.
+// The prompt itself is only in the file, so no text of it is ever in an argument or a command
+// line. pattern is the name shape the session
 // kind allows. disallowed are permission rules the session can never use; the list is variadic,
 // so it goes first and --name ends it.
-func ClaudeArgs(name, model string, pattern *regexp.Regexp, disallowed []string) (
+func ClaudeArgs(name, model, advisorChoice string, pattern *regexp.Regexp, disallowed []string) (
 	[]string, error,
 ) {
 	if !pattern.MatchString(name) {
@@ -257,13 +260,20 @@ func ClaudeArgs(name, model string, pattern *regexp.Regexp, disallowed []string)
 		return nil, errNotModel
 	}
 
+	if !advisor.IsChoice(advisorChoice) {
+		return nil, errNotAdvisor
+	}
+
 	args, err := ruleArgs(disallowed, claudeFixedArguments)
 	if err != nil {
 		return nil, err
 	}
 
+	args = append(args, "--name", name, "--model", model)
+	args = append(args, advisor.Args(advisorChoice)...)
+
 	// -- ends the options (and the rules' list): the prompt after it is never read as one.
-	return append(args, "--name", name, "--model", model, "--", readPrompt), nil
+	return append(args, "--", readPrompt), nil
 }
 
 // ruleArgs are --disallowedTools and each rule, one argument each, with room for more arguments
@@ -382,6 +392,8 @@ type LaunchOpts struct {
 	Number  int64
 	BaseRef string
 	Model   string
+	// Advisor is the session's advisor, one of advisor.Choices.
+	Advisor string
 	Name    string
 	// RepoPath is the repo's local clone, which the worktree is made from.
 	RepoPath string
@@ -540,7 +552,7 @@ func launchChecks(deps LaunchDeps, opts LaunchOpts) (string, []string, error) {
 		return "", nil, err
 	}
 
-	args, err := ClaudeArgs(opts.Name, opts.Model, deps.Names.Pattern, nil)
+	args, err := ClaudeArgs(opts.Name, opts.Model, opts.Advisor, deps.Names.Pattern, nil)
 	if err != nil {
 		return "", nil, err
 	}

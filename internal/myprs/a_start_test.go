@@ -31,7 +31,7 @@ var (
 
 // aStart is a press of the round button.
 func aStart(poller *myprs.MyPrs, repo, number, model any) reviews.Reply {
-	return poller.Start(context.Background(), repo, number, model)
+	return poller.Start(context.Background(), repo, number, model, nil)
 }
 
 // aStart7 is a press for org/repo#7 with sonnet.
@@ -288,8 +288,8 @@ func TestAPressLaunchesRoundAfterRound(t *testing.T) {
 	}
 
 	want := myprs.LaunchOpts{
-		Repo: "org/repo", Number: 7, HeadRef: "feature/a", Model: "opus", Name: "self-repo-7",
-		RepoPath: "/clone", DataDir: "", Round: 1,
+		Repo: "org/repo", Number: 7, HeadRef: "feature/a", Model: "opus",
+		Advisor: "claude-code", Name: "self-repo-7", RepoPath: "/clone", DataDir: "", Round: 1,
 	}
 	if launched := aLaunched(world); !slices.Equal(launched, []myprs.LaunchOpts{want}) {
 		t.Errorf("launched = %+v, want %+v", launched, want)

@@ -179,7 +179,7 @@ func buildRepoRefusal(atlassian Atlassian, allow []string) string {
 }
 
 // keptSessions is a sessions section as a PUT sent it, with each field it left out as saved: a
-// page that changes where sessions open keeps the resume switch it did not send.
+// page that changes where sessions open keeps the resume switch and the advisor it did not send.
 func keptSessions(sent, saved Sessions, body any) Sessions {
 	object, isObject := body.(*js.Object)
 	if !isObject {
@@ -194,6 +194,10 @@ func keptSessions(sent, saved Sessions, body any) Sessions {
 
 	if _, present := object.Get("resumeOnLaunch"); !present {
 		kept.ResumeOnLaunch = saved.ResumeOnLaunch
+	}
+
+	if _, present := object.Get(keyAdvisor); !present {
+		kept.Advisor = saved.Advisor
 	}
 
 	return kept

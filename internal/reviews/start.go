@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/repos"
 	"github.com/claytoncasey01/conn/internal/sessions"
@@ -60,9 +61,12 @@ func prNumber(value any) (int64, bool) {
 	return safeInteger(value)
 }
 
-// Start is REVIEW pressed for PR number of repo (as the request sent them): it refuses before
-// any git or cmux call, else launches. An error only for a program fault (a 500).
-func (r *Reviews) Start(ctx context.Context, repo, number, model any) (Reply, error) {
+// Start is REVIEW pressed for PR number of repo (as the request sent them), on model, with the
+// advisor the request chose (nil for the settings'): it refuses before any git or cmux call, else
+// launches. An error only for a program fault (a 500).
+func (r *Reviews) Start(ctx context.Context, repo, number, model, chosenAdvisor any) (
+	Reply, error,
+) {
 	name, isText := repo.(string)
 	if !all(isText, repos.IsName(name)) {
 		return bad(codeBadRequest, "not a repository"), nil
@@ -78,6 +82,11 @@ func (r *Reviews) Start(ctx context.Context, repo, number, model any) (Reply, er
 		return bad(codeBadRequest, "model must be sonnet or opus"), nil
 	}
 
+	advisorChoice, isChoice := advisor.Requested(chosenAdvisor)
+	if !isChoice {
+		return bad(codeBadRequest, "advisor must be "+advisor.List()), nil
+	}
+
 	key, err := PRKey(name, num)
 	if err != nil {
 		return Reply{}, err
@@ -90,7 +99,13 @@ func (r *Reviews) Start(ctx context.Context, repo, number, model any) (Reply, er
 		return r.startDry(key, num)
 	}
 
-	return r.start(ctx, key, num, chosen)
+	return r.start(ctx, key, num, picks{model: chosen, advisor: advisorChoice})
+}
+
+// picks are the models a press chose: the session's, and its advisor's ("" for the settings').
+type picks struct {
+	model   string
+	advisor string
 }
 
 func (r *Reviews) startDry(key string, number int64) (Reply, error) {
@@ -126,10 +141,11 @@ type launchable struct {
 	clone string
 }
 
-func (r *Reviews) start(ctx context.Context, key string, number int64, model string) (
+func (r *Reviews) start(ctx context.Context, key string, number int64, chosen picks) (
 	Reply, error,
 ) {
 	current, _ := r.settings()
+	chosen.advisor = advisor.Or(chosen.advisor, current.Sessions.Advisor)
 
 	if reason := r.disabledReason(&current); reason != nil {
 		reply := bad(codeBusy, *reason)
@@ -154,7 +170,7 @@ func (r *Reviews) start(ctx context.Context, key string, number int64, model str
 		return *refusal, err
 	}
 
-	return r.launch(ctx, key, number, model, target)
+	return r.launch(ctx, key, number, chosen, target)
 }
 
 // target is the PR a press names when it can be launched: listed now, searched at the last
@@ -301,7 +317,7 @@ func (r *Reviews) refuseResuming(newest *Launch, now float64) *Reply {
 }
 
 func (r *Reviews) launch(
-	ctx context.Context, key string, number int64, model string, target launchable,
+	ctx context.Context, key string, number int64, chosen picks, target launchable,
 ) (Reply, error) {
 	// The commit is known, or no re-review line is sent rather than a wrong one.
 	var sha *string
@@ -331,8 +347,9 @@ func (r *Reviews) launch(
 
 	r.outside(func() {
 		result = r.deps.Launch(ctx, LaunchOpts{
-			Repo: target.pr.Repo, Number: number, BaseRef: target.pr.BaseRef, Model: model,
-			Name: name, RepoPath: target.clone, DataDir: "", ReReviewSha: sha,
+			Repo: target.pr.Repo, Number: number, BaseRef: target.pr.BaseRef,
+			Model: chosen.model, Advisor: chosen.advisor, Name: name, RepoPath: target.clone,
+			DataDir: "", ReReviewSha: sha,
 		})
 	})
 
@@ -340,13 +357,13 @@ func (r *Reviews) launch(
 		// The session did not start, or opens as a command: the worktree and the prompt are
 		// there, and the session the command opens is this launch's, tracked like any other.
 		if launchedByHand(result) {
-			r.recordLaunch(target, model, name, result, false)
+			r.recordLaunch(target, chosen.model, name, result, false)
 		}
 
 		return failedReply(result), nil
 	}
 
-	r.recordLaunch(target, model, name, result, true)
+	r.recordLaunch(target, chosen.model, name, result, true)
 
 	return okReply("name", name), nil
 }

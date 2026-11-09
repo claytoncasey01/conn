@@ -130,7 +130,7 @@ func (run *bHarness) start(model string) reviews.Reply {
 func bStart(t *testing.T, tab *reviews.Reviews, number, model string) reviews.Reply {
 	t.Helper()
 
-	reply, err := tab.Start(t.Context(), worldRepo, number, model)
+	reply, err := tab.Start(t.Context(), worldRepo, number, model, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

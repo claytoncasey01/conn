@@ -65,8 +65,9 @@ func TestTheReviewSessionsArgvIsGolden(t *testing.T) {
 	}
 
 	got := reviews.Open(t.Context(), deps, reviews.LaunchOpts{
-		Repo: dRepo, Number: 412, BaseRef: "release/1.2", Model: "sonnet", Name: dName,
-		RepoPath: dClone, DataDir: "/data/conn", ReReviewSha: nil,
+		Repo: dRepo, Number: 412, BaseRef: "release/1.2", Model: "sonnet",
+		Advisor: "claude-code", Name: dName, RepoPath: dClone, DataDir: "/data/conn",
+		ReReviewSha: nil,
 	})
 	if !got.OK {
 		t.Fatalf("Open = %+v", got)
