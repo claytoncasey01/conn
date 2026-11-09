@@ -102,8 +102,9 @@ func (s *shell) shownURL() string {
 	return *shown
 }
 
-// fail shows message in a native dialog whose one button quits the app. It returns at once:
-// desk.Run returns right after it, so deskDone is closed before the quit waits for it. The
+// fail shows message in a native dialog whose one button quits the app. It returns once the
+// button is clicked (Wails' Show runs the dialog in place on the main thread and waits for it),
+// and desk.Run returns right after it, so deskDone is closed while the quit waits for it. The
 // quit runs on its own goroutine because the button's callback runs on the main thread, which
 // the quit needs.
 func (s *shell) fail(message string) {
