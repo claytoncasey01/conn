@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import answers from '../../testdata/answers/sessions/new.json'
-import { emptyHint, parseChoices, parseStarted, startBody } from './newSession.ts'
+import { NAME_BYTES_MAX, emptyHint, nameTooLong, parseChoices, parseStarted, startBody } from './newSession.ts'
 
 type Answer = { status: number; body: unknown }
 const cases = answers as Record<string, Answer>
@@ -63,4 +63,17 @@ test('the empty page points at New session only while sessions open inside Conn'
   assert.equal(emptyHint('terminal'), 'terminal')
   assert.equal(emptyHint('command'), 'terminal')
   assert.equal(emptyHint(null), 'terminal')
+})
+
+test('a start that did not happen and has no line to paste says why and offers none', () => {
+  assert.deepEqual(started('notStarted'), { ok: false, error: 'starting the session inside Conn: the program was not found' })
+})
+
+test('a name is too long by the bytes the server counts, not by its characters', () => {
+  assert.equal(NAME_BYTES_MAX, 256)
+  assert.equal(nameTooLong('a'.repeat(256)), false)
+  assert.equal(nameTooLong('a'.repeat(257)), true)
+  // 86 characters of three bytes each are 258 bytes: within a 256-character maxlength, past the server's limit
+  assert.equal(nameTooLong('\u65e5'.repeat(86)), true)
+  assert.equal(nameTooLong('\u65e5'.repeat(85)), false)
 })

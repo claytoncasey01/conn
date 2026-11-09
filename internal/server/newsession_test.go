@@ -298,3 +298,27 @@ func roomOf(running int) func() pty.Room {
 		return pty.Room{Running: running, SessionsMax: pty.DefaultLimits().SessionsMax}
 	}
 }
+
+// TestNewSessionsListThatFailsIsA500: a GET whose handler panics answers 500, as every route does,
+// and the server goes on.
+func TestNewSessionsListThatFailsIsA500(t *testing.T) {
+	t.Parallel()
+
+	api := newsession.New(newsession.Deps{
+		Settings: settings.Defaults,
+		Repos:    func(settings.Settings) []string { panic("the clone scan broke") },
+	})
+	handler := &server.Server{
+		UI: bundle(), Secret: testKey(t), Clients: func() int { return 0 }, NewSession: api,
+	}
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, newSessionPath, nil)
+	request.Host = "127.0.0.1:7777"
+	request.Header.Set(secret.Header, testKey(t).Authorization())
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Errorf("code %d: %s", recorder.Code, recorder.Body.String())
+	}
+}

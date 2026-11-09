@@ -86,6 +86,9 @@ func TestTheAnswersThePageReadsAreGolden(t *testing.T) {
 		"badName": goldenStart(t, goldenAPI(inside, false, 0),
 			`{"repo":"acme/widgets","name":"\u65e5\u672c"}`),
 		"full": goldenStart(t, goldenAPI(inside, false, sessionsFull), named),
+		"notStarted": goldenStart(t, goldenAPI(launch.Opened{
+			OK: false, Error: "starting the session inside Conn: the program was not found",
+		}, false, 0), named),
 	}
 
 	got, err := json.MarshalIndent(cases, "", "  ")

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { fetchChoices, startSession, type NewSessionChoices } from './newSession.ts'
+  import { NAME_BYTES_MAX, fetchChoices, nameTooLong, startSession, type NewSessionChoices } from './newSession.ts'
   import { href } from './router.svelte.ts'
   import { showTerminal } from './terminalPanel.svelte.ts'
 
@@ -20,6 +20,8 @@
   let picker: HTMLSelectElement | undefined = $state()
   let cancel: HTMLButtonElement | undefined = $state()
   let starter: HTMLButtonElement | undefined = $state()
+  /** A name past the server's byte limit is said here and not sent */
+  const longName = $derived(nameTooLong(name))
   let form: HTMLFormElement | undefined = $state()
 
   async function load(): Promise<void> {
@@ -52,7 +54,7 @@
 
   async function start(event: SubmitEvent): Promise<void> {
     event.preventDefault()
-    if (!repo || step === 'starting') return
+    if (!repo || step === 'starting' || longName) return
     // The control pressed (Start, or the name field's Enter) is disabled while the start runs, which drops its focus: it
     // gets the focus back when the form is shown again.
     const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -122,15 +124,18 @@
         </label>
         <label style="display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 180px">
           <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 50%, var(--tx))">Name (optional)</span>
-          <input bind:value={name} type="text" maxlength="256" autocomplete="off" autocapitalize="off" spellcheck="false" disabled={step === 'starting'} style={field} />
+          <input bind:value={name} type="text" maxlength={NAME_BYTES_MAX} aria-invalid={longName} aria-describedby={longName ? 'new-session-name-long' : undefined} autocomplete="off" autocapitalize="off" spellcheck="false" disabled={step === 'starting'} style={field} />
         </label>
-        <button bind:this={starter} type="submit" class="cap" disabled={step === 'starting'} style="{btn} border: 1px var(--border-style) var(--ac); background: var(--ac); color: var(--onac); font-weight: 700">
+        <button bind:this={starter} type="submit" class="cap" disabled={step === 'starting' || longName} style="{btn} border: 1px var(--border-style) var(--ac); background: var(--ac); color: var(--onac); font-weight: 700">
           {#if step === 'starting'}Starting…{:else}Start{/if}
         </button>
       {:else if choices}
         <p style="flex: 1 1 220px; margin: 0; font-size: 12px; color: var(--tx)">No allowed repository has a local clone Conn can use yet: set a clone folder in <a href={href.settings()} style="color: inherit">Settings</a>. A clone must be a real folder of yours, not a link.</p>
       {/if}
       <button bind:this={cancel} type="button" class="cap" onclick={close} style={plain}>Cancel</button>
+      {#if longName}
+        <p id="new-session-name-long" role="alert" style="flex-basis: 100%; margin: 0; font-size: 12px; color: color-mix(in oklab, var(--bad) 55%, var(--bright))">The name is longer than {NAME_BYTES_MAX} bytes: shorten it.</p>
+      {/if}
       {#if error}
         <p role="alert" data-content style="flex-basis: 100%; margin: 0; font-size: 12px; color: color-mix(in oklab, var(--bad) 55%, var(--bright)); overflow-wrap: anywhere">{error}</p>
       {/if}

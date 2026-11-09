@@ -50,6 +50,13 @@
       "error": "No local clone of acme/gadgets: set a folder in Settings."
     }
   },
+  "notStarted": {
+    "status": 200,
+    "body": {
+      "ok": false,
+      "error": "starting the session inside Conn: the program was not found"
+    }
+  },
   "terminal": {
     "status": 200,
     "body": {

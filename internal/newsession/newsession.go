@@ -201,9 +201,16 @@ func (a *API) Start(ctx context.Context, body *js.Object) (Reply, error) {
 // startedOf is how an open went, as the page reads it.
 func startedOf(opened launch.Opened) Started {
 	if !opened.OK {
+		// A start with no line to paste (one holding a character that is not printable ASCII)
+		// leaves manualCommand out rather than sending an empty one.
+		var manual *string
+		if opened.ManualCommand != "" {
+			manual = &opened.ManualCommand
+		}
+
 		return Started{
 			OK: false, ID: nil, Dry: nil, Command: nil, Error: &opened.Error,
-			ManualCommand: &opened.ManualCommand,
+			ManualCommand: manual,
 		}
 	}
 

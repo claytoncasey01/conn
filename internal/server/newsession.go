@@ -23,6 +23,8 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request, urlPath stri
 
 	switch r.Method {
 	case http.MethodGet:
+		defer s.recovered(w, r)
+
 		reply := s.NewSession.Choices()
 		sendJSON(w, reply.Code, reply.Body)
 	case http.MethodPost:
