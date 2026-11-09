@@ -97,14 +97,14 @@
       aria-label="New session"
       onsubmit={start}
       class="surf"
-      style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; padding: 12px 14px; max-width: 100%; box-sizing: border-box; --rim: color-mix(in oklch, var(--edge) 22%, transparent); --r: var(--radius)"
+      style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; padding: 12px 14px; max-width: 100%; box-sizing: border-box; --wash: linear-gradient(160deg, color-mix(in oklch, var(--edge) 14%, transparent), color-mix(in oklch, var(--panel) 80%, transparent) 60%); --rim: color-mix(in oklch, var(--edge) 22%, transparent); --r: var(--radius)"
     >
       {#if choices?.dry}
         <p class="cap" style="flex-basis: 100%; margin: 0; font-size: 11px; color: color-mix(in oklab, var(--warn) 55%, var(--bright))">Dry run: nothing is started</p>
       {/if}
       {#if choices && choices.repos.length}
         <label style="display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 180px">
-          <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: var(--mu)">Repository</span>
+          <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 50%, var(--tx))">Repository</span>
           <select bind:this={picker} bind:value={repo} onkeydown={escape} disabled={step === 'starting'} style={field}>
             {#each choices.repos as choice (choice)}
               <option value={choice}>{choice}</option>
@@ -112,7 +112,7 @@
           </select>
         </label>
         <label style="display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 180px">
-          <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: var(--mu)">Name (optional)</span>
+          <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 50%, var(--tx))">Name (optional)</span>
           <input bind:value={name} onkeydown={escape} type="text" maxlength="256" autocomplete="off" autocapitalize="off" spellcheck="false" disabled={step === 'starting'} style={field} />
         </label>
         <button type="submit" class="cap" disabled={step === 'starting'} style="{btn} border: 1px var(--border-style) var(--ac); background: var(--ac); color: var(--onac); font-weight: 700">
@@ -127,13 +127,13 @@
       {/if}
       {#if manual}
         <div style="flex-basis: 100%; display: flex; flex-direction: column; gap: 4px; min-width: 0">
-          <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: var(--mu)">Run this in a terminal</span>
+          <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 50%, var(--tx))">Run this in a terminal</span>
           <code data-content style="display: block; padding: 8px 10px; background: var(--sunk); border-radius: var(--radius); font-size: 12px; color: var(--tx); overflow-wrap: anywhere; user-select: all">{manual}</code>
         </div>
       {/if}
       {#if dryCommand}
         <div role="status" style="flex-basis: 100%; display: flex; flex-direction: column; gap: 4px; min-width: 0">
-          <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: var(--mu)">Would run</span>
+          <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 50%, var(--tx))">Would run</span>
           <code data-content style="display: block; padding: 8px 10px; background: var(--sunk); border-radius: var(--radius); font-size: 12px; color: var(--tx); overflow-wrap: anywhere; user-select: all">{dryCommand}</code>
         </div>
       {/if}
