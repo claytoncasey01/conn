@@ -83,6 +83,8 @@ func TestAPrivateGroupIsTheirsAlone(t *testing.T) {
 		},
 		{"a leading-zero id", withGroups("pat:x:1001:\nteam:x:01001:sam\n"), personGID, false},
 		{"a padded id", withGroups("pat:x:1001:\nteam:x: 1001:sam\n"), personGID, false},
+		{"a plus-signed id", withGroups("pat:x:1001:\nteam:x:+1001:sam\n"), personGID, false},
+		{"a minus-signed id", withGroups("pat:x:1001:\nteam:x:-1001:sam\n"), personGID, false},
 		// The passwd file: no other account with the group as its primary group.
 		{
 			"another account whose primary group it is (useradd -g pat sam)",
@@ -104,6 +106,10 @@ func TestAPrivateGroupIsTheirsAlone(t *testing.T) {
 		{
 			"a passwd line too short to name a group", withPasswd(ownAccount + "sam:x:502\n"),
 			personGID, true,
+		},
+		{
+			"a plus-signed primary group in passwd",
+			withPasswd(ownAccount + "sam:x:502:+1001::/home/sam:/bin/sh\n"), personGID, false,
 		},
 		{"an unreadable passwd file", withPasswd(""), personGID, false},
 	}

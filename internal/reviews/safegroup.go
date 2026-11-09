@@ -150,10 +150,12 @@ func accountLines(text string) ([]string, bool) {
 }
 
 // mayBeID is whether field could be read as the id wanted by a reader more lenient than this
-// one: with spaces, tabs or carriage returns around it, or leading zeros. Such a line is about
-// the group, and since it is not written cleanly it makes the group shared.
+// one: with spaces, tabs or carriage returns around it, a sign (glibc reads +20 as 20), or
+// leading zeros. Such a line is about the group, and since it is not written cleanly it makes the
+// group shared.
 func mayBeID(field, wanted string) bool {
 	trimmed := strings.Trim(field, " \t\r")
+	trimmed = strings.TrimPrefix(strings.TrimPrefix(trimmed, "+"), "-")
 
 	unpadded := strings.TrimLeft(trimmed, "0")
 	if unpadded == "" {
