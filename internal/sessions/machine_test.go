@@ -3,13 +3,16 @@ package sessions_test
 import (
 	"bufio"
 	"encoding/binary"
+	"io"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/claytoncasey01/conn/internal/sessions"
+	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
 // The cmux ids the environment helper is started with: the real one in its environment, the
@@ -20,8 +23,14 @@ const (
 	helperSwitch   = "CONN_ENV_HELPER=1"
 )
 
-// TestEnvironmentHelper is not a test: started by TestEnvReadsOnlyTheEnvironment, it waits for a
-// line on its input, so its environment can be read meanwhile.
+// readyLine is what the environment helper prints once it runs.
+const readyLine = "ready\n"
+
+// helperReadyTimeout bounds the wait for the environment helper to say it runs.
+const helperReadyTimeout = 10 * time.Second
+
+// TestEnvironmentHelper is not a test: started by TestEnvReadsOnlyTheEnvironment, it says it
+// runs, then waits for a line on its input, so its environment can be read meanwhile.
 func TestEnvironmentHelper(t *testing.T) {
 	t.Parallel()
 
@@ -29,6 +38,7 @@ func TestEnvironmentHelper(t *testing.T) {
 		return
 	}
 
+	_, _ = os.Stdout.WriteString(readyLine)
 	_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 
 	os.Exit(0)
@@ -86,6 +96,11 @@ func startEnvironmentHelper(t *testing.T, first string) int {
 		t.Fatal(err)
 	}
 
+	output, err := helper.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	err = helper.Start()
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +111,32 @@ func startEnvironmentHelper(t *testing.T, first string) int {
 		_ = helper.Wait()
 	})
 
+	waitForReady(t, output)
+
 	return helper.Process.Pid
+}
+
+// waitForReady waits for the helper's ready line. Start returns once the helper's program is
+// loaded, but on Linux its environment is readable only a moment later; a helper that has
+// printed has started running, so its environment is in place.
+func waitForReady(t *testing.T, output io.Reader) {
+	t.Helper()
+
+	lines := make(chan string, 1)
+
+	go func() {
+		line, _ := bufio.NewReader(output).ReadString('\n')
+		lines <- line
+	}()
+
+	select {
+	case line := <-lines:
+		if line != readyLine {
+			t.Fatalf("helper printed %q, want %q", line, readyLine)
+		}
+	case <-time.After(testtime.Scaled(helperReadyTimeout)):
+		t.Fatalf("helper did not say it runs within %s", helperReadyTimeout)
+	}
 }
 
 // procArgs is a kern.procargs2 record: the argument count, the path padded to the kernel's
