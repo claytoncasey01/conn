@@ -111,7 +111,7 @@
       style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; padding: 12px 14px; max-width: 100%; box-sizing: border-box; --rim: color-mix(in oklch, var(--edge) 22%, transparent); --r: var(--radius)"
     >
       {#if choices?.dry}
-        <p class="cap" style="flex-basis: 100%; margin: 0; font-size: 11px; color: var(--warn)">Dry run: nothing is started</p>
+        <p class="cap" style="flex-basis: 100%; margin: 0; font-size: 11px; color: color-mix(in oklab, var(--warn) 55%, var(--bright))">Dry run: nothing is started</p>
       {/if}
       {#if choices && choices.repos.length}
         <label style="display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 180px">
@@ -126,7 +126,7 @@
           <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: var(--mu)">Name (optional)</span>
           <input bind:value={name} onkeydown={escape} type="text" maxlength="256" autocomplete="off" autocapitalize="off" spellcheck="false" disabled={step === 'starting'} style={field} />
         </label>
-        <button type="submit" class="cap" disabled={step === 'starting'} style="{btn} border: 1px var(--border-style) var(--role-lead); background: var(--role-lead); color: var(--onac); font-weight: 700">
+        <button type="submit" class="cap" disabled={step === 'starting'} style="{btn} border: 1px var(--border-style) var(--ac); background: var(--ac); color: var(--onac); font-weight: 700">
           {#if step === 'starting'}Starting…{:else}Start{/if}
         </button>
       {:else if choices}
