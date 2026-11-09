@@ -15,7 +15,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/pty"
-	"github.com/claytoncasey01/conn/internal/reviews"
+	"github.com/claytoncasey01/conn/internal/safefolder"
 )
 
 const allowedRepo = "acme/widgets"
@@ -71,7 +71,7 @@ func newLaunchRig(t *testing.T) *launchRig {
 		LiveIDs:     func(context.Context) map[string]bool { return map[string]bool{} },
 		Allow:       func() []string { return []string{allowedRepo} },
 		RepoOf:      func(string) string { return allowedRepo },
-		CheckFolder: reviews.CheckSafeFolder,
+		CheckFolder: safefolder.Check,
 		Open: func(_ context.Context, spec pty.Spec) launch.Opened {
 			rig.opened = append(rig.opened, spec)
 

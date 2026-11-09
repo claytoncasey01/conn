@@ -17,7 +17,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/newsession"
 	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/realpath"
-	"github.com/claytoncasey01/conn/internal/reviews"
+	"github.com/claytoncasey01/conn/internal/safefolder"
 	"github.com/claytoncasey01/conn/internal/secret"
 	"github.com/claytoncasey01/conn/internal/server"
 	"github.com/claytoncasey01/conn/internal/settings"
@@ -291,9 +291,9 @@ func TestNewSessionIsOnlyItsOwnPath(t *testing.T) {
 	}
 }
 
-// checkClone is the app's clone check: newsession.CheckClone over reviews.CheckSafeFolder.
+// checkClone is the app's clone check: newsession.CheckClone over safefolder.Check.
 func checkClone(folder string) error {
-	err := newsession.CheckClone(folder, reviews.CheckSafeFolder)
+	err := newsession.CheckClone(folder, safefolder.Check)
 	if err != nil {
 		return fmt.Errorf("checking the clone: %w", err)
 	}

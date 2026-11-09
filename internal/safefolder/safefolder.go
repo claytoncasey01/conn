@@ -1,4 +1,6 @@
-package reviews
+// Package safefolder says whether a session may start in a folder by its path: no other user can
+// change which folder the path names between the check and the start.
+package safefolder
 
 // A folder a session starts in by its path, checked so that no other user can change which
 // folder the path names between the check and the start. The folder must be a real folder of
@@ -33,8 +35,8 @@ const (
 	pathPartsMax = 2048
 )
 
-// ErrUnsafeFolder is a folder a session may not start in by its path; each problem wraps it.
-var ErrUnsafeFolder = errors.New("unsafe folder")
+// ErrUnsafe is a folder a session may not start in by its path; each problem wraps it.
+var ErrUnsafe = errors.New("unsafe folder")
 
 // pathFacts are what decides whether one folder on a path is safe.
 type pathFacts struct {
@@ -55,12 +57,12 @@ func writeProblem(folder string, facts pathFacts, who Person, anyoneMay bool) er
 	if facts.otherWrite {
 		if !anyoneMay {
 			return fmt.Errorf("%w: other users may write %s: run chmod o-w on it",
-				ErrUnsafeFolder, folder)
+				ErrUnsafe, folder)
 		}
 
 		if !facts.sticky {
 			return fmt.Errorf("%w: other users may write %s: run chmod o-w on it",
-				ErrUnsafeFolder, folder)
+				ErrUnsafe, folder)
 		}
 	}
 
@@ -79,7 +81,7 @@ func writeProblem(folder string, facts pathFacts, who Person, anyoneMay bool) er
 	}
 
 	return fmt.Errorf("%w: %s may be written by its group (%d), which is not your private "+
-		"group: run chmod g-w on it, or give it a group only you are in", ErrUnsafeFolder, folder,
+		"group: run chmod g-w on it, or give it a group only you are in", ErrUnsafe, folder,
 		facts.group)
 }
 
@@ -92,7 +94,7 @@ func leafProblem(folder string, facts pathFacts, who Person) error {
 	}
 
 	if int64(facts.owner) != int64(who.uid) {
-		return fmt.Errorf("%w: %s belongs to another user", ErrUnsafeFolder, folder)
+		return fmt.Errorf("%w: %s belongs to another user", ErrUnsafe, folder)
 	}
 
 	return writeProblem(folder, facts, who, false)
@@ -108,7 +110,7 @@ func ancestorProblem(folder string, facts pathFacts, who Person) error {
 
 	if int64(facts.owner) != int64(who.uid) {
 		if facts.owner != rootUID {
-			return fmt.Errorf("%w: %s belongs to another user", ErrUnsafeFolder, folder)
+			return fmt.Errorf("%w: %s belongs to another user", ErrUnsafe, folder)
 		}
 	}
 
@@ -118,16 +120,16 @@ func ancestorProblem(folder string, facts pathFacts, who Person) error {
 // shapeProblem is a path part that is missing, a link or not a folder, or nil.
 func shapeProblem(folder string, facts pathFacts) error {
 	if !facts.exists {
-		return fmt.Errorf("%w: %s does not exist", ErrUnsafeFolder, folder)
+		return fmt.Errorf("%w: %s does not exist", ErrUnsafe, folder)
 	}
 
 	if facts.link {
 		return fmt.Errorf("%w: %s is a link: use the folder it points to, or put that folder "+
-			"in its place", ErrUnsafeFolder, folder)
+			"in its place", ErrUnsafe, folder)
 	}
 
 	if !facts.folder {
-		return fmt.Errorf("%w: %s is not a folder", ErrUnsafeFolder, folder)
+		return fmt.Errorf("%w: %s is not a folder", ErrUnsafe, folder)
 	}
 
 	return nil
@@ -146,7 +148,7 @@ func factsOf(path string) (pathFacts, error) {
 
 	stat, read := info.Sys().(*syscall.Stat_t)
 	if !read {
-		return pathFacts{}, fmt.Errorf("%w: the owner of %s cannot be read", ErrUnsafeFolder,
+		return pathFacts{}, fmt.Errorf("%w: the owner of %s cannot be read", ErrUnsafe,
 			path)
 	}
 
@@ -159,28 +161,28 @@ func factsOf(path string) (pathFacts, error) {
 	}, nil
 }
 
-// CheckSafeFolder returns every problem with starting a session in folder by its path, each
-// wrapping ErrUnsafeFolder, or nil (see the top of this file). folder must be absolute and
+// Check returns every problem with starting a session in folder by its path, each
+// wrapping ErrUnsafe, or nil (see the top of this file). folder must be absolute and
 // clean: one that is not is refused, never cleaned, so the path checked is the path used. It reads
 // who runs Conn (WhoRuns) for this one check; a caller that checks several folders for one
-// request reads it once and calls CheckSafeFolderFor.
-func CheckSafeFolder(folder string) error {
-	return CheckSafeFolderFor(WhoRuns(), folder)
+// request reads it once and calls CheckFor.
+func Check(folder string) error {
+	return CheckFor(WhoRuns(), folder)
 }
 
-// CheckSafeFolderFor is CheckSafeFolder for who, read once by the caller (WhoRuns).
-func CheckSafeFolderFor(who Person, folder string) error {
+// CheckFor is Check for who, read once by the caller (WhoRuns).
+func CheckFor(who Person, folder string) error {
 	return checkSafeFolder(folder, who, factsOf)
 }
 
-// checkSafeFolder is CheckSafeFolder for who, with the facts of each path from look.
+// checkSafeFolder is Check for who, with the facts of each path from look.
 func checkSafeFolder(folder string, who Person, look func(string) (pathFacts, error)) error {
 	if !filepath.IsAbs(folder) {
-		return fmt.Errorf("%w: %s is not an absolute path", ErrUnsafeFolder, folder)
+		return fmt.Errorf("%w: %s is not an absolute path", ErrUnsafe, folder)
 	}
 
 	if filepath.Clean(folder) != folder {
-		return fmt.Errorf("%w: %s is not a clean path", ErrUnsafeFolder, folder)
+		return fmt.Errorf("%w: %s is not a clean path", ErrUnsafe, folder)
 	}
 
 	var problems []error
@@ -210,5 +212,5 @@ func checkSafeFolder(folder string, who Person, look func(string) (pathFacts, er
 		current = parent
 	}
 
-	return fmt.Errorf("%w: %s has more than %d parts", ErrUnsafeFolder, folder, pathPartsMax)
+	return fmt.Errorf("%w: %s has more than %d parts", ErrUnsafe, folder, pathPartsMax)
 }

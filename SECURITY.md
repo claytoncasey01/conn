@@ -116,8 +116,9 @@ program, an argument or a variable, and the server reads none: the repository is
   origin, and so its place on the allowlist. The clone's `.claude` and `.git/hooks`, which the
   session trusts, must be safe folders too when they exist (a link is refused). What they hold,
   and what `.mcp.json` or `CLAUDE.md` say, is the repository's own and is not checked. Once the
-  folder has passed, its origin is read again and must be the repository asked for, so a link
-  that pointed somewhere else by the time it was resolved starts nothing.
+  folder has passed, its origin is read again (from `.git/config`, as Conn reads it everywhere,
+  kept until that file's modification time changes) and must be the repository asked for, so a
+  link that pointed somewhere else by the time it was resolved starts nothing.
 - **A safe folder.** The folder must be yours, a real folder (not a link) that no one else may
   write, and every folder above it up to `/` a real folder of yours or root's that no one else may
   write. "No one else" is read from the mode bits, with two exceptions:
@@ -142,11 +143,13 @@ program, an argument or a variable, and the server reads none: the repository is
   in the folder, and only as far as owners and mode bits tell: it does not see macOS ACLs, a
   volume mounted to ignore ownership, or a network file system (NFS, SMB).
 - The name passes the same checks as every session's name (no control, bidi or invisible
-  character, valid UTF-8, at most 256 bytes) and is then reduced to letters, digits, `.`, `_` and
-  `-`, so it cannot start with `-` and read as a flag. A name with nothing left is refused.
+  character, valid UTF-8, at most 256 bytes) and is then reduced to ASCII letters, digits, `.`,
+  `_` and `-` and cut to 64 characters, so it cannot start with `-` and read as a flag. A name
+  with nothing left is refused.
 - Conn chooses the conversation id itself (a random UUID from `crypto/rand`), so the command is
-  always exactly `claude --session-id <uuid>`, plus `--name <name>` when a name was given, run as
-  a list of arguments with no shell. It opens where Settings say, like every other session.
+  always exactly the program `CONN_CLAUDE` names (`claude` by default), `--session-id <uuid>`,
+  plus `--name <name>` when a name was given, run as a list of arguments with no shell. It opens
+  where Settings say, like every other session.
 - The route needs the gate below, `x-conn: 1` and the page's own `Origin`: a request with no
   `Origin` is refused, as for the Settings and agents-and-skills writes, the terminal's
   background and Interrupt. The session actions (stop, reply, answer, terminal), History's

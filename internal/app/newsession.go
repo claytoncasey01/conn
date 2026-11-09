@@ -10,7 +10,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/origin"
 	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/realpath"
-	"github.com/claytoncasey01/conn/internal/reviews"
+	"github.com/claytoncasey01/conn/internal/safefolder"
 	"github.com/claytoncasey01/conn/internal/sessions"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
@@ -48,11 +48,11 @@ func newNewSession(parts newSessionParts) *newsession.API {
 			return clone.Path, found
 		},
 		CloneChecker: func() func(folder string) error {
-			who := reviews.WhoRuns()
+			who := safefolder.WhoRuns()
 
 			return func(folder string) error {
 				return newsession.CheckClone(folder, func(path string) error {
-					return reviews.CheckSafeFolderFor(who, path)
+					return safefolder.CheckFor(who, path)
 				})
 			}
 		},

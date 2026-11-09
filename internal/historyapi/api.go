@@ -165,7 +165,7 @@ type Deps struct {
 	// Open starts a resumed session where the settings say sessions open.
 	Open launch.Opener
 	// CheckFolder refuses a folder a session may not start in by its path
-	// (reviews.CheckSafeFolder): a link, or a folder on its path another user may change. Every
+	// (safefolder.Check): a link, or a folder on its path another user may change. Every
 	// History start, from RESUME or at launch, passes it.
 	CheckFolder func(folder string) error
 	// Claude is the claude program as configured (CONN_CLAUDE): the resumed session's program.

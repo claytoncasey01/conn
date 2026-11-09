@@ -23,18 +23,18 @@ const (
 	flagName      = "--name"
 )
 
-// Request is what a start asks for once it is read: an allowed-looking repository name, and the
-// session's name made safe (cmux.WorkspaceName), "" for none.
-type Request struct {
+// startRequest is what a start asks for once it is read: an allowed-looking repository name,
+// and the session's name made safe (cmux.WorkspaceName), "" for none.
+type startRequest struct {
 	Repo string
 	Name string
 }
 
-// ParseRequest reads a start's body: an object with a string "repo" and, optionally, a string
+// parseRequest reads a start's body: an object with a string "repo" and, optionally, a string
 // "name". It is the request and every problem with the body, one sentence each; a request with a
 // problem is not used. Nothing in the body is a path, a flag or a command: the repository is only
-// a key to the allowlist, and the name reaches claude only as SafeName makes it.
-func ParseRequest(body *js.Object) (Request, []string) {
+// a key to the allowlist, and the name reaches claude only as safeName makes it.
+func parseRequest(body *js.Object) (startRequest, []string) {
 	problems := []string{}
 
 	for _, key := range body.Keys() {
@@ -56,7 +56,7 @@ func ParseRequest(body *js.Object) (Request, []string) {
 	name, nameProblems := nameOf(body)
 	problems = append(problems, nameProblems...)
 
-	return Request{Repo: repo, Name: name}, problems
+	return startRequest{Repo: repo, Name: name}, problems
 }
 
 // repoOf is the body's repository name, or the problem with it.
@@ -99,7 +99,7 @@ func nameOf(body *js.Object) (string, []string) {
 		return "", nil
 	}
 
-	safe, err := SafeName(name)
+	safe, err := safeName(name)
 	if err != nil {
 		return "", []string{err.Error()}
 	}
@@ -107,11 +107,11 @@ func nameOf(body *js.Object) (string, []string) {
 	return safe, nil
 }
 
-// SafeName is name as claude's --name and the session list get it: checked by launch's rule for
+// safeName is name as claude's --name and the session list get it: checked by launch's rule for
 // a session's name (no control, bidi or invisible character, UTF-8), at most nameBytesMax bytes,
 // then reduced to [A-Za-z0-9._-] by cmux.WorkspaceName. A name with nothing left once reduced is
 // refused, rather than replaced by something the person did not type.
-func SafeName(name string) (string, error) {
+func safeName(name string) (string, error) {
 	if len(name) > nameBytesMax {
 		return "", fmt.Errorf("%w: the name is %d bytes, more than %d", launch.ErrInvalidSession,
 			len(name), nameBytesMax)
@@ -131,11 +131,11 @@ func SafeName(name string) (string, error) {
 	return safe, nil
 }
 
-// Spec is the session a start opens: claude, as CONN_CLAUDE names it, on the conversation
+// specOf is the session a start opens: claude, as CONN_CLAUDE names it, on the conversation
 // sessionID (a UUID Conn chose), named when the request names it, in folder (the clone's real
 // path), under the request's name or else the repository's. Nothing else from the request is in
 // it. sessionID must be a UUID: anything else is a program error.
-func Spec(claude, sessionID, folder string, request Request) pty.Spec {
+func specOf(claude, sessionID, folder string, request startRequest) pty.Spec {
 	if !cmux.IsSessionID(sessionID) {
 		panic(fmt.Sprintf("newsession: the conversation id %q is not a UUID", sessionID))
 	}

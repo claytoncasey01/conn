@@ -14,7 +14,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/historyapi"
 	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/pty"
-	"github.com/claytoncasey01/conn/internal/reviews"
+	"github.com/claytoncasey01/conn/internal/safefolder"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
@@ -67,7 +67,7 @@ func newResumeRig(t *testing.T, folder, name string, named bool) *resumeRig {
 		DB: archive, Summarizer: nil,
 		LiveIDs:     func(context.Context) map[string]bool { return map[string]bool{} },
 		Allow:       nil,
-		CheckFolder: reviews.CheckSafeFolder,
+		CheckFolder: safefolder.Check,
 		Open: func(_ context.Context, spec pty.Spec) launch.Opened {
 			rig.specs = append(rig.specs, spec)
 

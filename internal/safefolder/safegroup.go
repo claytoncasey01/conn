@@ -1,4 +1,4 @@
-package reviews
+package safefolder
 
 // Whether a group is the person's private group, read from /etc/group and /etc/passwd. Every
 // doubt counts as shared: a file that cannot be read, is too large or too long, a line about the
@@ -28,11 +28,15 @@ const (
 	// passwdFields is how many a line of the passwd file has: name, password, uid, gid, gecos,
 	// home, shell.
 	passwdFields = 7
-	// groupIDField and passwdGroupField are where a line names the group id.
-	groupIDField     = 2
+	// The group file's fields, in the order of a line: name, password, id, members.
+	groupNameField     = 0
+	groupPasswordField = 1
+	groupIDField       = 2
+	groupMembersField  = 3
+	// The passwd file's fields that are used: name, user id, and the account's group id.
+	passwdNameField  = 0
+	passwdUIDField   = 2
 	passwdGroupField = 3
-	// passwdUIDField is where a passwd line names the account's user id.
-	passwdUIDField = 2
 	// commentMark starts a line the files' readers skip.
 	commentMark = "#"
 )
@@ -188,8 +192,11 @@ func clean(fields []string, fieldsWanted int, strict []int, idField int, wanted 
 }
 
 // groupStrict and passwdStrict are the fields of each file's lines that hold no space or tab.
-func groupStrict() []int  { return []int{0, 1, groupIDField, 3} }
-func passwdStrict() []int { return []int{0, passwdUIDField, passwdGroupField} }
+func groupStrict() []int {
+	return []int{groupNameField, groupPasswordField, groupIDField, groupMembersField}
+}
+
+func passwdStrict() []int { return []int{passwdNameField, passwdUIDField, passwdGroupField} }
 
 // groupLinesAlone is whether the group file lists the group wanted at all, and whether every line
 // about it is clean, named name and lists no member but name. A line too short to have an id is
@@ -229,11 +236,11 @@ func groupLinesAlone(text, wanted, name string) (bool, bool) {
 // groupIsOnly is whether a group file line's fields name the group name and list no member but
 // name.
 func groupIsOnly(fields []string, name string) bool {
-	if fields[0] != name {
+	if fields[groupNameField] != name {
 		return false
 	}
 
-	for member := range strings.SplitSeq(fields[3], ",") {
+	for member := range strings.SplitSeq(fields[groupMembersField], ",") {
 		if member == "" {
 			continue
 		}
@@ -269,7 +276,7 @@ func passwdAlone(text, wanted string, who Person) bool {
 			return false
 		}
 
-		if fields[0] != who.name {
+		if fields[passwdNameField] != who.name {
 			return false
 		}
 

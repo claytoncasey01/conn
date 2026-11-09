@@ -13,7 +13,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/hosted"
 	"github.com/claytoncasey01/conn/internal/newsession"
 	"github.com/claytoncasey01/conn/internal/pty"
-	"github.com/claytoncasey01/conn/internal/reviews"
+	"github.com/claytoncasey01/conn/internal/safefolder"
 )
 
 // startRecorded starts a session in the rig through a recorder, as the app wires it (the History
@@ -106,7 +106,7 @@ func TestALaunchResumesAStartOnceItHasATranscript(t *testing.T) {
 				LiveIDs:     func(context.Context) map[string]bool { return map[string]bool{} },
 				Allow:       func() []string { return setting.current.Repos.Allow },
 				RepoOf:      func(string) string { return allowedRepo },
-				CheckFolder: reviews.CheckSafeFolder,
+				CheckFolder: safefolder.Check,
 				Open:        nil, Claude: claudeProgram, Dry: func() bool { return false },
 				Now: time.Now, ResumeCooldown: 0,
 			})

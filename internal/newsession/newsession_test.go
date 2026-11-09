@@ -18,8 +18,9 @@ import (
 	"github.com/claytoncasey01/conn/internal/newsession"
 	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/realpath"
-	"github.com/claytoncasey01/conn/internal/reviews"
+	"github.com/claytoncasey01/conn/internal/safefolder"
 	"github.com/claytoncasey01/conn/internal/settings"
+	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
 const (
@@ -29,6 +30,9 @@ const (
 	sessionsMax  = 12
 	sessionsFull = sessionsMax
 	cooldown     = time.Minute
+	// waitLimit bounds each wait of a test on another goroutine, so a regression fails the test
+	// rather than hanging it.
+	waitLimit = 10 * time.Second
 )
 
 var errNoRandom = errors.New("no random bytes")
@@ -494,7 +498,10 @@ func TestTwoStartsAtOnceOpenOne(t *testing.T) {
 		Open: func(context.Context, pty.Spec) launch.Opened {
 			entered <- struct{}{}
 
-			<-release
+			select {
+			case <-release:
+			case <-time.After(testtime.Scaled(waitLimit)):
+			}
 
 			return launch.Opened{OK: true}
 		},
@@ -503,15 +510,24 @@ func TestTwoStartsAtOnceOpenOne(t *testing.T) {
 		Now:   time.Now, Cooldown: cooldown,
 	})
 
-	first := make(chan newsession.Reply, 1)
+	type pressed struct {
+		reply newsession.Reply
+		err   error
+	}
+
+	first := make(chan pressed, 1)
 	body := object(t, `{"repo":"acme/widgets"}`)
 
 	go func() {
-		reply, _ := api.Start(t.Context(), body)
-		first <- reply
+		reply, err := api.Start(t.Context(), body)
+		first <- pressed{reply: reply, err: err}
 	}()
 
-	<-entered
+	select {
+	case <-entered:
+	case <-time.After(testtime.Scaled(waitLimit)):
+		t.Fatal("the first press never reached Open")
+	}
 
 	second := start(t, api, `{"repo":"acme/widgets"}`)
 
@@ -521,8 +537,17 @@ func TestTwoStartsAtOnceOpenOne(t *testing.T) {
 		t.Errorf("the press while one opens: code %d", second.Code)
 	}
 
-	if (<-first).Code != http.StatusOK {
-		t.Error("the first press did not open")
+	select {
+	case got := <-first:
+		if got.err != nil {
+			t.Errorf("the first press: %v", got.err)
+		}
+
+		if got.reply.Code != http.StatusOK {
+			t.Error("the first press did not open")
+		}
+	case <-time.After(testtime.Scaled(waitLimit)):
+		t.Fatal("the first press never answered")
 	}
 }
 
@@ -673,9 +698,9 @@ func TestACloneSetAsALinkOpensInTheFolderItPointsTo(t *testing.T) {
 	}
 }
 
-// checkClone is the app's clone check: newsession.CheckClone over reviews.CheckSafeFolder.
+// checkClone is the app's clone check: newsession.CheckClone over safefolder.Check.
 func checkClone(folder string) error {
-	err := newsession.CheckClone(folder, reviews.CheckSafeFolder)
+	err := newsession.CheckClone(folder, safefolder.Check)
 	if err != nil {
 		return fmt.Errorf("checking the clone: %w", err)
 	}
@@ -695,30 +720,30 @@ func TestCheckCloneReportsEveryProblemOfTheCloneAndTheFoldersItTrusts(t *testing
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		arrange   func(t *testing.T, clone string)
-		wantSays  []string
-		wantClean bool
+		name         string
+		arrange      func(t *testing.T, clone string)
+		wantErr      error
+		wantProblems int
 	}{
-		{"a clone with neither .claude nor hooks", func(*testing.T, string) {}, nil, true},
+		{"a clone with neither .claude nor hooks", func(*testing.T, string) {}, nil, 0},
 		{"a clone with its own .claude and hooks", func(t *testing.T, clone string) {
 			t.Helper()
 			mustMkdir(t, filepath.Join(clone, ".claude"))
 			mustMkdir(t, filepath.Join(clone, ".git", "hooks"))
-		}, nil, true},
+		}, nil, 0},
 		{".claude a link", func(t *testing.T, clone string) {
 			t.Helper()
 			mustLink(t, t.TempDir(), filepath.Join(clone, ".claude"))
-		}, []string{".claude is a link"}, false},
+		}, safefolder.ErrUnsafe, 1},
 		{".git/hooks a link", func(t *testing.T, clone string) {
 			t.Helper()
 			mustLink(t, t.TempDir(), filepath.Join(clone, ".git", "hooks"))
-		}, []string{"hooks is a link"}, false},
+		}, safefolder.ErrUnsafe, 1},
 		{".claude that others may write", func(t *testing.T, clone string) {
 			t.Helper()
 			mustMkdir(t, filepath.Join(clone, ".claude"))
 			mustChmod(t, filepath.Join(clone, ".claude"), 0o777)
-		}, []string{"/.claude: run chmod o-w"}, false},
+		}, safefolder.ErrUnsafe, 1},
 		{"the folder and its .git, at once", func(t *testing.T, clone string) {
 			t.Helper()
 			mustChmod(t, clone, 0o777)
@@ -729,7 +754,17 @@ func TestCheckCloneReportsEveryProblemOfTheCloneAndTheFoldersItTrusts(t *testing
 			}
 
 			mustLink(t, t.TempDir(), filepath.Join(clone, ".git"))
-		}, []string{"other users may write", ".git is a link"}, false},
+		}, safefolder.ErrUnsafe, 2},
+		{".git a file that points elsewhere", func(t *testing.T, clone string) {
+			t.Helper()
+
+			err := os.Remove(filepath.Join(clone, ".git"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			mustWrite(t, filepath.Join(clone, ".git"), "gitdir: /elsewhere\n")
+		}, newsession.ErrNotAClone, 1},
 	}
 
 	for _, tt := range tests {
@@ -739,37 +774,41 @@ func TestCheckCloneReportsEveryProblemOfTheCloneAndTheFoldersItTrusts(t *testing
 			clone := makeClone(t, filepath.Join(realTempFolder(t), "widgets"))
 			tt.arrange(t, clone)
 
-			err := newsession.CheckClone(clone, reviews.CheckSafeFolder)
-			if tt.wantClean {
-				if err != nil {
-					t.Fatalf("refused: %v", err)
-				}
-
-				return
+			err := newsession.CheckClone(clone, safefolder.Check)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error %v, want %v", err, tt.wantErr)
 			}
 
-			if err == nil {
-				t.Fatal("accepted")
-			}
-
-			for _, want := range tt.wantSays {
-				if !strings.Contains(err.Error(), want) {
-					t.Errorf("says %q, want %q", err, want)
-				}
-			}
-
-			if strings.Count(err.Error(), "\n") != len(tt.wantSays)-1 {
-				t.Errorf("said %d problems, want %d: %q", strings.Count(err.Error(), "\n")+1,
-					len(tt.wantSays), err)
+			if got := problemsIn(err); got != tt.wantProblems {
+				t.Errorf("said %d problems, want %d: %q", got, tt.wantProblems, err)
 			}
 		})
 	}
+}
+
+// problemsIn is how many problems err says: the errors an errors.Join holds, or none for nil.
+func problemsIn(err error) int {
+	var joined interface{ Unwrap() []error }
+	if !errors.As(err, &joined) {
+		return 0
+	}
+
+	return len(joined.Unwrap())
 }
 
 func mustMkdir(t *testing.T, path string) {
 	t.Helper()
 
 	err := os.MkdirAll(path, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+
+	err := os.WriteFile(path, []byte(content), 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}

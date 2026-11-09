@@ -1,4 +1,4 @@
-package reviews
+package safefolder
 
 import (
 	"errors"
@@ -48,10 +48,10 @@ func rootFolder() pathFacts {
 	return facts
 }
 
-// TestCheckSafeFolderJudgesEachPartOfThePath: the folder must be the person's own and theirs
+// TestCheckJudgesEachPartOfThePath: the folder must be the person's own and theirs
 // alone to write; each folder above it the person's or root's, not a link, and not writable by
 // others unless sticky.
-func TestCheckSafeFolderJudgesEachPartOfThePath(t *testing.T) {
+func TestCheckJudgesEachPartOfThePath(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -132,8 +132,8 @@ func TestCheckSafeFolderJudgesEachPartOfThePath(t *testing.T) {
 				return
 			}
 
-			if !errors.Is(err, ErrUnsafeFolder) {
-				t.Fatalf("error %v, want ErrUnsafeFolder", err)
+			if !errors.Is(err, ErrUnsafe) {
+				t.Fatalf("error %v, want ErrUnsafe", err)
 			}
 
 			if !strings.Contains(err.Error(), tt.wantSays) {
@@ -170,15 +170,15 @@ func setOtherWrite(facts map[string]pathFacts, path string, sticky bool) {
 	facts[path] = changed
 }
 
-func TestCheckSafeFolderRefusesAPathItWouldHaveToClean(t *testing.T) {
+func TestCheckRefusesAPathItWouldHaveToClean(t *testing.T) {
 	t.Parallel()
 
 	for _, folder := range []string{"relative/clone", "/home/p/../p/clone", "/home/p/clone/"} {
 		err := checkSafeFolder(folder, pat(), func(string) (pathFacts, error) {
 			return ownFolder(), nil
 		})
-		if !errors.Is(err, ErrUnsafeFolder) {
-			t.Errorf("%s: error %v, want ErrUnsafeFolder", folder, err)
+		if !errors.Is(err, ErrUnsafe) {
+			t.Errorf("%s: error %v, want ErrUnsafe", folder, err)
 		}
 	}
 }
@@ -211,8 +211,8 @@ func makeFolder(t *testing.T, path string) {
 	}
 }
 
-// TestCheckSafeFolderOnTheDisk: the same rules read from real folders.
-func TestCheckSafeFolderOnTheDisk(t *testing.T) {
+// TestCheckOnTheDisk: the same rules read from real folders.
+func TestCheckOnTheDisk(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -274,7 +274,7 @@ func TestCheckSafeFolderOnTheDisk(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := CheckSafeFolder(tt.arrange(t, realTemp(t)))
+			err := Check(tt.arrange(t, realTemp(t)))
 			if tt.wantSays == "" {
 				if err != nil {
 					t.Fatalf("refused: %v", err)

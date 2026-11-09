@@ -45,8 +45,8 @@ const (
 	claudeName = ".claude"
 )
 
-// ErrNotAClone is a clone folder whose .git is not a git folder of its own.
-var ErrNotAClone = errors.New("not a clone of its own")
+// errNotAClone is a clone folder whose .git is not a git folder of its own.
+var errNotAClone = errors.New("not a clone of its own")
 
 // Deps are what the API reads and starts.
 type Deps struct {
@@ -58,7 +58,7 @@ type Deps struct {
 	// CloneFor is the local clone of a repository per current, false when there is none.
 	CloneFor func(repo string, current settings.Settings) (string, bool)
 	// CloneChecker is a check of clones for one request: it refuses a clone's real path a
-	// session may not start in (CheckClone over reviews.CheckSafeFolderFor), with who runs Conn
+	// session may not start in (CheckClone over safefolder.CheckFor), with who runs Conn
 	// read once when it is made, however many clones it then checks.
 	CloneChecker func() func(folder string) error
 	// OriginOf is the GitHub repository of a folder's origin, "" for none (origin.Reader.Of).
@@ -77,7 +77,8 @@ type Deps struct {
 	Room func() pty.Room
 	// NewID is a fresh conversation id, a UUID (NewID).
 	NewID func() (string, error)
-	Now   func() time.Time
+	// Now is the time now, for the cooldown.
+	Now func() time.Time
 	// Cooldown refuses a second start in the same repository; 0 is startCooldownDefault.
 	Cooldown time.Duration
 }
@@ -158,7 +159,7 @@ func (a *API) Choices() Reply {
 
 // Start starts a session from body; an unexpected failure is the error, for a 500.
 func (a *API) Start(ctx context.Context, body *js.Object) (Reply, error) {
-	request, problems := ParseRequest(body)
+	request, problems := parseRequest(body)
 	if len(problems) > 0 {
 		return *refuse(http.StatusBadRequest, strings.Join(problems, " ")), nil
 	}
@@ -177,7 +178,7 @@ func (a *API) Start(ctx context.Context, body *js.Object) (Reply, error) {
 		return Reply{}, fmt.Errorf("choosing the conversation id: %w", err)
 	}
 
-	spec := Spec(a.deps.Claude, sessionID, folder, request)
+	spec := specOf(a.deps.Claude, sessionID, folder, request)
 
 	if a.deps.Dry {
 		dry := true
@@ -298,7 +299,7 @@ func originOrNone(origin string) string {
 }
 
 // CheckClone returns every reason a session may not start in folder, a clone's real path, or
-// nil. The folder and every folder above it pass checkFolder (reviews.CheckSafeFolder: no link,
+// nil. The folder and every folder above it pass checkFolder (safefolder.Check: no link,
 // no folder another user may change), and so does its .git: a real folder, not a link, and not a
 // file pointing at a git folder elsewhere (a worktree's or a --separate-git-dir clone's), since
 // either would let the folder take its origin, and so its place on the allowlist, from
@@ -314,12 +315,12 @@ func CheckClone(folder string, checkFolder func(folder string) error) error {
 
 	switch {
 	case err != nil:
-		problems = append(problems, fmt.Errorf("%w: %s cannot be read: %w", ErrNotAClone,
+		problems = append(problems, fmt.Errorf("%w: %s cannot be read: %w", errNotAClone,
 			gitFolder, err))
 	case info.Mode().IsRegular():
 		problems = append(problems, fmt.Errorf("%w: %s is a file that points at a git folder "+
 			"elsewhere (a worktree or a --separate-git-dir clone): set the main clone's folder in "+
-			"Settings", ErrNotAClone, gitFolder))
+			"Settings", errNotAClone, gitFolder))
 	default:
 		problems = append(problems, checkFolder(gitFolder))
 		problems = append(problems, checkIfThere(filepath.Join(gitFolder, hooksName), checkFolder))

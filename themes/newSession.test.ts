@@ -59,7 +59,7 @@ const PAIRS: { name: string; text: (l: Look) => Rgba; on: (l: Look) => Rgba[]; s
     name: 'a label',
     text: (l) => mixOklab(color(l, 'mu'), 50, color(l, 'tx')),
     on: cards,
-    source: /color: color-mix\(in oklab, var\(--mu\) 50%, var\(--tx\)\)">Repository/,
+    source: /const caption =\s*'[^']*color: color-mix\(in oklab, var\(--mu\) 50%, var\(--tx\)\);'[\s\S]*<span class="cap" style=\{caption\}>Repository/,
   },
   { name: 'Cancel', text: (l) => color(l, 'tx'), on: cards, source: /const plain = `\$\{btn\}[^`]*color: var\(--tx\);`/ },
   {
@@ -74,7 +74,7 @@ const PAIRS: { name: string; text: (l: Look) => Rgba; on: (l: Look) => Rgba[]; s
     on: cards,
     source: /color: color-mix\(in oklab, var\(--warn\) 55%, var\(--bright\)\)">Dry run/,
   },
-  { name: 'a command', text: (l) => color(l, 'tx'), on: (l) => cards(l).map((under) => composite(color(l, 'sunk'), under)), source: /<code data-content style="[^"]*background: var\(--sunk\)[^"]*color: var\(--tx\)/ },
+  { name: 'a command', text: (l) => color(l, 'tx'), on: (l) => cards(l).map((under) => composite(color(l, 'sunk'), under)), source: /const codeBox =\s*'[^']*background: var\(--sunk\)[^']*color: var\(--tx\)[^']*'[\s\S]*<code data-content style=\{codeBox\}>/ },
 ]
 
 test('every text in the form is at least 4.5:1 on what it is drawn on, in every look', () => {

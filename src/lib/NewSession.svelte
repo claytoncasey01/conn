@@ -86,6 +86,10 @@
   const btn =
     'display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: var(--radius); font: inherit; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571); cursor: pointer;'
   const plain = `${btn} border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent); background: transparent; color: var(--tx);`
+  const caption =
+    'font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 50%, var(--tx));'
+  const codeBox =
+    'display: block; padding: 8px 10px; background: var(--sunk); border-radius: var(--radius); font-size: 12px; color: var(--tx); overflow-wrap: anywhere; user-select: all;'
   const field =
     'min-height: 44px; min-width: 0; box-sizing: border-box; padding: 0 10px; color: var(--tx); background: var(--sunk); border: 1px var(--border-style) var(--line2); border-radius: var(--radius); font-family: var(--font-mono), monospace; font-size: 13px;'
 </script>
@@ -115,7 +119,7 @@
       {/if}
       {#if choices && choices.repos.length}
         <label style="display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 180px">
-          <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 50%, var(--tx))">Repository</span>
+          <span class="cap" style={caption}>Repository</span>
           <select bind:this={picker} bind:value={repo} disabled={step === 'starting'} style={field}>
             {#each choices.repos as choice (choice)}
               <option value={choice}>{choice}</option>
@@ -123,7 +127,7 @@
           </select>
         </label>
         <label style="display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 180px">
-          <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 50%, var(--tx))">Name (optional)</span>
+          <span class="cap" style={caption}>Name (optional)</span>
           <input bind:value={name} type="text" maxlength={NAME_BYTES_MAX} aria-invalid={longName} aria-describedby={longName ? 'new-session-name-long' : undefined} autocomplete="off" autocapitalize="off" spellcheck="false" disabled={step === 'starting'} style={field} />
         </label>
         <button bind:this={starter} type="submit" class="cap" disabled={step === 'starting' || longName} style="{btn} border: 1px var(--border-style) var(--ac); background: var(--ac); color: var(--onac); font-weight: 700">
@@ -141,14 +145,14 @@
       {/if}
       {#if manual}
         <div style="flex-basis: 100%; display: flex; flex-direction: column; gap: 4px; min-width: 0">
-          <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 50%, var(--tx))">Run this in a terminal</span>
-          <code data-content style="display: block; padding: 8px 10px; background: var(--sunk); border-radius: var(--radius); font-size: 12px; color: var(--tx); overflow-wrap: anywhere; user-select: all">{manual}</code>
+          <span class="cap" style={caption}>Run this in a terminal</span>
+          <code data-content style={codeBox}>{manual}</code>
         </div>
       {/if}
       {#if dryCommand}
         <div role="status" style="flex-basis: 100%; display: flex; flex-direction: column; gap: 4px; min-width: 0">
-          <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 50%, var(--tx))">Would run</span>
-          <code data-content style="display: block; padding: 8px 10px; background: var(--sunk); border-radius: var(--radius); font-size: 12px; color: var(--tx); overflow-wrap: anywhere; user-select: all">{dryCommand}</code>
+          <span class="cap" style={caption}>Would run</span>
+          <code data-content style={codeBox}>{dryCommand}</code>
         </div>
       {/if}
     </form>

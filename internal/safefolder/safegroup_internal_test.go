@@ -1,4 +1,4 @@
-package reviews
+package safefolder
 
 import (
 	"testing"
