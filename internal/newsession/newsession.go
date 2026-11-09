@@ -57,9 +57,10 @@ type Deps struct {
 	Repos func(current settings.Settings) []string
 	// CloneFor is the local clone of a repository per current, false when there is none.
 	CloneFor func(repo string, current settings.Settings) (string, bool)
-	// CheckClone refuses a clone's real path a session may not start in (CheckClone over
-	// reviews.CheckSafeFolder).
-	CheckClone func(folder string) error
+	// CloneChecker is a check of clones for one request: it refuses a clone's real path a
+	// session may not start in (CheckClone over reviews.CheckSafeFolderFor), with who runs Conn
+	// read once when it is made, however many clones it then checks.
+	CloneChecker func() func(folder string) error
 	// OriginOf is the GitHub repository of a folder's origin, "" for none (origin.Reader.Of).
 	OriginOf func(folder string) string
 	// Resolve is a folder with every link followed (realpath.Resolve): the folder claude reports
@@ -140,10 +141,11 @@ func New(deps Deps) *API {
 // makes of its repository.
 func (a *API) Choices() Reply {
 	current := a.deps.Settings()
+	check := a.deps.CloneChecker()
 	offered := []string{}
 
 	for _, repo := range a.deps.Repos(current) {
-		_, refused := a.folderOf(repo, current)
+		_, refused := a.folderOf(repo, current, check)
 		if refused == nil {
 			offered = append(offered, repo)
 		}
@@ -163,7 +165,9 @@ func (a *API) Start(ctx context.Context, body *js.Object) (Reply, error) {
 
 	current := a.deps.Settings()
 
-	folder, refused := a.folderOf(request.Repo, current)
+	check := a.deps.CloneChecker()
+
+	folder, refused := a.folderOf(request.Repo, current, check)
 	if refused != nil {
 		return *refused, nil
 	}
@@ -192,7 +196,7 @@ func (a *API) Start(ctx context.Context, body *js.Object) (Reply, error) {
 	// Checked again right before the start, so a change since the first check starts nothing.
 	// From here to the program's chdir the path cannot change: no one but the person and root
 	// may change any folder on it (CheckClone).
-	if refused := a.cloneProblem(request.Repo, folder); refused != nil {
+	if refused := a.cloneProblem(request.Repo, folder, check); refused != nil {
 		a.release(key, false)
 
 		return *refused, nil
@@ -235,7 +239,9 @@ func startedOf(opened launch.Opened) Started {
 // folderOf is the folder a session in repo runs in, or why there is none: repo is allowed and
 // has a clone, and the clone's real path (every link resolved first) is a folder a session may
 // start in (cloneProblem).
-func (a *API) folderOf(repo string, current settings.Settings) (string, *Reply) {
+func (a *API) folderOf(repo string, current settings.Settings,
+	check func(folder string) error,
+) (string, *Reply) {
 	if !repos.Allowed(repo, current.Repos.Allow) {
 		return "", refuse(http.StatusBadRequest,
 			repo+" is not an allowed repository: add it in Settings.")
@@ -255,7 +261,7 @@ func (a *API) folderOf(repo string, current settings.Settings) (string, *Reply) 
 			" could not be made an absolute path.")
 	}
 
-	if refused := a.cloneProblem(repo, folder); refused != nil {
+	if refused := a.cloneProblem(repo, folder, check); refused != nil {
 		return "", refused
 	}
 
@@ -263,12 +269,12 @@ func (a *API) folderOf(repo string, current settings.Settings) (string, *Reply) 
 }
 
 // cloneProblem is why a session may not start in folder, the clone of repo, or nil: it passes
-// CheckClone, and its origin is repo.
+// check (the request's CloneChecker), and its origin is repo.
 // Its origin is read last, once no one else can change the folder: the repository the allowlist
 // allowed must be the one the session starts in, whatever CloneFor's path pointed at before it
 // was resolved.
-func (a *API) cloneProblem(repo, folder string) *Reply {
-	err := a.deps.CheckClone(folder)
+func (a *API) cloneProblem(repo, folder string, check func(folder string) error) *Reply {
+	err := check(folder)
 	if err != nil {
 		return refuse(http.StatusConflict,
 			"The clone of "+repo+" cannot be used: "+err.Error()+".")

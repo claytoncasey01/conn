@@ -47,8 +47,14 @@ func newNewSession(parts newSessionParts) *newsession.API {
 
 			return clone.Path, found
 		},
-		CheckClone: func(folder string) error {
-			return newsession.CheckClone(folder, reviews.CheckSafeFolder)
+		CloneChecker: func() func(folder string) error {
+			who := reviews.WhoRuns()
+
+			return func(folder string) error {
+				return newsession.CheckClone(folder, func(path string) error {
+					return reviews.CheckSafeFolderFor(who, path)
+				})
+			}
 		},
 		OriginOf: parts.reader.Of, Resolve: realpath.Resolve, Open: parts.open,
 		Claude: parts.cfg.ClaudeBin, Dry: parts.cfg.Dry.Any(), Room: parts.host.Room,

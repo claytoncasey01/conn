@@ -42,11 +42,11 @@ func goldenAPIWith(open launch.Opener, dry bool, running int) *newsession.API {
 		CloneFor: func(repo string, _ settings.Settings) (string, bool) {
 			return cloneFolder, repo == "acme/widgets"
 		},
-		CheckClone: func(string) error { return nil },
-		OriginOf:   func(string) string { return "acme/widgets" },
-		Resolve:    func(path string) string { return path },
-		Open:       open,
-		Claude:     "claude", Dry: dry, Room: roomOf(running),
+		CloneChecker: func() func(string) error { return func(string) error { return nil } },
+		OriginOf:     func(string) string { return "acme/widgets" },
+		Resolve:      func(path string) string { return path },
+		Open:         open,
+		Claude:       "claude", Dry: dry, Room: roomOf(running),
 		NewID: func() (string, error) { return conversationID, nil },
 		Now:   time.Now, Cooldown: 0,
 	})

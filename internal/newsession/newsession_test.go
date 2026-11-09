@@ -102,7 +102,7 @@ func (r *rig) deps() newsession.Deps {
 
 			return clone, found
 		},
-		CheckClone: checkClone, Resolve: r.resolveOf(),
+		CloneChecker: func() func(string) error { return checkClone }, Resolve: r.resolveOf(),
 		OriginOf: func(folder string) string {
 			if origin, found := r.origins[folder]; found {
 				return origin
@@ -489,7 +489,7 @@ func TestTwoStartsAtOnceOpenOne(t *testing.T) {
 		CloneFor: func(string, settings.Settings) (string, bool) {
 			return setting.clones[allowedRepo], true
 		},
-		CheckClone: checkClone, Resolve: realpath.Resolve,
+		CloneChecker: func() func(string) error { return checkClone }, Resolve: realpath.Resolve,
 		OriginOf: func(string) string { return allowedRepo },
 		Open: func(context.Context, pty.Spec) launch.Opened {
 			entered <- struct{}{}
@@ -790,5 +790,39 @@ func mustChmod(t *testing.T, path string, mode os.FileMode) {
 	err := os.Chmod(path, mode)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestARequestReadsWhoRunsConnOnce: one Choices, however many repositories it checks, and one
+// Start, which checks its clone twice, each make one clone check, so who runs Conn (the account
+// files) is read once per request.
+func TestARequestReadsWhoRunsConnOnce(t *testing.T) {
+	t.Parallel()
+
+	setting := newRig(t)
+	gadgets := makeClone(t, filepath.Join(realTempFolder(t), "gadgets"))
+	setting.clones["acme/gadgets"] = gadgets
+	setting.origins = map[string]string{gadgets: "acme/gadgets"}
+	setting.repoList = []string{allowedRepo, "acme/gadgets", "acme/missing"}
+
+	made := 0
+	deps := setting.deps()
+	deps.CloneChecker = func() func(string) error {
+		made++
+
+		return checkClone
+	}
+	api := newsession.New(deps)
+
+	api.Choices()
+
+	if made != 1 {
+		t.Errorf("one list made %d checks", made)
+	}
+
+	start(t, api, `{"repo":"acme/widgets"}`)
+
+	if made != 2 {
+		t.Errorf("one start made %d checks", made-1)
 	}
 }

@@ -62,11 +62,11 @@ func newNewSessionRig(t *testing.T) *newSessionRig {
 	current.Repos.Allow = []string{"acme/widgets"}
 	rig := &newSessionRig{handler: nil, mu: sync.Mutex{}, opened: nil}
 	api := newsession.New(newsession.Deps{
-		Settings:   func() settings.Settings { return current },
-		Repos:      func(settings.Settings) []string { return []string{"acme/widgets"} },
-		CloneFor:   func(string, settings.Settings) (string, bool) { return clone, true },
-		OriginOf:   func(string) string { return "acme/widgets" },
-		CheckClone: checkClone, Resolve: realpath.Resolve,
+		Settings:     func() settings.Settings { return current },
+		Repos:        func(settings.Settings) []string { return []string{"acme/widgets"} },
+		CloneFor:     func(string, settings.Settings) (string, bool) { return clone, true },
+		OriginOf:     func(string) string { return "acme/widgets" },
+		CloneChecker: func() func(string) error { return checkClone }, Resolve: realpath.Resolve,
 		Open: func(_ context.Context, spec pty.Spec) launch.Opened {
 			rig.mu.Lock()
 			defer rig.mu.Unlock()
