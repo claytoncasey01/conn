@@ -1,13 +1,22 @@
-import { attention, diffAlerts, newSeen } from './alerts.ts'
+import { attention, diffAlerts, newSeen, type Alert } from './alerts.ts'
+import type { Where } from './alertSettings.ts'
+import { findBridge, nativeRequest, nativeSettings, nativeShow, nativeStatus, permissionOf, type Permission } from './nativeNotify.ts'
 import type { Snapshot } from './types.ts'
 
 const KEY = 'conn:alerts'
 
-/** Browser notifications for a session that needs input or finished. Off until the person turns them on. */
+/** The app's bridge to macOS notifications, or null in a browser, which shows the Web Notification API's own. */
+const bridge = findBridge()
+
+/** Notifications for a session that needs input or finished. Off until the person turns them on. */
 export const alerts = $state({
-  supported: typeof Notification !== 'undefined',
+  /** Inside Conn.app or in a browser */
+  where: (bridge ? 'app' : 'browser') as Where,
+  supported: bridge !== null || typeof Notification !== 'undefined',
+  /** What macOS or the browser lets this page do */
+  permission: 'default' as Permission,
   enabled: false,
-  /** The browser (or the person) blocked notifications for this site */
+  /** Notifications cannot be turned on from the page: denied in macOS or the browser, or unavailable */
   blocked: false,
 })
 
@@ -24,10 +33,27 @@ const remember = (on: boolean) => {
   } catch {}
 }
 
-if (alerts.supported) {
-  alerts.blocked = Notification.permission === 'denied'
-  alerts.enabled = stored() && Notification.permission === 'granted'
+/** Sets the permission, and alerts on only while they were left on and are still allowed. */
+function settle(permission: Permission) {
+  alerts.permission = permission
+  alerts.blocked = permission === 'denied' || permission === 'unavailable'
+  alerts.enabled = stored() && permission === 'granted'
 }
+
+/** Reads the permission again: it changes outside the page (System Settings, the browser's site settings), so on every return to the window. */
+export async function readPermission() {
+  if (bridge) settle(await nativeStatus(bridge))
+  else if (alerts.supported) settle(permissionOf(Notification.permission))
+}
+
+void readPermission()
+window.addEventListener('focus', () => void readPermission())
+
+// A click on a macOS notification: the app shows the window and hands over the route the alert was made with.
+window.addEventListener('conn-notification-click', (event) => {
+  const to = (event as CustomEvent<unknown>).detail
+  if (typeof to === 'string' && to.startsWith('#/')) location.hash = to
+})
 
 /** Must run from a click: browsers only show the permission prompt for a user gesture. */
 export async function toggleAlerts() {
@@ -37,10 +63,14 @@ export async function toggleAlerts() {
     remember(false)
     return
   }
-  const p = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission()
-  alerts.blocked = p === 'denied'
-  alerts.enabled = p === 'granted'
-  remember(alerts.enabled)
+  const asked = alerts.permission === 'granted' ? 'granted' : bridge ? await nativeRequest(bridge) : permissionOf(await Notification.requestPermission())
+  remember(asked === 'granted')
+  settle(asked)
+}
+
+/** Opens System Settings at Conn's notifications: in the app, where macOS's own prompt shows only once. */
+export async function openNotificationSettings() {
+  if (bridge) await nativeSettings(bridge)
 }
 
 const seen = newSeen()
@@ -61,6 +91,22 @@ function watchTitle() {
   if (el) new MutationObserver(applyTitle).observe(el, { childList: true, characterData: true, subtree: true })
 }
 
+/** Pops one alert up: through the app inside Conn.app, as a Web Notification in a browser. */
+function popUp(a: Alert) {
+  if (bridge) {
+    void nativeShow(bridge, a)
+    return
+  }
+  try {
+    const n = new Notification(a.title, { body: a.body, tag: a.tag })
+    n.onclick = () => {
+      window.focus()
+      location.hash = a.href
+      n.close()
+    }
+  } catch {}
+}
+
 /** Called with every pushed snapshot. */
 export function onSnapshot(snap: Snapshot) {
   const raised = diffAlerts(seen, snap)
@@ -69,14 +115,5 @@ export function onSnapshot(snap: Snapshot) {
   applyTitle()
   // Someone looking at the dashboard does not need a popup for what is on their screen.
   if (!alerts.enabled || (document.hasFocus() && !document.hidden)) return
-  for (const a of raised) {
-    try {
-      const n = new Notification(a.title, { body: a.body, tag: a.tag })
-      n.onclick = () => {
-        window.focus()
-        location.hash = a.href
-        n.close()
-      }
-    } catch {}
-  }
+  for (const a of raised) popUp(a)
 }

@@ -126,8 +126,7 @@ func wailsLogger(stderr io.Writer) *slog.Logger {
 }
 
 // keepInDock hides the window when it is closed rather than closing it, and shows it again when
-// the Dock icon is clicked. Showing the app must run on the main thread, or it crashes; and the
-// window comes to the front only with all three calls.
+// the Dock icon is clicked.
 func (s *shell) keepInDock() {
 	s.window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		s.windowClosing(func() { s.window.Hide() }, event.Cancel)
@@ -135,11 +134,16 @@ func (s *shell) keepInDock() {
 
 	s.app.Event.OnApplicationEvent(
 		events.Mac.ApplicationShouldHandleReopen,
-		func(*application.ApplicationEvent) {
-			application.InvokeSync(s.app.Show)
-			s.window.Show()
-			s.window.Focus()
-		})
+		func(*application.ApplicationEvent) { s.showWindow() })
+}
+
+// showWindow brings the window, hidden or behind another app, to the front. Showing the app must
+// run on the main thread, or it crashes, so showWindow must not: InvokeSync waits for the main
+// thread. The window comes to the front only with all three calls.
+func (s *shell) showWindow() {
+	application.InvokeSync(s.app.Show)
+	s.window.Show()
+	s.window.Focus()
 }
 
 // windowClosing is what closing the window (its X, Cmd-W) does: it hides the window and cancels
@@ -152,11 +156,18 @@ func (s *shell) windowClosing(hide, cancelClose func()) {
 
 // startDeskWhenReady reads the environment and runs desk.Run once the app has started: a dialog
 // asked for before then is never shown, so a Conn that cannot start would end without a word, and
-// the splash is up while the login shell runs.
+// the splash is up while the login shell runs. The notifications bridge goes in first, on the
+// main thread, so it is there before the window loads the server's page; without it the app
+// still works.
 func (s *shell) startDeskWhenReady(ctx context.Context) {
 	s.app.Event.OnApplicationEvent(
 		events.Common.ApplicationStarted,
 		func(*application.ApplicationEvent) {
+			err := application.InvokeSyncWithError(s.installNotify)
+			if err != nil {
+				_, _ = fmt.Fprintf(s.proc.stderr, "conn-app: %v\n", err)
+			}
+
 			go s.runDesk(ctx)
 		})
 }
@@ -189,9 +200,11 @@ func (s *shell) runDesk(ctx context.Context) {
 
 // tellEnvironmentFailed says that the login shell's environment could not be read, and why in
 // short: on stderr, on the splash, and in a dialog, because the splash is replaced as soon as the
-// server answers, often too soon to read. The dialog does not stop Conn: Wails' Show waits only
-// for the main thread to take the dialog, not for it to be dismissed, and SetHTML above it waits
-// for the main thread the same way, so a goroutine would add nothing.
+// server answers, often too soon to read. The dialog must not stop Conn, so it is shown on its
+// own goroutine: Wails' Show waits on the main thread, and there it runs the dialog in place, so
+// Show returns only once the dialog is dismissed. The goroutine ends then, or with the process.
+// The main thread still runs work sent to it while the dialog is up, so desk.Run opens the
+// window behind it.
 func (s *shell) tellEnvironmentFailed(reason string) {
 	notice := desk.Notice(reason)
 
@@ -202,7 +215,7 @@ func (s *shell) tellEnvironmentFailed(reason string) {
 	dialog := s.app.Dialog.Warning().SetTitle(environmentTitle).SetMessage(notice)
 	dialog.AddButton("OK").SetAsDefault()
 
-	dialog.Show()
+	go dialog.Show()
 }
 
 // waitForDesk ends desk.Run and waits up to deskStopTimeout for it to return, so a server this

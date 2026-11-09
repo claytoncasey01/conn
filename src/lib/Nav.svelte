@@ -38,7 +38,7 @@
       onclick={toggleAlerts}
       disabled={alerts.blocked}
       aria-pressed={alerts.enabled}
-      title={alerts.blocked ? 'Notifications are blocked for this site in the browser settings' : 'Pop up a notification when a session needs input or finishes while this tab is in the background'}
+      title={alerts.blocked ? 'Notifications cannot be turned on here: Settings says why and what to do' : alerts.where === 'app' ? 'Pop up a notification when a session needs input or finishes while Conn is not in front' : 'Pop up a notification when a session needs input or finishes while this tab is in the background'}
       style="{base}; margin-left: auto; font: inherit; font-size: 12px; cursor: {alerts.blocked ? 'not-allowed' : 'pointer'}; background: {alerts.enabled ? 'color-mix(in oklch, var(--warn) 10%, transparent)' : 'transparent'}; border: 1px var(--border-style) {alerts.enabled ? 'color-mix(in oklch, var(--warn) 50%, transparent)' : 'color-mix(in oklch, var(--edge) 18%, transparent)'}; color: {alerts.enabled ? 'color-mix(in oklab, var(--warn) 60%, var(--bright))' : 'var(--mu)'}; opacity: {alerts.blocked ? 0.5 : 1}"
      class="cap">{alerts.blocked ? 'Alerts blocked' : alerts.enabled ? '🔔 Alerts on' : 'Alerts off'}</button>
   {/if}
