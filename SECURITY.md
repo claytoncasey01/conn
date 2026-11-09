@@ -34,6 +34,14 @@ release's `checksums-app.txt`, which reads only the status and follows nothing, 
 the app is attached yet. It installs nothing, sends no version of Conn and nothing of yours, and
 `CONN_UPDATE_CHECK=off` turns it off.
 
+The app gives its window's page one message handler, for notifications (`connNotify`). It answers
+only the main frame of a page of the server the window shows (the same origin rule as links), so
+the splash or another site cannot use it. It can only read the permission, ask macOS for it, open
+System Settings at Conn's notifications, and show a notification. The app checks a notification
+before showing it: each field within its limit, on one line with no control characters, and the
+page it opens a route of Conn (`#/...`), so a click can only open a page of Conn in the window. A
+refused notification is reported on stderr without its text.
+
 These are in scope, because Conn promises them:
 
 - **The local server.** A page on another site or port, a rebound host name, or another user of

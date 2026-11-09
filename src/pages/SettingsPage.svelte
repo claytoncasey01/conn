@@ -3,6 +3,7 @@
   import { live } from '../lib/live.svelte.ts'
   import Brand from '../lib/Brand.svelte'
   import Nav from '../lib/Nav.svelte'
+  import SettingsAlerts from './SettingsAlerts.svelte'
   import SettingsProvided from './SettingsProvided.svelte'
   import SettingsServices from './SettingsServices.svelte'
   import ReviewLegacy from './ReviewLegacy.svelte'
@@ -366,6 +367,9 @@
           {#if patWrote && !patError}<span class="ok" role="status" data-content>{plainText(patWrote)}</span>{/if}
         </div>
       </section>
+
+      <!-- Shown at first launch too, so turning alerts on is offered from the start -->
+      <SettingsAlerts />
 
       {#if !setup}
         <section class="surf card clones" aria-labelledby="clones-h" style="--rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--edge) 6%, transparent), color-mix(in oklch, var(--panel) 92%, transparent) 55%)">

@@ -1,0 +1,70 @@
+{
+  "limits": { "title": 256, "body": 1024, "tag": 128, "href": 512 },
+  "cases": [
+    {
+      "name": "a session waits on a prompt",
+      "sent": { "title": "conn · reviewer needs input", "body": "Permission needed: Bash command", "tag": "s4f2a9c", "href": "#/s/4f2a9c/a/reviewer" },
+      "ok": true
+    },
+    {
+      "name": "a session finished",
+      "sent": { "title": "conn finished", "body": "idle", "tag": "s4f2a9c", "href": "#/s/4f2a9c" },
+      "ok": true
+    },
+    {
+      "name": "a run has questions",
+      "sent": { "title": "ABC-12 has questions", "body": "2 for you before the build starts", "tag": "rABC-12", "href": "#/work/ABC-12" },
+      "ok": true
+    },
+    {
+      "name": "a body may be empty",
+      "sent": { "title": "Ready to post", "body": "", "tag": "pacme/app#7", "href": "#/myprs" },
+      "ok": true
+    },
+    {
+      "name": "accents, emoji and an escaped bidi mark are text",
+      "sent": { "title": "café 🚀 needs input", "body": "Question: résumé <U+202E>?", "tag": "s1", "href": "#/s/1" },
+      "ok": true
+    },
+    {
+      "name": "no title",
+      "sent": { "title": "", "body": "idle", "tag": "s1", "href": "#/s/1" },
+      "ok": false
+    },
+    {
+      "name": "no tag",
+      "sent": { "title": "conn finished", "body": "idle", "tag": "", "href": "#/s/1" },
+      "ok": false
+    },
+    {
+      "name": "no href",
+      "sent": { "title": "conn finished", "body": "idle", "tag": "s1", "href": "" },
+      "ok": false
+    },
+    {
+      "name": "an href to another site",
+      "sent": { "title": "conn finished", "body": "idle", "tag": "s1", "href": "https://example.com/" },
+      "ok": false
+    },
+    {
+      "name": "a script href",
+      "sent": { "title": "conn finished", "body": "idle", "tag": "s1", "href": "javascript:alert(1)" },
+      "ok": false
+    },
+    {
+      "name": "a hash that is not a route",
+      "sent": { "title": "conn finished", "body": "idle", "tag": "s1", "href": "#k=secret" },
+      "ok": false
+    },
+    {
+      "name": "a newline in the body",
+      "sent": { "title": "conn needs input", "body": "Question:\nwhich one?", "tag": "s1", "href": "#/s/1" },
+      "ok": false
+    },
+    {
+      "name": "a terminal escape in the title",
+      "sent": { "title": "\u001b[31mconn\u001b[0m finished", "body": "idle", "tag": "s1", "href": "#/s/1" },
+      "ok": false
+    }
+  ]
+}
