@@ -16,6 +16,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/gallery"
 	"github.com/claytoncasey01/conn/internal/historyapi"
 	"github.com/claytoncasey01/conn/internal/myprs"
+	"github.com/claytoncasey01/conn/internal/newsession"
 	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/provided"
 	"github.com/claytoncasey01/conn/internal/pty"
@@ -74,6 +75,9 @@ type Server struct {
 	MyPrs *myprs.MyPrs
 	// Work answers Open work's /api/work and /api/runs; nil leaves the routes out.
 	Work *openwork.Work
+	// NewSession answers /api/sessions/new, the Sessions page's New session; nil leaves the
+	// route out.
+	NewSession *newsession.API
 	// Logger is told about a request that failed.
 	Logger *log.Logger
 	// Secret is what every /api request must carry (see gate.go). The zero Secret refuses all.
@@ -119,7 +123,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, urlPath string
 // api answers a route under /api that one of the APIs owns, and is false when none does.
 func (s *Server) api(w http.ResponseWriter, r *http.Request, urlPath string) bool {
 	owners := []func(http.ResponseWriter, *http.Request, string) bool{
-		s.terminal, s.actions, s.work, s.history, s.tabs,
+		s.terminal, s.newSession, s.actions, s.work, s.history, s.tabs,
 	}
 
 	for _, owns := range owners {
