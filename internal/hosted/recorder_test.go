@@ -511,6 +511,17 @@ func TestRecorderOpenerRecordsTheConversationItResumes(t *testing.T) {
 		{"a new conversation", []string{"/opt/claude", "--name", "x"}, ""},
 		{"an id that is not a UUID", []string{"/opt/claude", "--resume", "--continue"}, ""},
 		{"--resume last", []string{"/opt/claude", "--resume"}, ""},
+		{"a new conversation Conn named", []string{
+			"/opt/claude", "--session-id", claudeID, "--name", "x",
+		}, claudeID},
+		{"a session id that is not a UUID", []string{"/opt/claude", "--session-id", "x"}, ""},
+		{"--session-id last", []string{"/opt/claude", "--session-id"}, ""},
+		{"--resume before --session-id", []string{
+			"/opt/claude", "--resume", claudeID, "--session-id", otherClaude,
+		}, claudeID},
+		{"--session-id before --resume", []string{
+			"/opt/claude", "--session-id", otherClaude, "--resume", claudeID,
+		}, claudeID},
 	}
 
 	for _, tt := range tests {
