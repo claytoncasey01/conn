@@ -46,6 +46,8 @@ type rig struct {
 	opened  []pty.Spec
 	answer  launch.Opened
 	idErr   error
+	// origins are the origins of folders that are not clones of allowedRepo.
+	origins map[string]string
 	// resolve stands in for realpath.Resolve when a case sets it.
 	resolve func(path string) string
 	// afterCheck runs after the folder's first check and before the start.
@@ -56,7 +58,7 @@ type rig struct {
 func newRig(t *testing.T) *rig {
 	t.Helper()
 
-	clone := makeClone(t, filepath.Join(t.TempDir(), "widgets"))
+	clone := makeClone(t, filepath.Join(realTempFolder(t), "widgets"))
 	current := settings.Defaults()
 	current.Repos.Allow = []string{"acme/*"}
 
@@ -101,6 +103,13 @@ func (r *rig) deps() newsession.Deps {
 			return clone, found
 		},
 		CheckClone: checkClone, Resolve: r.resolveOf(),
+		OriginOf: func(folder string) string {
+			if origin, found := r.origins[folder]; found {
+				return origin
+			}
+
+			return allowedRepo
+		},
 		Open: func(_ context.Context, spec pty.Spec) launch.Opened {
 			r.mu.Lock()
 			defer r.mu.Unlock()
@@ -186,6 +195,10 @@ func TestStartRefusesAndOpensNothing(t *testing.T) {
 		{
 			"a link in a folder above the clone", linkedParent, `{"repo":"acme/widgets"}`,
 			http.StatusConflict, "is a link",
+		},
+		{
+			"a link to a clone of another repository", linkedToOther, `{"repo":"acme/widgets"}`,
+			http.StatusConflict, "is a clone of acme/other, not of acme/widgets",
 		},
 		{
 			"the clone swapped for a link after the check", swappedAfterCheck,
@@ -309,6 +322,23 @@ func linkedParent(t *testing.T, setting *rig) {
 	setting.resolve = func(path string) string { return path }
 }
 
+// linkedToOther is a clone set as a link to a safe clone of another repository: the allowlist
+// judged acme/widgets, so the session may not start in the clone of acme/other.
+func linkedToOther(t *testing.T, setting *rig) {
+	t.Helper()
+
+	other := makeClone(t, filepath.Join(realTempFolder(t), "other"))
+	link := filepath.Join(realTempFolder(t), "widgets")
+
+	err := os.Symlink(other, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	setting.clones[allowedRepo] = link
+	setting.origins = map[string]string{other: "acme/other"}
+}
+
 // swappedAfterCheck swaps the checked clone for a link to another clone once the first check is
 // done: the check right before the start refuses it.
 func swappedAfterCheck(t *testing.T, setting *rig) {
@@ -332,6 +362,13 @@ func realTempFolder(t *testing.T) string {
 	t.Helper()
 
 	folder, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Private whatever the umask, as Conn's own folders are: a test folder another user could
+	// write would rightly be refused.
+	err = os.Chmod(folder, 0o700)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +441,9 @@ func TestASecondStartInTheRepositoryWaitsForTheCooldown(t *testing.T) {
 	t.Parallel()
 
 	setting := newRig(t)
-	setting.clones["acme/gadgets"] = setting.clones[allowedRepo]
+	gadgets := makeClone(t, filepath.Join(realTempFolder(t), "gadgets"))
+	setting.clones["acme/gadgets"] = gadgets
+	setting.origins = map[string]string{gadgets: "acme/gadgets"}
 	api := setting.api()
 
 	start(t, api, `{"repo":"acme/widgets"}`)
@@ -445,6 +484,7 @@ func TestTwoStartsAtOnceOpenOne(t *testing.T) {
 			return setting.clones[allowedRepo], true
 		},
 		CheckClone: checkClone, Resolve: realpath.Resolve,
+		OriginOf: func(string) string { return allowedRepo },
 		Open: func(context.Context, pty.Spec) launch.Opened {
 			entered <- struct{}{}
 

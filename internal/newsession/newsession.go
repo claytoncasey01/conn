@@ -56,6 +56,8 @@ type Deps struct {
 	// CheckClone refuses a clone's real path a session may not start in (CheckClone over
 	// reviews.CheckSafeFolder).
 	CheckClone func(folder string) error
+	// OriginOf is the GitHub repository of a folder's origin, "" for none (origin.Reader.Of).
+	OriginOf func(folder string) string
 	// Resolve is a folder with every link followed (realpath.Resolve): the folder claude reports
 	// as its own, which History's archive row holds.
 	Resolve func(path string) string
@@ -254,7 +256,11 @@ func (a *API) folderOf(repo string, current settings.Settings) (string, *Reply) 
 	return folder, nil
 }
 
-// cloneProblem is why a session may not start in folder, the clone of repo (CheckClone), or nil.
+// cloneProblem is why a session may not start in folder, the clone of repo, or nil: it passes
+// CheckClone, and its origin is repo.
+// Its origin is read last, once no one else can change the folder: the repository the allowlist
+// allowed must be the one the session starts in, whatever CloneFor's path pointed at before it
+// was resolved.
 func (a *API) cloneProblem(repo, folder string) *Reply {
 	err := a.deps.CheckClone(folder)
 	if err != nil {
@@ -262,7 +268,21 @@ func (a *API) cloneProblem(repo, folder string) *Reply {
 			"The clone of "+repo+" cannot be used: "+err.Error()+".")
 	}
 
+	origin := a.deps.OriginOf(folder)
+	if js.Lower(origin) != js.Lower(repo) {
+		return refuse(http.StatusConflict, "The clone of "+repo+" cannot be used: "+folder+
+			" is a clone of "+originOrNone(origin)+", not of "+repo+": set its folder in Settings.")
+	}
+
 	return nil
+}
+
+func originOrNone(origin string) string {
+	if origin == "" {
+		return "no GitHub repository"
+	}
+
+	return origin
 }
 
 // CheckClone returns why a session may not start in folder, a clone's real path, or nil. The

@@ -43,9 +43,17 @@ type newSessionRig struct {
 func newNewSessionRig(t *testing.T) *newSessionRig {
 	t.Helper()
 
-	clone := filepath.Join(t.TempDir(), "widgets")
+	base := t.TempDir()
 
-	err := os.MkdirAll(filepath.Join(clone, ".git"), 0o700)
+	// Private whatever the umask: a folder another user could write would rightly be refused.
+	err := os.Chmod(base, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clone := filepath.Join(base, "widgets")
+
+	err = os.MkdirAll(filepath.Join(clone, ".git"), 0o700)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +65,7 @@ func newNewSessionRig(t *testing.T) *newSessionRig {
 		Settings:   func() settings.Settings { return current },
 		Repos:      func(settings.Settings) []string { return []string{"acme/widgets"} },
 		CloneFor:   func(string, settings.Settings) (string, bool) { return clone, true },
+		OriginOf:   func(string) string { return "acme/widgets" },
 		CheckClone: checkClone, Resolve: realpath.Resolve,
 		Open: func(_ context.Context, spec pty.Spec) launch.Opened {
 			rig.mu.Lock()

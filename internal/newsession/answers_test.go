@@ -43,6 +43,7 @@ func goldenAPIWith(open launch.Opener, dry bool, running int) *newsession.API {
 			return cloneFolder, repo == "acme/widgets"
 		},
 		CheckClone: func(string) error { return nil },
+		OriginOf:   func(string) string { return "acme/widgets" },
 		Resolve:    func(path string) string { return path },
 		Open:       open,
 		Claude:     "claude", Dry: dry, Room: roomOf(running),

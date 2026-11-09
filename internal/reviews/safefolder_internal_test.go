@@ -153,6 +153,13 @@ func realTemp(t *testing.T) string {
 		t.Fatal(err)
 	}
 
+	// Private whatever the umask, as Conn's own folders are: a test folder another user could
+	// write would rightly be refused.
+	err = os.Chmod(folder, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	return folder
 }
 
