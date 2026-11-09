@@ -1,6 +1,8 @@
 package origin_test
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -731,5 +733,33 @@ func TestClonesInListsAtMostFoldersMaxFolders(t *testing.T) {
 				t.Fatalf("%d: got %v", maxFolders, got)
 			}
 		}
+	}
+}
+
+// TestTheSearchForAFolderInAnyCaseReadsABoundedListing: at most the bound's entries are read,
+// so no more than that many folders are found, however many the folder holds. It needs a file
+// system that tells cases apart, and is skipped on one that does not.
+func TestTheSearchForAFolderInAnyCaseReadsABoundedListing(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+
+	for _, name := range []string{"widgets", "Widgets", "WIDGETS"} {
+		err := os.Mkdir(filepath.Join(parent, name), 0o700)
+		if errors.Is(err, fs.ErrExist) {
+			t.Skip("the file system does not tell cases apart")
+		}
+
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got := origin.NamedLikeWithin(parent, "widgets", 3); len(got) != 3 {
+		t.Fatalf("with room for all: %q", got)
+	}
+
+	if got := origin.NamedLikeWithin(parent, "widgets", 2); len(got) != 2 {
+		t.Errorf("read past the bound: %q", got)
 	}
 }

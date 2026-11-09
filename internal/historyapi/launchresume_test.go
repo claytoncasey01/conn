@@ -6,13 +6,16 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/history"
 	"github.com/claytoncasey01/conn/internal/historyapi"
+	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/pty"
+	"github.com/claytoncasey01/conn/internal/safefolder"
 )
 
 const allowedRepo = "acme/widgets"
@@ -29,7 +32,7 @@ type launchRig struct {
 func newLaunchRig(t *testing.T) *launchRig {
 	t.Helper()
 
-	folder := filepath.Join(t.TempDir(), "widgets")
+	folder := filepath.Join(realTemp(t), "widgets")
 
 	err := os.MkdirAll(folder, 0o700)
 	if err != nil {
@@ -65,9 +68,10 @@ func newLaunchRig(t *testing.T) *launchRig {
 	rig := &launchRig{folder: folder, transcript: transcript, deps: historyapi.Deps{}}
 	rig.deps = historyapi.Deps{
 		DB: archive, Summarizer: nil,
-		LiveIDs: func(context.Context) map[string]bool { return map[string]bool{} },
-		Allow:   func() []string { return []string{allowedRepo} },
-		RepoOf:  func(string) string { return allowedRepo },
+		LiveIDs:     func(context.Context) map[string]bool { return map[string]bool{} },
+		Allow:       func() []string { return []string{allowedRepo} },
+		RepoOf:      func(string) string { return allowedRepo },
+		CheckFolder: safefolder.Check,
 		Open: func(_ context.Context, spec pty.Spec) launch.Opened {
 			rig.opened = append(rig.opened, spec)
 
@@ -181,10 +185,58 @@ func stateRefusals() []launchRefusal {
 	}
 }
 
+// folderRefusals are records whose folder has changed since the session ran so that a session
+// may not start in it by its path.
+func folderRefusals() []launchRefusal {
+	return []launchRefusal{
+		{"a folder that became a link", func(t *testing.T, rig *launchRig) (string, string) {
+			t.Helper()
+
+			linkInPlace(t, rig.folder)
+
+			return resumedID, rig.folder
+		}},
+		{"a folder others may write", func(t *testing.T, rig *launchRig) (string, string) {
+			t.Helper()
+
+			err := os.Chmod(rig.folder, 0o777)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			return resumedID, rig.folder
+		}},
+		{"a folder above it others may write", func(t *testing.T, rig *launchRig) (string, string) {
+			t.Helper()
+
+			err := os.Chmod(filepath.Dir(rig.folder), 0o777)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			return resumedID, rig.folder
+		}},
+	}
+}
+
+// linkInPlace moves folder aside and puts a link to a new folder in its place.
+func linkInPlace(t *testing.T, folder string) {
+	t.Helper()
+
+	err := os.Rename(folder, folder+"-moved")
+	if err == nil {
+		err = os.Symlink(t.TempDir(), folder)
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestResumeAtLaunchRefuses(t *testing.T) {
 	t.Parallel()
 
-	tests := slices.Concat(recordRefusals(), stateRefusals())
+	tests := slices.Concat(recordRefusals(), stateRefusals(), folderRefusals())
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -215,6 +267,33 @@ func removed(path func(rig *launchRig) string) func(t *testing.T, rig *launchRig
 	}
 }
 
+// TestRESUMERefusesAFolderThatBecameALink: RESUME runs the same folder check as a launch, and
+// says what is wrong.
+func TestRESUMERefusesAFolderThatBecameALink(t *testing.T) {
+	t.Parallel()
+
+	rig := newLaunchRig(t)
+	linkInPlace(t, rig.folder)
+
+	reply, err := rig.api().Handle(t.Context(),
+		historyapi.Route{Kind: historyapi.RouteResume, ID: resumedID, AgentID: ""}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if reply.Code != http.StatusConflict {
+		t.Errorf("RESUME answered %d, want %d", reply.Code, http.StatusConflict)
+	}
+
+	if !strings.Contains(string(js.Marshal(reply.Body)), rig.folder+" is a link") {
+		t.Errorf("RESUME said %s", js.Marshal(reply.Body))
+	}
+
+	if len(rig.opened) != 0 {
+		t.Errorf("RESUME opened %d sessions", len(rig.opened))
+	}
+}
+
 // A session resumed at launch is not live until it registers: a RESUME meanwhile opens no
 // second one on the same conversation.
 func TestAResumeRightAfterTheLaunchsIsRefused(t *testing.T) {
@@ -241,4 +320,23 @@ func TestAResumeRightAfterTheLaunchsIsRefused(t *testing.T) {
 	if len(rig.opened) != 0 {
 		t.Errorf("RESUME opened %d sessions", len(rig.opened))
 	}
+}
+
+// realTemp is a new folder by its real path, as claude records a session's folder.
+func realTemp(t *testing.T) string {
+	t.Helper()
+
+	folder, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Private whatever the umask, as Conn's own folders are: a test folder another user could
+	// write would rightly be refused.
+	err = os.Chmod(folder, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return folder
 }

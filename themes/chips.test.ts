@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { composite, contrast, parseColor, type Rgba } from '../src/lib/theme/color.ts'
 import { CHIP_BACKING, CHIP_DIM } from '../src/lib/chipStyle.ts'
-import { looks, type Look } from './looks.ts'
+import { looks, mixOklab, type Look } from './looks.ts'
 
 const BLACK: Rgba = { r: 0, g: 0, b: 0, a: 1 }
 const color = (l: Look, slot: string): Rgba => {
@@ -23,32 +23,6 @@ assert.ok(HEAD, 'rain.ts names its head colour')
 
 // What a chip's text is read against: the plain page (no backing: no effect is mounted), or the backing over a rain head, opaque
 const surfaces = (l: Look): Rgba[] => [bgOf(l), composite({ ...color(l, 'bg'), a: CHIP_BACKING }, { ...HEAD, a: 1 })]
-
-// color-mix(in oklab, a pct%, b): the one mix FilterBar uses to build a selected chip's text
-const toLin = (c: number) => ((c / 255) <= 0.04045 ? c / 255 / 12.92 : (((c / 255) + 0.055) / 1.055) ** 2.4)
-const fromLin = (x: number) => Math.round(255 * Math.min(1, Math.max(0, x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055)))
-const toLab = ({ r, g, b }: Rgba): [number, number, number] => {
-  const [R, G, B] = [toLin(r), toLin(g), toLin(b)]
-  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B)
-  const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B)
-  const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B)
-  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s]
-}
-const fromLab = ([L, a, b]: [number, number, number]): Rgba => {
-  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
-  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
-  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3
-  return {
-    r: fromLin(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
-    g: fromLin(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
-    b: fromLin(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s),
-    a: 1,
-  }
-}
-const mixOklab = (a: Rgba, pct: number, b: Rgba): Rgba => {
-  const [x, y] = [toLab(a), toLab(b)]
-  return fromLab([0, 1, 2].map((i) => (x[i] * pct) / 100 + (y[i] * (100 - pct)) / 100) as [number, number, number])
-}
 
 // the text of an off chip is mu; of a selected chip, role-lead 30% into bright (FilterBar's textColor)
 const TEXTS: Record<string, (l: Look) => Rgba> = {

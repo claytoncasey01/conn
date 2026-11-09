@@ -143,14 +143,29 @@ func Check(spec pty.Spec) error {
 	problems = append(problems, checkText("the folder", spec.Dir)...)
 	problems = append(problems, checkShown("the folder", spec.Dir)...)
 
-	if spec.Name == "" {
+	problems = append(problems, nameProblems(spec.Name)...)
+
+	return errors.Join(problems...)
+}
+
+// CheckName returns every problem Check finds with a session's name, each wrapping
+// ErrInvalidSession, or nil: so a name a request carries is checked by the same rule before
+// anything is built from it.
+func CheckName(name string) error {
+	return errors.Join(nameProblems(name)...)
+}
+
+// nameProblems are what is wrong with a session's name.
+func nameProblems(name string) []error {
+	var problems []error
+
+	if name == "" {
 		problems = append(problems, fmt.Errorf("%w: the session has no name", ErrInvalidSession))
 	}
 
-	problems = append(problems, checkText("the name", spec.Name)...)
-	problems = append(problems, checkShown("the name", spec.Name)...)
+	problems = append(problems, checkText("the name", name)...)
 
-	return errors.Join(problems...)
+	return append(problems, checkShown("the name", name)...)
 }
 
 // checkText is what is wrong with one value of a spec, named what.

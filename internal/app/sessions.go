@@ -79,5 +79,6 @@ func sessionHooks(store *settings.Store, history func() any, views tabViews) ses
 		RepoVisible: func(repo string) bool { return repos.Allowed(repo, store.Allow()) },
 		GithubOn:    func() bool { return store.ModuleEnabled(settings.ModuleGitHub) },
 		Resumed:     views.resumed,
+		Where:       func() string { return store.Get().Sessions.Where },
 	}
 }

@@ -92,16 +92,80 @@ If you are not sure which side a problem falls on, report it privately anyway.
 ## Sessions inside Conn
 
 By default Conn runs the Claude Code sessions it starts (an Open work build, a review, a
-self-review, a History resume) on a terminal of its own, and the page shows that terminal. The
-terminal is code execution as you: whatever is typed into it, the program runs. So these are the
-rules, and a way around any of them is in scope.
+self-review, a History resume, a new session from the Sessions page) on a terminal of its own,
+and the page shows that terminal. The terminal is code execution as you: whatever is typed into
+it, the program runs. So these are the rules, and a way around any of them is in scope.
 
 **What a client can do.** Attach to a session by the id the server issued, type, resize, and
 detach. Nothing else. No route, message or setting names a command, an argument, a variable or a
-folder: sessions are started by Conn's own code, from records it has already checked. One more
+folder: sessions are started by Conn's own code, from records it has already checked (New
+session, below, names only an allowed repository, and Conn resolves its folder). One more
 input needs no attached terminal: **Interrupt** (`POST /api/term/<id>/interrupt`, no body) types
 the one byte Ctrl-C types (ETX). It is input, never a signal. A second press within 3 seconds is
 refused, because two Ctrl-C close together make `claude` quit.
+
+**New session.** `POST /api/sessions/new` starts a plain `claude` session. Its body is a JSON
+object with a repository name (`owner/name`) and, optionally, a session name; any other field, a
+value that is not text, or a body over 64 KiB is refused. The page never sends a folder, a
+program, an argument or a variable, and the server reads none: the repository is only a key.
+- The repository must be on the allowlist now and have a local clone, found as Open work finds
+  one. The clone's path is resolved first (a clone set in Settings may be a link), and the
+  session runs in that real path, which must be a safe folder (below). Its `.git` must be a
+  safe folder too: not a link, and not a file pointing at a git folder elsewhere (a worktree or a
+  `--separate-git-dir` clone), since either would let the folder borrow another repository's
+  origin, and so its place on the allowlist. The clone's `.claude` and `.git/hooks`, which the
+  session trusts, must be safe folders too when they exist (a link is refused). What they hold,
+  and what `.mcp.json` or `CLAUDE.md` say, is the repository's own and is not checked. Once the
+  folder has passed, its origin is read again (from `.git/config`, as Conn reads it everywhere,
+  kept until that file's modification time changes) and must be the repository asked for, so a
+  link that pointed somewhere else by the time it was resolved starts nothing.
+- **A safe folder.** The folder must be yours, a real folder (not a link) that no one else may
+  write, and every folder above it up to `/` a real folder of yours or root's that no one else may
+  write. "No one else" is read from the mode bits, with two exceptions:
+  - a folder its group may write passes when that group is your private group (as Debian,
+    Ubuntu and Fedora make one, with a umask of 002): its id is your own group id; every line of
+    `/etc/group` with that id names the group after you and lists no member but you; and no other
+    account in `/etc/passwd` has it as its primary group (an account is never listed as a member
+    of its own primary group). Any doubt counts as shared: either file unreadable or over 1 MiB or
+    10,000 lines, a group `/etc/group` does not list, or a line about the group that is not
+    written cleanly (a carriage return, a space, a leading zero, a field too many or too few).
+    Members added only through NSS (sssd, LDAP) are not seen, so "no other member" means none in
+    `/etc/group` or `/etc/passwd`. macOS's `staff` is shared, so a folder `staff` may write is
+    refused;
+  - a folder above the one the session starts in that anyone may write passes when it is sticky,
+    such as `/tmp`, where no one may rename or remove what is not theirs.
+
+  Then no other user can change which folder the path names, so starting the program in it by
+  its path (a chdir) reaches the folder that was checked. The check runs when the repository is
+  chosen and again right before the start. A folder that fails says which part and what to do:
+  use the folder a link points to, `chmod o-w` a folder anyone may write, or `chmod g-w` one a
+  shared group may write (or give it a group only you are in). This holds the path, not what is
+  in the folder, and only as far as owners and mode bits tell: it does not see macOS ACLs, a
+  volume mounted to ignore ownership, or a network file system (NFS, SMB).
+- The name passes the same checks as every session's name (no control, bidi or invisible
+  character, valid UTF-8, at most 256 bytes) and is then reduced to ASCII letters, digits, `.`,
+  `_` and `-` and cut to 64 characters, so it cannot start with `-` and read as a flag. A name
+  with nothing left is refused.
+- Conn chooses the conversation id itself (a random UUID from `crypto/rand`), so the command is
+  always exactly the program `CONN_CLAUDE` names (`claude` by default), `--session-id <uuid>`,
+  plus `--name <name>` when a name was given, run as a list of arguments with no shell. It opens
+  where Settings say, like every other session.
+- The route needs the gate below, `x-conn: 1` and the page's own `Origin`: a request with no
+  `Origin` is refused, as for the Settings and agents-and-skills writes, the terminal's
+  background and Interrupt. The session actions (stop, reply, answer, terminal), History's
+  summary and RESUME, Reviews, My PRs, Open work and the theme gallery's writes take `x-conn: 1`
+  without requiring an `Origin` (a browser always sends one on a POST, and the gate refuses one
+  that is not this server's). A second start in
+  the same repository within 10 seconds is refused, and so is a session inside Conn while 12 run
+  or are starting. A dry run starts nothing.
+- Inside Conn the session is recorded as a History session on the id Conn chose. At the next
+  launch it comes back only through History's check below, so a session that never wrote a
+  transcript is not resumed.
+
+Why the page cannot choose a folder: a folder from the request would let any caller that gets
+past the gate run `claude` (and whatever a repository's own Claude settings run) anywhere on the
+disk. Tying the folder to the allowlist and to a clone Conn resolves itself keeps a start to the
+same places Open work, Reviews and History already run sessions.
 
 **The gate.** Every terminal route is under `/api`, so it needs the same Host, Origin and secret
 as the rest (see the local server, above), and a write needs `x-conn: 1`. A browser cannot put a
@@ -176,9 +240,13 @@ its owner, which rebuilds the command from its own state, as its own button woul
   each folder on the way yours and not a link, with a `.git`, in an allowed repository.
   `reviews.json` or `myprs.json` holds an open launch with that worktree and name, and the session
   resumes on that launch's model. No session of that name, and none in that worktree, already runs.
-- **History.** Not a dry run. Claude's id is a UUID. The archive has the session, it is not
-  running, its transcript and folder exist, and it was not just resumed. The folder is the one the
-  archive holds, and its repository is allowed.
+- **History** (a session resumed from History, or started with New session). Not a dry run.
+  Claude's id is a UUID. The archive has the session, it is not running, its transcript and
+  folder exist, and it was not just resumed. The folder is the one the archive holds, it is a
+  safe folder (see New session, above), and its repository is allowed. History's RESUME button
+  makes the same folder check, so a session in a folder reached through a link, or under a folder
+  others may write, is no longer resumed, by the button or at launch; the refusal says which
+  part to fix.
 
 **Quit, close and launch.**
 - Closing the app's window hides it. Every session keeps running, and opening the window again

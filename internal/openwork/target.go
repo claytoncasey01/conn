@@ -77,7 +77,7 @@ type CloneFinder func(repo string, current settings.Settings) (string, bool)
 func BuildTargets(current settings.Settings, seen []string, find CloneFinder,
 	defaultOf func(clone string) (string, bool),
 ) []Target {
-	names := allowedRepos(current, seen)
+	names := AllowedRepos(current, seen)
 	targets := make([]Target, 0, len(names))
 
 	for _, repo := range names {
@@ -87,9 +87,10 @@ func BuildTargets(current settings.Settings, seen []string, find CloneFinder,
 	return targets
 }
 
-// allowedRepos are the allowed repositories Settings names and seen holds, once each in any case,
-// in allowlist order and in the order named within a pattern; at most maxBuildRepos.
-func allowedRepos(current settings.Settings, seen []string) []string {
+// AllowedRepos are the allowed repositories Settings names and seen holds, once each in any case,
+// in allowlist order and in the order named within a pattern; at most maxBuildRepos. Open work
+// offers them as places to build, and the Sessions page as places to start a session.
+func AllowedRepos(current settings.Settings, seen []string) []string {
 	jira := current.Atlassian.Jira
 
 	// The default repository comes first, so a name in two places is spelled as it is.

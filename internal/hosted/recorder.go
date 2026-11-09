@@ -12,8 +12,10 @@ import (
 	"github.com/claytoncasey01/conn/internal/pty"
 )
 
-// resumeFlag is claude's option that names the conversation a session resumes.
-const resumeFlag = "--resume"
+// conversationFlags are claude's options that name the conversation a session runs on, in the
+// order they are looked for: the conversation it resumes, then the id Conn chose for a new one
+// (a session started from the Sessions page).
+func conversationFlags() []string { return []string{"--resume", "--session-id"} }
 
 // SyncInterval is how often a running Recorder looks for sessions that ended and for Claude's
 // ids of the ones that run.
@@ -66,12 +68,12 @@ func NewRecorder(deps RecorderDeps) *Recorder {
 }
 
 // Opener is open with each session it starts inside Conn recorded for owner, on the
-// conversation it resumes when it resumes one.
+// conversation it runs on when argv names one (conversationOf).
 func (r *Recorder) Opener(owner string, open launch.Opener) launch.Opener {
 	return func(ctx context.Context, spec pty.Spec) launch.Opened {
 		opened := open(ctx, spec)
 		if opened.HostedID != "" {
-			r.Started(owner, opened.HostedID, spec, resumedConversation(spec.Argv))
+			r.Started(owner, opened.HostedID, spec, conversationOf(spec.Argv))
 		}
 
 		return opened
@@ -241,23 +243,26 @@ func (r *Recorder) keptLocked() []Record {
 	return slices.Concat(r.records, r.carried[:min(len(r.carried), room)])
 }
 
-// resumedConversation is the conversation argv resumes: the argument after the first --resume
-// when it is a UUID, else "" (a new conversation, which the session list links later).
-func resumedConversation(argv []string) string {
-	flagAt := slices.Index(argv, resumeFlag)
-	if flagAt < 0 {
-		return ""
+// conversationOf is the conversation argv runs on: the argument after the first of
+// conversationFlags that argv holds with a UUID after it, else "" (a new conversation Conn did
+// not name, which the session list links later).
+func conversationOf(argv []string) string {
+	for _, flag := range conversationFlags() {
+		flagAt := slices.Index(argv, flag)
+		if flagAt < 0 {
+			continue
+		}
+
+		if flagAt+1 >= len(argv) {
+			continue
+		}
+
+		if cmux.IsSessionID(argv[flagAt+1]) {
+			return argv[flagAt+1]
+		}
 	}
 
-	if flagAt+1 >= len(argv) {
-		return ""
-	}
-
-	if !cmux.IsSessionID(argv[flagAt+1]) {
-		return ""
-	}
-
-	return argv[flagAt+1]
+	return ""
 }
 
 // Track is records kept to the sessions that still run in live and are not being stopped (one the

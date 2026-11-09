@@ -133,6 +133,10 @@ func newHandler(
 		History: historyAPI, HistoryOff: archived.offReason,
 		Reviews: running.reviews, MyPrs: running.myPrs, Work: running.work,
 		Themes: library, Gallery: themesAPI, Provided: newProvided(cfg, logger),
+		NewSession: newNewSession(newSessionParts{
+			cfg: cfg, store: store, reader: reader, host: host, live: live, open: openers.history,
+			myPrRepos: running.myPrs.Repos,
+		}),
 	}, hostedLife{
 		recorder: recorder, checks: checks, resumed: resumed, bump: live.Bump,
 		ticked: live.Ticked(), tickTimeout: firstTickTimeout, settle: settle,

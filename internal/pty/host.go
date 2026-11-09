@@ -144,9 +144,9 @@ func (h *Host) SetAnswers(answers Answers) {
 
 // checkLimits panics on a limit at or below zero or above its default.
 func checkLimits(limits Limits) {
-	checkLimit("SessionsMax", int64(limits.MaxSessions), maxSessions)
-	checkLimit("ScrollbackBytesMax", int64(limits.MaxScrollbackBytes), maxScrollbackBytes)
-	checkLimit("ViewersMax", int64(limits.MaxViewers), maxViewers)
+	checkLimit("MaxSessions", int64(limits.MaxSessions), maxSessions)
+	checkLimit("MaxScrollbackBytes", int64(limits.MaxScrollbackBytes), maxScrollbackBytes)
+	checkLimit("MaxViewers", int64(limits.MaxViewers), maxViewers)
 	checkLimit("StopGrace", int64(limits.StopGrace), int64(stopGrace))
 }
 
@@ -330,6 +330,21 @@ func (held *session) lines(count int) []string {
 	defer held.screenMu.Unlock()
 
 	return held.screen.Lines(count)
+}
+
+// Room is how many programs a host runs, Starts still spawning counted, and the most it runs
+// at once: a Start refuses with ErrSessionsFull while Running is MaxSessions.
+type Room struct {
+	Running     int
+	MaxSessions int
+}
+
+// Room is the host's Room now, as the limit a Start checks counts it.
+func (h *Host) Room() Room {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return Room{Running: h.running, MaxSessions: h.limits.MaxSessions}
 }
 
 // Live is every session the host holds, running or ended, oldest Start first.

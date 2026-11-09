@@ -36,7 +36,21 @@ func signalWorld(t *testing.T) (string, []string) {
 	t.Helper()
 
 	dataDir := t.TempDir()
-	folder := filepath.Join(t.TempDir(), "widgets")
+	// By its real path, as claude records its folder: History resumes only in a folder reached
+	// through no link.
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Private whatever the umask, as Conn's own folders are: a test folder another user could
+	// write would rightly be refused.
+	err = os.Chmod(base, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	folder := filepath.Join(base, "widgets")
 	claude := filepath.Join(t.TempDir(), "claude")
 
 	writeFile(t, filepath.Join(folder, ".git", "config"),
@@ -47,7 +61,7 @@ func signalWorld(t *testing.T) (string, []string) {
 
 	archiveSession(t, dataDir, folder)
 
-	err := hosted.Write(dataDir, []hosted.Record{{
+	err = hosted.Write(dataDir, []hosted.Record{{
 		ID: lastLaunchID, Owner: hosted.OwnerHistory, Name: "fix",
 		Dir: folder, ClaudeSessionID: signalSessionID,
 	}})

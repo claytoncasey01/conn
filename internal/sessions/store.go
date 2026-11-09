@@ -105,6 +105,9 @@ type Hooks struct {
 	// Resumed are the sessions this launch resumed that still run, nil for none: the page says
 	// so, with a Stop all. Nil leaves the field out.
 	Resumed func() any
+	// Where is where sessions Conn starts open (settings.Sessions.Where): the Sessions page words
+	// its empty state by it. Nil leaves the field out.
+	Where func() string
 }
 
 // Run is the part of an Open work run the session list reads: its key, its worktrees, and its
@@ -129,6 +132,7 @@ type Snapshot struct {
 	OpenWork bool              `json:"openWork"`
 	MyPrs    any               `json:"myPrs,omitempty"`
 	Resumed  any               `json:"resumed,omitempty"`
+	Where    string            `json:"where,omitempty"`
 }
 
 // LiveSession is a live session as plain fields, for the modules that must not reach into the
@@ -770,7 +774,7 @@ func (s *store) build(ctx context.Context, now float64) Snapshot {
 	snap := Snapshot{
 		At: now, Sessions: details, Runs: runs, History: hooks.History(),
 		Reviews: hooks.Reviews(), Setup: hooks.Setup(), OpenWork: hooks.OpenWork(), MyPrs: nil,
-		Resumed: nil,
+		Resumed: nil, Where: "",
 	}
 
 	if hooks.MyPrs != nil {
@@ -779,6 +783,10 @@ func (s *store) build(ctx context.Context, now float64) Snapshot {
 
 	if hooks.Resumed != nil {
 		snap.Resumed = hooks.Resumed()
+	}
+
+	if hooks.Where != nil {
+		snap.Where = hooks.Where()
 	}
 
 	return snap
