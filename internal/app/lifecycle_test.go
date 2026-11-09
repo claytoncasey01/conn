@@ -84,11 +84,24 @@ func writeLifeFile(t *testing.T, path, text string) {
 	}
 }
 
-// widgetsFolder is a new folder whose origin is acme/widgets.
+// widgetsFolder is a new folder whose origin is acme/widgets, by its real path, as claude records
+// its folder (History resumes only in a folder reached through no link).
 func widgetsFolder(t *testing.T) string {
 	t.Helper()
 
-	folder := filepath.Join(t.TempDir(), "widgets")
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Private whatever the umask, as Conn's own folders are: a test folder another user could
+	// write would rightly be refused.
+	err = os.Chmod(base, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	folder := filepath.Join(base, "widgets")
 	writeLifeFile(t, filepath.Join(folder, ".git", "config"),
 		"[remote \"origin\"]\n\turl = git@github.com:acme/widgets.git\n")
 

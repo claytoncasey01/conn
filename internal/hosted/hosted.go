@@ -35,7 +35,9 @@ const (
 	OwnerReviews = "reviews"
 	// OwnerMyPrs is a My PRs self-review; the folder is its worktree under Conn's myprs folder.
 	OwnerMyPrs = "myprs"
-	// OwnerHistory is a session resumed from History; Claude's session id names it.
+	// OwnerHistory is a session resumed from History, or started from the Sessions page on a
+	// conversation id Conn chose; Claude's session id names it, and History's archive row of it
+	// is what resumes it.
 	OwnerHistory = "history"
 )
 

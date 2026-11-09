@@ -164,6 +164,10 @@ type Deps struct {
 	RepoOf func(folder string) string
 	// Open starts a resumed session where the settings say sessions open.
 	Open launch.Opener
+	// CheckFolder refuses a folder a session may not start in by its path
+	// (safefolder.Check): a link, or a folder on its path another user may change. Every
+	// History start, from RESUME or at launch, passes it.
+	CheckFolder func(folder string) error
 	// Claude is the claude program as configured (CONN_CLAUDE): the resumed session's program.
 	Claude string
 	// Dry launches nothing (CONN_WORK_DRY).
@@ -532,6 +536,12 @@ func (a *API) resumable(ctx context.Context, sessionID string, info history.Resu
 		}
 
 		return refuse(http.StatusConflict, folder+" no longer exists")
+	}
+
+	err := a.deps.CheckFolder(info.Cwd)
+	if err != nil {
+		return refuse(http.StatusConflict, "the session cannot be resumed in its folder: "+
+			err.Error())
 	}
 
 	a.mutex.Lock()
