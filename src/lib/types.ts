@@ -181,6 +181,8 @@ export interface Snapshot {
   openWork: boolean
   /** The hosted sessions this launch resumed from the last quit that still run; absent when there are none */
   resumed?: { sessions: ResumedSession[] }
+  /** Where the sessions Conn starts open (Settings, Where sessions open): inside, terminal or command; absent from an older server */
+  where?: string
 }
 
 /** A hosted session resumed at launch: the host's id for it (its row's id) and its name */

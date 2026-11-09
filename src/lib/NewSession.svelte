@@ -1,11 +1,8 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { tick } from 'svelte'
   import { fetchChoices, startSession, type NewSessionChoices } from './newSession.ts'
   import { href } from './router.svelte.ts'
   import { showTerminal } from './terminalPanel.svelte.ts'
-
-  /** Where sessions open, once the server has said: the Sessions page words its empty state by it */
-  let { where = $bindable(null) }: { where?: string | null } = $props()
 
   let step = $state<'closed' | 'loading' | 'form' | 'starting'>('closed')
   let choices = $state<NewSessionChoices | null>(null)
@@ -31,16 +28,8 @@
       return
     }
     choices = got
-    where = got.where
     if (!got.repos.includes(repo)) repo = got.repos[0] ?? ''
   }
-
-  // Only where sessions open is wanted before the form opens: a failed read leaves the page's wording as it is.
-  onMount(() => {
-    void fetchChoices().then((got) => {
-      if (!('error' in got)) where = got.where
-    })
-  })
 
   async function open(): Promise<void> {
     step = 'loading'

@@ -38,6 +38,9 @@ const (
 	foldersUpMax = 64
 	// cacheEntriesMax is how many configs are remembered before the cache starts over.
 	cacheEntriesMax = 1000
+	// folderEntriesMax bounds the entries of a clone folder (the clone root, ~/projects) read to
+	// find a repository's folder in it.
+	folderEntriesMax = 4096
 
 	// headRefPrefix starts the merge ref of a branch that tracks a branch.
 	headRefPrefix = "refs/heads/"
@@ -676,20 +679,22 @@ func isRepoRoot(path string) bool {
 }
 
 // namedLike is the folders under parent named name in any case, as they are on disk: the casing
-// asked for first, then lowercase, then the rest.
+// asked for first, then lowercase, then the rest. At most folderEntriesMax entries of parent are
+// read, so a huge folder is never read whole (which ones a cut listing holds is the file
+// system's order).
 func namedLike(parent, name string) []string {
-	entries, err := os.ReadDir(parent)
-	if err != nil {
-		return nil
-	}
+	return namedLikeWithin(parent, name, folderEntriesMax)
+}
 
+// namedLikeWithin is namedLike reading at most entriesMax entries of parent.
+func namedLikeWithin(parent, name string, entriesMax int) []string {
 	lower := strings.ToLower(name)
 
 	var found []string
 
-	for _, entry := range entries {
-		if strings.ToLower(entry.Name()) == lower {
-			found = append(found, entry.Name())
+	for _, entry := range listNames(parent, entriesMax) {
+		if strings.ToLower(entry) == lower {
+			found = append(found, entry)
 		}
 	}
 

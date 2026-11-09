@@ -36,8 +36,8 @@
   const bar = $derived(barGroups(sessions, groups, sessionFilter.selection))
   const empty = $derived(emptyState(sessions.length, shown.length, sessionFilter.selection))
   const fleet = $derived(fleetTotals(sessions))
-  /** Where sessions open, once New session has read it: the empty state's wording follows it */
-  let where = $state<string | null>(null)
+  /** Where sessions open, as the snapshot says: the empty state's wording follows it */
+  const where = $derived(live.snap?.where ?? null)
   /** The hosted session whose terminal panel is open here, if it is still listed */
   const terminalOf = $derived(sessions.find(s => s.hosted && s.id === terminalPanel.open) ?? null)
 
@@ -120,7 +120,7 @@
         ontoggle={(groupId, chipId) => (sessionFilter.selection = toggle(sessionFilter.selection, groups.find(g => g.id === groupId)!, chipId))}
         onclear={() => (sessionFilter.selection = emptySelection())}
       />
-      <NewSession bind:where />
+      <NewSession />
     </div>
 
     {#if terminalOf}

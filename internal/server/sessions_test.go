@@ -23,9 +23,15 @@ var errNone = errors.New("none")
 func emptyLoop(t *testing.T) *sessions.Loop {
 	t.Helper()
 
-	never := func() bool { return false }
+	return emptyLoopWith(t, func(*sessions.Hooks) {})
+}
 
-	return sessions.NewLoop(sessions.Deps{
+// emptyLoopWith is emptyLoop with its hooks changed by change.
+func emptyLoopWith(t *testing.T, change func(hooks *sessions.Hooks)) *sessions.Loop {
+	t.Helper()
+
+	never := func() bool { return false }
+	deps := sessions.Deps{
 		Home: t.TempDir(), DataDir: t.TempDir(), Kinds: sessions.KindRules{},
 		Procs: func() (string, error) { return "", nil },
 		Env:   func(float64) ([]string, error) { return nil, errNone },
@@ -41,7 +47,34 @@ func emptyLoop(t *testing.T) *sessions.Loop {
 			GithubOn: never,
 		},
 		Now: time.Now,
+	}
+	change(&deps.Hooks)
+
+	return sessions.NewLoop(deps)
+}
+
+// TestTheSnapshotSaysWhereSessionsOpen: the Sessions page words its empty state by it.
+func TestTheSnapshotSaysWhereSessionsOpen(t *testing.T) {
+	t.Parallel()
+
+	loop := emptyLoopWith(t, func(hooks *sessions.Hooks) {
+		hooks.Where = func() string { return "command" }
 	})
+
+	go loop.Run(t.Context())
+
+	handler := &server.Server{
+		UI: bundle(), Secret: testKey(t), Clients: loop.Hub().Count, Sessions: loop,
+	}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/snapshot", nil)
+	request.Host = "127.0.0.1"
+	request.Header.Set(secret.Header, testKey(t).Authorization())
+	handler.ServeHTTP(recorder, request)
+
+	if !strings.HasSuffix(recorder.Body.String(), `"openWork":false,"where":"command"}`) {
+		t.Errorf("snapshot %q", recorder.Body.String())
+	}
 }
 
 // TestEventsStreamOutlivesTheReadTimeout: the first frame is the snapshot after a retry hint, a

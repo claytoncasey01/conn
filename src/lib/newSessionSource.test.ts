@@ -7,8 +7,14 @@ import { test } from 'node:test'
 const form = readFileSync(new URL('./NewSession.svelte', import.meta.url), 'utf8')
 const page = readFileSync(new URL('../pages/Sessions.svelte', import.meta.url), 'utf8')
 
-test('the Sessions page puts New session beside its filter bar and reads where sessions open from it', () => {
-  assert.match(page, /<FilterBar[\s\S]*?\/>\s*<NewSession bind:where \/>/)
+test('the Sessions page puts New session beside its filter bar, and takes where sessions open from the snapshot', () => {
+  assert.match(page, /<FilterBar[\s\S]*?\/>\s*<NewSession \/>/)
+  assert.match(page, /const where = \$derived\(live\.snap\?\.where \?\? null\)/)
+})
+
+test('the repositories are read only when the form opens, never on the page\'s mount', () => {
+  assert.doesNotMatch(form, /onMount/)
+  assert.match(form, /async function open\(\)[\s\S]*?await load\(\)/)
 })
 
 test('the empty page points at New session while sessions open inside Conn, and at claude in a terminal otherwise', () => {
