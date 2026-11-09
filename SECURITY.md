@@ -113,7 +113,9 @@ program, an argument or a variable, and the server reads none: the repository is
   session runs in that real path, which must be a safe folder (below). Its `.git` must be a
   safe folder too: not a link, and not a file pointing at a git folder elsewhere (a worktree or a
   `--separate-git-dir` clone), since either would let the folder borrow another repository's
-  origin, and so its place on the allowlist.
+  origin, and so its place on the allowlist. Once the folder has passed, its origin is read
+  again and must be the repository asked for, so a link that pointed somewhere else by the time
+  it was resolved starts nothing.
 - **A safe folder.** The folder must be yours, a real folder (not a link) that only you may
   write, and every folder above it up to `/` a real folder of yours or root's that no one else may
   write, except a sticky one such as `/tmp`, where no one may rename or remove what is not theirs.
