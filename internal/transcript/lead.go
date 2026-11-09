@@ -99,6 +99,9 @@ type LeadState struct {
 	// Teams is every team this session spawned a teammate into, in the order first seen.
 	Teams []string
 
+	// advisorModel is the advisor the lead's latest reply says the session is set to, "" until
+	// a reply says (an older Claude Code, or a session with no advisor).
+	advisorModel   string
 	byID           map[string]*ToolCall
 	hasCustomTitle bool
 	maxToolCalls   int
@@ -117,8 +120,20 @@ func NewLeadState(maxToolCalls int) *LeadState {
 		Meter: NewUsageMeter(), ToolCalls: []*ToolCall{},
 		Consults: NewConsultTracker("lead", "LEAD"), ResultIDs: map[string]bool{},
 		OwesReply: false, Title: "", FinalText: "", Cwd: "", Teams: []string{},
-		byID: map[string]*ToolCall{}, hasCustomTitle: false, maxToolCalls: maxToolCalls,
+		advisorModel: "", byID: map[string]*ToolCall{}, hasCustomTitle: false,
+		maxToolCalls: maxToolCalls,
 	}
+}
+
+// AdvisorModel is the model the session's advisor runs on: the one its replies say it is set
+// to, else the one its latest advisor call ran on, else "" (none seen yet). Claude Code fixes the
+// advisor when a session starts and keeps it on a resume, so a reply's is the session's.
+func (l *LeadState) AdvisorModel() string {
+	if l.advisorModel != "" {
+		return l.advisorModel
+	}
+
+	return l.Meter.AdvisorModel
 }
 
 // TokensOut is the output tokens of the lead's model.
@@ -207,6 +222,11 @@ func (l *LeadState) assistant(line *js.Object, when float64) {
 	model, ok := modelOf(message)
 	if ok {
 		l.Model = model
+	}
+
+	advisor, _ := text(line, keyAdvisorModel)
+	if shownModel(advisor) {
+		l.advisorModel = advisor
 	}
 
 	meterAdd(l.Meter, message)

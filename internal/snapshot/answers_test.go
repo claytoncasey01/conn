@@ -299,12 +299,12 @@ func checkOut(t *testing.T, name string, parts snapshot.Parts, session snapshot.
 	name += " at " + js.Number(now)
 
 	check(t, name+" detail", snapshot.Build(parts, session, now, snapshot.Opts{
-		Trim: true, Kind: "adhoc", AdvisorModel: snapshot.AdvisorModel, Ended: false, EndedAt: nil,
+		Trim: true, Kind: "adhoc", Ended: false, EndedAt: nil,
 	}), get(out, "detail"))
 
 	if get(out, "full") != nil {
 		check(t, name+" full", snapshot.Build(parts, session, now, snapshot.Opts{
-			Trim: false, Kind: "review", AdvisorModel: "m", Ended: false, EndedAt: nil,
+			Trim: false, Kind: "review", Ended: false, EndedAt: nil,
 		}), get(out, "full"))
 	}
 
@@ -316,7 +316,7 @@ func checkOut(t *testing.T, name string, parts snapshot.Parts, session snapshot.
 	}
 
 	check(t, name+" ended", snapshot.Build(parts, session, now, snapshot.Opts{
-		Trim: true, Kind: "build", AdvisorModel: "m", Ended: true, EndedAt: endedAt,
+		Trim: true, Kind: "build", Ended: true, EndedAt: endedAt,
 	}), get(out, "ended"))
 
 	shown := make([]string, 0, 3)

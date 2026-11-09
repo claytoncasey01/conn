@@ -842,7 +842,7 @@ func (s *store) detail(
 
 	return snapshot.Build(session.parts(), live, now, snapshot.Opts{
 		Trim: true, Kind: KindOf(name, &cwd, runKeys, rules),
-		AdvisorModel: snapshot.AdvisorModel, Ended: false, EndedAt: nil,
+		Ended: false, EndedAt: nil,
 	})
 }
 

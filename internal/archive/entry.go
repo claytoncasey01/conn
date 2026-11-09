@@ -146,8 +146,7 @@ func build(parts snapshot.Parts, fact facts, env Env) history.Entry {
 	}
 
 	detail := snapshot.Build(parts, live, endedAt, snapshot.Opts{
-		Trim: false, Kind: fact.kind, AdvisorModel: snapshot.AdvisorModel, Ended: true,
-		EndedAt: &endedAt,
+		Trim: false, Kind: fact.kind, Ended: true, EndedAt: &endedAt,
 	})
 	detail.Archived = &snapshot.Archived{
 		EndedAt: endedAt, Source: fact.source, TranscriptAvailable: true, ResumedFrom: nil,
