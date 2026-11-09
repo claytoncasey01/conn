@@ -459,3 +459,40 @@ func TestInvisibleCharactersInTheNameOrFolderStartNothing(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckNameIsChecksRuleForTheName: a name is refused by CheckName exactly when Check refuses
+// a spec for its name alone, so a caller can check a name before it builds the spec.
+func TestCheckNameIsChecksRuleForTheName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, sessionName string
+		refused           bool
+	}{
+		{"a plain name", "fix the widget", false},
+		{"an emoji", "\U0001f469‍\U0001f4bb notes", false},
+		{"no name", "", true},
+		{"a NUL", "a\x00b", true},
+		{"an escape", "a\x1b[31mb", true},
+		{"a line break", "a\nb", true},
+		{"a bidi override", "a‮b", true},
+		{"a zero-width space", "a​b", true},
+		{"bytes that are not UTF-8", "a\xffb", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			refused := errors.Is(launch.CheckName(tt.sessionName), launch.ErrInvalidSession)
+			if refused != tt.refused {
+				t.Fatalf("refused %v, want %v", refused, tt.refused)
+			}
+
+			spec := pty.Spec{Argv: []string{"claude"}, Dir: "/w", Env: nil, Name: tt.sessionName}
+			if errors.Is(launch.Check(spec), launch.ErrInvalidSession) != tt.refused {
+				t.Errorf("Check disagrees: refused %v", !tt.refused)
+			}
+		})
+	}
+}
