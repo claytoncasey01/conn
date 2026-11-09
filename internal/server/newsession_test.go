@@ -66,7 +66,7 @@ func newNewSessionRig(t *testing.T) *newSessionRig {
 
 			return launch.Opened{OK: true}
 		},
-		Claude: "/opt/claude", Dry: false, Running: func() int { return 0 },
+		Claude: "/opt/claude", Dry: false, Room: roomOf(0),
 		NewID: func() (string, error) { return newSessionID, nil },
 		Now:   time.Now, Cooldown: time.Minute,
 	})
@@ -290,4 +290,11 @@ func checkClone(folder string) error {
 	}
 
 	return nil
+}
+
+// roomOf is a host with running sessions running, at most pty.DefaultLimits().SessionsMax.
+func roomOf(running int) func() pty.Room {
+	return func() pty.Room {
+		return pty.Room{Running: running, SessionsMax: pty.DefaultLimits().SessionsMax}
+	}
 }

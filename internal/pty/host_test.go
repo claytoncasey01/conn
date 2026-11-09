@@ -102,6 +102,11 @@ func TestStartRefusesPastSessionsMax(t *testing.T) {
 		}
 	}
 
+	room := host.Room()
+	if room.Running != room.SessionsMax {
+		t.Errorf("room %+v at the limit, want it full", room)
+	}
+
 	_, err := host.Start(t.Context(), testSpec(t))
 	if !errors.Is(err, pty.ErrSessionsFull) {
 		t.Fatalf("start past the limit = %v, want ErrSessionsFull", err)

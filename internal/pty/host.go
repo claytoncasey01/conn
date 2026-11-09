@@ -332,6 +332,21 @@ func (held *session) lines(count int) []string {
 	return held.screen.Lines(count)
 }
 
+// Room is how many programs a host runs, Starts still spawning counted, and the most it runs
+// at once: a Start refuses with ErrSessionsFull while Running is SessionsMax.
+type Room struct {
+	Running     int
+	SessionsMax int
+}
+
+// Room is the host's Room now, as the limit a Start checks counts it.
+func (h *Host) Room() Room {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return Room{Running: h.running, SessionsMax: h.limits.SessionsMax}
+}
+
 // Live is every session the host holds, running or ended, oldest Start first.
 func (h *Host) Live() []Info {
 	h.mu.Lock()

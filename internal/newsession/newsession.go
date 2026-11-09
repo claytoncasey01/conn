@@ -65,8 +65,9 @@ type Deps struct {
 	Claude string
 	// Dry starts nothing: a start says what it would run.
 	Dry bool
-	// Running is how many sessions the host runs now.
-	Running func() int
+	// Room is how many sessions the host runs or is starting now, and the most it runs
+	// (pty.Host.Room).
+	Room func() pty.Room
 	// NewID is a fresh conversation id, a UUID (NewID).
 	NewID func() (string, error)
 	Now   func() time.Time
@@ -285,9 +286,10 @@ func CheckClone(folder string, checkFolder func(folder string) error) error {
 }
 
 // claim marks a start in the repository keyed key as opening, or refuses it: one is opening or
-// opened within the cooldown, or, for a session inside Conn, the host runs as many as it may
-// (those opening now counted). The check and the mark are one step, so two presses at once open
-// one session.
+// opened within the cooldown, or, for a session inside Conn, the host runs (or is starting) as
+// many as it may. The check and the mark are one step, so two presses at once open one session.
+// Two starts in different repositories at once can still both pass the host's count: the host's
+// own Start then refuses the one past its limit, and the reply says so.
 func (a *API) claim(key, repo, where string) *Reply {
 	a.mutex.Lock()
 	defer a.mutex.Unlock()
@@ -306,10 +308,10 @@ func (a *API) claim(key, repo, where string) *Reply {
 	}
 
 	if where == settings.WhereInside {
-		sessionsMax := pty.DefaultLimits().SessionsMax
-		if a.deps.Running()+len(a.opening) >= sessionsMax {
+		room := a.deps.Room()
+		if room.Running >= room.SessionsMax {
 			return refuse(http.StatusConflict, fmt.Sprintf("Conn already runs %d sessions, "+
-				"the most it runs at once: stop one, then start a new one.", sessionsMax))
+				"the most it runs at once: stop one, then start a new one.", room.SessionsMax))
 		}
 	}
 

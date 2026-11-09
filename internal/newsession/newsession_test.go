@@ -23,9 +23,11 @@ import (
 )
 
 const (
-	allowedRepo  = "acme/widgets"
-	hostedID     = "0123456789abcdef0123456789abcdef"
-	sessionsFull = 12
+	allowedRepo = "acme/widgets"
+	hostedID    = "0123456789abcdef0123456789abcdef"
+	// sessionsMax is the most sessions the rig's host runs, and sessionsFull a host at it.
+	sessionsMax  = 12
+	sessionsFull = sessionsMax
 	cooldown     = time.Minute
 )
 
@@ -107,7 +109,7 @@ func (r *rig) deps() newsession.Deps {
 
 			return r.answer
 		},
-		Claude: claudeProgram, Dry: r.dry, Running: func() int { return r.running },
+		Claude: claudeProgram, Dry: r.dry, Room: roomOf(r.running),
 		NewID: func() (string, error) {
 			// The seam between the first check of the folder and the start.
 			if r.afterCheck != nil {
@@ -450,7 +452,7 @@ func TestTwoStartsAtOnceOpenOne(t *testing.T) {
 
 			return launch.Opened{OK: true}
 		},
-		Claude: claudeProgram, Dry: false, Running: func() int { return 0 },
+		Claude: claudeProgram, Dry: false, Room: roomOf(0),
 		NewID: func() (string, error) { return conversationID, nil },
 		Now:   time.Now, Cooldown: cooldown,
 	})
@@ -633,4 +635,9 @@ func checkClone(folder string) error {
 	}
 
 	return nil
+}
+
+// roomOf is a host with running sessions running, at most sessionsMax.
+func roomOf(running int) func() pty.Room {
+	return func() pty.Room { return pty.Room{Running: running, SessionsMax: sessionsMax} }
 }

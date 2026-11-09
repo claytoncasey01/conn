@@ -51,23 +51,7 @@ func newNewSession(parts newSessionParts) *newsession.API {
 			return newsession.CheckClone(folder, reviews.CheckSafeFolder)
 		},
 		Resolve: realpath.Resolve, Open: parts.open,
-		Claude: parts.cfg.ClaudeBin, Dry: parts.cfg.Dry.Any(), Running: runningOn(parts.host),
+		Claude: parts.cfg.ClaudeBin, Dry: parts.cfg.Dry.Any(), Room: parts.host.Room,
 		NewID: newsession.NewID, Now: time.Now, Cooldown: 0,
 	})
-}
-
-// runningOn is how many sessions host runs now: those that have not ended, the ones being
-// stopped among them, as the host counts them against its limit.
-func runningOn(host *pty.Host) func() int {
-	return func() int {
-		count := 0
-
-		for _, info := range host.Live() {
-			if info.ExitCode == nil {
-				count++
-			}
-		}
-
-		return count
-	}
 }
