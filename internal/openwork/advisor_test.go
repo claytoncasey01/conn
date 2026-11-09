@@ -3,6 +3,7 @@ package openwork_test
 import (
 	"testing"
 
+	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/openwork"
 )
 
@@ -100,4 +101,45 @@ func TestARunFilesAdvisorThatIsNoChoiceIsNone(t *testing.T) {
 			same(t, "advisor", openwork.AdvisorOf(made.work, "PROJ-7"), row.want)
 		})
 	}
+}
+
+// A START's advisor is written to the run's file and read back from it, so a restart between
+// START and the build keeps it.
+func TestARunsAdvisorOutlastsARestart(t *testing.T) {
+	t.Parallel()
+
+	base := realTemp(t)
+	made := newWorld(t, worldOpts{
+		base: base, settings: workSettings(makeClone(t, base), ""), dry: true,
+	})
+
+	made.work.Tickets()
+	until(t, "the dry list", func() bool { return len(made.work.Tickets().Tickets) == 6 })
+	same(t, "start", made.work.Start("PROJ-2",
+		body(t, `{"model":"haiku","advisor":"fable"}`)).Code, 200)
+
+	var saved any
+
+	until(t, "the run file", func() bool {
+		text, isText := made.files().Get("PROJ-2.json")
+		if !isText {
+			return false
+		}
+
+		parsed, err := js.Parse([]byte(js.String(text)))
+		if err != nil {
+			return false
+		}
+
+		saved = parsed
+
+		return get(parsed, "advisor") == "fable"
+	})
+
+	restarted := newWorld(t, worldOpts{
+		base: realTemp(t), runs: []any{saved},
+		settings: workSettings(t.TempDir(),
+			`,"sessions":{"where":"inside","resumeOnLaunch":true,"advisor":"opus"}`),
+	})
+	same(t, "advisor after a restart", openwork.AdvisorOf(restarted.work, "PROJ-2"), "fable")
 }
