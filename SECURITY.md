@@ -92,16 +92,43 @@ If you are not sure which side a problem falls on, report it privately anyway.
 ## Sessions inside Conn
 
 By default Conn runs the Claude Code sessions it starts (an Open work build, a review, a
-self-review, a History resume) on a terminal of its own, and the page shows that terminal. The
+self-review, a History resume, a new session from the Sessions page) on a terminal of its own, and the page shows that terminal. The
 terminal is code execution as you: whatever is typed into it, the program runs. So these are the
 rules, and a way around any of them is in scope.
 
 **What a client can do.** Attach to a session by the id the server issued, type, resize, and
 detach. Nothing else. No route, message or setting names a command, an argument, a variable or a
-folder: sessions are started by Conn's own code, from records it has already checked. One more
+folder: sessions are started by Conn's own code, from records it has already checked (New
+session, below, names only an allowed repository, and Conn resolves its folder). One more
 input needs no attached terminal: **Interrupt** (`POST /api/term/<id>/interrupt`, no body) types
 the one byte Ctrl-C types (ETX). It is input, never a signal. A second press within 3 seconds is
 refused, because two Ctrl-C close together make `claude` quit.
+
+**New session.** `POST /api/sessions/new` starts a plain `claude` session. Its body is a JSON
+object with a repository name (`owner/name`) and, optionally, a session name; any other field, a
+value that is not text, or a body over 64 KiB is refused. The page never sends a folder, a
+program, an argument or a variable, and the server reads none: the repository is only a key.
+- The repository must be on the allowlist now and have a local clone, found as Open work finds
+  one. The clone must be a real folder you own, not a link (a link would let whoever made it
+  choose where the session runs); the session runs in the clone's real path.
+- The name passes the same checks as every session's name (no control, bidi or invisible
+  character, valid UTF-8, at most 256 bytes) and is then reduced to letters, digits, `.`, `_` and
+  `-`, so it cannot start with `-` and read as a flag. A name with nothing left is refused.
+- Conn chooses the conversation id itself (a random UUID from `crypto/rand`), so the command is
+  always exactly `claude --session-id <uuid>`, plus `--name <name>` when a name was given, run as
+  a list of arguments with no shell. It opens where Settings say, like every other session.
+- The route needs the gate below, `x-conn: 1` and the page's own `Origin`: unlike the other
+  writes, a request with no `Origin` is refused, since a start runs a program. A second start in
+  the same repository within 10 seconds is refused, and so is a session inside Conn while 12 run
+  or are starting. A dry run starts nothing.
+- Inside Conn the session is recorded as a History session on the id Conn chose. At the next
+  launch it comes back only through History's check below, so a session that never wrote a
+  transcript is not resumed.
+
+Why the page cannot choose a folder: a folder from the request would let any caller that gets
+past the gate run `claude` (and whatever a repository's own Claude settings run) anywhere on the
+disk. Tying the folder to the allowlist and to a clone Conn resolves itself keeps a start to the
+same places Open work, Reviews and History already run sessions.
 
 **The gate.** Every terminal route is under `/api`, so it needs the same Host, Origin and secret
 as the rest (see the local server, above), and a write needs `x-conn: 1`. A browser cannot put a
@@ -176,9 +203,10 @@ its owner, which rebuilds the command from its own state, as its own button woul
   each folder on the way yours and not a link, with a `.git`, in an allowed repository.
   `reviews.json` or `myprs.json` holds an open launch with that worktree and name, and the session
   resumes on that launch's model. No session of that name, and none in that worktree, already runs.
-- **History.** Not a dry run. Claude's id is a UUID. The archive has the session, it is not
-  running, its transcript and folder exist, and it was not just resumed. The folder is the one the
-  archive holds, and its repository is allowed.
+- **History** (a session resumed from History, or started with New session). Not a dry run.
+  Claude's id is a UUID. The archive has the session, it is not running, its transcript and
+  folder exist, and it was not just resumed. The folder is the one the archive holds, and its
+  repository is allowed.
 
 **Quit, close and launch.**
 - Closing the app's window hides it. Every session keeps running, and opening the window again

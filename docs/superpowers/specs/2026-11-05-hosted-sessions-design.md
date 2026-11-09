@@ -251,3 +251,14 @@ folder outside the allowed worktrees, a session id that is not a UUID) starts no
 - The cmux code stays as the *My terminal* option and for adopting sessions; nothing new for other
   terminals.
 - A separate PR from multi-repository Open work, based on `main`; whichever lands second rebases.
+
+## Since this spec
+
+- **New session** (issue #21) starts a plain `claude` session from the Sessions page, through the
+  same opener, so it follows *Where sessions open*. The page sends only an allowlisted repository
+  and an optional name; the server resolves the clone (as Open work does, a real folder of the
+  person's own, run in its real path), chooses the conversation id (`--session-id <uuid>`) and
+  builds the argv. No new owner: inside Conn it is recorded under `history` with that id, since
+  `hosted.Recorder.Opener` now reads the conversation from `--session-id` as well as `--resume`,
+  and History's check resumes it at launch once the archive holds its transcript. The route,
+  its guard and its limits are in SECURITY.md, *New session*.
