@@ -41,7 +41,7 @@ test('focus goes to the repository on open, to Cancel when there is none, and ba
 
 test('the repositories come from the server, never typed, and none says to set a clone in Settings', () => {
   assert.match(form, /\{#each choices\.repos as choice \(choice\)\}/)
-  assert.match(form, /No allowed repository has a local clone Conn can use yet: set a clone folder in <a href=\{href\.settings\(\)\}[^<]*<\/a>\. A clone must be a folder only you may write \(your private group may too\), as must every folder above it\./)
+  assert.match(form, /No allowed repository has a local clone Conn can use yet: set a clone folder in <a href=\{href\.settings\(\)\}[^<]*<\/a>\. A clone must be a folder only you may write \(your private group may too\), and every folder above it yours or root's and not writable by others\./)
 })
 
 test('a session started inside Conn opens its terminal', () => {

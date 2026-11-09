@@ -92,9 +92,9 @@ If you are not sure which side a problem falls on, report it privately anyway.
 ## Sessions inside Conn
 
 By default Conn runs the Claude Code sessions it starts (an Open work build, a review, a
-self-review, a History resume, a new session from the Sessions page) on a terminal of its own, and the page shows that terminal. The
-terminal is code execution as you: whatever is typed into it, the program runs. So these are the
-rules, and a way around any of them is in scope.
+self-review, a History resume, a new session from the Sessions page) on a terminal of its own,
+and the page shows that terminal. The terminal is code execution as you: whatever is typed into
+it, the program runs. So these are the rules, and a way around any of them is in scope.
 
 **What a client can do.** Attach to a session by the id the server issued, type, resize, and
 detach. Nothing else. No route, message or setting names a command, an argument, a variable or a
@@ -115,9 +115,9 @@ program, an argument or a variable, and the server reads none: the repository is
   `--separate-git-dir` clone), since either would let the folder borrow another repository's
   origin, and so its place on the allowlist. The clone's `.claude` and `.git/hooks`, which the
   session trusts, must be safe folders too when they exist (a link is refused). What they hold,
-  and what `.mcp.json` or `CLAUDE.md` say, is the repository's own and is not checked. Once the folder has passed, its origin is read
-  again and must be the repository asked for, so a link that pointed somewhere else by the time
-  it was resolved starts nothing.
+  and what `.mcp.json` or `CLAUDE.md` say, is the repository's own and is not checked. Once the
+  folder has passed, its origin is read again and must be the repository asked for, so a link
+  that pointed somewhere else by the time it was resolved starts nothing.
 - **A safe folder.** The folder must be yours, a real folder (not a link) that no one else may
   write, and every folder above it up to `/` a real folder of yours or root's that no one else may
   write. "No one else" is read from the mode bits, with two exceptions:
