@@ -1,0 +1,59 @@
+{
+  "badName": {
+    "status": 400,
+    "body": {
+      "error": "cannot start the session: the name must hold a letter or a digit (A-Z, a-z, 0-9)"
+    }
+  },
+  "choices": {
+    "status": 200,
+    "body": {
+      "repos": [
+        "acme/widgets"
+      ],
+      "where": "inside",
+      "dry": false
+    }
+  },
+  "command": {
+    "status": 200,
+    "body": {
+      "ok": false,
+      "error": "sessions open as a command (Settings, Where sessions open): run this in a terminal to start the session",
+      "manualCommand": "cd /work/widgets \u0026\u0026 claude --session-id 0b6c4f7e-2d1a-4c3b-9e8f-112233445566"
+    }
+  },
+  "dry": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "dry": true,
+      "command": "cd /work/widgets \u0026\u0026 claude --session-id 0b6c4f7e-2d1a-4c3b-9e8f-112233445566 --name fix-the-widget"
+    }
+  },
+  "full": {
+    "status": 409,
+    "body": {
+      "error": "Conn already runs 12 sessions, the most it runs at once: stop one, then start a new one."
+    }
+  },
+  "inside": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "id": "0123456789abcdef0123456789abcdef"
+    }
+  },
+  "noClone": {
+    "status": 409,
+    "body": {
+      "error": "No local clone of acme/gadgets: set a folder in Settings."
+    }
+  },
+  "terminal": {
+    "status": 200,
+    "body": {
+      "ok": true
+    }
+  }
+}
