@@ -22,7 +22,7 @@ test('the empty page points at New session while sessions open inside Conn, and 
 })
 
 test('the form is labelled, its fields are labelled, and its error is an alert', () => {
-  assert.match(form, /<form\s+aria-label="New session"/)
+  assert.match(form, /<form\s[^>]*aria-label="New session"/)
   assert.match(form, /<label[^>]*>\s*<span[^>]*>Repository<\/span>\s*<select/)
   assert.match(form, /<label[^>]*>\s*<span[^>]*>Name \(optional\)<\/span>\s*<input/)
   assert.match(form, /<p role="alert"[^>]*>\{error\}<\/p>/)
@@ -46,4 +46,16 @@ test('the repositories come from the server, never typed, and none says to set a
 
 test('a session started inside Conn opens its terminal', () => {
   assert.match(form, /if \(result\.id\) showTerminal\(result\.id\)/)
+})
+
+test('Escape closes the form from anywhere in it, Start and Cancel too, and nowhere else on the page', () => {
+  assert.match(form, /<svelte:window onkeydown=\{escape\} \/>/)
+  assert.match(form, /function escape\(event: KeyboardEvent\): void \{\s*if \(event\.key !== 'Escape'\) return\s*if \(!\(event\.target instanceof Node\) \|\| !form\?\.contains\(event\.target\)\) return\s*void close\(\)/)
+  assert.match(form, /<form\s+bind:this=\{form\}/)
+})
+
+test('a start that did not open gives the focus back to what was pressed, or to Start', () => {
+  assert.match(form, /const returnTo = document\.activeElement instanceof HTMLElement \? document\.activeElement : null\s*step = 'starting'/)
+  assert.match(form, /step = 'form'[\s\S]*?await tick\(\)\s*;\(returnTo && form\?\.contains\(returnTo\) \? returnTo : starter\)\?\.focus\(\)/)
+  assert.match(form, /<button bind:this=\{starter\} type="submit"/)
 })

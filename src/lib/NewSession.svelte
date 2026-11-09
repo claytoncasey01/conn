@@ -19,6 +19,8 @@
   let opener: HTMLButtonElement | undefined = $state()
   let picker: HTMLSelectElement | undefined = $state()
   let cancel: HTMLButtonElement | undefined = $state()
+  let starter: HTMLButtonElement | undefined = $state()
+  let form: HTMLFormElement | undefined = $state()
 
   async function load(): Promise<void> {
     const got = await fetchChoices()
@@ -51,17 +53,19 @@
   async function start(event: SubmitEvent): Promise<void> {
     event.preventDefault()
     if (!repo || step === 'starting') return
+    // The control pressed (Start, or the name field's Enter) is disabled while the start runs, which drops its focus: it
+    // gets the focus back when the form is shown again.
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
     step = 'starting'
     error = manual = dryCommand = ''
     const result = await startSession(repo, name)
     step = 'form'
-    if (result.dry) {
-      dryCommand = result.command ?? ''
-      return
-    }
-    if (!result.ok) {
-      error = result.error ?? 'the session did not start'
-      manual = result.manualCommand ?? ''
+    if (result.dry || !result.ok) {
+      dryCommand = result.dry ? (result.command ?? '') : ''
+      error = result.dry ? '' : (result.error ?? 'the session did not start')
+      manual = result.dry ? '' : (result.manualCommand ?? '')
+      await tick()
+      ;(returnTo && form?.contains(returnTo) ? returnTo : starter)?.focus()
       return
     }
     done = result.id ? `Started in ${repo}.` : `Opened in a new terminal workspace for ${repo}.`
@@ -70,9 +74,11 @@
     await close()
   }
 
-  /** Escape in a field closes the form, as Cancel does */
+  /** Escape anywhere in the form (a field, Start or Cancel) closes it, as Cancel does */
   function escape(event: KeyboardEvent): void {
-    if (event.key === 'Escape') void close()
+    if (event.key !== 'Escape') return
+    if (!(event.target instanceof Node) || !form?.contains(event.target)) return
+    void close()
   }
 
   const btn =
@@ -81,6 +87,8 @@
   const field =
     'min-height: 44px; min-width: 0; box-sizing: border-box; padding: 0 10px; color: var(--tx); background: var(--sunk); border: 1px var(--border-style) var(--line2); border-radius: var(--radius); font-family: var(--font-mono), monospace; font-size: 13px;'
 </script>
+
+<svelte:window onkeydown={escape} />
 
 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 10px; min-width: 0; max-width: 100%">
   {#if step === 'closed'}
@@ -94,6 +102,7 @@
     <span role="status" class="cap" style="font-size: 12px; color: var(--mu)">Loading repositories…</span>
   {:else}
     <form
+      bind:this={form}
       aria-label="New session"
       onsubmit={start}
       class="surf"
@@ -105,7 +114,7 @@
       {#if choices && choices.repos.length}
         <label style="display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 180px">
           <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 50%, var(--tx))">Repository</span>
-          <select bind:this={picker} bind:value={repo} onkeydown={escape} disabled={step === 'starting'} style={field}>
+          <select bind:this={picker} bind:value={repo} disabled={step === 'starting'} style={field}>
             {#each choices.repos as choice (choice)}
               <option value={choice}>{choice}</option>
             {/each}
@@ -113,9 +122,9 @@
         </label>
         <label style="display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 180px">
           <span class="cap" style="font-size: 10px; letter-spacing: var(--tracking); color: color-mix(in oklab, var(--mu) 50%, var(--tx))">Name (optional)</span>
-          <input bind:value={name} onkeydown={escape} type="text" maxlength="256" autocomplete="off" autocapitalize="off" spellcheck="false" disabled={step === 'starting'} style={field} />
+          <input bind:value={name} type="text" maxlength="256" autocomplete="off" autocapitalize="off" spellcheck="false" disabled={step === 'starting'} style={field} />
         </label>
-        <button type="submit" class="cap" disabled={step === 'starting'} style="{btn} border: 1px var(--border-style) var(--ac); background: var(--ac); color: var(--onac); font-weight: 700">
+        <button bind:this={starter} type="submit" class="cap" disabled={step === 'starting'} style="{btn} border: 1px var(--border-style) var(--ac); background: var(--ac); color: var(--onac); font-weight: 700">
           {#if step === 'starting'}Starting…{:else}Start{/if}
         </button>
       {:else if choices}
