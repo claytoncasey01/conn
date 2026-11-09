@@ -197,6 +197,12 @@ func TestStartRefusesAndOpensNothing(t *testing.T) {
 			http.StatusConflict, "is a link",
 		},
 		{
+			"a path that cannot be made absolute", func(_ *testing.T, r *rig) {
+				r.resolve = func(string) string { return "widgets" }
+			}, `{"repo":"acme/widgets"}`, http.StatusConflict,
+			"could not be made an absolute path",
+		},
+		{
 			"a link to a clone of another repository", linkedToOther, `{"repo":"acme/widgets"}`,
 			http.StatusConflict, "is a clone of acme/other, not of acme/widgets",
 		},
@@ -680,4 +686,109 @@ func checkClone(folder string) error {
 // roomOf is a host with running sessions running, at most sessionsMax.
 func roomOf(running int) func() pty.Room {
 	return func() pty.Room { return pty.Room{Running: running, SessionsMax: sessionsMax} }
+}
+
+// TestCheckCloneReportsEveryProblemOfTheCloneAndTheFoldersItTrusts: the folder, its .git, and
+// the .claude and .git/hooks folders a session trusts, each when it exists, and every problem
+// said at once, each once.
+func TestCheckCloneReportsEveryProblemOfTheCloneAndTheFoldersItTrusts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		arrange   func(t *testing.T, clone string)
+		wantSays  []string
+		wantClean bool
+	}{
+		{"a clone with neither .claude nor hooks", func(*testing.T, string) {}, nil, true},
+		{"a clone with its own .claude and hooks", func(t *testing.T, clone string) {
+			t.Helper()
+			mustMkdir(t, filepath.Join(clone, ".claude"))
+			mustMkdir(t, filepath.Join(clone, ".git", "hooks"))
+		}, nil, true},
+		{".claude a link", func(t *testing.T, clone string) {
+			t.Helper()
+			mustLink(t, t.TempDir(), filepath.Join(clone, ".claude"))
+		}, []string{".claude is a link"}, false},
+		{".git/hooks a link", func(t *testing.T, clone string) {
+			t.Helper()
+			mustLink(t, t.TempDir(), filepath.Join(clone, ".git", "hooks"))
+		}, []string{"hooks is a link"}, false},
+		{".claude that others may write", func(t *testing.T, clone string) {
+			t.Helper()
+			mustMkdir(t, filepath.Join(clone, ".claude"))
+			mustChmod(t, filepath.Join(clone, ".claude"), 0o777)
+		}, []string{"/.claude: run chmod o-w"}, false},
+		{"the folder and its .git, at once", func(t *testing.T, clone string) {
+			t.Helper()
+			mustChmod(t, clone, 0o777)
+
+			err := os.Remove(filepath.Join(clone, ".git"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			mustLink(t, t.TempDir(), filepath.Join(clone, ".git"))
+		}, []string{"other users may write", ".git is a link"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			clone := makeClone(t, filepath.Join(realTempFolder(t), "widgets"))
+			tt.arrange(t, clone)
+
+			err := newsession.CheckClone(clone, reviews.CheckSafeFolder)
+			if tt.wantClean {
+				if err != nil {
+					t.Fatalf("refused: %v", err)
+				}
+
+				return
+			}
+
+			if err == nil {
+				t.Fatal("accepted")
+			}
+
+			for _, want := range tt.wantSays {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("says %q, want %q", err, want)
+				}
+			}
+
+			if strings.Count(err.Error(), "\n") != len(tt.wantSays)-1 {
+				t.Errorf("said %d problems, want %d: %q", strings.Count(err.Error(), "\n")+1,
+					len(tt.wantSays), err)
+			}
+		})
+	}
+}
+
+func mustMkdir(t *testing.T, path string) {
+	t.Helper()
+
+	err := os.MkdirAll(path, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustLink(t *testing.T, target, link string) {
+	t.Helper()
+
+	err := os.Symlink(target, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustChmod(t *testing.T, path string, mode os.FileMode) {
+	t.Helper()
+
+	err := os.Chmod(path, mode)
+	if err != nil {
+		t.Fatal(err)
+	}
 }

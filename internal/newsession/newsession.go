@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"net/http"
 	"os"
@@ -37,8 +38,11 @@ const (
 	// startCooldownDefault is how long a second start in the same repository is refused: a
 	// double press, or a press again before the first session shows up in the list.
 	startCooldownDefault = 10 * time.Second
-	// gitName is a clone's git folder.
-	gitName = ".git"
+	// gitName is a clone's git folder, hooksName git's hooks folder in it, and claudeName the
+	// clone's Claude Code settings folder.
+	gitName    = ".git"
+	hooksName  = "hooks"
+	claudeName = ".claude"
 )
 
 // ErrNotAClone is a clone folder whose .git is not a git folder of its own.
@@ -243,10 +247,12 @@ func (a *API) folderOf(repo string, current settings.Settings) (string, *Reply) 
 			"No local clone of "+repo+": set a folder in Settings.")
 	}
 
+	// Resolve makes the path absolute, which can fail in an odd environment (no working folder):
+	// that is the environment's, so it is a refusal, not a panic.
 	folder := a.deps.Resolve(clone)
 	if !filepath.IsAbs(folder) {
-		panic(fmt.Sprintf("newsession: the clone %q resolved to %q, not an absolute path",
-			clone, folder))
+		return "", refuse(http.StatusConflict, "The clone of "+repo+" cannot be used: "+clone+
+			" could not be made an absolute path.")
 	}
 
 	if refused := a.cloneProblem(repo, folder); refused != nil {
@@ -285,31 +291,81 @@ func originOrNone(origin string) string {
 	return origin
 }
 
-// CheckClone returns why a session may not start in folder, a clone's real path, or nil. The
-// folder and every folder above it pass checkFolder (reviews.CheckSafeFolder: no link, no folder
-// another user may change), and so does its .git: a real folder, not a link, and not a file
-// pointing at a git folder elsewhere (a worktree's or a --separate-git-dir clone's), since either
-// would let the folder take its origin, and so its place on the allowlist, from somewhere else.
+// CheckClone returns every reason a session may not start in folder, a clone's real path, or
+// nil. The folder and every folder above it pass checkFolder (reviews.CheckSafeFolder: no link,
+// no folder another user may change), and so does its .git: a real folder, not a link, and not a
+// file pointing at a git folder elsewhere (a worktree's or a --separate-git-dir clone's), since
+// either would let the folder take its origin, and so its place on the allowlist, from
+// somewhere else. The session trusts what the clone's .claude and .git/hooks hold, so each that
+// exists passes checkFolder too. What is in them, and in .mcp.json or CLAUDE.md, is the
+// repository's own and is not checked.
 func CheckClone(folder string, checkFolder func(folder string) error) error {
-	err := checkFolder(folder)
-	if err != nil {
-		return err
-	}
+	problems := []error{checkFolder(folder)}
 
 	gitFolder := filepath.Join(folder, gitName)
 
 	info, err := os.Lstat(gitFolder)
-	if err != nil {
-		return fmt.Errorf("%w: %s cannot be read: %w", ErrNotAClone, gitFolder, err)
+
+	switch {
+	case err != nil:
+		problems = append(problems, fmt.Errorf("%w: %s cannot be read: %w", ErrNotAClone,
+			gitFolder, err))
+	case info.Mode().IsRegular():
+		problems = append(problems, fmt.Errorf("%w: %s is a file that points at a git folder "+
+			"elsewhere (a worktree or a --separate-git-dir clone): set the main clone's folder in "+
+			"Settings", ErrNotAClone, gitFolder))
+	default:
+		problems = append(problems, checkFolder(gitFolder))
+		problems = append(problems, checkIfThere(filepath.Join(gitFolder, hooksName), checkFolder))
 	}
 
-	if info.Mode().IsRegular() {
-		return fmt.Errorf("%w: %s is a file that points at a git folder elsewhere (a worktree "+
-			"or a --separate-git-dir clone): set the main clone's folder in Settings", ErrNotAClone,
-			gitFolder)
+	problems = append(problems, checkIfThere(filepath.Join(folder, claudeName), checkFolder))
+
+	return joinOnce(problems)
+}
+
+// checkIfThere is checkFolder of path when something is at path, and nil when nothing is.
+func checkIfThere(path string, checkFolder func(folder string) error) error {
+	_, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
 	}
 
-	return checkFolder(gitFolder)
+	return checkFolder(path)
+}
+
+// joinOnce joins problems, each said once: the folders above a clone's own folders are checked
+// with each of them, and a problem there is one problem.
+func joinOnce(problems []error) error {
+	said := map[string]bool{}
+	kept := []error{}
+
+	for _, problem := range problems {
+		for _, each := range flatten(problem) {
+			if said[each.Error()] {
+				continue
+			}
+
+			said[each.Error()] = true
+			kept = append(kept, each)
+		}
+	}
+
+	return errors.Join(kept...)
+}
+
+// flatten is the problems an errors.Join holds, or err alone, or none for nil.
+func flatten(err error) []error {
+	if err == nil {
+		return nil
+	}
+
+	joined, isJoined := err.(interface{ Unwrap() []error })
+	if !isJoined {
+		return []error{err}
+	}
+
+	return joined.Unwrap()
 }
 
 // claim marks a start in the repository keyed key as opening, or refuses it: one is opening or
