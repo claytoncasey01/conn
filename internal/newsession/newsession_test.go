@@ -299,7 +299,7 @@ func gitPointer(t *testing.T, setting *rig) {
 func writableParent(t *testing.T, setting *rig) {
 	t.Helper()
 
-	err := os.Chmod(filepath.Dir(realClone(t, setting)), 0o770)
+	err := os.Chmod(filepath.Dir(realClone(t, setting)), 0o777)
 	if err != nil {
 		t.Fatal(err)
 	}

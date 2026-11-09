@@ -116,13 +116,24 @@ program, an argument or a variable, and the server reads none: the repository is
   origin, and so its place on the allowlist. Once the folder has passed, its origin is read
   again and must be the repository asked for, so a link that pointed somewhere else by the time
   it was resolved starts nothing.
-- **A safe folder.** The folder must be yours, a real folder (not a link) that only you may
+- **A safe folder.** The folder must be yours, a real folder (not a link) that no one else may
   write, and every folder above it up to `/` a real folder of yours or root's that no one else may
-  write, except a sticky one such as `/tmp`, where no one may rename or remove what is not theirs.
-  Then no one but you and root can change what the path names, so starting the program in it by
+  write. "No one else" is read from the mode bits, with two exceptions:
+  - a folder its group may write passes when that group is your private group: its id is your
+    own group id, `/etc/group` lists it under your user name, and it has no other member (as
+    Debian, Ubuntu and Fedora make one, with a umask of 002). A group `/etc/group` does not list
+    (an LDAP or other NSS group), or a file that cannot be read, counts as shared. macOS's `staff`
+    is shared, so a folder `staff` may write is refused;
+  - a folder above the one the session starts in that anyone may write passes when it is sticky,
+    such as `/tmp`, where no one may rename or remove what is not theirs.
+
+  Then no other user can change which folder the path names, so starting the program in it by
   its path (a chdir) reaches the folder that was checked. The check runs when the repository is
   chosen and again right before the start. A folder that fails says which part and what to do:
-  use the folder a link points to, or `chmod go-w` a folder others may write.
+  use the folder a link points to, `chmod o-w` a folder anyone may write, or `chmod g-w` one a
+  shared group may write (or give it a group only you are in). This holds the path, not what is
+  in the folder, and only as far as owners and mode bits tell: it does not see macOS ACLs, a
+  volume mounted to ignore ownership, or a network file system (NFS, SMB).
 - The name passes the same checks as every session's name (no control, bidi or invisible
   character, valid UTF-8, at most 256 bytes) and is then reduced to letters, digits, `.`, `_` and
   `-`, so it cannot start with `-` and read as a flag. A name with nothing left is refused.

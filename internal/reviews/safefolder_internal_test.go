@@ -11,12 +11,26 @@ import (
 const (
 	personUID = 501
 	otherUID  = 502
+	// personGID is the person's private group, as a umask-002 Linux makes it; staffGID a shared
+	// group, as macOS's staff is.
+	personGID = 1001
+	staffGID  = 20
 )
+
+// groupsFile is a group file with the person's private group, macOS's shared staff, and a group
+// named for the person that has a second member.
+const groupsFile = "root:x:0:\nstaff:*:20:root,pat\npat:x:1001:\nshared:x:1002:pat,sam\n"
+
+// pat is the person, whose primary group is their private group.
+func pat() person {
+	return person{uid: personUID, gid: personGID, name: "pat", groups: groupsFile}
+}
 
 // ownFolder is a folder the person owns that only they may write.
 func ownFolder() pathFacts {
 	return pathFacts{
-		exists: true, link: false, folder: true, owner: personUID, writable: false, sticky: false,
+		exists: true, link: false, folder: true, owner: personUID, group: personGID,
+		groupWrite: false, otherWrite: false, sticky: false,
 	}
 }
 
@@ -24,6 +38,7 @@ func ownFolder() pathFacts {
 func rootFolder() pathFacts {
 	facts := ownFolder()
 	facts.owner = rootUID
+	facts.group = 0
 
 	return facts
 }
@@ -65,17 +80,29 @@ func TestCheckSafeFolderJudgesEachPartOfThePath(t *testing.T) {
 		{"an ancestor another user's", func(f map[string]pathFacts) {
 			setOwner(f, "/home/p", otherUID)
 		}, "/home/p belongs to another user"},
-		{"the folder group-writable", func(f map[string]pathFacts) {
-			setWritable(f, "/home/p/clone", false)
+		{"the folder writable by its private group (0775)", func(f map[string]pathFacts) {
+			setGroupWrite(f, "/home/p/clone", personGID)
+		}, ""},
+		{"an ancestor writable by the private group", func(f map[string]pathFacts) {
+			setGroupWrite(f, "/home/p", personGID)
+		}, ""},
+		{"the folder writable by a shared group (staff 0775)", func(f map[string]pathFacts) {
+			setGroupWrite(f, "/home/p/clone", staffGID)
+		}, "/home/p/clone may be written by its group (20)"},
+		{"the folder writable by a group that is not theirs", func(f map[string]pathFacts) {
+			setGroupWrite(f, "/home/p/clone", 1002)
+		}, "chmod g-w"},
+		{"the folder writable by others", func(f map[string]pathFacts) {
+			setOtherWrite(f, "/home/p/clone", false)
 		}, "other users may write /home/p/clone"},
-		{"the folder sticky and writable", func(f map[string]pathFacts) {
-			setWritable(f, "/home/p/clone", true)
+		{"the folder sticky and writable by others", func(f map[string]pathFacts) {
+			setOtherWrite(f, "/home/p/clone", true)
 		}, "other users may write /home/p/clone"},
-		{"an ancestor group-writable", func(f map[string]pathFacts) {
-			setWritable(f, "/home/p", false)
+		{"an ancestor writable by others", func(f map[string]pathFacts) {
+			setOtherWrite(f, "/home/p", false)
 		}, "other users may write /home/p"},
-		{"an ancestor sticky and writable, as /tmp", func(f map[string]pathFacts) {
-			setWritable(f, "/home", true)
+		{"an ancestor sticky and writable by others, as /tmp", func(f map[string]pathFacts) {
+			setOtherWrite(f, "/home", true)
 		}, ""},
 	}
 
@@ -90,7 +117,7 @@ func TestCheckSafeFolderJudgesEachPartOfThePath(t *testing.T) {
 			tt.change(facts)
 
 			look := func(path string) (pathFacts, error) { return facts[path], nil }
-			err := checkSafeFolder("/home/p/clone", personUID, look)
+			err := checkSafeFolder("/home/p/clone", pat(), look)
 
 			if tt.wantSays == "" {
 				if err != nil {
@@ -124,18 +151,94 @@ func setOwner(facts map[string]pathFacts, path string, owner uint32) {
 	facts[path] = changed
 }
 
-func setWritable(facts map[string]pathFacts, path string, sticky bool) {
+func setGroupWrite(facts map[string]pathFacts, path string, group uint32) {
 	changed := facts[path]
-	changed.writable = true
+	changed.groupWrite = true
+	changed.group = group
+	facts[path] = changed
+}
+
+func setOtherWrite(facts map[string]pathFacts, path string, sticky bool) {
+	changed := facts[path]
+	changed.otherWrite = true
 	changed.sticky = sticky
 	facts[path] = changed
+}
+
+// TestAPrivateGroupIsTheirsAloneByNameIDAndMembers: the person's own group id, listed under
+// their name, with no other member; anything else, or a group file that could not be read, is a
+// shared group.
+func TestAPrivateGroupIsTheirsAloneByNameIDAndMembers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		who  func() person
+		gid  uint32
+		want bool
+	}{
+		{"the private group", pat, personGID, true},
+		{"the private group listing only the person", func() person {
+			who := pat()
+			who.groups = "pat:x:1001:pat\n"
+
+			return who
+		}, personGID, true},
+		{"macOS's staff", func() person {
+			who := pat()
+			who.gid = staffGID
+
+			return who
+		}, staffGID, false},
+		{"a group that is not the person's group id", pat, 1002, false},
+		{"a group named for the person with a second member", func() person {
+			who := pat()
+			who.groups = "pat:x:1001:pat,sam\n"
+
+			return who
+		}, personGID, false},
+		{"a group file that could not be read", func() person {
+			who := pat()
+			who.groups = ""
+
+			return who
+		}, personGID, false},
+		{"a group the file does not list (NSS or LDAP)", func() person {
+			who := pat()
+			who.groups = "root:x:0:\n"
+
+			return who
+		}, personGID, false},
+		{"no name for the person", func() person {
+			who := pat()
+			who.name = ""
+
+			return who
+		}, personGID, false},
+		{"a line with too few fields", func() person {
+			who := pat()
+			who.groups = "pat:x:1001\n"
+
+			return who
+		}, personGID, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := privateGroup(tt.who(), tt.gid); got != tt.want {
+				t.Errorf("private %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestCheckSafeFolderRefusesAPathItWouldHaveToClean(t *testing.T) {
 	t.Parallel()
 
 	for _, folder := range []string{"relative/clone", "/home/p/../p/clone", "/home/p/clone/"} {
-		err := checkSafeFolder(folder, personUID, func(string) (pathFacts, error) {
+		err := checkSafeFolder(folder, pat(), func(string) (pathFacts, error) {
 			return ownFolder(), nil
 		})
 		if !errors.Is(err, ErrUnsafeFolder) {
@@ -189,14 +292,14 @@ func TestCheckSafeFolderOnTheDisk(t *testing.T) {
 
 			return folder
 		}, ""},
-		{"a group-writable ancestor", func(t *testing.T, base string) string {
+		{"an ancestor others may write", func(t *testing.T, base string) string {
 			t.Helper()
 
 			parent := filepath.Join(base, "shared")
 			makeFolder(t, parent)
 			makeFolder(t, filepath.Join(parent, "clone"))
 
-			err := os.Chmod(parent, 0o770)
+			err := os.Chmod(parent, 0o777)
 			if err != nil {
 				t.Fatal(err)
 			}

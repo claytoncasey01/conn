@@ -209,7 +209,7 @@ func folderRefusals() []launchRefusal {
 		{"a folder above it others may write", func(t *testing.T, rig *launchRig) (string, string) {
 			t.Helper()
 
-			err := os.Chmod(filepath.Dir(rig.folder), 0o770)
+			err := os.Chmod(filepath.Dir(rig.folder), 0o777)
 			if err != nil {
 				t.Fatal(err)
 			}
