@@ -121,11 +121,16 @@ program, an argument or a variable, and the server reads none: the repository is
 - **A safe folder.** The folder must be yours, a real folder (not a link) that no one else may
   write, and every folder above it up to `/` a real folder of yours or root's that no one else may
   write. "No one else" is read from the mode bits, with two exceptions:
-  - a folder its group may write passes when that group is your private group: its id is your
-    own group id, `/etc/group` lists it under your user name, and it has no other member (as
-    Debian, Ubuntu and Fedora make one, with a umask of 002). A group `/etc/group` does not list
-    (an LDAP or other NSS group), or a file that cannot be read, counts as shared. macOS's `staff`
-    is shared, so a folder `staff` may write is refused;
+  - a folder its group may write passes when that group is your private group (as Debian,
+    Ubuntu and Fedora make one, with a umask of 002): its id is your own group id; every line of
+    `/etc/group` with that id names the group after you and lists no member but you; and no other
+    account in `/etc/passwd` has it as its primary group (an account is never listed as a member
+    of its own primary group). Any doubt counts as shared: either file unreadable or over 1 MiB or
+    10,000 lines, a group `/etc/group` does not list, or a line about the group that is not
+    written cleanly (a carriage return, a space, a leading zero, a field too many or too few).
+    Members added only through NSS (sssd, LDAP) are not seen, so "no other member" means none in
+    `/etc/group` or `/etc/passwd`. macOS's `staff` is shared, so a folder `staff` may write is
+    refused;
   - a folder above the one the session starts in that anyone may write passes when it is sticky,
     such as `/tmp`, where no one may rename or remove what is not theirs.
 

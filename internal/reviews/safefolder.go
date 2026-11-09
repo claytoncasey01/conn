@@ -16,13 +16,9 @@ package reviews
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
-	"os/user"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
 )
 
@@ -35,14 +31,6 @@ const (
 	// pathPartsMax bounds the walk from a folder up to /: a path is at most PATH_MAX (4096)
 	// bytes, so it has at most 2048 parts.
 	pathPartsMax = 2048
-	// groupFile is the system's list of groups, read to tell a private group.
-	groupFile = "/etc/group"
-	// groupFileBytesMax and groupLinesMax bound that read: a group file larger, or longer, is
-	// not read, and every group counts as shared.
-	groupFileBytesMax = 1 << 20
-	groupLinesMax     = 10_000
-	// groupFields is how many fields a line of the group file has: name, password, id, members.
-	groupFields = 4
 )
 
 // ErrUnsafeFolder is a folder a session may not start in by its path; each problem wraps it.
@@ -61,68 +49,9 @@ type pathFacts struct {
 	sticky     bool
 }
 
-// person is who runs Conn, as the check needs it: their user id, their group id and name, and
-// the group file's text ("" when it could not be read, so no group is private).
-type person struct {
-	uid    int
-	gid    int
-	name   string
-	groups string
-}
-
-// privateGroup is whether gid is the person's private group: their own group id, listed in the
-// group file under their own name, with no member but them. A group the file does not list (an
-// NSS or LDAP group), or a file that could not be read, is shared.
-func privateGroup(who person, gid uint32) bool {
-	if int64(gid) != int64(who.gid) {
-		return false
-	}
-
-	if who.name == "" {
-		return false
-	}
-
-	lines := strings.Split(who.groups, "\n")
-
-	for _, line := range lines[:min(len(lines), groupLinesMax)] {
-		fields := strings.Split(line, ":")
-		if len(fields) != groupFields {
-			continue
-		}
-
-		if fields[2] != strconv.FormatUint(uint64(gid), 10) {
-			continue
-		}
-
-		return groupIsOnly(fields, who.name)
-	}
-
-	return false
-}
-
-// groupIsOnly is whether a group file line's fields name the group name and list no member but
-// name.
-func groupIsOnly(fields []string, name string) bool {
-	if fields[0] != name {
-		return false
-	}
-
-	for member := range strings.SplitSeq(fields[3], ",") {
-		if member == "" {
-			continue
-		}
-
-		if member != name {
-			return false
-		}
-	}
-
-	return true
-}
-
 // writeProblem is what is wrong with who may write folder, or nil. anyoneMay is whether a sticky
 // folder may be written by anyone (a folder above the one a session starts in).
-func writeProblem(folder string, facts pathFacts, who person, anyoneMay bool) error {
+func writeProblem(folder string, facts pathFacts, who Person, anyoneMay bool) error {
 	if facts.otherWrite {
 		if !anyoneMay {
 			return fmt.Errorf("%w: other users may write %s: run chmod o-w on it",
@@ -156,7 +85,7 @@ func writeProblem(folder string, facts pathFacts, who person, anyoneMay bool) er
 
 // leafProblem is what is wrong with the folder a session starts in, or nil: it must be a real
 // folder the person owns that no one else may write.
-func leafProblem(folder string, facts pathFacts, who person) error {
+func leafProblem(folder string, facts pathFacts, who Person) error {
 	problem := shapeProblem(folder, facts)
 	if problem != nil {
 		return problem
@@ -171,7 +100,7 @@ func leafProblem(folder string, facts pathFacts, who person) error {
 
 // ancestorProblem is what is wrong with a folder above the one a session starts in, or nil: it
 // must be a real folder the person or root owns that no one else may write, unless it is sticky.
-func ancestorProblem(folder string, facts pathFacts, who person) error {
+func ancestorProblem(folder string, facts pathFacts, who Person) error {
 	problem := shapeProblem(folder, facts)
 	if problem != nil {
 		return problem
@@ -230,51 +159,22 @@ func factsOf(path string) (pathFacts, error) {
 	}, nil
 }
 
-// whoRuns is the person running Conn. A name or a group file that cannot be read leaves it
-// empty, so no group counts as private.
-func whoRuns() person {
-	who := person{uid: os.Getuid(), gid: os.Getgid(), name: "", groups: readGroups()}
-
-	current, err := user.Current()
-	if err == nil {
-		who.name = current.Username
-	}
-
-	return who
-}
-
-// readGroups is the group file's text, or "" when it cannot be read or is larger than
-// groupFileBytesMax.
-func readGroups() string {
-	file, err := os.Open(groupFile)
-	if err != nil {
-		return ""
-	}
-
-	// Only read: nothing useful can be done with a failed close.
-	defer func() { _ = file.Close() }()
-
-	data, err := io.ReadAll(io.LimitReader(file, groupFileBytesMax+1))
-	if err != nil {
-		return ""
-	}
-
-	if len(data) > groupFileBytesMax {
-		return ""
-	}
-
-	return string(data)
-}
-
 // CheckSafeFolder returns every problem with starting a session in folder by its path, each
 // wrapping ErrUnsafeFolder, or nil (see the top of this file). folder must be absolute and
-// clean: one that is not is refused, never cleaned, so the path checked is the path used.
+// clean: one that is not is refused, never cleaned, so the path checked is the path used. It reads
+// who runs Conn (WhoRuns) for this one check; a caller that checks several folders for one
+// request reads it once and calls CheckSafeFolderFor.
 func CheckSafeFolder(folder string) error {
-	return checkSafeFolder(folder, whoRuns(), factsOf)
+	return CheckSafeFolderFor(WhoRuns(), folder)
+}
+
+// CheckSafeFolderFor is CheckSafeFolder for who, read once by the caller (WhoRuns).
+func CheckSafeFolderFor(who Person, folder string) error {
+	return checkSafeFolder(folder, who, factsOf)
 }
 
 // checkSafeFolder is CheckSafeFolder for who, with the facts of each path from look.
-func checkSafeFolder(folder string, who person, look func(string) (pathFacts, error)) error {
+func checkSafeFolder(folder string, who Person, look func(string) (pathFacts, error)) error {
 	if !filepath.IsAbs(folder) {
 		return fmt.Errorf("%w: %s is not an absolute path", ErrUnsafeFolder, folder)
 	}

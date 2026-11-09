@@ -18,12 +18,17 @@ const (
 )
 
 // groupsFile is a group file with the person's private group, macOS's shared staff, and a group
-// named for the person that has a second member.
-const groupsFile = "root:x:0:\nstaff:*:20:root,pat\npat:x:1001:\nshared:x:1002:pat,sam\n"
+// with a second member; accountsText lists the person alone in their group.
+const (
+	groupsFile   = "root:x:0:\nstaff:*:20:root,pat\npat:x:1001:\nshared:x:1002:pat,sam\n"
+	accountsText = "root:x:0:0:root:/root:/bin/sh\npat:x:501:1001:Pat Smith:/home/pat:/bin/bash\n"
+)
 
 // pat is the person, whose primary group is their private group.
-func pat() person {
-	return person{uid: personUID, gid: personGID, name: "pat", groups: groupsFile}
+func pat() Person {
+	return Person{
+		uid: personUID, gid: personGID, name: "pat", groups: groupsFile, passwd: accountsText,
+	}
 }
 
 // ownFolder is a folder the person owns that only they may write.
@@ -163,75 +168,6 @@ func setOtherWrite(facts map[string]pathFacts, path string, sticky bool) {
 	changed.otherWrite = true
 	changed.sticky = sticky
 	facts[path] = changed
-}
-
-// TestAPrivateGroupIsTheirsAloneByNameIDAndMembers: the person's own group id, listed under
-// their name, with no other member; anything else, or a group file that could not be read, is a
-// shared group.
-func TestAPrivateGroupIsTheirsAloneByNameIDAndMembers(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		who  func() person
-		gid  uint32
-		want bool
-	}{
-		{"the private group", pat, personGID, true},
-		{"the private group listing only the person", func() person {
-			who := pat()
-			who.groups = "pat:x:1001:pat\n"
-
-			return who
-		}, personGID, true},
-		{"macOS's staff", func() person {
-			who := pat()
-			who.gid = staffGID
-
-			return who
-		}, staffGID, false},
-		{"a group that is not the person's group id", pat, 1002, false},
-		{"a group named for the person with a second member", func() person {
-			who := pat()
-			who.groups = "pat:x:1001:pat,sam\n"
-
-			return who
-		}, personGID, false},
-		{"a group file that could not be read", func() person {
-			who := pat()
-			who.groups = ""
-
-			return who
-		}, personGID, false},
-		{"a group the file does not list (NSS or LDAP)", func() person {
-			who := pat()
-			who.groups = "root:x:0:\n"
-
-			return who
-		}, personGID, false},
-		{"no name for the person", func() person {
-			who := pat()
-			who.name = ""
-
-			return who
-		}, personGID, false},
-		{"a line with too few fields", func() person {
-			who := pat()
-			who.groups = "pat:x:1001\n"
-
-			return who
-		}, personGID, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := privateGroup(tt.who(), tt.gid); got != tt.want {
-				t.Errorf("private %v, want %v", got, tt.want)
-			}
-		})
-	}
 }
 
 func TestCheckSafeFolderRefusesAPathItWouldHaveToClean(t *testing.T) {
