@@ -3,7 +3,8 @@
 //
 // A start names a repository and, optionally, a name; never a folder, a program, an argument or a
 // variable. The repository must be on the allowlist and have a local clone, as Open work resolves
-// one, that is a real folder of the person's own (not a link). The server builds the session
+// one, whose real path is a folder no one but the person and root may change (CheckClone),
+// checked when it is chosen and again right before the start. The server builds the session
 // itself: claude, as CONN_CLAUDE names it, on a conversation id Conn chooses (--session-id), with
 // the name made safe (--name), in the clone's real path. It opens through the same opener every
 // module uses, so it follows Settings' Where sessions open, and inside Conn it is recorded as a
@@ -13,9 +14,11 @@ package newsession
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -34,7 +37,12 @@ const (
 	// startCooldownDefault is how long a second start in the same repository is refused: a
 	// double press, or a press again before the first session shows up in the list.
 	startCooldownDefault = 10 * time.Second
+	// gitName is a clone's git folder.
+	gitName = ".git"
 )
+
+// ErrNotAClone is a clone folder whose .git is not a git folder of its own.
+var ErrNotAClone = errors.New("not a clone of its own")
 
 // Deps are what the API reads and starts.
 type Deps struct {
@@ -45,9 +53,9 @@ type Deps struct {
 	Repos func(current settings.Settings) []string
 	// CloneFor is the local clone of a repository per current, false when there is none.
 	CloneFor func(repo string, current settings.Settings) (string, bool)
-	// CheckFolder refuses a folder that is not a real folder of the person's own
-	// (reviews.CheckOwnFolder).
-	CheckFolder func(folder string) error
+	// CheckClone refuses a clone's real path a session may not start in (CheckClone over
+	// reviews.CheckSafeFolder).
+	CheckClone func(folder string) error
 	// Resolve is a folder with every link followed (realpath.Resolve): the folder claude reports
 	// as its own, which History's archive row holds.
 	Resolve func(path string) string
@@ -174,6 +182,15 @@ func (a *API) Start(ctx context.Context, body *js.Object) (Reply, error) {
 		return *refused, nil
 	}
 
+	// Checked again right before the start, so a change since the first check starts nothing.
+	// From here to the program's chdir the path cannot change: no one but the person and root
+	// may change any folder on it (CheckClone).
+	if refused := a.cloneProblem(request.Repo, folder); refused != nil {
+		a.release(key, false)
+
+		return *refused, nil
+	}
+
 	opened := a.deps.Open(ctx, spec)
 	a.release(key, opened.OK)
 
@@ -201,9 +218,9 @@ func startedOf(opened launch.Opened) Started {
 	}
 }
 
-// folderOf is the folder a session in repo runs in, or why there is none: repo is allowed, has a
-// clone, the clone is a real folder of the person's own (not a link), and the folder is the
-// clone's real path, absolute.
+// folderOf is the folder a session in repo runs in, or why there is none: repo is allowed and
+// has a clone, and the clone's real path (every link resolved first) is a folder a session may
+// start in (cloneProblem).
 func (a *API) folderOf(repo string, current settings.Settings) (string, *Reply) {
 	if !repos.Allowed(repo, current.Repos.Allow) {
 		return "", refuse(http.StatusBadRequest,
@@ -216,19 +233,55 @@ func (a *API) folderOf(repo string, current settings.Settings) (string, *Reply) 
 			"No local clone of "+repo+": set a folder in Settings.")
 	}
 
-	err := a.deps.CheckFolder(clone)
-	if err != nil {
-		return "", refuse(http.StatusConflict,
-			"The clone of "+repo+" cannot be used: "+err.Error()+".")
-	}
-
 	folder := a.deps.Resolve(clone)
 	if !filepath.IsAbs(folder) {
-		return "", refuse(http.StatusConflict,
-			"The clone of "+repo+" is not at an absolute path: set a folder in Settings.")
+		panic(fmt.Sprintf("newsession: the clone %q resolved to %q, not an absolute path",
+			clone, folder))
+	}
+
+	if refused := a.cloneProblem(repo, folder); refused != nil {
+		return "", refused
 	}
 
 	return folder, nil
+}
+
+// cloneProblem is why a session may not start in folder, the clone of repo (CheckClone), or nil.
+func (a *API) cloneProblem(repo, folder string) *Reply {
+	err := a.deps.CheckClone(folder)
+	if err != nil {
+		return refuse(http.StatusConflict,
+			"The clone of "+repo+" cannot be used: "+err.Error()+".")
+	}
+
+	return nil
+}
+
+// CheckClone returns why a session may not start in folder, a clone's real path, or nil. The
+// folder and every folder above it pass checkFolder (reviews.CheckSafeFolder: no link, no folder
+// another user may change), and so does its .git: a real folder, not a link, and not a file
+// pointing at a git folder elsewhere (a worktree's or a --separate-git-dir clone's), since either
+// would let the folder take its origin, and so its place on the allowlist, from somewhere else.
+func CheckClone(folder string, checkFolder func(folder string) error) error {
+	err := checkFolder(folder)
+	if err != nil {
+		return err
+	}
+
+	gitFolder := filepath.Join(folder, gitName)
+
+	info, err := os.Lstat(gitFolder)
+	if err != nil {
+		return fmt.Errorf("%w: %s cannot be read: %w", ErrNotAClone, gitFolder, err)
+	}
+
+	if info.Mode().IsRegular() {
+		return fmt.Errorf("%w: %s is a file that points at a git folder elsewhere (a worktree "+
+			"or a --separate-git-dir clone): set the main clone's folder in Settings", ErrNotAClone,
+			gitFolder)
+	}
+
+	return checkFolder(gitFolder)
 }
 
 // claim marks a start in the repository keyed key as opening, or refuses it: one is opening or

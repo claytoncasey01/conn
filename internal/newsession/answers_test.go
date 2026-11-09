@@ -36,10 +36,10 @@ func goldenAPI(answer launch.Opened, dry bool, running int) *newsession.API {
 		CloneFor: func(repo string, _ settings.Settings) (string, bool) {
 			return cloneFolder, repo == "acme/widgets"
 		},
-		CheckFolder: func(string) error { return nil },
-		Resolve:     func(path string) string { return path },
-		Open:        func(context.Context, pty.Spec) launch.Opened { return answer },
-		Claude:      "claude", Dry: dry, Running: func() int { return running },
+		CheckClone: func(string) error { return nil },
+		Resolve:    func(path string) string { return path },
+		Open:       func(context.Context, pty.Spec) launch.Opened { return answer },
+		Claude:     "claude", Dry: dry, Running: func() int { return running },
 		NewID: func() (string, error) { return conversationID, nil },
 		Now:   time.Now, Cooldown: 0,
 	})

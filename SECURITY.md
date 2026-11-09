@@ -109,8 +109,18 @@ object with a repository name (`owner/name`) and, optionally, a session name; an
 value that is not text, or a body over 64 KiB is refused. The page never sends a folder, a
 program, an argument or a variable, and the server reads none: the repository is only a key.
 - The repository must be on the allowlist now and have a local clone, found as Open work finds
-  one. The clone must be a real folder you own, not a link (a link would let whoever made it
-  choose where the session runs); the session runs in the clone's real path.
+  one. The clone's path is resolved first (a clone set in Settings may be a link), and the
+  session runs in that real path, which must be a safe folder (below). Its `.git` must be a
+  safe folder too: not a link, and not a file pointing at a git folder elsewhere (a worktree or a
+  `--separate-git-dir` clone), since either would let the folder borrow another repository's
+  origin, and so its place on the allowlist.
+- **A safe folder.** The folder must be yours, a real folder (not a link) that only you may
+  write, and every folder above it up to `/` a real folder of yours or root's that no one else may
+  write, except a sticky one such as `/tmp`, where no one may rename or remove what is not theirs.
+  Then no one but you and root can change what the path names, so starting the program in it by
+  its path (a chdir) reaches the folder that was checked. The check runs when the repository is
+  chosen and again right before the start. A folder that fails says which part and what to do:
+  use the folder a link points to, or `chmod go-w` a folder others may write.
 - The name passes the same checks as every session's name (no control, bidi or invisible
   character, valid UTF-8, at most 256 bytes) and is then reduced to letters, digits, `.`, `_` and
   `-`, so it cannot start with `-` and read as a flag. A name with nothing left is refused.
@@ -205,8 +215,11 @@ its owner, which rebuilds the command from its own state, as its own button woul
   resumes on that launch's model. No session of that name, and none in that worktree, already runs.
 - **History** (a session resumed from History, or started with New session). Not a dry run.
   Claude's id is a UUID. The archive has the session, it is not running, its transcript and
-  folder exist, and it was not just resumed. The folder is the one the archive holds, and its
-  repository is allowed.
+  folder exist, and it was not just resumed. The folder is the one the archive holds, it is a
+  safe folder (see New session, above), and its repository is allowed. History's RESUME button
+  makes the same folder check, so a session in a folder reached through a link, or under a folder
+  others may write, is no longer resumed, by the button or at launch; the refusal says which
+  part to fix.
 
 **Quit, close and launch.**
 - Closing the app's window hides it. Every session keeps running, and opening the window again

@@ -14,6 +14,7 @@ import (
 	"github.com/claytoncasey01/conn/internal/historyapi"
 	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/pty"
+	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/settings"
 )
 
@@ -64,8 +65,9 @@ func newResumeRig(t *testing.T, folder, name string, named bool) *resumeRig {
 	}
 	rig.api = historyapi.New(historyapi.Deps{
 		DB: archive, Summarizer: nil,
-		LiveIDs: func(context.Context) map[string]bool { return map[string]bool{} },
-		Allow:   nil,
+		LiveIDs:     func(context.Context) map[string]bool { return map[string]bool{} },
+		Allow:       nil,
+		CheckFolder: reviews.CheckSafeFolder,
 		Open: func(_ context.Context, spec pty.Spec) launch.Opened {
 			rig.specs = append(rig.specs, spec)
 
@@ -96,7 +98,7 @@ func (r *resumeRig) resume(t *testing.T) historyapi.Reply {
 func TestAResumeStartsClaudeOnItsConversationInItsFolder(t *testing.T) {
 	t.Parallel()
 
-	folder := filepath.Join(t.TempDir(), "it's $(id) `x`\n--dangerously-skip-permissions")
+	folder := filepath.Join(realTemp(t), "it's $(id) `x`\n--dangerously-skip-permissions")
 
 	err := os.MkdirAll(folder, 0o700)
 	if err != nil {
@@ -152,7 +154,7 @@ func TestAResumeStartsClaudeOnItsConversationInItsFolder(t *testing.T) {
 func TestAResumeThatDidNotStartGivesTheLineToPaste(t *testing.T) {
 	t.Parallel()
 
-	rig := newResumeRig(t, t.TempDir(), "a session", false)
+	rig := newResumeRig(t, realTemp(t), "a session", false)
 	rig.opened = launch.Opened{
 		OK: false, Where: settings.WhereCommand, HostedID: "", Place: "", Tried: "",
 		Error: "run this", ManualCommand: "cd /w && claude --resume " + resumedID,

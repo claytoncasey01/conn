@@ -3,6 +3,7 @@ package newsession_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -34,28 +35,26 @@ var errNoRandom = errors.New("no random bytes")
 // builds it. Its clones are real folders, under a link on macOS (/var), checked and resolved
 // as the app does.
 type rig struct {
-	mu       sync.Mutex
-	current  settings.Settings
-	clones   map[string]string
-	running  int
-	dry      bool
-	now      time.Time
-	opened   []pty.Spec
-	answer   launch.Opened
-	idErr    error
-	repoList []string
+	mu      sync.Mutex
+	current settings.Settings
+	clones  map[string]string
+	running int
+	dry     bool
+	now     time.Time
+	opened  []pty.Spec
+	answer  launch.Opened
+	idErr   error
+	// resolve stands in for realpath.Resolve when a case sets it.
+	resolve func(path string) string
+	// afterCheck runs after the folder's first check and before the start.
+	afterCheck func()
+	repoList   []string
 }
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
 
-	clone := filepath.Join(t.TempDir(), "widgets")
-
-	err := os.Mkdir(clone, 0o700)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	clone := makeClone(t, filepath.Join(t.TempDir(), "widgets"))
 	current := settings.Defaults()
 	current.Repos.Allow = []string{"acme/*"}
 
@@ -67,7 +66,27 @@ func newRig(t *testing.T) *rig {
 	}
 }
 
+// makeClone is a folder at path with a .git folder in it, each the person's own.
+func makeClone(t *testing.T, path string) string {
+	t.Helper()
+
+	err := os.MkdirAll(filepath.Join(path, ".git"), 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return path
+}
+
 func (r *rig) api() *newsession.API { return newsession.New(r.deps()) }
+
+func (r *rig) resolveOf() func(string) string {
+	if r.resolve != nil {
+		return r.resolve
+	}
+
+	return realpath.Resolve
+}
 
 // deps are the API's deps over the rig.
 func (r *rig) deps() newsession.Deps {
@@ -79,7 +98,7 @@ func (r *rig) deps() newsession.Deps {
 
 			return clone, found
 		},
-		CheckFolder: reviews.CheckOwnFolder, Resolve: realpath.Resolve,
+		CheckClone: checkClone, Resolve: r.resolveOf(),
 		Open: func(_ context.Context, spec pty.Spec) launch.Opened {
 			r.mu.Lock()
 			defer r.mu.Unlock()
@@ -89,8 +108,15 @@ func (r *rig) deps() newsession.Deps {
 			return r.answer
 		},
 		Claude: claudeProgram, Dry: r.dry, Running: func() int { return r.running },
-		NewID: func() (string, error) { return conversationID, r.idErr },
-		Now:   func() time.Time { return r.now }, Cooldown: cooldown,
+		NewID: func() (string, error) {
+			// The seam between the first check of the folder and the start.
+			if r.afterCheck != nil {
+				r.afterCheck()
+			}
+
+			return conversationID, r.idErr
+		},
+		Now: func() time.Time { return r.now }, Cooldown: cooldown,
 	}
 }
 
@@ -144,8 +170,24 @@ func TestStartRefusesAndOpensNothing(t *testing.T) {
 		},
 		{"no clone", nil, `{"repo":"acme/gadgets"}`, http.StatusConflict, "No local clone"},
 		{
-			"a clone that is a link", linkedClone, `{"repo":"acme/widgets"}`,
+			"a .git that is a link", gitLink, `{"repo":"acme/widgets"}`,
+			http.StatusConflict, ".git is a link",
+		},
+		{
+			"a .git that points elsewhere", gitPointer, `{"repo":"acme/widgets"}`,
+			http.StatusConflict, "points at a git folder elsewhere",
+		},
+		{
+			"a folder above the clone others may write", writableParent,
+			`{"repo":"acme/widgets"}`, http.StatusConflict, "other users may write",
+		},
+		{
+			"a link in a folder above the clone", linkedParent, `{"repo":"acme/widgets"}`,
 			http.StatusConflict, "is a link",
+		},
+		{
+			"the clone swapped for a link after the check", swappedAfterCheck,
+			`{"repo":"acme/widgets"}`, http.StatusConflict, "is a link",
 		},
 		{
 			"a clone that is a file", fileClone, `{"repo":"acme/widgets"}`,
@@ -195,17 +237,104 @@ func TestStartRefusesAndOpensNothing(t *testing.T) {
 	}
 }
 
-func linkedClone(t *testing.T, setting *rig) {
+// realClone is the rig's clone with every link resolved, as the API checks it.
+func realClone(t *testing.T, setting *rig) string {
 	t.Helper()
 
-	link := filepath.Join(t.TempDir(), "widgets")
-
-	err := os.Symlink(setting.clones[allowedRepo], link)
+	folder, err := filepath.EvalSymlinks(setting.clones[allowedRepo])
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	setting.clones[allowedRepo] = link
+	return folder
+}
+
+func gitLink(t *testing.T, setting *rig) {
+	t.Helper()
+
+	clone := realClone(t, setting)
+	other := makeClone(t, filepath.Join(t.TempDir(), "other"))
+
+	err := os.Remove(filepath.Join(clone, ".git"))
+	if err == nil {
+		err = os.Symlink(filepath.Join(other, ".git"), filepath.Join(clone, ".git"))
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func gitPointer(t *testing.T, setting *rig) {
+	t.Helper()
+
+	clone := realClone(t, setting)
+
+	err := os.Remove(filepath.Join(clone, ".git"))
+	if err == nil {
+		err = os.WriteFile(filepath.Join(clone, ".git"), []byte("gitdir: /elsewhere/.git\n"),
+			0o600)
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writableParent(t *testing.T, setting *rig) {
+	t.Helper()
+
+	err := os.Chmod(filepath.Dir(realClone(t, setting)), 0o770)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// linkedParent is a clone reached through a link that the clone's own path does not resolve: the
+// folder CloneFor names is real, but a folder above it is swapped for a link to a copy.
+func linkedParent(t *testing.T, setting *rig) {
+	t.Helper()
+
+	base := realTempFolder(t)
+	copied := makeClone(t, filepath.Join(base, "real", "widgets"))
+
+	err := os.Symlink(filepath.Dir(copied), filepath.Join(base, "projects"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	setting.clones[allowedRepo] = filepath.Join(base, "projects", "widgets")
+	setting.resolve = func(path string) string { return path }
+}
+
+// swappedAfterCheck swaps the checked clone for a link to another clone once the first check is
+// done: the check right before the start refuses it.
+func swappedAfterCheck(t *testing.T, setting *rig) {
+	t.Helper()
+
+	clone := realClone(t, setting)
+	other := makeClone(t, filepath.Join(t.TempDir(), "hooks"))
+	setting.afterCheck = func() {
+		err := os.Rename(clone, clone+"-moved")
+		if err == nil {
+			err = os.Symlink(other, clone)
+		}
+
+		if err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+func realTempFolder(t *testing.T) string {
+	t.Helper()
+
+	folder, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return folder
 }
 
 func fileClone(t *testing.T, setting *rig) {
@@ -313,7 +442,7 @@ func TestTwoStartsAtOnceOpenOne(t *testing.T) {
 		CloneFor: func(string, settings.Settings) (string, bool) {
 			return setting.clones[allowedRepo], true
 		},
-		CheckFolder: reviews.CheckOwnFolder, Resolve: realpath.Resolve,
+		CheckClone: checkClone, Resolve: realpath.Resolve,
 		Open: func(context.Context, pty.Spec) launch.Opened {
 			entered <- struct{}{}
 
@@ -468,4 +597,40 @@ func TestChoicesOfferOnlyWhereAStartWouldWork(t *testing.T) {
 	if string(js.Marshal(reply.Body)) != want {
 		t.Errorf("choices %s, want %s", js.Marshal(reply.Body), want)
 	}
+}
+
+// TestACloneSetAsALinkOpensInTheFolderItPointsTo: the link is resolved first and the real folder
+// is what is checked and started in.
+func TestACloneSetAsALinkOpensInTheFolderItPointsTo(t *testing.T) {
+	t.Parallel()
+
+	setting := newRig(t)
+	realFolder := realClone(t, setting)
+	link := filepath.Join(t.TempDir(), "widgets")
+
+	err := os.Symlink(realFolder, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	setting.clones[allowedRepo] = link
+
+	reply := start(t, setting.api(), `{"repo":"acme/widgets"}`)
+	if reply.Code != http.StatusOK {
+		t.Fatalf("code %d: %s", reply.Code, js.Marshal(reply.Body))
+	}
+
+	if setting.opened[0].Dir != realFolder {
+		t.Errorf("folder %q, want %q", setting.opened[0].Dir, realFolder)
+	}
+}
+
+// checkClone is the app's clone check: newsession.CheckClone over reviews.CheckSafeFolder.
+func checkClone(folder string) error {
+	err := newsession.CheckClone(folder, reviews.CheckSafeFolder)
+	if err != nil {
+		return fmt.Errorf("checking the clone: %w", err)
+	}
+
+	return nil
 }

@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -44,7 +45,7 @@ func newNewSessionRig(t *testing.T) *newSessionRig {
 
 	clone := filepath.Join(t.TempDir(), "widgets")
 
-	err := os.Mkdir(clone, 0o700)
+	err := os.MkdirAll(filepath.Join(clone, ".git"), 0o700)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,10 +54,10 @@ func newNewSessionRig(t *testing.T) *newSessionRig {
 	current.Repos.Allow = []string{"acme/widgets"}
 	rig := &newSessionRig{handler: nil, mu: sync.Mutex{}, opened: nil}
 	api := newsession.New(newsession.Deps{
-		Settings:    func() settings.Settings { return current },
-		Repos:       func(settings.Settings) []string { return []string{"acme/widgets"} },
-		CloneFor:    func(string, settings.Settings) (string, bool) { return clone, true },
-		CheckFolder: reviews.CheckOwnFolder, Resolve: realpath.Resolve,
+		Settings:   func() settings.Settings { return current },
+		Repos:      func(settings.Settings) []string { return []string{"acme/widgets"} },
+		CloneFor:   func(string, settings.Settings) (string, bool) { return clone, true },
+		CheckClone: checkClone, Resolve: realpath.Resolve,
 		Open: func(_ context.Context, spec pty.Spec) launch.Opened {
 			rig.mu.Lock()
 			defer rig.mu.Unlock()
@@ -279,4 +280,14 @@ func TestNewSessionIsOnlyItsOwnPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+// checkClone is the app's clone check: newsession.CheckClone over reviews.CheckSafeFolder.
+func checkClone(folder string) error {
+	err := newsession.CheckClone(folder, reviews.CheckSafeFolder)
+	if err != nil {
+		return fmt.Errorf("checking the clone: %w", err)
+	}
+
+	return nil
 }
