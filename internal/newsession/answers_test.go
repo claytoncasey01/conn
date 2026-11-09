@@ -25,6 +25,12 @@ type answered struct {
 
 // goldenAPI is an API over a fixed clone folder, opening with answer, dry when dry is set.
 func goldenAPI(answer launch.Opened, dry bool, running int) *newsession.API {
+	return goldenAPIWith(func(context.Context, pty.Spec) launch.Opened { return answer }, dry,
+		running)
+}
+
+// goldenAPIWith is goldenAPI opening through open.
+func goldenAPIWith(open launch.Opener, dry bool, running int) *newsession.API {
 	current := settings.Defaults()
 	current.Repos.Allow = []string{"acme/*"}
 
@@ -38,11 +44,22 @@ func goldenAPI(answer launch.Opened, dry bool, running int) *newsession.API {
 		},
 		CheckClone: func(string) error { return nil },
 		Resolve:    func(path string) string { return path },
-		Open:       func(context.Context, pty.Spec) launch.Opened { return answer },
+		Open:       open,
 		Claude:     "claude", Dry: dry, Room: roomOf(running),
 		NewID: func() (string, error) { return conversationID, nil },
 		Now:   time.Now, Cooldown: 0,
 	})
+}
+
+// commandAPI is goldenAPI with launch's own opener for sessions set to open as a command, so the
+// line to paste is launch's, not one written here.
+func commandAPI() *newsession.API {
+	return goldenAPIWith(launch.New(launch.Deps{
+		Sessions: func() settings.Sessions {
+			return settings.Sessions{Where: settings.WhereCommand, ResumeOnLaunch: true}
+		},
+		Start: nil, Cmux: nil, LookPath: nil, Environ: nil,
+	}), false, 0)
 }
 
 func goldenStart(t *testing.T, api *newsession.API, body string) answered {
@@ -57,18 +74,13 @@ func TestTheAnswersThePageReadsAreGolden(t *testing.T) {
 	t.Parallel()
 
 	inside := launch.Opened{OK: true, HostedID: hostedID}
-	command := launch.Opened{
-		OK: false, Error: "sessions open as a command (Settings, Where sessions open): run " +
-			"this in a terminal to start the session",
-		ManualCommand: "cd /work/widgets && claude --session-id " + conversationID,
-	}
 	choices := goldenAPI(inside, false, 0).Choices()
 	named := `{"repo":"acme/widgets","name":"fix the widget"}`
 	cases := map[string]answered{
 		"choices":  {Status: choices.Code, Body: choices.Body},
 		"inside":   goldenStart(t, goldenAPI(inside, false, 0), named),
 		"terminal": goldenStart(t, goldenAPI(launch.Opened{OK: true}, false, 0), named),
-		"command":  goldenStart(t, goldenAPI(command, false, 0), named),
+		"command":  goldenStart(t, commandAPI(), named),
 		"dry":      goldenStart(t, goldenAPI(inside, true, 0), named),
 		"noClone":  goldenStart(t, goldenAPI(inside, false, 0), `{"repo":"acme/gadgets"}`),
 		"badName": goldenStart(t, goldenAPI(inside, false, 0),

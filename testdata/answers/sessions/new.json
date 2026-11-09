@@ -20,7 +20,7 @@
     "body": {
       "ok": false,
       "error": "sessions open as a command (Settings, Where sessions open): run this in a terminal to start the session",
-      "manualCommand": "cd /work/widgets \u0026\u0026 claude --session-id 0b6c4f7e-2d1a-4c3b-9e8f-112233445566"
+      "manualCommand": "cd /work/widgets \u0026\u0026 claude --session-id 0b6c4f7e-2d1a-4c3b-9e8f-112233445566 --name fix-the-widget"
     }
   },
   "dry": {

@@ -33,7 +33,7 @@ test('a session opened in a terminal has no row id to open', () => {
 test('sessions set to open as a command give the line to paste', () => {
   const result = started('command')
   assert.equal(result.ok, false)
-  assert.equal(result.manualCommand, 'cd /work/widgets && claude --session-id 0b6c4f7e-2d1a-4c3b-9e8f-112233445566')
+  assert.equal(result.manualCommand, 'cd /work/widgets && claude --session-id 0b6c4f7e-2d1a-4c3b-9e8f-112233445566 --name fix-the-widget')
 })
 
 test('a dry run says what it would have run', () => {
