@@ -12,8 +12,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// TextUnitsMax is how much of a comment or thread text is kept, in UTF-16 units.
-const TextUnitsMax = 400
+// MaxTextUnits is how much of a comment or thread text is kept, in UTF-16 units.
+const MaxTextUnits = 400
 
 // noCut is a cut that keeps the whole text.
 const noCut = -1
@@ -32,19 +32,19 @@ var (
 
 // Clean makes text from GitHub safe to show on one line: tabs, line breaks and U+2028/2029
 // become a space so words do not run together, every other control, bidi and zero-width
-// character is removed, and it is cut to unitsMax UTF-16 units (noCut keeps it whole).
-func Clean(text string, unitsMax int) string {
+// character is removed, and it is cut to maxUnits UTF-16 units (noCut keeps it whole).
+func Clean(text string, maxUnits int) string {
 	spaced := lineBreaks.ReplaceAllString(text, " ")
 	out := invisible.ReplaceAllString(reviews.UnsafeText.ReplaceAllString(spaced, ""), "")
 
-	return cut(out, unitsMax)
+	return cut(out, maxUnits)
 }
 
 // CleanMultiline is Clean for text shown with its lines (a reply): CRLF, CR and U+2028/2029
 // become one newline, a tab a space, every other control, bidi and zero-width character is
-// removed, a run of more than 2 newlines is cut to 2 and the ends are trimmed. unitsMax cuts
+// removed, a run of more than 2 newlines is cut to 2 and the ends are trimmed. maxUnits cuts
 // last (noCut measures the cleaned length instead).
-func CleanMultiline(text string, unitsMax int) string {
+func CleanMultiline(text string, maxUnits int) string {
 	unified := strings.ReplaceAll(lineEnds.ReplaceAllString(text, "\n"), "\t", " ")
 	lines := strings.Split(unified, "\n")
 
@@ -55,13 +55,13 @@ func CleanMultiline(text string, unitsMax int) string {
 
 	joined := blankRun.ReplaceAllString(strings.Join(lines, "\n"), "\n\n")
 
-	return cut(js.Trim(joined), unitsMax)
+	return cut(js.Trim(joined), maxUnits)
 }
 
-func cut(text string, unitsMax int) string {
-	if unitsMax == noCut {
+func cut(text string, maxUnits int) string {
+	if maxUnits == noCut {
 		return text
 	}
 
-	return js.Cut(text, unitsMax)
+	return js.Cut(text, maxUnits)
 }

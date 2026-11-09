@@ -47,7 +47,7 @@ make test    # bun test, then go test with the race detector, in random order
 - Never add `//nolint` to get past the linter: fix the code. If a linter is wrong for the whole
   repository, disable it in `.golangci.yml` with a comment saying why.
 - `make test` enforces some of the rules in [AGENTS.md](AGENTS.md) (`internal/guard`), such as no
-  `&&` or `||` in Go. A failure names the file and line.
+  organization names in tracked files. A failure names the file and line.
 - If your clone is used at an employer, list the employer's names in `.company-terms` (see the
   README). The file is git-ignored, and `go test` then fails if a tracked file holds one.
 

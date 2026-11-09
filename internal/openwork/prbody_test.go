@@ -118,15 +118,15 @@ func TestAPRBodyFileIsCheckedBeforeGhGetsIt(t *testing.T) {
 		says []string
 	}{
 		{"plain text", []byte("## What changed\n\ndone"), nil},
-		{"exactly the most", bytes.Repeat([]byte("a"), openwork.PRBodyBytesMax), nil},
+		{"exactly the most", bytes.Repeat([]byte("a"), openwork.MaxPRBodyBytes), nil},
 		{
-			"one byte more", bytes.Repeat([]byte("a"), openwork.PRBodyBytesMax+1),
+			"one byte more", bytes.Repeat([]byte("a"), openwork.MaxPRBodyBytes+1),
 			[]string{"larger than 65536 bytes"},
 		},
 		{"a NUL byte", []byte("a\x00b"), []string{"a NUL byte"}},
 		{"not UTF-8", []byte("caf\xe9"), []string{"not UTF-8 text"}},
 		{
-			"all three", append(bytes.Repeat([]byte("\xe9"), openwork.PRBodyBytesMax), 0),
+			"all three", append(bytes.Repeat([]byte("\xe9"), openwork.MaxPRBodyBytes), 0),
 			[]string{"larger than 65536 bytes", "a NUL byte", "not UTF-8 text"},
 		},
 	}
@@ -182,7 +182,7 @@ func TestAFallbackBodyIsValidTextWithinTheLimit(t *testing.T) {
 			t.Parallel()
 
 			body := openwork.FallbackBody(tt.subjects)
-			if len(body) > openwork.PRBodyBytesMax {
+			if len(body) > openwork.MaxPRBodyBytes {
 				t.Errorf("%d bytes", len(body))
 			}
 

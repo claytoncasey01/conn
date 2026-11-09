@@ -2,13 +2,13 @@ package pty
 
 import "strconv"
 
-// PreambleBytesMax bounds a mode preamble: every mode written once is 47 bytes. A longer one is a
+// MaxPreambleBytes bounds a mode preamble: every mode written once is 47 bytes. A longer one is a
 // mistake in this file.
-const PreambleBytesMax = 64
+const MaxPreambleBytes = 64
 
-// ReplayBytesMax bounds a viewer's replay with the default limits: the preamble and a full
+// MaxReplayBytes bounds a viewer's replay with the default limits: the preamble and a full
 // scrollback.
-const ReplayBytesMax = scrollbackBytesMax + PreambleBytesMax
+const MaxReplayBytes = maxScrollbackBytes + MaxPreambleBytes
 
 // The modes that decide what a viewer's terminal sends the program, beyond those screencontrol.go
 // acts on: the cursor keys, the keypad, and the mouse. The screen keeps them so that a viewer
@@ -28,9 +28,9 @@ const (
 	// The mouse report encodings; resetting either goes back to the default.
 	modeMouseSGR       = 1006
 	modeMouseSGRPixels = 1016
-	// mouseOff is no mouse tracking, and mouseEncodingDefault the X10 encoding.
+	// mouseOff is no mouse tracking, and defaultMouseEncoding the X10 encoding.
 	mouseOff             = 0
-	mouseEncodingDefault = 0
+	defaultMouseEncoding = 0
 	// escapeByte and c1LeadByte begin a control sequence: ESC, and the first byte of a C1
 	// control written as UTF-8 (U+0080 to U+009F all start with it).
 	escapeByte = 0x1b
@@ -52,7 +52,7 @@ func (s *Screen) inputMode(mode int, set bool) bool {
 			s.mouseTracking = mode
 		}
 	case modeMouseSGR, modeMouseSGRPixels:
-		s.mouseEncoding = mouseEncodingDefault
+		s.mouseEncoding = defaultMouseEncoding
 		if set {
 			s.mouseEncoding = mode
 		}
@@ -72,7 +72,7 @@ func (s *Screen) resetInputModes() {
 	s.bracketedPaste = false
 	s.focusReports = false
 	s.mouseTracking = mouseOff
-	s.mouseEncoding = mouseEncodingDefault
+	s.mouseEncoding = defaultMouseEncoding
 }
 
 // softReset is DECSTR (CSI ! p), as xterm.js does it: the modes reset, the mouse kept.
@@ -96,7 +96,7 @@ func (s *Screen) softReset() {
 // replay holds is made by the replay itself, after the main screen's output before it, which
 // then stays on the main screen.
 func (s *Screen) ModePreamble(windowStart uint64) []byte {
-	out := make([]byte, 0, PreambleBytesMax)
+	out := make([]byte, 0, MaxPreambleBytes)
 
 	if s.onAlternate {
 		if s.alternateFrom < windowStart {
@@ -124,11 +124,11 @@ func (s *Screen) ModePreamble(windowStart uint64) []byte {
 		out = appendMode(out, s.mouseTracking)
 	}
 
-	if s.mouseEncoding != mouseEncodingDefault {
+	if s.mouseEncoding != defaultMouseEncoding {
 		out = appendMode(out, s.mouseEncoding)
 	}
 
-	if len(out) > PreambleBytesMax {
+	if len(out) > MaxPreambleBytes {
 		panic("pty: a mode preamble is longer than PreambleBytesMax")
 	}
 

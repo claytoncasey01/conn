@@ -28,8 +28,8 @@ const (
 	checkEvery = 24 * time.Hour
 )
 
-// versionDigitsMax is the most digits one number of a version may have, so it always fits an int.
-const versionDigitsMax = 9
+// maxVersionDigits is the most digits one number of a version may have, so it always fits an int.
+const maxVersionDigits = 9
 
 // versionParts is how many numbers a version has: major, minor and patch.
 const versionParts = 3
@@ -71,13 +71,13 @@ type version struct {
 
 var errNotVersion = errors.New("not a release version like v1.2.3")
 
-// errTagTooLong means a release tag is longer than tagBytesMax, so it is too long to show.
+// errTagTooLong means a release tag is longer than maxTagBytes, so it is too long to show.
 var errTagTooLong = errors.New("release tag is too long")
 
 // versionPattern matches vMAJOR.MINOR.PATCH with an optional -pre-release and +build.
 var versionPattern = regexp.MustCompile(fmt.Sprintf(
 	`^v(\d{1,%[1]d})\.(\d{1,%[1]d})\.(\d{1,%[1]d})(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$`,
-	versionDigitsMax,
+	maxVersionDigits,
 ))
 
 // parse takes a release tag apart, or says it is not one.
@@ -148,7 +148,7 @@ func evaluate(current, latest string, fetchErr error) Result {
 		return Result{Kind: Failed, Latest: "", Err: fetchErr}
 	}
 
-	if len(latest) > tagBytesMax {
+	if len(latest) > maxTagBytes {
 		wrapped := fmt.Errorf("reading the latest release: %w", errTagTooLong)
 
 		return Result{Kind: Failed, Latest: "", Err: wrapped}

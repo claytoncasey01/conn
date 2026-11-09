@@ -205,7 +205,7 @@ func yours(themeID string) Result {
 // full is the answer for a new theme past the list's limit: it would be written and never
 // listed. An update of an installed one is not new.
 func full(themeID string) Result {
-	return refuse(http.StatusConflict, "conn lists at most "+strconv.Itoa(theme.UserThemesMax)+
+	return refuse(http.StatusConflict, "conn lists at most "+strconv.Itoa(theme.MaxUserThemes)+
 		" themes of yours and you have that many, so "+themeID+
 		" was not installed; remove one first")
 }
@@ -305,7 +305,7 @@ func (g *Gallery) room(target, themeID string) (slotState, Result, bool) {
 	case slotOther:
 		return state, yours(themeID), false
 	case slotAbsent:
-		if themes.UserFolderCount(themes.Disk(g.deps.User)) >= theme.UserThemesMax {
+		if themes.UserFolderCount(themes.Disk(g.deps.User)) >= theme.MaxUserThemes {
 			return state, full(themeID), false
 		}
 	case slotGallery:
@@ -322,7 +322,7 @@ func (g *Gallery) download(ctx context.Context, entry Entry, base themes.Base) (
 	themeID := entry.ID
 	url := rawHost + g.deps.Repo + "/" + entry.Commit + "/" + themeID + "/" + themes.ManifestFile
 
-	reply, err := g.get(ctx, url, ThemeBytesMax)
+	reply, err := g.get(ctx, url, MaxThemeBytes)
 	if errors.Is(err, errTimedOut) {
 		return "", refuse(http.StatusBadGateway, "The theme download timed out after "+seconds()),
 			false
@@ -339,7 +339,7 @@ func (g *Gallery) download(ctx context.Context, entry Entry, base themes.Base) (
 
 	if reply.tooBig {
 		return "", refuse(http.StatusBadGateway, themeID+"'s theme.json is larger than "+
-			kb(ThemeBytesMax)), false
+			kb(MaxThemeBytes)), false
 	}
 
 	refused, ok := matches(entry, reply.body, base)

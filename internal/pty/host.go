@@ -118,7 +118,7 @@ func NewHost(config Config) *Host {
 		mu:      sync.Mutex{},
 
 		turnWaited: config.TurnWaited,
-		sessions:   make(map[ID]*session, sessionsMax+endedMax),
+		sessions:   make(map[ID]*session, maxSessions+maxEnded),
 		order:      nil,
 		ended:      nil,
 		running:    0,
@@ -144,9 +144,9 @@ func (h *Host) SetAnswers(answers Answers) {
 
 // checkLimits panics on a limit at or below zero or above its default.
 func checkLimits(limits Limits) {
-	checkLimit("SessionsMax", int64(limits.SessionsMax), sessionsMax)
-	checkLimit("ScrollbackBytesMax", int64(limits.ScrollbackBytesMax), scrollbackBytesMax)
-	checkLimit("ViewersMax", int64(limits.ViewersMax), viewersMax)
+	checkLimit("MaxSessions", int64(limits.MaxSessions), maxSessions)
+	checkLimit("MaxScrollbackBytes", int64(limits.MaxScrollbackBytes), maxScrollbackBytes)
+	checkLimit("MaxViewers", int64(limits.MaxViewers), maxViewers)
 	checkLimit("StopGrace", int64(limits.StopGrace), int64(stopGrace))
 }
 
@@ -333,10 +333,10 @@ func (held *session) lines(count int) []string {
 }
 
 // Room is how many programs a host runs, Starts still spawning counted, and the most it runs
-// at once: a Start refuses with ErrSessionsFull while Running is SessionsMax.
+// at once: a Start refuses with ErrSessionsFull while Running is MaxSessions.
 type Room struct {
 	Running     int
-	SessionsMax int
+	MaxSessions int
 }
 
 // Room is the host's Room now, as the limit a Start checks counts it.
@@ -344,7 +344,7 @@ func (h *Host) Room() Room {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	return Room{Running: h.running, SessionsMax: h.limits.SessionsMax}
+	return Room{Running: h.running, MaxSessions: h.limits.MaxSessions}
 }
 
 // Live is every session the host holds, running or ended, oldest Start first.
@@ -419,9 +419,9 @@ func (check *screenCheck) passes(writing *session) error {
 
 // write is Write, and WriteIfStill when check is set. It returns the input count after it.
 func (h *Host) write(sessionID ID, data []byte, check *screenCheck) (uint64, error) {
-	if len(data) > writeBytesMax {
+	if len(data) > maxWriteBytes {
 		return 0, fmt.Errorf("%w: %d bytes, at most %d", ErrInputTooLarge, len(data),
-			writeBytesMax)
+			maxWriteBytes)
 	}
 
 	writing, err := h.runningSession(sessionID)
@@ -593,7 +593,7 @@ func (held *session) closePaste(closing []byte) error {
 	return ErrPasteClosed
 }
 
-// takeTurn waits for the session's write turn, at most writeWaitMax: writes take turns, and the
+// takeTurn waits for the session's write turn, at most maxWriteWait: writes take turns, and the
 // program's own Write is bounded too (writeTimeout for a terminal), so a write ends within both.
 func (h *Host) takeTurn(writing *session) error {
 	select {
@@ -606,7 +606,7 @@ func (h *Host) takeTurn(writing *session) error {
 		h.turnWaited(writing.sessionID)
 	}
 
-	turnWait := time.NewTimer(writeWaitMax)
+	turnWait := time.NewTimer(maxWriteWait)
 	defer turnWait.Stop()
 
 	select {
@@ -658,8 +658,8 @@ func (h *Host) reserve() error {
 		return ErrClosed
 	}
 
-	if h.running >= h.limits.SessionsMax {
-		return fmt.Errorf("%w: at most %d", ErrSessionsFull, h.limits.SessionsMax)
+	if h.running >= h.limits.MaxSessions {
+		return fmt.Errorf("%w: at most %d", ErrSessionsFull, h.limits.MaxSessions)
 	}
 
 	h.running++
@@ -706,7 +706,7 @@ func (h *Host) admit(sessionID ID, spec Spec, process Process) error {
 		panic(fmt.Sprintf("pty: a spawner returned process id %d", pid))
 	}
 
-	screen, err := NewScreen(Size{Columns: columnsDefault, Rows: rowsDefault})
+	screen, err := NewScreen(Size{Columns: defaultColumns, Rows: defaultRows})
 	if err != nil {
 		panic("pty: the default terminal size is out of range: " + err.Error())
 	}
@@ -714,9 +714,9 @@ func (h *Host) admit(sessionID ID, spec Spec, process Process) error {
 	started := &session{
 		sessionID: sessionID, name: spec.Name, dir: spec.Dir, pid: pid, startedAt: time.Now(),
 		process: process, ended: make(chan struct{}), writeTurn: make(chan struct{}, 1),
-		answers: make(chan []byte, answersQueuedMax), answered: make(chan struct{}),
+		answers: make(chan []byte, maxAnswersQueued), answered: make(chan struct{}),
 		screenMu: sync.Mutex{}, screen: screen, redrawn: make(chan struct{}),
-		exitCode: nil, scrollback: newRing(h.limits.ScrollbackBytesMax), viewers: nil,
+		exitCode: nil, scrollback: newRing(h.limits.MaxScrollbackBytes), viewers: nil,
 		groupStopped: false, stopError: "", stopping: false, retired: false,
 	}
 

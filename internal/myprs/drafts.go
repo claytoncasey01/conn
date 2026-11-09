@@ -62,7 +62,7 @@ func (m *MyPrs) draftChannel() string {
 // draftDue is whether a Slack draft is to be saved for this head: only for a PR a Self-Review was
 // started on (the launch that asked for the head decides), once that launch is ready for it. One
 // draft per head: a saved one is final, a failed one is tried again for the same head only after
-// DraftRetryMs and at most DraftTriesMax times in all, and a new head is drafted at once.
+// DraftRetryMs and at most MaxDraftTries times in all, and a new head is drafted at once.
 func (m *MyPrs) draftDue(key string, pull *PR, entry *Entry, channel string) bool {
 	if m.drafting[key] {
 		return false
@@ -95,7 +95,7 @@ func (m *MyPrs) draftDue(key string, pull *PR, entry *Entry, channel string) boo
 		}
 	}
 
-	if draft.Tries >= DraftTriesMax {
+	if draft.Tries >= MaxDraftTries {
 		return false
 	}
 
@@ -166,7 +166,7 @@ func (m *MyPrs) draftOutcome(result DraftResult, draft *SlackDraft) *SlackDraft 
 		m.record(moduleSlack, false, "My PRs could not save a Slack draft")
 	}
 
-	why := Clean(result.Error, errorUnitsMax)
+	why := Clean(result.Error, maxErrorUnits)
 	if why == "" {
 		why = textDraftFailed
 	}
@@ -174,7 +174,7 @@ func (m *MyPrs) draftOutcome(result DraftResult, draft *SlackDraft) *SlackDraft 
 	draft.Error = &why
 
 	if result.Final {
-		draft.Tries = max(draft.Tries, DraftTriesMax)
+		draft.Tries = max(draft.Tries, MaxDraftTries)
 	}
 
 	return draft

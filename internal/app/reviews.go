@@ -25,8 +25,8 @@ import (
 const (
 	// gitTimeout stops a git call that names no limit of its own.
 	gitTimeout = 120 * time.Second
-	// gitBytesMax caps what one git call may print.
-	gitBytesMax = 8 << 20
+	// maxGitBytes caps what one git call may print.
+	maxGitBytes = 8 << 20
 	// gitErrorUnits is how much of git's error output an error carries.
 	gitErrorUnits = 400
 )
@@ -64,7 +64,7 @@ func shWithInput(ctx context.Context, name string, args []string, dir, input str
 	}
 
 	result := command.Cmd(ctx, name, args, command.Opts{
-		Dir: dir, Timeout: timeout, OutputBytesMax: gitBytesMax, Stdin: input, Env: nil,
+		Dir: dir, Timeout: timeout, MaxOutputBytes: maxGitBytes, Stdin: input, Env: nil,
 	})
 	if result.Err == nil {
 		return result.Stdout, nil
@@ -162,7 +162,7 @@ func reviewsDeps(parts reviewsParts, live *sessions.Loop) reviews.Deps {
 			DMScanMs:      millis(cfg.ReviewDMScanInterval),
 			ChannelScanMs: millis(cfg.ReviewChannelScanInterval),
 			CloseAfterMs:  millis(cfg.ReviewCloseAfter),
-			CloseCapMs:    millis(cfg.ReviewCloseAfterMax),
+			CloseCapMs:    millis(cfg.MaxReviewCloseAfter),
 			Me:            cfg.ReviewMe, Dry: cfg.Dry.Reviews, NamePattern: cfg.ReviewNamePattern,
 		},
 	}

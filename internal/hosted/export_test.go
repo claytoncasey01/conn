@@ -5,9 +5,9 @@ func ReadAs(dir string, uid int) ([]Record, error) { return readAs(dir, uid) }
 
 // The bounds of a record's name and folder.
 const (
-	NameBytesMax = nameBytesMax
-	DirBytesMax  = dirBytesMax
+	MaxNameBytes = maxNameBytes
+	MaxDirBytes  = maxDirBytes
 )
 
-// FileBytesMax is the most bytes a record file is read for.
-func FileBytesMax() int { return int(fileBytesMax()) }
+// MaxFileBytes is the most bytes a record file is read for.
+func MaxFileBytes() int { return int(maxFileBytes()) }

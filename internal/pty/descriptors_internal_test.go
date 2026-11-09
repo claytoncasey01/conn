@@ -49,7 +49,7 @@ func TestTheSweepFallsBackToAWalkAndFailsClosedWithout(t *testing.T) {
 	}
 }
 
-// The walk covers every number below the limit, the limit itself capped at descriptorsSweptMax.
+// The walk covers every number below the limit, the limit itself capped at maxDescriptorsSwept.
 func TestTheWalkStopsAtTheCappedLimit(t *testing.T) {
 	t.Parallel()
 
@@ -59,7 +59,7 @@ func TestTheWalkStopsAtTheCappedLimit(t *testing.T) {
 		want  int
 	}{
 		{"a small limit", 10, 10},
-		{"a limit past the cap", descriptorsSweptMax * 4, descriptorsSweptMax},
+		{"a limit past the cap", maxDescriptorsSwept * 4, maxDescriptorsSwept},
 		{"no room past stderr", 2, firstInherited},
 	}
 

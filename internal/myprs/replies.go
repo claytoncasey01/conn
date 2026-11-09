@@ -7,13 +7,13 @@ import "github.com/claytoncasey01/conn/internal/js"
 // checked and the file can never grow a proposal list without limit.
 
 const (
-	// ReplyUnitsMax is the longest reply text after cleaning, in UTF-16 units; a longer one is
+	// MaxReplyUnits is the longest reply text after cleaning, in UTF-16 units; a longer one is
 	// dropped whole, never cut.
-	ReplyUnitsMax = 2000
+	MaxReplyUnits = 2000
 	// RepliesPerRead is the most entries taken from one read of the file.
 	RepliesPerRead = 50
-	// RepliesFileBytesMax is the largest file that is read at all.
-	RepliesFileBytesMax = 256 * 1024
+	// MaxRepliesFileBytes is the largest file that is read at all.
+	MaxRepliesFileBytes = 256 * 1024
 	// ConnFolder is the worktree's folder of Conn's own files.
 	ConnFolder = ".conn"
 	// RepliesFile is the file in ConnFolder a Self-Review session writes its replies to.
@@ -34,7 +34,7 @@ type Replies struct {
 
 // AcceptReplies are the entries of `{"threads":[{"threadId","text"}]}` that may become
 // proposals: the thread is one of open (the PR's unresolved threads, outdated ones included),
-// the text a string of at most ReplyUnitsMax units once cleaned with its line breaks kept (an
+// the text a string of at most MaxReplyUnits units once cleaned with its line breaks kept (an
 // empty or all-blank one means resolve only), a thread appears once (the first entry wins) and
 // no more than RepliesPerRead are kept. An otherwise good entry for a thread in settled
 // (resolved since the file was written) is passed over like a taken one. Dropped counts every
@@ -103,7 +103,7 @@ func replyEntry(value any, seen map[string]bool) (string, string, bool) {
 	}
 
 	cleaned := CleanMultiline(body, noCut)
-	if js.Len(cleaned) > ReplyUnitsMax {
+	if js.Len(cleaned) > MaxReplyUnits {
 		return "", "", false
 	}
 

@@ -39,9 +39,9 @@ func TestParseClientFrameTakesTheTwoShapes(t *testing.T) {
 		},
 		{
 			"input of the most bytes",
-			`{"t":"input","d":"` + strings.Repeat("a", inputFrameBytesMax) + `"}`,
+			`{"t":"input","d":"` + strings.Repeat("a", maxInputFrameBytes) + `"}`,
 			clientFrame{
-				kind: frameInput, data: bytes.Repeat([]byte("a"), inputFrameBytesMax),
+				kind: frameInput, data: bytes.Repeat([]byte("a"), maxInputFrameBytes),
 				columns: 0, rows: 0,
 			},
 		},
@@ -109,7 +109,7 @@ func TestParseClientFrameRefusesEverythingElse(t *testing.T) {
 		{"input with invalid UTF-8", "{\"t\":\"input\",\"d\":\"\xff\"}"},
 		{
 			"input of one byte too many",
-			`{"t":"input","d":"` + strings.Repeat("a", inputFrameBytesMax+1) + `"}`,
+			`{"t":"input","d":"` + strings.Repeat("a", maxInputFrameBytes+1) + `"}`,
 		},
 		{"resize without rows", `{"t":"resize","cols":80}`},
 		{"resize without columns", `{"t":"resize","rows":24}`},
@@ -122,9 +122,9 @@ func TestParseClientFrameRefusesEverythingElse(t *testing.T) {
 		{"something after the object", `{"t":"input","d":"x"}{"t":"input","d":"y"}`},
 		{"a comma after the object", `{"t":"input","d":"x"},`},
 		{"a trailing comma inside", `{"t":"input","d":"x",}`},
-		{"too long to read", `{"t":"input","d":"` + strings.Repeat("a", frameBytesMax) + `"}`},
+		{"too long to read", `{"t":"input","d":"` + strings.Repeat("a", maxFrameBytes) + `"}`},
 		{"a good frame padded past the read limit", `{"t":"input","d":"x"}` +
-			strings.Repeat(" ", frameBytesMax)},
+			strings.Repeat(" ", maxFrameBytes)},
 	}
 
 	for _, tt := range tests {
@@ -196,8 +196,8 @@ func FuzzFrame(f *testing.F) {
 			return
 		}
 
-		if len(text) > frameBytesMax {
-			t.Fatalf("took a frame of %d bytes, more than %d", len(text), frameBytesMax)
+		if len(text) > maxFrameBytes {
+			t.Fatalf("took a frame of %d bytes, more than %d", len(text), maxFrameBytes)
 		}
 
 		checkParsedFrame(t, got)
@@ -214,8 +214,8 @@ func checkParsedFrame(t *testing.T, got clientFrame) {
 			t.Fatal("took input with no data")
 		}
 
-		if len(got.data) > inputFrameBytesMax {
-			t.Fatalf("took %d bytes of input, more than %d", len(got.data), inputFrameBytesMax)
+		if len(got.data) > maxInputFrameBytes {
+			t.Fatalf("took %d bytes of input, more than %d", len(got.data), maxInputFrameBytes)
 		}
 
 		if !utf8.Valid(got.data) {

@@ -10,8 +10,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/settingsapi"
 )
 
-// bodyBytesMax is the most a request body may hold. The rest of a larger one is not read.
-const bodyBytesMax = 64 << 10
+// maxBodyBytes is the most a request body may hold. The rest of a larger one is not read.
+const maxBodyBytes = 64 << 10
 
 var (
 	errTooLarge  = errors.New("the request body is too large")
@@ -76,14 +76,14 @@ func fromOwnPage(r *http.Request) bool {
 	return r.Header.Get("Origin") != ""
 }
 
-// readObject reads a request body of at most bodyBytesMax as a JSON object; an empty body is {}.
+// readObject reads a request body of at most maxBodyBytes as a JSON object; an empty body is {}.
 func readObject(r *http.Request) (*js.Object, error) {
-	data, err := io.ReadAll(io.LimitReader(r.Body, bodyBytesMax+1))
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errNotObject, err)
 	}
 
-	if len(data) > bodyBytesMax {
+	if len(data) > maxBodyBytes {
 		return nil, errTooLarge
 	}
 

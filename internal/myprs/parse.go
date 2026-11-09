@@ -154,7 +154,7 @@ func parseOne(value any, login, trigger string) *PR {
 	headRepo := textOrNil(field(field(pull, "headRepository"), "nameWithOwner"))
 
 	return &PR{
-		Repo: head.repo, Number: head.number, Title: Clean(head.title, titleUnitsMax),
+		Repo: head.repo, Number: head.number, Title: Clean(head.title, maxTitleUnits),
 		URL: head.url, Draft: field(pull, "isDraft") == true, CreatedAt: head.createdAt,
 		UpdatedAt: head.updatedAt, LastCommentAt: lastCommentAt(comments, reviews, threads,
 			login, trigger),
@@ -176,7 +176,7 @@ func isFork(headRepo *string, repo string) bool {
 		return true
 	}
 
-	return Clean(*headRepo, TextUnitsMax) != repo
+	return Clean(*headRepo, MaxTextUnits) != repo
 }
 
 func firstOf(list []any) any {

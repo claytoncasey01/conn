@@ -14,8 +14,8 @@ import (
 const (
 	// authTimeout stops `gh auth status`.
 	authTimeout = 15 * time.Second
-	// authBytesMax caps what `gh auth status` may print.
-	authBytesMax = 256 << 10
+	// maxAuthBytes caps what `gh auth status` may print.
+	maxAuthBytes = 256 << 10
 )
 
 var (
@@ -64,7 +64,7 @@ type AuthRunner func(ctx context.Context) AuthRun
 // GhAuthStatus runs the real `gh auth status`, with a time limit and a cap on its output.
 func GhAuthStatus(ctx context.Context) AuthRun {
 	result := run.Cmd(ctx, "gh", []string{"auth", "status"}, run.Opts{
-		Dir: "", Timeout: authTimeout, OutputBytesMax: authBytesMax, Stdin: "", Env: nil,
+		Dir: "", Timeout: authTimeout, MaxOutputBytes: maxAuthBytes, Stdin: "", Env: nil,
 	})
 
 	ended := AuthRun{
@@ -293,7 +293,7 @@ func failedDetail(ended AuthRun, found []account, text string) string {
 		line = firstMeaningfulLine(text)
 	}
 
-	detail := CleanDetail(tokenWord.ReplaceAllLiteralString(line, "***"), detailMax)
+	detail := CleanDetail(tokenWord.ReplaceAllLiteralString(line, "***"), maxDetail)
 	if detail == "" {
 		return "gh auth status exited with " + strconv.Itoa(ended.Code)
 	}

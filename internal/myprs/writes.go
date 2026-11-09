@@ -35,8 +35,8 @@ var (
 	errRefusedTheWrite = errors.New("GitHub refused the write")
 )
 
-// safeIntegerMax is Number.MAX_SAFE_INTEGER.
-const safeIntegerMax = 1<<53 - 1
+// maxSafeInteger is Number.MAX_SAFE_INTEGER.
+const maxSafeInteger = 1<<53 - 1
 
 // isCount is Number.isSafeInteger(n) and n > 0.
 func isCount(number float64) bool {
@@ -44,7 +44,7 @@ func isCount(number float64) bool {
 		return false
 	}
 
-	return number <= safeIntegerMax
+	return number <= maxSafeInteger
 }
 
 // Writes are My PRs' GitHub writes over gh (gh.Run, or a fake).
@@ -97,7 +97,7 @@ func replyText(body string) bool {
 		return false
 	}
 
-	if units > ReplyUnitsMax {
+	if units > MaxReplyUnits {
 		return false
 	}
 
@@ -134,7 +134,7 @@ func (w Writes) mutate(ctx context.Context, args []string, name string) error {
 			return errRefusedTheWrite
 		}
 
-		return &FailureError{Message: js.Cut(message, errorUnitsMax)}
+		return &FailureError{Message: js.Cut(message, maxErrorUnits)}
 	}
 
 	switch field(field(answer, "data"), name).(type) {

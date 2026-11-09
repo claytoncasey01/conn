@@ -44,14 +44,14 @@ func checkSpec(spec Spec) error {
 			ErrInvalidSpec))
 	}
 
-	if len(spec.Name) > nameBytesMax {
+	if len(spec.Name) > maxNameBytes {
 		problems = append(problems, fmt.Errorf("%w: the name is %d bytes, more than %d",
-			ErrInvalidSpec, len(spec.Name), nameBytesMax))
+			ErrInvalidSpec, len(spec.Name), maxNameBytes))
 	}
 
-	if len(spec.Env) > environmentEntriesMax {
+	if len(spec.Env) > maxEnvironmentEntries {
 		problems = append(problems, fmt.Errorf("%w: the environment has %d entries, more than %d",
-			ErrInvalidSpec, len(spec.Env), environmentEntriesMax))
+			ErrInvalidSpec, len(spec.Env), maxEnvironmentEntries))
 	}
 
 	return errors.Join(problems...)
@@ -66,9 +66,9 @@ func checkArgv(argv []string) []error {
 
 	var problems []error
 
-	if len(argv) > argumentsMax {
+	if len(argv) > maxArguments {
 		problems = append(problems, fmt.Errorf("%w: argv has %d entries, more than %d",
-			ErrInvalidSpec, len(argv), argumentsMax))
+			ErrInvalidSpec, len(argv), maxArguments))
 	}
 
 	// An absolute path is run as it is: no PATH lookup can swap in another program.

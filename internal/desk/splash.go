@@ -9,17 +9,17 @@ const (
 	// splashOpening is the splash's first line, there on every start.
 	splashOpening = "Opening Conn…"
 
-	// ReasonRunesMax caps the reason a notice gives: a short reason fits well inside it, and
+	// MaxReasonRunes caps the reason a notice gives: a short reason fits well inside it, and
 	// anything longer is not a reason but output that has no place on screen.
-	ReasonRunesMax = 160
+	MaxReasonRunes = 160
 
-	// reasonCut ends a reason that was cut at ReasonRunesMax.
+	// reasonCut ends a reason that was cut at MaxReasonRunes.
 	reasonCut = "…"
 )
 
 // Notice is what the app says when the login shell's environment could not be read: why, and
 // what that means for the person. reason is a short reason (shellenv's errors are): only its
-// first line is used, at most ReasonRunesMax runes of it, so text a shell printed after a reason
+// first line is used, at most MaxReasonRunes runes of it, so text a shell printed after a reason
 // never reaches the screen. The text is plain: what shows it escapes it.
 func Notice(reason string) string {
 	return "Conn could not read your shell's environment (" + shortReason(reason) +
@@ -37,14 +37,14 @@ func SplashText(reason string) string {
 	return splashOpening + "\n" + Notice(reason)
 }
 
-// shortReason is the first line of reason, cut to ReasonRunesMax runes.
+// shortReason is the first line of reason, cut to MaxReasonRunes runes.
 func shortReason(reason string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(reason), "\n")
 	line = strings.TrimSpace(line)
 
-	if utf8.RuneCountInString(line) <= ReasonRunesMax {
+	if utf8.RuneCountInString(line) <= MaxReasonRunes {
 		return line
 	}
 
-	return string([]rune(line)[:ReasonRunesMax]) + reasonCut
+	return string([]rune(line)[:MaxReasonRunes]) + reasonCut
 }

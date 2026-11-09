@@ -28,16 +28,16 @@ const summaryAsk = "Write an \"At a Glance\" summary of the Claude Code session 
 const (
 	agentCap     = 700
 	summaryChars = 24_000
-	summaryMax   = 1500
+	maxSummary   = 1500
 	errorUnits   = 400
-	endsMin      = 8
+	minEnds      = 8
 	omissionRoom = 40
 	labelsSlack  = 8
 	nameCap      = 120
 	ellipsis     = "…"
 	thirds       = 3
-	// spareMin is the least room the prompt and the final message are given.
-	spareMin = 2
+	// minSpare is the least room the prompt and the final message are given.
+	minSpare = 2
 )
 
 // head keeps the start, and marks the cut.
@@ -56,7 +56,7 @@ func ends(text string, units int) string {
 		return text
 	}
 
-	if units < endsMin {
+	if units < minEnds {
 		return head(text, units)
 	}
 
@@ -90,7 +90,7 @@ func or(text, fallback string) string {
 // SummaryInput is what a summary is written from: the opening prompt, each agent's type, task and
 // result, the counts and the final message. When it has to be cut the longest agents go first,
 // and the prompt and the final message are shortened but never to nothing.
-func SummaryInput(stored history.Stored, firstPrompt, finalMessage string, charsMax int) string {
+func SummaryInput(stored history.Stored, firstPrompt, finalMessage string, maxChars int) string {
 	row := stored.Row
 	place := []string{}
 
@@ -111,8 +111,8 @@ func SummaryInput(stored history.Stored, firstPrompt, finalMessage string, chars
 
 	const promptLabel, finalLabel, agentLabel = "Opening prompt:\n", "Final message:\n", "Agents:\n"
 
-	spare := max(charsMax-js.Len(header)-js.Len(promptLabel)-js.Len(finalLabel)-
-		js.Len(agentLabel)-labelsSlack, spareMin)
+	spare := max(maxChars-js.Len(header)-js.Len(promptLabel)-js.Len(finalLabel)-
+		js.Len(agentLabel)-labelsSlack, minSpare)
 	prompt := or(js.Trim(firstPrompt), "(none)")
 	final := or(js.Trim(finalMessage), "(none)")
 	// Each may take a third of what there is, and a short one leaves its share to the other.
@@ -132,7 +132,7 @@ func SummaryInput(stored history.Stored, firstPrompt, finalMessage string, chars
 		header, promptLabel + promptText, agentPart, finalLabel + finalText,
 	}, "\n\n")
 
-	return js.Cut(out, charsMax)
+	return js.Cut(out, maxChars)
 }
 
 func joinNonEmpty(parts []string, separator string) string {
@@ -474,7 +474,7 @@ func (s *Summarizer) finish(ctx context.Context, current job, input string) erro
 		return err
 	}
 
-	out := js.Cut(js.Trim(raw), summaryMax)
+	out := js.Cut(js.Trim(raw), maxSummary)
 	if out == "" {
 		return errEmpty
 	}

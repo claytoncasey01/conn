@@ -42,8 +42,8 @@ type Facts struct {
 	DataEnv string
 	// DataDir is the data folder in use.
 	DataDir string
-	// DataDirDefault is the real data folder: where Conn keeps its data when CONN_DATA is unset.
-	DataDirDefault string
+	// DefaultDataDir is the real data folder: where Conn keeps its data when CONN_DATA is unset.
+	DefaultDataDir string
 }
 
 // Decision is whether to seed, and when not why not ("" when it is simply not wanted).
@@ -76,7 +76,7 @@ func Decide(facts Facts) Decision {
 			"one: the dry settings are not written (set CONN_DATA to a scratch folder)"}
 	}
 
-	theReal := realpath.Resolve(facts.DataDirDefault)
+	theReal := realpath.Resolve(facts.DefaultDataDir)
 	if realpath.Resolve(facts.DataDir) == theReal {
 		return realRefusal(facts.DataDir)
 	}
@@ -99,7 +99,7 @@ func FactsOf(cfg config.Config, store *settings.Store) Facts {
 
 	return Facts{
 		Dry: cfg.Dry.Any(), SeedFlag: cfg.DrySeed, Setup: store.Setup(), HasFile: err == nil,
-		DataEnv: cfg.DataEnv, DataDir: cfg.DataDir, DataDirDefault: cfg.DataDirDefault,
+		DataEnv: cfg.DataEnv, DataDir: cfg.DataDir, DefaultDataDir: cfg.DefaultDataDir,
 	}
 }
 

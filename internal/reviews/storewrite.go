@@ -25,9 +25,9 @@ const (
 	// privateDirMode and privateFileMode keep the file and its folder the owner's alone.
 	privateDirMode  = 0o700
 	privateFileMode = 0o600
-	// backupsMax is how many copies are kept under one name before Conn gives up and keeps the
+	// maxBackups is how many copies are kept under one name before Conn gives up and keeps the
 	// file as it is.
-	backupsMax = 100
+	maxBackups = 100
 	// randomBytes is how much randomness a temp file's name carries.
 	randomBytes = 6
 	// retryText is what a person can do about a store that could not be opened: Conn opens it
@@ -318,7 +318,7 @@ func backUp(path, bak string) (string, error) {
 		return "", err
 	}
 
-	for nth := 1; nth <= backupsMax; nth++ {
+	for nth := 1; nth <= maxBackups; nth++ {
 		name := NthBackup(bak, nth)
 
 		err = os.Link(temp, name)
@@ -335,7 +335,7 @@ func backUp(path, bak string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("%d copies named %s are there already: %w", backupsMax,
+	return "", fmt.Errorf("%d copies named %s are there already: %w", maxBackups,
 		nodepath.Base(bak), errTooManyCopies)
 }
 

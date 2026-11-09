@@ -25,9 +25,9 @@ const (
 	folderMode = 0o700
 	fileMode   = 0o600
 
-	// fileBytesMax is the most of the lock file that is read: a process id, an address and a
+	// maxFileBytes is the most of the lock file that is read: a process id, an address and a
 	// secret.
-	fileBytesMax = 4 << 10
+	maxFileBytes = 4 << 10
 
 	// acquireAttempts and acquireWait bound how long Acquire rides out a lock that is held for a
 	// moment. Running takes the lock to find out whether anyone holds it, so a server starting
@@ -201,7 +201,7 @@ func running(folder string, uid int) (Holder, bool, error) {
 // read is what the holder wrote, or zero when it has written nothing readable yet: an empty or
 // cut-off file, or a secret that is not one.
 func read(file *os.File) Holder {
-	data, err := io.ReadAll(io.LimitReader(file, fileBytesMax))
+	data, err := io.ReadAll(io.LimitReader(file, maxFileBytes))
 	if err != nil {
 		return Holder{}
 	}

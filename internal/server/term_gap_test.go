@@ -65,7 +65,7 @@ func TestInputAfterADroppedFrameWaitsForTheQueueToEmpty(t *testing.T) {
 	drainInBackground(conn)
 
 	letters := "abcdefghijklmnopqrst"
-	queueFull := server.InputQueueFramesMax + 1
+	queueFull := server.MaxInputQueueFrames + 1
 
 	// a is in the program; b to q fill the queue; r is dropped.
 	sendMessage(t, conn, websocket.MessageText, inputFrame(letters[:1]))
@@ -125,7 +125,7 @@ func TestAResizeIsNeverLost(t *testing.T) {
 		return program.attemptsSoFar() == 1
 	})
 
-	for range server.InputQueueFramesMax + 2 {
+	for range server.MaxInputQueueFrames + 2 {
 		sendMessage(t, conn, websocket.MessageText, inputFrame("x"))
 	}
 
@@ -173,7 +173,7 @@ func TestATypistStopsWhenItsTerminalEnds(t *testing.T) {
 			return program.attemptsSoFar() == 1
 		})
 
-		for range server.InputQueueFramesMax {
+		for range server.MaxInputQueueFrames {
 			sendMessage(t, conn, websocket.MessageText, inputFrame("b"))
 		}
 
@@ -214,7 +214,7 @@ func waitEnded(t *testing.T, ended <-chan pty.ID, sessionID pty.ID) {
 func TestAReplayOutOfTimeGivesItsBytesBackAtOnce(t *testing.T) {
 	t.Parallel()
 
-	host := &scriptedHost{replay: []byte(strings.Repeat("r", server.ReplayBytesInFlightMax))}
+	host := &scriptedHost{replay: []byte(strings.Repeat("r", server.MaxReplayBytesInFlight))}
 	rig := newTerminalRig(t, rigSetup{
 		host: host,
 		// The replay is out of time before its first frame, so it is closed with 1013 rather

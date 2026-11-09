@@ -35,9 +35,9 @@ import (
 const (
 	// Path is the route: GET lists the choices, POST starts a session.
 	Path = "/api/sessions/new"
-	// startCooldownDefault is how long a second start in the same repository is refused: a
+	// defaultStartCooldown is how long a second start in the same repository is refused: a
 	// double press, or a press again before the first session shows up in the list.
-	startCooldownDefault = 10 * time.Second
+	defaultStartCooldown = 10 * time.Second
 	// gitName is a clone's git folder, hooksName git's hooks folder in it, and claudeName the
 	// clone's Claude Code settings folder.
 	gitName    = ".git"
@@ -79,7 +79,7 @@ type Deps struct {
 	NewID func() (string, error)
 	// Now is the time now, for the cooldown.
 	Now func() time.Time
-	// Cooldown refuses a second start in the same repository; 0 is startCooldownDefault.
+	// Cooldown refuses a second start in the same repository; 0 is defaultStartCooldown.
 	Cooldown time.Duration
 }
 
@@ -129,7 +129,7 @@ type API struct {
 // New is the API over deps.
 func New(deps Deps) *API {
 	if deps.Cooldown == 0 {
-		deps.Cooldown = startCooldownDefault
+		deps.Cooldown = defaultStartCooldown
 	}
 
 	return &API{
@@ -399,9 +399,9 @@ func (a *API) claim(key, repo, where string) *Reply {
 
 	if where == settings.WhereInside {
 		room := a.deps.Room()
-		if room.Running >= room.SessionsMax {
+		if room.Running >= room.MaxSessions {
 			return refuse(http.StatusConflict, fmt.Sprintf("Conn already runs %d sessions, "+
-				"the most it runs at once: stop one, then start a new one.", room.SessionsMax))
+				"the most it runs at once: stop one, then start a new one.", room.MaxSessions))
 		}
 	}
 

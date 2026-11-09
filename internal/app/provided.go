@@ -51,5 +51,5 @@ func linksAtStart(cfg config.Config) bool {
 		return false
 	}
 
-	return realpath.Resolve(cfg.DataDir) == realpath.Resolve(cfg.DataDirDefault)
+	return realpath.Resolve(cfg.DataDir) == realpath.Resolve(cfg.DefaultDataDir)
 }

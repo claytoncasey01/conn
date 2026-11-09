@@ -45,7 +45,7 @@ func TestLinksAtStart(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg := config.Config{DataDir: tt.data, DataDirDefault: realDir}
+			cfg := config.Config{DataDir: tt.data, DefaultDataDir: realDir}
 			cfg.Dry.Work = tt.dry
 
 			got := linksAtStart(cfg)

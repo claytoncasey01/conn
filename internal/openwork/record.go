@@ -56,8 +56,8 @@ const (
 )
 
 const (
-	// logLinesMax is how many log lines a run keeps.
-	logLinesMax = 200
+	// maxLogLines is how many log lines a run keeps.
+	maxLogLines = 200
 	// agentsCount is how many research agents a run has.
 	agentsCount = 4
 	// fileMode and folderMode are what a plain write and mkdir make, the umask taking its share,
@@ -236,8 +236,8 @@ func (l *Leg) cleaned() bool {
 }
 
 const (
-	// legsMax is the most repositories one run builds in.
-	legsMax = 6
+	// maxLegs is the most repositories one run builds in.
+	maxLegs = 6
 	// layoutShared is one build session for every leg, in the first leg's worktree.
 	layoutShared = settings.LayoutShared
 	// layoutSplit is one build session per leg, each in its own worktree.
@@ -270,7 +270,7 @@ type Record struct {
 	// categories has none.
 	TicketCategory *string `json:"ticketCategory,omitempty"`
 	// Repos are the repositories the run builds in, in the order they were chosen: at least one,
-	// at most legsMax.
+	// at most maxLegs.
 	Repos []*Leg `json:"repos"`
 	// Layout is how the build sessions are laid out over the legs.
 	Layout string `json:"layout"`
@@ -448,7 +448,7 @@ func usable(record *Record) bool {
 		return false
 	}
 
-	if len(record.Repos) > legsMax {
+	if len(record.Repos) > maxLegs {
 		return false
 	}
 
@@ -651,7 +651,7 @@ func (r *Record) ordered(value any, skip func(key string) bool) []byte {
 		was, _ := r.read.Get(key)
 
 		if current, present := full.Get(key); present {
-			out.Set(key, orderLike(current, was, orderDepthMax))
+			out.Set(key, orderLike(current, was, maxOrderDepth))
 
 			continue
 		}
@@ -669,9 +669,9 @@ func (r *Record) ordered(value any, skip func(key string) bool) []byte {
 	return []byte(js.Stringify(out))
 }
 
-// orderDepthMax bounds how deep orderLike follows a record's objects: a run's deepest is a
+// maxOrderDepth bounds how deep orderLike follows a record's objects: a run's deepest is a
 // choice of a question (record, questions, question, choices, choice).
-const orderDepthMax = 8
+const maxOrderDepth = 8
 
 // orderLike is current with each object's keys in the order was (the same place in the file)
 // had them, then its new keys.

@@ -36,8 +36,8 @@ const (
 )
 
 const (
-	// detailMax is the longest status line, in UTF-16 units.
-	detailMax = 200
+	// maxDetail is the longest status line, in UTF-16 units.
+	maxDetail = 200
 
 	ellipsis = "..."
 )
@@ -82,14 +82,14 @@ func Names() []string {
 func IsModule(name string) bool { return slices.Contains(Names(), name) }
 
 // CleanDetail is text as one line of plain text: control characters and bidi marks become
-// spaces, runs of space become one, and it is cut to unitsMax UTF-16 units with "..." at the end.
-func CleanDetail(text string, unitsMax int) string {
+// spaces, runs of space become one, and it is cut to maxUnits UTF-16 units with "..." at the end.
+func CleanDetail(text string, maxUnits int) string {
 	clean := js.Trim(js.CollapseSpace(unsafeCharacters.ReplaceAllLiteralString(text, " ")))
-	if js.Len(clean) <= unitsMax {
+	if js.Len(clean) <= maxUnits {
 		return clean
 	}
 
-	return js.Slice(clean, unitsMax-len(ellipsis)) + ellipsis
+	return js.Slice(clean, maxUnits-len(ellipsis)) + ellipsis
 }
 
 // Deps are what Statuses reads.
@@ -159,7 +159,7 @@ func (s *Statuses) Record(name string, worked bool, detail string) {
 		return
 	}
 
-	line := CleanDetail(detail, detailMax)
+	line := CleanDetail(detail, maxDetail)
 	if line == "" {
 		line = "Failed"
 		if worked {

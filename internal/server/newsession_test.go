@@ -301,10 +301,10 @@ func checkClone(folder string) error {
 	return nil
 }
 
-// roomOf is a host with running sessions running, at most pty.DefaultLimits().SessionsMax.
+// roomOf is a host with running sessions running, at most pty.DefaultLimits().MaxSessions.
 func roomOf(running int) func() pty.Room {
 	return func() pty.Room {
-		return pty.Room{Running: running, SessionsMax: pty.DefaultLimits().SessionsMax}
+		return pty.Room{Running: running, MaxSessions: pty.DefaultLimits().MaxSessions}
 	}
 }
 

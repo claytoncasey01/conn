@@ -225,15 +225,15 @@ func TestPrint(t *testing.T) {
 	}
 }
 
-// failingWriter accepts writes until it has accepted writesMax, then fails every write.
+// failingWriter accepts writes until it has accepted maxWrites, then fails every write.
 type failingWriter struct {
-	writesMax int
+	maxWrites int
 	writes    int
 	err       error
 }
 
 func (w *failingWriter) Write(chunk []byte) (int, error) {
-	if w.writes >= w.writesMax {
+	if w.writes >= w.maxWrites {
 		return 0, w.err
 	}
 
@@ -249,16 +249,16 @@ func TestPrintStopsAtTheFirstWriteError(t *testing.T) {
 
 	// Writes accepted before the failure: none (the marker fails), one (an entry fails), three
 	// (the end marker fails).
-	for _, writesMax := range []int{0, 1, 3} {
-		writer := &failingWriter{writesMax: writesMax, writes: 0, err: errDisk}
+	for _, maxWrites := range []int{0, 1, 3} {
+		writer := &failingWriter{maxWrites: maxWrites, writes: 0, err: errDisk}
 
 		err := shellenv.Print(writer, []string{"A=1", "B=2"})
 		if !errors.Is(err, errDisk) {
-			t.Errorf("Print with %d writes accepted: error = %v, want %v", writesMax, err, errDisk)
+			t.Errorf("Print with %d writes accepted: error = %v, want %v", maxWrites, err, errDisk)
 		}
 
-		if writer.writes != writesMax {
-			t.Errorf("Print with %d writes accepted wrote %d times", writesMax, writer.writes)
+		if writer.writes != maxWrites {
+			t.Errorf("Print with %d writes accepted wrote %d times", maxWrites, writer.writes)
 		}
 	}
 }
@@ -321,7 +321,7 @@ func loadCases() []loadCase {
 		{
 			name: "the shell prints more than the cap",
 			shellBody: fmt.Sprintf("#!/bin/sh\nhead -c %d /dev/zero\nexec sh -c \"$4\"\n",
-				shellenv.OutputBytesMax+1),
+				shellenv.MaxOutputBytes+1),
 			base: []string{"A=1"}, want: []string{"A=1"}, wantErr: shellenv.ErrOutputTooLarge,
 		},
 		{
@@ -365,14 +365,14 @@ func TestLoad(t *testing.T) {
 func checkShort(t *testing.T, err error) {
 	t.Helper()
 
-	const reasonBytesMax = 200
+	const maxReasonBytes = 200
 
 	if strings.Contains(err.Error(), tracedExport) {
 		t.Errorf("Load error %q holds the shell's error output", err)
 	}
 
-	if len(err.Error()) > reasonBytesMax {
-		t.Errorf("Load error is %d bytes, want at most %d", len(err.Error()), reasonBytesMax)
+	if len(err.Error()) > maxReasonBytes {
+		t.Errorf("Load error is %d bytes, want at most %d", len(err.Error()), maxReasonBytes)
 	}
 }
 

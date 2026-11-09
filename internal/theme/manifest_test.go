@@ -10,7 +10,7 @@ import (
 func TestParseManifestRefusesTextOverTheLimitUnread(t *testing.T) {
 	t.Parallel()
 
-	text := `{"id":"big","pad":"` + strings.Repeat("x", theme.ManifestBytesMax) + `"}`
+	text := `{"id":"big","pad":"` + strings.Repeat("x", theme.MaxManifestBytes) + `"}`
 
 	_, errors := theme.ParseManifest(text, theme.Context{Source: theme.SourceUser})
 	if len(errors) != 1 {

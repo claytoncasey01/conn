@@ -12,8 +12,8 @@ import (
 const (
 	// pickerExtraRows are the picker's Type something and Chat about this rows.
 	pickerExtraRows = 2
-	// keysMax is the highest key one digit can press.
-	keysMax = 9
+	// maxKeys is the highest key one digit can press.
+	maxKeys = 9
 )
 
 // AnswerBody is what the page sends to answer a prompt: the id of the prompt it showed, and
@@ -298,7 +298,7 @@ func (s *store) choiceSend(found *ask.Ask, body AnswerBody,
 		return !keyPattern.MatchString(option.Key)
 	})
 	if found.Kind == ask.KindQuestion {
-		if len(found.Options)+pickerExtraRows > keysMax {
+		if len(found.Options)+pickerExtraRows > maxKeys {
 			tooLong = true
 		}
 	}

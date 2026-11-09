@@ -26,10 +26,10 @@ var (
 )
 
 const (
-	// stderrShownMax is the most of a run's error output a failure shows, in UTF-16 units.
-	stderrShownMax = 300
-	// reportedShownMax is the most of a failed result's text an error shows, in UTF-16 units.
-	reportedShownMax = 400
+	// maxStderrShown is the most of a run's error output a failure shows, in UTF-16 units.
+	maxStderrShown = 300
+	// maxReportedShown is the most of a failed result's text an error shows, in UTF-16 units.
+	maxReportedShown = 400
 
 	claudeAIPrefix = "claude.ai "
 )
@@ -167,7 +167,7 @@ func outcome(final *js.Object, opts Opts, exit, stderr string) (Answer, error) {
 	if final == nil {
 		detail := ""
 		if stderr != "" {
-			detail = ": " + js.Slice(js.Trim(stderr), stderrShownMax)
+			detail = ": " + js.Slice(js.Trim(stderr), maxStderrShown)
 		}
 
 		return Answer{}, fmt.Errorf("claude exited %s %w%s", exit, ErrNoResult, detail)
@@ -179,7 +179,7 @@ func outcome(final *js.Object, opts Opts, exit, stderr string) (Answer, error) {
 			reported = js.String(result)
 		}
 
-		return Answer{}, reportedError{text: js.Slice(reported, reportedShownMax)}
+		return Answer{}, reportedError{text: js.Slice(reported, maxReportedShown)}
 	}
 
 	err := denials(final, opts)

@@ -13,7 +13,7 @@ import (
 // What it keeps is the live screen and nothing else: the main screen and the alternate one a
 // full-screen program draws on, each exactly rows by columns cells, with no scrollback. A line
 // that scrolls off the top is gone, so text printed above the live screen can never be read back
-// as if it were on it. Memory is fixed by the size, at most cellsMax cells a screen, whatever
+// as if it were on it. Memory is fixed by the size, at most maxCells cells a screen, whatever
 // the output: every count, move and repeat in it is clamped to the screen.
 //
 // Cost: feeding allocates nothing (only NewScreen and Resize do), and no sequence costs more
@@ -69,7 +69,7 @@ type Screen struct {
 	// lastPrinted is the character a repeat (REP) repeats.
 	lastPrinted rune
 	parser      parser
-	// queries are the queries the host answers, oldest first, at most queriesPendingMax.
+	// queries are the queries the host answers, oldest first, at most maxQueriesPending.
 	queries []Query
 	// generation counts the Feeds and Resizes that changed what is shown; changed says the Feed
 	// in progress has.
@@ -131,9 +131,9 @@ func NewScreen(size Size) (*Screen, error) {
 		main: newGrid(columns, rows), alternate: newGrid(columns, rows), onAlternate: false,
 		cursor: cursorState{}, top: 0, bottom: rows - 1, autowrap: true, origin: false,
 		bracketedPaste: false, focusReports: false, cursorKeys: false, keypad: false,
-		mouseTracking: mouseOff, mouseEncoding: mouseEncodingDefault,
+		mouseTracking: mouseOff, mouseEncoding: defaultMouseEncoding,
 		fed: 0, sequenceStart: 0, alternateFrom: 0, pasteResets: 0,
-		lastPrinted: cellEmpty, parser: parser{}, queries: make([]Query, 0, queriesPendingMax),
+		lastPrinted: cellEmpty, parser: parser{}, queries: make([]Query, 0, maxQueriesPending),
 		generation: 0, changed: false,
 		wide: wideRanges(), graphics: lineDrawing(), answered: answeredQueries(),
 	}
@@ -152,17 +152,17 @@ func checkSize(size Size) error {
 		return fmt.Errorf("%w: no rows", ErrInvalidSize)
 	}
 
-	if size.Columns > columnsMax {
-		return fmt.Errorf("%w: %d columns, at most %d", ErrInvalidSize, size.Columns, columnsMax)
+	if size.Columns > maxColumns {
+		return fmt.Errorf("%w: %d columns, at most %d", ErrInvalidSize, size.Columns, maxColumns)
 	}
 
-	if size.Rows > rowsMax {
-		return fmt.Errorf("%w: %d rows, at most %d", ErrInvalidSize, size.Rows, rowsMax)
+	if size.Rows > maxRows {
+		return fmt.Errorf("%w: %d rows, at most %d", ErrInvalidSize, size.Rows, maxRows)
 	}
 
 	cells := int(size.Columns) * int(size.Rows)
-	if cells > cellsMax {
-		return fmt.Errorf("%w: %d cells, at most %d", ErrInvalidSize, cells, cellsMax)
+	if cells > maxCells {
+		return fmt.Errorf("%w: %d cells, at most %d", ErrInvalidSize, cells, maxCells)
 	}
 
 	return nil

@@ -330,7 +330,7 @@ func (m *MyPrs) askOwed(pull *PR, entry *Entry) bool {
 		return true
 	}
 
-	return tried.Tries < AskTriesMax
+	return tried.Tries < MaxAskTries
 }
 
 // headRefusal is why the PR's branch is one a round must not push to, cleaned to show; "" when
@@ -341,7 +341,7 @@ func (m *MyPrs) headRefusal(pull *PR) string {
 		return ""
 	}
 
-	return Clean(why, messageUnitsMax)
+	return Clean(why, maxMessageUnits)
 }
 
 func (m *MyPrs) launch(ctx context.Context, target startTarget, model string) reviews.Reply {
@@ -383,7 +383,7 @@ func (m *MyPrs) launch(ctx context.Context, target startTarget, model string) re
 			m.recordLaunch(target, model, result, true)
 		}
 
-		out := reply("ok", false, "error", Clean(result.Error, messageUnitsMax))
+		out := reply("ok", false, "error", Clean(result.Error, maxMessageUnits))
 		if result.ManualCommand != "" {
 			out.Body.Set("manualCommand", result.ManualCommand)
 		}

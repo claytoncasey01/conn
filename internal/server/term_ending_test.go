@@ -176,7 +176,7 @@ func TestInputBackedUpPastTheQueueIsDropped(t *testing.T) {
 		return program.attemptsSoFar() == 1
 	})
 
-	for range server.InputQueueFramesMax + 4 {
+	for range server.MaxInputQueueFrames + 4 {
 		sendMessage(t, conn, websocket.MessageText, inputFrame("x"))
 	}
 
@@ -187,7 +187,7 @@ func TestInputBackedUpPastTheQueueIsDropped(t *testing.T) {
 	close(gate)
 
 	eventually(t, "the queued input never reached the program", func() bool {
-		return len(program.writtenSoFar()) == server.InputQueueFramesMax+1
+		return len(program.writtenSoFar()) == server.MaxInputQueueFrames+1
 	})
 
 	program.feed(t, []byte("still open"))
@@ -427,7 +427,7 @@ func TestStoppingInterruptsAReplay(t *testing.T) {
 func TestReplaysInFlightAreBounded(t *testing.T) {
 	t.Parallel()
 
-	host := &scriptedHost{replay: bytes.Repeat([]byte{'r'}, server.ReplayBytesInFlightMax)}
+	host := &scriptedHost{replay: bytes.Repeat([]byte{'r'}, server.MaxReplayBytesInFlight)}
 	rig := newTerminalRig(t, rigSetup{
 		host:  host,
 		times: server.TerminalTimes{FrameWriteTimeout: testtime.Scaled(time.Minute)},
@@ -520,7 +520,7 @@ func TestAWrittenReplayNoLongerCounts(t *testing.T) {
 	host := &scriptedHost{replay: bytes.Repeat([]byte{'r'}, bigReplayBytes)}
 	rig := newTerminalRig(t, rigSetup{host: host})
 
-	for range 2 * server.ReplayBytesInFlightMax / bigReplayBytes {
+	for range 2 * server.MaxReplayBytesInFlight / bigReplayBytes {
 		conn := rig.open(t, sessionShape)
 
 		replay, text := readOutputUntilText(t, conn)
@@ -581,7 +581,7 @@ func TestASlowReplayIsBounded(t *testing.T) {
 	t.Parallel()
 
 	// One replay fills the bound, and is larger than a socket's buffers can take.
-	host := &scriptedHost{replay: bytes.Repeat([]byte{'r'}, server.ReplayBytesInFlightMax)}
+	host := &scriptedHost{replay: bytes.Repeat([]byte{'r'}, server.MaxReplayBytesInFlight)}
 	rig := newTerminalRig(t, rigSetup{
 		host: host,
 		times: server.TerminalTimes{
@@ -630,7 +630,7 @@ func TestCloseReturnsOnceEveryTerminalHasClosed(t *testing.T) {
 
 	// Each terminal has given back its viewer's place by then: the session's every place is
 	// free.
-	for range pty.DefaultLimits().ViewersMax {
+	for range pty.DefaultLimits().MaxViewers {
 		viewer, err := rig.host.Subscribe(sessionID)
 		if err != nil {
 			t.Fatalf("Close returned before a terminal had closed: %v", err)
@@ -708,15 +708,15 @@ func TestCloseWithNoTerminalReturnsAtOnce(t *testing.T) {
 func TestReplayBoundHoldsEightFullReplays(t *testing.T) {
 	t.Parallel()
 
-	full := pty.DefaultLimits().ScrollbackBytesMax + pty.PreambleBytesMax
-	if pty.ReplayBytesMax != full {
+	full := pty.DefaultLimits().MaxScrollbackBytes + pty.MaxPreambleBytes
+	if pty.MaxReplayBytes != full {
 		t.Fatalf("ReplayBytesMax = %d, want the scrollback and the preamble, %d",
-			pty.ReplayBytesMax, full)
+			pty.MaxReplayBytes, full)
 	}
 
-	if server.ReplayBytesInFlightMax != 8*full {
+	if server.MaxReplayBytesInFlight != 8*full {
 		t.Fatalf("ReplayBytesInFlightMax = %d, want eight full replays, %d",
-			server.ReplayBytesInFlightMax, 8*full)
+			server.MaxReplayBytesInFlight, 8*full)
 	}
 }
 

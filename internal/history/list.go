@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	limitDefault = 50
-	limitMax     = 500
+	defaultLimit = 50
+	maxLimit     = 500
 	safeInteger  = 1<<53 - 1
 )
 
@@ -332,7 +332,7 @@ func (d *DB) List(ctx context.Context, query Query) (List, error) {
 
 func (d *DB) page(ctx context.Context, query Query, visible []string) ([]Row, float64, error) {
 	where := filters(query, visible, "")
-	limit := min(max(whole(query.Limit, limitDefault), 0), limitMax)
+	limit := min(max(whole(query.Limit, defaultLimit), 0), maxLimit)
 	offset := max(whole(query.Offset, 0), 0)
 
 	rows, err := d.db.QueryContext(ctx, statement("SELECT ", rowColumns, " FROM entries e ",

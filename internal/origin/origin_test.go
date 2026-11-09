@@ -673,7 +673,7 @@ func TestClonesInFindsTheClonesCloneForWouldFind(t *testing.T) {
 	rows := []struct {
 		name       string
 		parents    []string
-		foldersMax int
+		maxFolders int
 		want       []string
 	}{
 		{
@@ -700,7 +700,7 @@ func TestClonesInFindsTheClonesCloneForWouldFind(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := origin.NewReader().ClonesIn(row.parents, row.foldersMax)
+			got := origin.NewReader().ClonesIn(row.parents, row.maxFolders)
 			if !slices.Equal(got, row.want) {
 				t.Fatalf("got %v, want %v", got, row.want)
 			}
@@ -722,15 +722,15 @@ func TestClonesInListsAtMostFoldersMaxFolders(t *testing.T) {
 	}
 
 	// Which folders a cut listing holds is the file system's order: only how many is fixed.
-	for _, foldersMax := range []int{0, 1, 3, 5, 9} {
-		got := origin.NewReader().ClonesIn([]string{root}, foldersMax)
-		if len(got) != min(foldersMax, len(every)) {
-			t.Fatalf("%d: got %v", foldersMax, got)
+	for _, maxFolders := range []int{0, 1, 3, 5, 9} {
+		got := origin.NewReader().ClonesIn([]string{root}, maxFolders)
+		if len(got) != min(maxFolders, len(every)) {
+			t.Fatalf("%d: got %v", maxFolders, got)
 		}
 
 		for _, repo := range got {
 			if !slices.Contains(every, repo) {
-				t.Fatalf("%d: got %v", foldersMax, got)
+				t.Fatalf("%d: got %v", maxFolders, got)
 			}
 		}
 	}

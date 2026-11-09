@@ -16,9 +16,9 @@ import (
 
 // The limits on what is provided: what a catalog may hold and what is read from it.
 const (
-	itemsMax         = 64
-	filesPerSkillMax = 64
-	fileBytesMax     = 256 << 10
+	maxItems         = 64
+	maxFilesPerSkill = 64
+	maxFileBytes     = 256 << 10
 
 	agentSuffix = ".md"
 	skillFile   = "SKILL.md"
@@ -86,8 +86,8 @@ func readAgents(agents fs.FS) ([]Item, error) {
 			continue
 		}
 
-		if len(items) == itemsMax {
-			return nil, fmt.Errorf("%w: more than %d agents", errCatalog, itemsMax)
+		if len(items) == maxItems {
+			return nil, fmt.Errorf("%w: more than %d agents", errCatalog, maxItems)
 		}
 
 		file, err := readFile(agents, entry.Name(), entry.Name())
@@ -124,8 +124,8 @@ func readSkills(skills fs.FS) ([]Item, error) {
 			continue
 		}
 
-		if len(items) == itemsMax {
-			return nil, fmt.Errorf("%w: more than %d skills", errCatalog, itemsMax)
+		if len(items) == maxItems {
+			return nil, fmt.Errorf("%w: more than %d skills", errCatalog, maxItems)
 		}
 
 		item, err := readSkill(skills, entry.Name())
@@ -156,9 +156,9 @@ func readSkill(skills fs.FS, name string) (Item, error) {
 			return nil
 		}
 
-		if len(files) == filesPerSkillMax {
+		if len(files) == maxFilesPerSkill {
 			return fmt.Errorf("%w: skill %s has more than %d files", errCatalog, name,
-				filesPerSkillMax)
+				maxFilesPerSkill)
 		}
 
 		relative := strings.TrimPrefix(entry, name+"/")
@@ -185,8 +185,8 @@ func readFile(fsys fs.FS, name, relative string) (File, error) {
 		return File{}, fmt.Errorf("reading %s: %w", name, err)
 	}
 
-	if info.Size() > fileBytesMax {
-		return File{}, fmt.Errorf("%w: %s is larger than %d bytes", errCatalog, name, fileBytesMax)
+	if info.Size() > maxFileBytes {
+		return File{}, fmt.Errorf("%w: %s is larger than %d bytes", errCatalog, name, maxFileBytes)
 	}
 
 	data, err := fs.ReadFile(fsys, name)

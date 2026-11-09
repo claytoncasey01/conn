@@ -25,7 +25,7 @@ order is: safety, then performance, then the developer's experience.
   first for the others is not taken.
 - **Put a limit on everything.** Every loop, queue, buffer, file read, request body, retry and
   wait has a fixed upper bound, named as a constant: a `for` walking up folders stops after
-  `foldersUpMax`, a file larger than `fileBytesMax` is not read, a process past `Timeout` is
+  `maxFoldersUp`, a file larger than `maxFileBytes` is not read, a process past `Timeout` is
   stopped. Nothing grows without bound because its input did.
 - **No unbounded recursion.** Where input decides the depth (nested JSON, a folder tree), the
   depth is capped and the cap is checked.
@@ -35,18 +35,20 @@ order is: safety, then performance, then the developer's experience.
   network) is an error returned to the caller. Never panic on input.
 - **Handle every error.** An error is returned, wrapped or acted on. Discarding one is explicit
   (`_ =`) and only where nothing useful can be done, such as closing a file already read.
-- **Simple, explicit control flow.** No compound conditions: never join conditions with `&&` or
-  `||`; split them into nested ifs or a `switch`, one case each, so every branch is visible and
-  can be tested on its own. Prefer stating a condition positively. `internal/guard` fails the
-  tests on an `&&` or `||` anywhere in the Go.
+- **Simple, explicit control flow.** Guard clauses return early and keep the happy path
+  unindented. A compound condition (`&&`, `||`) is fine while it reads clearly; when one grows
+  past that, name it with a variable or split it. No compound condition has a side effect. Prefer
+  stating a condition positively.
 - **Small functions, short lines.** At most 60 lines per function and 100 columns per line, a
   tab counting as 4. A function that grows past that is split where its steps are.
 - **Smallest scope.** Declare a variable where it is used, compute a value right before it is
   needed, and keep the number of names in scope small.
 - **Names say everything.** No abbreviations (`index`, not `i`, outside the shortest loops).
-  Units and qualifiers go last, so related names sort together: `bodyBytesMax`, `patternsMax`,
-  `closeMinutesDefault`, never `maxPatterns`. A `time.Duration` already carries its unit, so it is
-  named for what it bounds (`summaryTimeout`).
+  Limits and defaults are named the way the standard library names them: a limit that feeds a
+  library option takes that option's name (`maxHeaderBytes` for `MaxHeaderBytes`), and any other
+  puts the qualifier first (`maxBodyBytes`, `maxPatterns`, `defaultCloseMinutes`), never
+  `bodyBytesMax`. A `time.Duration` already carries its unit, so it is named for what it bounds
+  (`summaryTimeout`).
 - **Comments are sentences that say why.** A capital letter and a full stop; the code says what.
 - **Set library options explicitly.** When building an `http.Server`, an `exec.Cmd` or similar,
   name every limit even when the value is the default, so each limit is a decision made where it
@@ -107,8 +109,7 @@ order is: safety, then performance, then the developer's experience.
   reason for each. Never add `//nolint` to get past a finding: fix the code. If a linter is wrong
   for the whole repo, disable it in `.golangci.yml` with a comment saying why.
 - `make fmt`: gofumpt and goimports.
-- `make test`: the race detector, in random order, and `internal/guard` (no compound conditions,
-  no organization names).
+- `make test`: the race detector, in random order, and `internal/guard` (no organization names).
 
 ## What the server must keep
 

@@ -145,7 +145,7 @@ func TestCOnlyTheNewestLaunchsFileIsRead(t *testing.T) {
 func TestCRepliesFileOver256KBIsIgnoredWhole(t *testing.T) {
 	t.Parallel()
 
-	const fileBytesMax = 256 * 1024
+	const maxFileBytes = 256 * 1024
 
 	just := cBody(cReplyEntry{ThreadID: "t1", Text: "ok"})
 	tests := []struct {
@@ -153,9 +153,9 @@ func TestCRepliesFileOver256KBIsIgnoredWhole(t *testing.T) {
 		file string
 		want []string
 	}{
-		{name: "over the cap", file: just + strings.Repeat(" ", fileBytesMax), want: []string{}},
+		{name: "over the cap", file: just + strings.Repeat(" ", maxFileBytes), want: []string{}},
 		{
-			name: "exactly at the cap", file: just + strings.Repeat(" ", fileBytesMax-len(just)),
+			name: "exactly at the cap", file: just + strings.Repeat(" ", maxFileBytes-len(just)),
 			want: []string{"t1"},
 		},
 	}

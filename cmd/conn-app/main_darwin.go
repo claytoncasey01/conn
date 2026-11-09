@@ -35,8 +35,8 @@ const (
 	// printEnvFlag is the argument shellenv.Load runs this program with inside the login shell.
 	printEnvFlag = "--print-env"
 
-	// shellDefault is the login shell when $SHELL is empty: the one macOS gives a new account.
-	shellDefault = "/bin/zsh"
+	// defaultShell is the login shell when $SHELL is empty: the one macOS gives a new account.
+	defaultShell = "/bin/zsh"
 )
 
 // process is what the program is given: its environment, its executable, its output streams and
@@ -113,7 +113,7 @@ func printEnv(proc process) int {
 func loadEnvironment(ctx context.Context, proc process) error {
 	shell, _ := proc.lookup("SHELL")
 	if shell == "" {
-		shell = shellDefault
+		shell = defaultShell
 	}
 
 	exe, err := proc.executable()

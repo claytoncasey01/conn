@@ -19,8 +19,8 @@ import (
 const (
 	fileName = "settings.json"
 
-	// fileBytesMax is the largest settings.json read; a larger one is set aside for the defaults.
-	fileBytesMax = 1_000_000
+	// maxFileBytes is the largest settings.json read; a larger one is set aside for the defaults.
+	maxFileBytes = 1_000_000
 
 	// The data folder and the file are the person's alone: the file holds their repositories.
 	folderMode = 0o700
@@ -45,7 +45,7 @@ func LoadDetailed(dataDir string) Loaded {
 
 	if errors.Is(err, errTooLarge) {
 		return unreadable(fmt.Sprintf("settings.json is larger than %d bytes: using the defaults",
-			fileBytesMax))
+			maxFileBytes))
 	}
 
 	if err != nil {
@@ -71,7 +71,7 @@ func readFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("reading settings: %w", err)
 	}
 
-	if info.Size() > fileBytesMax {
+	if info.Size() > maxFileBytes {
 		return nil, errTooLarge
 	}
 

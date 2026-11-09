@@ -20,9 +20,9 @@ const (
 	fileMode os.FileMode = 0o600
 	// RefusedSuffix names, after FileName, where a record file Read refused is set aside.
 	RefusedSuffix = ".refused"
-	// folderEntriesMax bounds the entries of the data folder RemoveTemporaries looks at: far
+	// maxFolderEntries bounds the entries of the data folder RemoveTemporaries looks at: far
 	// more than Conn keeps there.
-	folderEntriesMax = 1024
+	maxFolderEntries = 1024
 )
 
 // file is the record file's shape.
@@ -34,7 +34,7 @@ type file struct {
 // Write replaces the record in dir with records, atomically: the old file is whole until the
 // rename, a failed write leaves it and no temporary file behind, and the new file is readable by
 // its owner only from its first byte. A link at the record's name is replaced, never followed.
-// A record that CheckRecord refuses, or more than RecordsMax, is an error and nothing is written.
+// A record that CheckRecord refuses, or more than MaxRecords, is an error and nothing is written.
 func Write(dir string, records []Record) error {
 	err := checkAll(records)
 	if err != nil {
@@ -138,7 +138,7 @@ func settable(mode os.FileMode) bool {
 }
 
 // RemoveTemporaries removes the temporary files of writes a crash cut short from dir: regular
-// files named as Write names them, among the first folderEntriesMax entries. Only the Conn
+// files named as Write names them, among the first maxFolderEntries entries. Only the Conn
 // holding the data folder calls it, so no write of its own is under way.
 func RemoveTemporaries(dir string) error {
 	folder, err := os.Open(dir)
@@ -146,7 +146,7 @@ func RemoveTemporaries(dir string) error {
 		return fmt.Errorf("removing temporary records: %w", err)
 	}
 
-	entries, err := folder.ReadDir(folderEntriesMax)
+	entries, err := folder.ReadDir(maxFolderEntries)
 	_ = folder.Close()
 
 	if err != nil {
@@ -189,7 +189,7 @@ func isTemporary(entry os.DirEntry) bool {
 
 // checkWritable is every problem with record, as CheckRecord says them, or as the record reads
 // back once Write has written it: JSON writes some bytes longer than they are. A record written
-// in more than recordBytesMax bytes is refused, so the records of a full host always fit.
+// in more than maxRecordBytes bytes is refused, so the records of a full host always fit.
 func checkWritable(record Record) error {
 	err := CheckRecord(record)
 	if err != nil {
@@ -201,10 +201,10 @@ func checkWritable(record Record) error {
 		return fmt.Errorf("%w: %w", ErrBadRecord, err)
 	}
 
-	// Each record within its bound is what keeps RecordsMax of them within the file's.
-	if len(written) > recordBytesMax {
+	// Each record within its bound is what keeps MaxRecords of them within the file's.
+	if len(written) > maxRecordBytes {
 		return fmt.Errorf("%w: it is written in %d bytes, more than %d", ErrBadRecord,
-			len(written), recordBytesMax)
+			len(written), maxRecordBytes)
 	}
 
 	text, err := json.Marshal(file{Version: fileVersion, Sessions: []Record{record}})
@@ -218,8 +218,8 @@ func checkWritable(record Record) error {
 // readsBack is nil when Read reads text: no larger than a record file is, and parsed back into
 // records it would write as text again.
 func readsBack(text []byte) error {
-	if int64(len(text)) > fileBytesMax() {
-		return fmt.Errorf("%w: it would be more than %d bytes", ErrBadFile, fileBytesMax())
+	if int64(len(text)) > maxFileBytes() {
+		return fmt.Errorf("%w: it would be more than %d bytes", ErrBadFile, maxFileBytes())
 	}
 
 	_, err := parse(text)
@@ -245,9 +245,9 @@ func renameCause(err error) error {
 func checkAll(records []Record) error {
 	problems := []error{}
 
-	if len(records) > RecordsMax() {
+	if len(records) > MaxRecords() {
 		problems = append(problems, fmt.Errorf("%w: %d records, at most %d", ErrBadFile,
-			len(records), RecordsMax()))
+			len(records), MaxRecords()))
 	}
 
 	for _, record := range records {
@@ -286,8 +286,8 @@ func writeTemporary(dir string, text []byte) (string, error) {
 
 // Read is the record in dir: none when there is no file. The file is opened with no link
 // followed and without waiting (a fifo at its name opens and is refused), and is read only when
-// it is a regular file of the person running Conn, of mode 0600, at most fileBytesMax bytes,
-// with at most RecordsMax records, each of which CheckRecord passes, and exactly the bytes Write
+// it is a regular file of the person running Conn, of mode 0600, at most maxFileBytes bytes,
+// with at most MaxRecords records, each of which CheckRecord passes, and exactly the bytes Write
 // writes for them (an unknown field, such as a command line, a key in another case or a key
 // twice refuses the file). A file that is not is ErrBadFile, or every record's problems, and no
 // record of it is returned: Conn never writes such a file, so nothing in it is trusted.
@@ -341,7 +341,7 @@ func openNoFollow(path string) (*os.File, error) {
 }
 
 // readOwnFile is the text of opened when it is a regular file the user uid owns, readable and
-// writable by it alone (fileMode), of at most fileBytesMax bytes.
+// writable by it alone (fileMode), of at most maxFileBytes bytes.
 func readOwnFile(opened *os.File, uid int) ([]byte, error) {
 	info, err := opened.Stat()
 	if err != nil {
@@ -366,13 +366,13 @@ func readOwnFile(opened *os.File, uid int) ([]byte, error) {
 		return nil, fmt.Errorf("%w: it belongs to another user", ErrBadFile)
 	}
 
-	text, err := io.ReadAll(io.LimitReader(opened, fileBytesMax()+1))
+	text, err := io.ReadAll(io.LimitReader(opened, maxFileBytes()+1))
 	if err != nil {
 		return nil, fmt.Errorf("reading the file: %w", err)
 	}
 
-	if int64(len(text)) > fileBytesMax() {
-		return nil, fmt.Errorf("%w: it is more than %d bytes", ErrBadFile, fileBytesMax())
+	if int64(len(text)) > maxFileBytes() {
+		return nil, fmt.Errorf("%w: it is more than %d bytes", ErrBadFile, maxFileBytes())
 	}
 
 	return text, nil

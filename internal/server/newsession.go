@@ -11,7 +11,7 @@ import (
 // newSession answers /api/sessions/new, and is false for any other path: GET lists the
 // repositories a session may start in, and POST starts one. A start runs a program, so it takes
 // the strictest guard a write has: POST, Conn's header and an Origin (which the gate has already
-// checked is this server's own), and a body that is a JSON object of at most bodyBytesMax.
+// checked is this server's own), and a body that is a JSON object of at most maxBodyBytes.
 func (s *Server) newSession(w http.ResponseWriter, r *http.Request, urlPath string) bool {
 	if urlPath != newsession.Path {
 		return false

@@ -76,8 +76,8 @@ type Shelf interface {
 	// Marker is the state of the folder's .source.json.
 	Marker(name string) Marker
 	// Read is a regular file's bytes, or why not: a link, a directory or a pipe is refused, and a
-	// file over bytesMax is never read.
-	Read(name, file string, bytesMax int64) ([]byte, Why)
+	// file over maxBytes is never read.
+	Read(name, file string, maxBytes int64) ([]byte, Why)
 	// Exists is whether anything is at the folder (file "") or at a file in it, a link included.
 	Exists(name, file string) bool
 	// Entries are the names of everything in the folder, dot files included.
@@ -188,8 +188,8 @@ func (d DiskShelf) Marker(name string) Marker {
 }
 
 // Read reads a file in a folder, as Shelf.Read says.
-func (d DiskShelf) Read(name, file string, bytesMax int64) ([]byte, Why) {
-	return ReadRegular(filepath.Join(d.root, name, file), bytesMax)
+func (d DiskShelf) Read(name, file string, maxBytes int64) ([]byte, Why) {
+	return ReadRegular(filepath.Join(d.root, name, file), maxBytes)
 }
 
 // Exists is whether anything is at the folder or file.
@@ -222,8 +222,8 @@ func (d DiskShelf) Entries(name string) ([]string, error) {
 }
 
 // ReadRegular is a regular file's bytes, or why not: a link, a directory or a pipe is refused,
-// and a file over bytesMax is never read.
-func ReadRegular(name string, bytesMax int64) ([]byte, Why) {
+// and a file over maxBytes is never read.
+func ReadRegular(name string, maxBytes int64) ([]byte, Why) {
 	info, err := os.Lstat(name)
 	if err != nil {
 		return nil, failure(err)
@@ -233,19 +233,19 @@ func ReadRegular(name string, bytesMax int64) ([]byte, Why) {
 		return nil, NotFile
 	}
 
-	if info.Size() > bytesMax {
+	if info.Size() > maxBytes {
 		return nil, TooBig
 	}
 
 	// O_NOFOLLOW and a second look at the open handle close the gap between the lstat and the
 	// read.
-	return ReadNoFollow(name, bytesMax)
+	return ReadNoFollow(name, maxBytes)
 }
 
 // ReadNoFollow opens and reads one file without following a link. O_NONBLOCK keeps the open
 // from waiting forever if a pipe took the file's place after the lstat; the fstat then refuses
 // it.
-func ReadNoFollow(name string, bytesMax int64) ([]byte, Why) {
+func ReadNoFollow(name string, maxBytes int64) ([]byte, Why) {
 	file, err := os.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, failure(err)
@@ -262,16 +262,16 @@ func ReadNoFollow(name string, bytesMax int64) ([]byte, Why) {
 		return nil, NotFile
 	}
 
-	if info.Size() > bytesMax {
+	if info.Size() > maxBytes {
 		return nil, TooBig
 	}
 
-	data, err := io.ReadAll(io.LimitReader(file, bytesMax+1))
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
 	if err != nil {
 		return nil, Unreadable
 	}
 
-	if int64(len(data)) > bytesMax {
+	if int64(len(data)) > maxBytes {
 		return nil, TooBig
 	}
 
@@ -340,7 +340,7 @@ func (e EmbeddedShelf) Marker(name string) Marker {
 }
 
 // Read reads a file in a folder, as Shelf.Read says.
-func (e EmbeddedShelf) Read(name, file string, bytesMax int64) ([]byte, Why) {
+func (e EmbeddedShelf) Read(name, file string, maxBytes int64) ([]byte, Why) {
 	inside := path.Join(name, file)
 
 	info, err := fs.Stat(e.fsys, inside)
@@ -352,7 +352,7 @@ func (e EmbeddedShelf) Read(name, file string, bytesMax int64) ([]byte, Why) {
 		return nil, NotFile
 	}
 
-	if info.Size() > bytesMax {
+	if info.Size() > maxBytes {
 		return nil, TooBig
 	}
 

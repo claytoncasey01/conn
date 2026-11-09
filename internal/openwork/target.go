@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	// slugWordsMax and slugUnitsMax bound the title's part of a branch name.
-	slugWordsMax = 6
-	slugUnitsMax = 48
+	// maxSlugWords and maxSlugUnits bound the title's part of a branch name.
+	maxSlugWords = 6
+	maxSlugUnits = 48
 	// worktreeTimeout bounds the git calls that ask about a worktree.
 	worktreeTimeout = 15 * time.Second
 	worktreePrefix  = "worktree "
@@ -29,8 +29,8 @@ const (
 	argRevParse  = "rev-parse"
 	argPorcelain = "--porcelain"
 	argWorktree  = "worktree"
-	// buildReposMax is the most repositories the list of places to build offers.
-	buildReposMax = 200
+	// maxBuildRepos is the most repositories the list of places to build offers.
+	maxBuildRepos = 200
 )
 
 var (
@@ -88,7 +88,7 @@ func BuildTargets(current settings.Settings, seen []string, find CloneFinder,
 }
 
 // AllowedRepos are the allowed repositories Settings names and seen holds, once each in any case,
-// in allowlist order and in the order named within a pattern; at most buildReposMax. Open work
+// in allowlist order and in the order named within a pattern; at most maxBuildRepos. Open work
 // offers them as places to build, and the Sessions page as places to start a session.
 func AllowedRepos(current settings.Settings, seen []string) []string {
 	jira := current.Atlassian.Jira
@@ -129,7 +129,7 @@ func AllowedRepos(current settings.Settings, seen []string) []string {
 	})
 
 	// Cut after the order is set, so the cap keeps the allowlist's order.
-	listed = listed[:min(len(listed), buildReposMax)]
+	listed = listed[:min(len(listed), maxBuildRepos)]
 
 	names := make([]string, 0, len(listed))
 	for _, entry := range listed {
@@ -192,7 +192,7 @@ func notAllowed(repo string) string {
 
 // ChooseTargets are the targets a START chose, in the order chosen, and every problem with the
 // choice, one sentence each: none chosen (with no fallback, the default repository), more than
-// legsMax (and the first legsMax are checked as usual), an empty name, one chosen twice in any
+// maxLegs (and the first maxLegs are checked as usual), an empty name, one chosen twice in any
 // case, one that is not among all, two that are the same clone folder, and one that is not
 // ready. Only targets with no problem are returned.
 func ChooseTargets(all []Target, chosen []string, fallback *string) ([]Target, []string) {
@@ -208,11 +208,11 @@ func ChooseTargets(all []Target, chosen []string, fallback *string) ([]Target, [
 	picked := []Target{}
 	problems := []string{}
 
-	// Too many is said, and the first legsMax are checked as usual, so it hides nothing else.
-	if len(names) > legsMax {
-		problems = append(problems, "Choose at most "+strconv.Itoa(legsMax)+
+	// Too many is said, and the first maxLegs are checked as usual, so it hides nothing else.
+	if len(names) > maxLegs {
+		problems = append(problems, "Choose at most "+strconv.Itoa(maxLegs)+
 			" repositories, not "+strconv.Itoa(len(names))+".")
-		names = names[:legsMax]
+		names = names[:maxLegs]
 	}
 
 	choice := choosing{names: map[string]bool{}, clones: map[string]string{}}
@@ -320,8 +320,8 @@ func Slug(title string) string {
 	slug = edgeDashes.ReplaceAllString(slug, "")
 
 	words := strings.Split(slug, "-")
-	slug = strings.Join(words[:min(len(words), slugWordsMax)], "-")
-	slug = slug[:min(len(slug), slugUnitsMax)]
+	slug = strings.Join(words[:min(len(words), maxSlugWords)], "-")
+	slug = slug[:min(len(slug), maxSlugUnits)]
 
 	return endDashes.ReplaceAllString(slug, "")
 }

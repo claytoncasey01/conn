@@ -48,10 +48,10 @@ const (
 	sessionIdle = "idle"
 	// budgetName is what My PRs is called in the shared GitHub budget.
 	budgetName = "myPrs"
-	// messageUnitsMax is where an error's text is cut.
-	messageUnitsMax = 300
-	// warningUnitsMax is where the list's warning is cut.
-	warningUnitsMax = 400
+	// maxMessageUnits is where an error's text is cut.
+	maxMessageUnits = 300
+	// maxWarningUnits is where the list's warning is cut.
+	maxWarningUnits = 400
 )
 
 // Why nothing is read.
@@ -213,7 +213,7 @@ type Deps struct {
 	Writes GitHubWrites
 	// RepliesAt is the mtime (ms) of <worktree>/.conn/replies.json, nil when it is not there.
 	RepliesAt func(worktree string) *float64
-	// ReadFile is the text of a regular file of at most RepliesFileBytesMax plus one byte;
+	// ReadFile is the text of a regular file of at most MaxRepliesFileBytes plus one byte;
 	// false when it is not there or cannot be read.
 	ReadFile func(path string) (string, bool)
 	// Draft saves one Slack draft in channel with exactly text; it never sends.
@@ -351,7 +351,7 @@ func seenOf(file *File) map[string]float64 {
 }
 
 // message is an error's text, cleaned and cut as the view shows it.
-func message(err error) string { return Clean(err.Error(), messageUnitsMax) }
+func message(err error) string { return Clean(err.Error(), maxMessageUnits) }
 
 // Refresh polls on the next tick. It answers this press's number: the snapshot's refresh.done
 // reaches it once the poll it caused has finished.

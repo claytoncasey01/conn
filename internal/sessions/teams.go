@@ -26,19 +26,19 @@ const (
 	// real first tagged line is within the first 6 lines, and one of them is 80 KB long.
 	headBytes = 8 << 20
 	headLines = 100
-	// candidatesMax is how many new files one lookup or scan reads.
-	candidatesMax = 200
+	// maxCandidates is how many new files one lookup or scan reads.
+	maxCandidates = 200
 	spawnChunk    = 1 << 20
 	headChunk     = 64 << 10
-	// lineBytesMax is the longest line read; a longer one is dropped unread.
-	lineBytesMax  = 4 << 20
+	// maxLineBytes is the longest line read; a longer one is dropped unread.
+	maxLineBytes  = 4 << 20
 	sessionPrefix = "session-"
 	// slackMs is how far a teammate's start may run ahead of its spawn: a minute for the clocks.
 	slackMs = 60_000
-	// spawnsMax is how many spawn results one transcript keeps.
-	spawnsMax = 500
-	// indexesMax is how many folders' spawn indexes are kept.
-	indexesMax = 64
+	// maxSpawns is how many spawn results one transcript keeps.
+	maxSpawns = 500
+	// maxIndexes is how many folders' spawn indexes are kept.
+	maxIndexes = 64
 	// teamScanMs is how often a lead's folder is searched for new teammates, and how long a
 	// teammate's lead lookup is kept.
 	teamScanMs = 3000
@@ -64,7 +64,7 @@ type TeamHead struct {
 	Decided bool
 }
 
-// headReader reads whole lines from a transcript's head, a line over lineBytesMax skipped
+// headReader reads whole lines from a transcript's head, a line over maxLineBytes skipped
 // unread, so a hostile line cannot make it hold more than a chunk and a line.
 type headReader struct {
 	head     TeamHead
@@ -97,7 +97,7 @@ func ReadTeamHead(path string) TeamHead {
 	return readTeamHead(path, headBytes, headLines)
 }
 
-func readTeamHead(path string, bytesMax, linesMax int) TeamHead {
+func readTeamHead(path string, maxBytes, maxLines int) TeamHead {
 	reader := headReader{
 		head: TeamHead{Tag: nil, FirstAt: 0, Decided: false}, lines: 0, skipping: false,
 		bounded: false, carry: nil,
@@ -114,19 +114,19 @@ func readTeamHead(path string, bytesMax, linesMax int) TeamHead {
 	position := 0
 
 	for !reader.done() {
-		if position >= bytesMax {
+		if position >= maxBytes {
 			reader.bounded = true
 
 			break
 		}
 
-		got, err := file.ReadAt(buffer[:min(headChunk, bytesMax-position)], int64(position))
+		got, err := file.ReadAt(buffer[:min(headChunk, maxBytes-position)], int64(position))
 		if got <= 0 {
 			break
 		}
 
 		position += got
-		reader.chunk(buffer[:got], linesMax)
+		reader.chunk(buffer[:got], maxLines)
 
 		if err != nil {
 			if err != io.EOF {
@@ -143,7 +143,7 @@ func readTeamHead(path string, bytesMax, linesMax int) TeamHead {
 	return reader.head
 }
 
-func (h *headReader) chunk(read []byte, linesMax int) {
+func (h *headReader) chunk(read []byte, maxLines int) {
 	data := append(slices.Clip(h.carry), read...)
 	h.carry = nil
 
@@ -163,12 +163,12 @@ func (h *headReader) chunk(read []byte, linesMax int) {
 			h.line(line)
 		}
 
-		if h.lines >= linesMax {
+		if h.lines >= maxLines {
 			h.bounded = true
 		}
 	}
 
-	if len(data) > lineBytesMax {
+	if len(data) > maxLineBytes {
 		h.skipping = true
 	} else {
 		h.carry = bytes.Clone(data)
@@ -177,7 +177,7 @@ func (h *headReader) chunk(read []byte, linesMax int) {
 
 // line reads one whole line: its time while none is known, its tag when it may hold one.
 func (h *headReader) line(line []byte) {
-	if len(line) > lineBytesMax {
+	if len(line) > maxLineBytes {
 		return
 	}
 
@@ -323,7 +323,7 @@ func (e *spawnRead) read(chunk []byte) {
 		return
 	}
 
-	if len(data) > lineBytesMax {
+	if len(data) > maxLineBytes {
 		e.skipping = true
 
 		return
@@ -343,7 +343,7 @@ func (e *spawnRead) spawn(line []byte) {
 		return
 	}
 
-	if len(e.spawns) < spawnsMax {
+	if len(e.spawns) < maxSpawns {
 		e.spawns = append(e.spawns, spawn)
 	}
 }
@@ -601,7 +601,7 @@ func nearest(exact []hit, firstAt float64) string {
 }
 
 // Leads finds the lead of a teammate transcript, keeping one spawn index per folder (the oldest
-// dropped past indexesMax). It is safe to use from several goroutines.
+// dropped past maxIndexes). It is safe to use from several goroutines.
 type Leads struct {
 	mutex   sync.Mutex
 	indexes map[string]*spawnIndex
@@ -639,7 +639,7 @@ func (l *Leads) Path(path string, tag TeamTag, opts LeadOpts) string {
 
 	index, found := l.indexes[dir]
 	if !found {
-		if len(l.order) >= indexesMax {
+		if len(l.order) >= maxIndexes {
 			delete(l.indexes, l.order[0])
 			l.order = l.order[1:]
 		}
@@ -663,7 +663,7 @@ func (l *Leads) Path(path string, tag TeamTag, opts LeadOpts) string {
 
 	limit := opts.Limit
 	if limit == 0 {
-		limit = candidatesMax
+		limit = maxCandidates
 	}
 
 	if limit < 0 {
@@ -705,7 +705,7 @@ type Finder struct {
 func NewFinder(leads *Leads, leadPath string, sinceMs float64, limit int) *Finder {
 	switch {
 	case limit == 0:
-		limit = candidatesMax
+		limit = maxCandidates
 	case limit < 0:
 		limit = math.MaxInt
 	}

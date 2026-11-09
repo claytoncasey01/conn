@@ -114,7 +114,7 @@ func (m *MyPrs) Snapshot() View {
 	return View{
 		At: m.now(), Me: m.me, Error: m.err, Capped: m.capped,
 		Refresh: Refresh{Seq: m.refreshSeq, Done: m.refreshDone}, Loaded: m.loaded,
-		DraftMaxTries: DraftTriesMax, Rows: rows, Channel: channel, Off: textPointer(off),
+		DraftMaxTries: MaxDraftTries, Rows: rows, Channel: channel, Off: textPointer(off),
 		Warning: textPointer(m.warning()), Rate: m.rate, PausedUntil: m.pausedUntil,
 	}
 }
@@ -364,7 +364,7 @@ func (m *MyPrs) askErrorOf(key string, pull *PR, launches []*Launch) string {
 		if failure.sha == pull.HeadSha {
 			why = failure.text
 			shown = Clean("Could not ask Greptile for a review, trying again: "+why,
-				messageUnitsMax)
+				maxMessageUnits)
 		}
 	}
 
@@ -373,19 +373,19 @@ func (m *MyPrs) askErrorOf(key string, pull *PR, launches []*Launch) string {
 		return shown
 	}
 
-	if tried.Tries < AskTriesMax {
+	if tried.Tries < MaxAskTries {
 		return shown
 	}
 
 	// What to do comes before the reason, so a long reason is what the cut takes.
 	text := "Could not ask Greptile for a review: the ask could not be confirmed after " +
-		js.Number(AskTriesMax) + " tries, so conn has stopped. Look at the PR's comments, and " +
+		js.Number(MaxAskTries) + " tries, so conn has stopped. Look at the PR's comments, and " +
 		"ask by hand if none is there."
 	if why != "" {
 		text += " (" + why + ")"
 	}
 
-	return Clean(text, messageUnitsMax)
+	return Clean(text, maxMessageUnits)
 }
 
 // draftRetryAt is draftDue's retry, for the row to say when.
@@ -402,7 +402,7 @@ func draftRetryAt(status string, state rowState) *float64 {
 		return nil
 	}
 
-	if state.draft.Tries >= DraftTriesMax {
+	if state.draft.Tries >= MaxDraftTries {
 		return nil
 	}
 
@@ -430,5 +430,5 @@ func (m *MyPrs) warning() string {
 
 	return Clean("Could not search "+strings.Join(names, ", ")+" ("+m.failedPatterns[0].Error+
 		"): the other repositories are listed, and these PRs are as the last poll had them.",
-		warningUnitsMax)
+		maxWarningUnits)
 }

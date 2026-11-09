@@ -23,8 +23,8 @@ import (
 
 // Limits on what a scan's answer may hold.
 const (
-	// linkUnitsMax is the longest link kept, in UTF-16 units.
-	linkUnitsMax = 2048
+	// maxLinkUnits is the longest link kept, in UTF-16 units.
+	maxLinkUnits = 2048
 	// askSkewMs is a little clock slack: an ask later than now plus this is not from Slack.
 	askSkewMs = 5 * 60_000
 	// failureUnits is how much of a failed run's error a scan error keeps.
@@ -147,7 +147,7 @@ type ScanInput struct {
 const (
 	yearDigits       = 4
 	yearDigitsSigned = 6
-	yearPlainMax     = 9999
+	maxYearPlain     = 9999
 )
 
 // isoString is new Date(ms).toISOString(), and false for a time a Date cannot hold.
@@ -167,7 +167,7 @@ func isoString(millis float64) (string, bool) {
 	switch {
 	case year < 0:
 		return "-" + pad(strconv.Itoa(-year), yearDigitsSigned) + rest, true
-	case year > yearPlainMax:
+	case year > maxYearPlain:
 		return "+" + pad(strconv.Itoa(year), yearDigitsSigned) + rest, true
 	}
 
@@ -368,7 +368,7 @@ type Post struct {
 
 // safeLink is a Slack link with nothing that could make it read as another.
 func safeLink(link string) bool {
-	if js.Len(link) > linkUnitsMax {
+	if js.Len(link) > maxLinkUnits {
 		return false
 	}
 

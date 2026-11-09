@@ -139,8 +139,8 @@ func TestWriteReplacesALinkWithoutFollowingIt(t *testing.T) {
 func TestWriteRefusesWhatItWouldNotRead(t *testing.T) {
 	t.Parallel()
 
-	tooMany := make([]hosted.Record, 0, hosted.RecordsMax()+1)
-	for index := range hosted.RecordsMax() + 1 {
+	tooMany := make([]hosted.Record, 0, hosted.MaxRecords()+1)
+	for index := range hosted.MaxRecords() + 1 {
 		tooMany = append(tooMany, record(index))
 	}
 
@@ -148,7 +148,7 @@ func TestWriteRefusesWhatItWouldNotRead(t *testing.T) {
 	relative.Dir = "runs/KEY-1"
 	// Each byte that is not UTF-8 is written as U+FFFD, three bytes, so the name read back is
 	// over its bound.
-	invalid.Name = strings.Repeat("\xff", hosted.NameBytesMax)
+	invalid.Name = strings.Repeat("\xff", hosted.MaxNameBytes)
 
 	tests := []struct {
 		name    string
@@ -179,14 +179,14 @@ func TestWriteRefusesWhatItWouldNotRead(t *testing.T) {
 	}
 }
 
-// longestRecords are RecordsMax records at their bounds, every byte of their names and folders
+// longestRecords are MaxRecords records at their bounds, every byte of their names and folders
 // one JSON writes as six.
 func longestRecords() []hosted.Record {
-	records := make([]hosted.Record, 0, hosted.RecordsMax())
-	for index := range hosted.RecordsMax() {
+	records := make([]hosted.Record, 0, hosted.MaxRecords())
+	for index := range hosted.MaxRecords() {
 		each := record(index)
-		each.Name = strings.Repeat("&", hosted.NameBytesMax)
-		each.Dir = "/" + strings.Repeat("<", hosted.DirBytesMax-1)
+		each.Name = strings.Repeat("&", hosted.MaxNameBytes)
+		each.Dir = "/" + strings.Repeat("<", hosted.MaxDirBytes-1)
 		records = append(records, each)
 	}
 
@@ -570,20 +570,20 @@ func writtenText(t *testing.T, records []hosted.Record) string {
 	return string(text) + "\n"
 }
 
-// A record file is read only up to its bound. Write never writes one that long (RecordsMax of
+// A record file is read only up to its bound. Write never writes one that long (MaxRecords of
 // the longest records fit), so a file over it is not one Conn wrote.
 func TestReadRefusesAFileOverItsSize(t *testing.T) {
 	t.Parallel()
 
 	written := writtenText(t, longestRecords())
-	if len(written) > hosted.FileBytesMax() {
+	if len(written) > hosted.MaxFileBytes() {
 		t.Fatalf("the longest records are %d bytes, over the bound %d", len(written),
-			hosted.FileBytesMax())
+			hosted.MaxFileBytes())
 	}
 
 	// The same records, with spaces up to a byte over the bound before the closing brace.
 	padded := written[:len(written)-2] +
-		strings.Repeat(" ", hosted.FileBytesMax()+1-len(written)) + "}\n"
+		strings.Repeat(" ", hosted.MaxFileBytes()+1-len(written)) + "}\n"
 
 	dir := t.TempDir()
 	writeText(t, dir, padded)

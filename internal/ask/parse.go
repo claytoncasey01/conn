@@ -376,7 +376,7 @@ func pickerOptions(lines []string, firstOption int) ([]Option, bool) {
 // last one under the picker's rule.
 func pickerTailRows(options []parsed) bool {
 	count := len(options)
-	if count < pickerMin {
+	if count < minPicker {
 		return false
 	}
 

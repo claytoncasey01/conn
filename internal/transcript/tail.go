@@ -52,9 +52,9 @@ func (t *Tail) AtEnd() bool {
 // partial line is skipped.
 func (t *Tail) ReadAll() []any { return t.Read(math.MaxInt64) }
 
-// Read is as ReadAll, but stops after about bytesMax bytes, so a caller can yield between calls
+// Read is as ReadAll, but stops after about maxBytes bytes, so a caller can yield between calls
 // and loop until AtEnd.
-func (t *Tail) Read(bytesMax int64) []any {
+func (t *Tail) Read(maxBytes int64) []any {
 	file, err := os.Open(t.path)
 	if err != nil {
 		t.missing = true
@@ -78,12 +78,12 @@ func (t *Tail) Read(bytesMax int64) []any {
 		t.offset, t.rest = 0, nil
 	}
 
-	return t.consume(file, bytesMax)
+	return t.consume(file, maxBytes)
 }
 
-func (t *Tail) consume(file io.ReaderAt, bytesMax int64) []any {
+func (t *Tail) consume(file io.ReaderAt, maxBytes int64) []any {
 	lines := []any{}
-	budget := bytesMax
+	budget := maxBytes
 
 	for t.offset < t.Size {
 		if budget <= 0 {

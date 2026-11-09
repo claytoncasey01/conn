@@ -125,9 +125,9 @@ func TestEClean(t *testing.T) {
 	}{
 		{
 			"hidden characters", "a\u202eb\u0085c\u200bd\ufeffe\u200df\u001bg\u007fh", false,
-			myprs.TextUnitsMax, "abcdefgh",
+			myprs.MaxTextUnits, "abcdefgh",
 		},
-		{"line breaks", "a\nb\tc\u2028d\u2029e", false, myprs.TextUnitsMax, "a b c d e"},
+		{"line breaks", "a\nb\tc\u2028d\u2029e", false, myprs.MaxTextUnits, "a b c d e"},
 		{
 			"lines and a fence", "Fixed:\n- renamed X\n- added test\n\n```ts\nfoo()\n```", true,
 			myprs.NoCut, "Fixed:\n- renamed X\n- added test\n\n```ts\nfoo()\n```",
@@ -164,7 +164,7 @@ func TestEClean(t *testing.T) {
 		want int
 	}{
 		{"clean to 300", myprs.Clean(strings.Repeat("x", 500), 300), 300},
-		{"clean to 400", myprs.Clean(strings.Repeat("x", 500), myprs.TextUnitsMax), 400},
+		{"clean to 400", myprs.Clean(strings.Repeat("x", 500), myprs.MaxTextUnits), 400},
 		{"multiline to 300", myprs.CleanMultiline(strings.Repeat("x", 500), 300), 300},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

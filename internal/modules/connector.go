@@ -28,9 +28,9 @@ const (
 )
 
 const (
-	// nameShownMax and errorShownMax cut what the model answered, in UTF-16 units.
-	nameShownMax  = 60
-	errorShownMax = 160
+	// maxNameShown and maxErrorShown cut what the model answered, in UTF-16 units.
+	maxNameShown  = 60
+	maxErrorShown = 160
 
 	// probeSchema is the answer a probe asks for.
 	probeSchema = `{"type":"object","properties":{"ok":{"type":"boolean"},` +
@@ -89,7 +89,7 @@ func ConnectorProbe(connector Connector, runner RunFunc) Probe {
 		if err != nil {
 			why := "not signed in: connect it in claude.ai"
 			if !signedOut {
-				why = CleanDetail(err.Error(), errorShownMax)
+				why = CleanDetail(err.Error(), maxErrorShown)
 			}
 
 			return failing(label(connector) + " could not be checked (" + why + ")"), nil
@@ -112,7 +112,7 @@ func answered(connector Connector, structured any) ProbeResult {
 
 	ok, _ := object.Get("ok")
 	if ok == true {
-		name := CleanDetail(stringAt(object, "name"), nameShownMax)
+		name := CleanDetail(stringAt(object, "name"), maxNameShown)
 		if name == "" {
 			return ProbeResult{OK: true, Detail: label(connector) + " connector works"}
 		}
@@ -120,7 +120,7 @@ func answered(connector Connector, structured any) ProbeResult {
 		return ProbeResult{OK: true, Detail: label(connector) + " connector works (" + name + ")"}
 	}
 
-	why := CleanDetail(stringAt(object, "error"), errorShownMax)
+	why := CleanDetail(stringAt(object, "error"), maxErrorShown)
 	if why == "" {
 		return failing(label(connector) + " did not answer")
 	}

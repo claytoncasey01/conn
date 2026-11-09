@@ -155,17 +155,17 @@ func sourceFolders(src string) ([]string, error) {
 
 // limits refuses an index the app would not read whole.
 func limits(result built, repo string) built {
-	if len(result.entries) > gallery.IndexEntriesMax {
+	if len(result.entries) > gallery.MaxIndexEntries {
 		result.errors = append(result.errors, "the index would list "+
 			strconv.Itoa(len(result.entries))+" themes; the app reads at most "+
-			strconv.Itoa(gallery.IndexEntriesMax))
+			strconv.Itoa(gallery.MaxIndexEntries))
 	}
 
 	size := len(serialized(repo, result.entries))
-	if size > gallery.IndexBytesMax {
+	if size > gallery.MaxIndexBytes {
 		result.errors = append(result.errors, "index.json would be "+
 			strconv.Itoa(int(math.Ceil(float64(size)/kibibyte)))+" KB; the app reads at most "+
-			kb(gallery.IndexBytesMax))
+			kb(gallery.MaxIndexBytes))
 	}
 
 	return result

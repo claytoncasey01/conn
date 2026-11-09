@@ -27,10 +27,10 @@ import (
 
 const (
 	dayMs        = 86_400_000
-	limitDefault = 100
-	limitMax     = 500
-	listMax      = 50
-	textMax      = 200
+	defaultLimit = 100
+	maxLimit     = 500
+	maxList      = 50
+	maxText      = 200
 	safeInteger  = 1<<53 - 1
 	prefix       = "/api/history"
 	// actionSegments is an id and what to do with it; agentSegments an id, agents and an agent.

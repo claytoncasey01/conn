@@ -37,11 +37,11 @@ const (
 	// probeKeepAlive is how often an idle probe connection is checked by TCP.
 	probeKeepAlive = 15 * time.Second
 
-	// probeHeaderBytesMax caps a probe answer's headers: the server sends a handful.
-	probeHeaderBytesMax = 16 << 10
+	// maxProbeHeaderBytes caps a probe answer's headers: the server sends a handful.
+	maxProbeHeaderBytes = 16 << 10
 
-	// probeBodyBytesMax is as much of a probe's answer as is read: {"ok":true,"clients":N}.
-	probeBodyBytesMax = 1 << 10
+	// maxProbeBodyBytes is as much of a probe's answer as is read: {"ok":true,"clients":N}.
+	maxProbeBodyBytes = 1 << 10
 
 	// probeIdleConnections is how many connections the probe keeps open between probes: one
 	// server, asked one question at a time.
@@ -134,7 +134,7 @@ func newProbeClient() *http.Client {
 			MaxConnsPerHost:        probeIdleConnections,
 			IdleConnTimeout:        probeIdleTimeout,
 			ResponseHeaderTimeout:  probeTimeout,
-			MaxResponseHeaderBytes: probeHeaderBytesMax,
+			MaxResponseHeaderBytes: maxProbeHeaderBytes,
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -162,7 +162,7 @@ func probe(ctx context.Context, client *http.Client, url string, key secret.Secr
 	defer func() { _ = response.Body.Close() }()
 
 	// Reading the answer lets the connection be used again; it is small and capped.
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, probeBodyBytesMax))
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxProbeBodyBytes))
 
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("%w: %s gave %s", errProbeStatus, url, response.Status)

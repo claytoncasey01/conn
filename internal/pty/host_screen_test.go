@@ -150,7 +150,7 @@ func TestHostAnswersAFloodOfQueriesBoundedly(t *testing.T) {
 	close(gate)
 
 	// The answers already queued arrive; then nothing more does.
-	most := (pty.AnswersQueuedMax + 1) * len(deviceAttributesReply)
+	most := (pty.MaxAnswersQueued + 1) * len(deviceAttributesReply)
 
 	time.Sleep(testtime.Scaled(100 * time.Millisecond))
 
@@ -218,7 +218,7 @@ func TestResizeRefusesMoreCellsThanTheScreenHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = host.Resize(sessionID, pty.ColumnsMax, pty.RowsMax)
+	err = host.Resize(sessionID, pty.MaxColumns, pty.MaxRows)
 	if !errors.Is(err, pty.ErrInvalidSize) {
 		t.Errorf("Resize = %v, want ErrInvalidSize", err)
 	}

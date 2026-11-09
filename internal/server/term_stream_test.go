@@ -15,8 +15,8 @@ import (
 	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
-// viewersMax is the host's limit on one session's viewers, which the route keeps.
-const viewersMax = 4
+// maxViewers is the host's limit on one session's viewers, which the route keeps.
+const maxViewers = 4
 
 // stoppedClock is a clock that never moves, so a rate test spends only the burst.
 func stoppedClock() time.Time { return time.Unix(1_000_000, 0) }
@@ -206,12 +206,12 @@ func badFrames() []badFrame {
 		},
 		{
 			"input of one byte too many", websocket.MessageText,
-			inputFrame(strings.Repeat("a", server.InputFrameBytesMax+1)),
+			inputFrame(strings.Repeat("a", server.MaxInputFrameBytes+1)),
 			websocket.StatusPolicyViolation,
 		},
 		{
 			"a frame longer than the read limit", websocket.MessageText,
-			strings.Repeat(" ", server.FrameBytesMax+1), websocket.StatusMessageTooBig,
+			strings.Repeat(" ", server.MaxFrameBytes+1), websocket.StatusMessageTooBig,
 		},
 	}
 }
@@ -225,11 +225,11 @@ func TestTheLargestInputFrameIsTyped(t *testing.T) {
 	conn := rig.open(t, sessionID)
 	readOutputUntilText(t, conn)
 
-	data := strings.Repeat("a", server.InputFrameBytesMax)
+	data := strings.Repeat("a", server.MaxInputFrameBytes)
 	sendMessage(t, conn, websocket.MessageText, inputFrame(data))
 
 	eventually(t, "the input never reached the program", func() bool {
-		return len(program.writtenSoFar()) == server.InputFrameBytesMax
+		return len(program.writtenSoFar()) == server.MaxInputFrameBytes
 	})
 }
 
@@ -238,14 +238,14 @@ func TestTheLargestInputFrameIsTyped(t *testing.T) {
 func TestAnInputFloodIsCutOff(t *testing.T) {
 	t.Parallel()
 
-	frameData := strings.Repeat("a", server.InputFrameBytesMax)
+	frameData := strings.Repeat("a", server.MaxInputFrameBytes)
 
 	tests := []struct {
 		name      string
 		frameData string
 		frames    int
 	}{
-		{"in bytes", frameData, server.InputBytesBurst / server.InputFrameBytesMax},
+		{"in bytes", frameData, server.InputBytesBurst / server.MaxInputFrameBytes},
 		{"in frames", "a", server.InputFramesBurst},
 	}
 
@@ -322,7 +322,7 @@ func TestTheInputCapIsTheSessions(t *testing.T) {
 	readOutputUntil(t, first, "still here")
 }
 
-// A session takes viewersMax viewers; the next is refused before the handshake completes, and a
+// A session takes maxViewers viewers; the next is refused before the handshake completes, and a
 // place freed by a viewer that leaves can be taken again.
 func TestTheViewerPastTheLimitIsRefused(t *testing.T) {
 	t.Parallel()
@@ -330,8 +330,8 @@ func TestTheViewerPastTheLimitIsRefused(t *testing.T) {
 	rig := newTerminalRig(t, rigSetup{})
 	sessionID, _ := rig.start(t)
 
-	conns := make([]*websocket.Conn, 0, viewersMax)
-	for range viewersMax {
+	conns := make([]*websocket.Conn, 0, maxViewers)
+	for range maxViewers {
 		conn := rig.open(t, sessionID)
 		readOutputUntilText(t, conn)
 		conns = append(conns, conn)
@@ -402,7 +402,7 @@ func TestASlowViewerIsClosedAndAFastOneKeepsItsOutput(t *testing.T) {
 	closeCode(t, slow)
 
 	eventually(t, "the slow viewer's place was never freed", func() bool {
-		return rig.canOpen(t, sessionID, viewersMax-1)
+		return rig.canOpen(t, sessionID, maxViewers-1)
 	})
 }
 
@@ -551,7 +551,7 @@ func TestAPeerThatStopsAnsweringIsDropped(t *testing.T) {
 	sessionID, _ := rig.start(t)
 
 	// A connection that is never read never answers a ping.
-	for range viewersMax {
+	for range maxViewers {
 		rig.open(t, sessionID)
 	}
 
@@ -570,7 +570,7 @@ func TestAPeerThatStopsAnsweringIsDropped(t *testing.T) {
 
 // The terminals open at once are bounded over all sessions, not only per session: an ended
 // session takes any number of viewers (each holds no place of the host's), so a flood of
-// handshakes is refused past connectionsMax. A scripted host keeps every viewer's output open,
+// handshakes is refused past maxConnections. A scripted host keeps every viewer's output open,
 // so the terminals stay open for as long as the test needs.
 func TestTheTerminalsOpenAtOnceAreBounded(t *testing.T) {
 	t.Parallel()
@@ -578,7 +578,7 @@ func TestTheTerminalsOpenAtOnceAreBounded(t *testing.T) {
 	host := &scriptedHost{}
 	rig := newTerminalRig(t, rigSetup{host: host})
 
-	for range server.ConnectionsMax {
+	for range server.MaxConnections {
 		rig.open(t, sessionShape)
 	}
 
@@ -591,7 +591,7 @@ func TestTheTerminalsOpenAtOnceAreBounded(t *testing.T) {
 		t.Fatalf("status %d, want 503", refused.status)
 	}
 
-	if host.subscribed() != server.ConnectionsMax {
-		t.Fatalf("%d viewers subscribed, want %d", host.subscribed(), server.ConnectionsMax)
+	if host.subscribed() != server.MaxConnections {
+		t.Fatalf("%d viewers subscribed, want %d", host.subscribed(), server.MaxConnections)
 	}
 }

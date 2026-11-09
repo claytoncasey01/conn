@@ -13,20 +13,20 @@ import (
 )
 
 const (
-	// listedMax is the most Slack channels and Jira keys: both go into prompts and queries.
-	listedMax = 20
+	// maxListed is the most Slack channels and Jira keys: both go into prompts and queries.
+	maxListed = 20
 
-	// branchUnitsMax and pathUnitsMax are the longest branch name and folder path, in UTF-16
+	// maxBranchUnits and maxPathUnits are the longest branch name and folder path, in UTF-16
 	// code units as the page counts them.
-	branchUnitsMax = 100
-	pathUnitsMax   = 1024
+	maxBranchUnits = 100
+	maxPathUnits   = 1024
 
-	// baseBranchesMax is the most repositories with a base branch of their own.
-	baseBranchesMax = 100
+	// maxBaseBranches is the most repositories with a base branch of their own.
+	maxBaseBranches = 100
 
-	// shownUnitsMax is the longest a value is shown in a message; a longer one is cut to
+	// maxShownUnits is the longest a value is shown in a message; a longer one is cut to
 	// shownCutUnits and an ellipsis.
-	shownUnitsMax = 60
+	maxShownUnits = 60
 	shownCutUnits = 57
 )
 
@@ -156,7 +156,7 @@ func ParseBranch(raw any) (string, bool) {
 		return "", false
 	}
 
-	if js.Len(name) > branchUnitsMax {
+	if js.Len(name) > maxBranchUnits {
 		return "", false
 	}
 
@@ -180,7 +180,7 @@ func ParseBranch(raw any) (string, bool) {
 // show is a value for a message, short, and safe to print whatever it is.
 func show(value any) string {
 	text := js.Stringify(value)
-	if js.Len(text) > shownUnitsMax {
+	if js.Len(text) > maxShownUnits {
 		return js.Slice(text, shownCutUnits) + "..."
 	}
 
@@ -199,7 +199,7 @@ func absolutePath(value any) (string, bool) {
 		return "", false
 	}
 
-	if js.Len(path) > pathUnitsMax {
+	if js.Len(path) > maxPathUnits {
 		return "", false
 	}
 
@@ -291,11 +291,11 @@ func readAllow(object *js.Object, found *problems) []string {
 		}
 	}
 
-	if len(allow) > PatternsMax {
+	if len(allow) > MaxPatterns {
 		found.addf("repos.allow holds %d patterns: only the first %d are kept",
-			len(allow), PatternsMax)
+			len(allow), MaxPatterns)
 
-		allow = allow[:PatternsMax]
+		allow = allow[:MaxPatterns]
 	}
 
 	return allow
@@ -387,11 +387,11 @@ func names(raw any, present bool, shape *regexp.Regexp, where, rule string,
 		}
 	}
 
-	if len(kept) > listedMax {
+	if len(kept) > maxListed {
 		found.addf("%s holds %d entries: only the first %d are kept", where, len(kept),
-			listedMax)
+			maxListed)
 
-		kept = kept[:listedMax]
+		kept = kept[:maxListed]
 	}
 
 	return kept
@@ -519,7 +519,7 @@ func readChoice(jira *js.Object, key string, allowed []string, fallback string,
 
 // readBaseBranches reads atlassian.jira.baseBranches: repository (lowercased, first spelling
 // wins) to branch. Every entry that cannot be used is reported and left out, as are the ones
-// past baseBranchesMax; a null branch is no entry. The map is never nil.
+// past maxBaseBranches; a null branch is no entry. The map is never nil.
 func readBaseBranches(jira *js.Object, allow []string, checkAllow bool,
 	found *problems,
 ) map[string]string {
@@ -543,11 +543,11 @@ func readBaseBranches(jira *js.Object, allow []string, checkAllow bool,
 	}
 
 	repoNames := object.Keys()
-	if len(repoNames) > baseBranchesMax {
+	if len(repoNames) > maxBaseBranches {
 		found.addf("atlassian.jira.baseBranches holds %d entries: only the first %d are read",
-			len(repoNames), baseBranchesMax)
+			len(repoNames), maxBaseBranches)
 
-		repoNames = repoNames[:baseBranchesMax]
+		repoNames = repoNames[:maxBaseBranches]
 	}
 
 	for _, repo := range repoNames {

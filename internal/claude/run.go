@@ -18,12 +18,12 @@ import (
 )
 
 const (
-	// lineBytesMax is the longest output line read. A result line carries the whole answer, so
+	// maxLineBytes is the longest output line read. A result line carries the whole answer, so
 	// the limit is generous; a longer line is skipped and the reading goes on.
-	lineBytesMax = 16 << 20
+	maxLineBytes = 16 << 20
 
-	// stderrBytesMax is how much error output is kept: a failure shows only its start.
-	stderrBytesMax = 64 << 10
+	// maxStderrBytes is how much error output is kept: a failure shows only its start.
+	maxStderrBytes = 64 << 10
 
 	// waitDelay is how long the output pipes are read after the run stops: a connector's server
 	// the run started can keep them open after claude itself has exited.
@@ -130,7 +130,7 @@ func exitCode(cmd *exec.Cmd) string {
 	return strconv.Itoa(code)
 }
 
-// lineWriter hands each complete line written to it to onLine. A line longer than lineBytesMax
+// lineWriter hands each complete line written to it to onLine. A line longer than maxLineBytes
 // is dropped whole.
 type lineWriter struct {
 	mu       sync.Mutex
@@ -167,7 +167,7 @@ func (w *lineWriter) take(part []byte) {
 		return
 	}
 
-	if len(w.pending)+len(part) > lineBytesMax {
+	if len(w.pending)+len(part) > maxLineBytes {
 		w.pending = nil
 		w.skipping = true
 
@@ -207,7 +207,7 @@ func (w *lineWriter) flush() {
 	w.end()
 }
 
-// headWriter keeps the first stderrBytesMax bytes written to it.
+// headWriter keeps the first maxStderrBytes bytes written to it.
 type headWriter struct {
 	mu   sync.Mutex
 	text strings.Builder
@@ -217,7 +217,7 @@ func (w *headWriter) Write(chunk []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	room := stderrBytesMax - w.text.Len()
+	room := maxStderrBytes - w.text.Len()
 	if room > 0 {
 		w.text.Write(chunk[:min(room, len(chunk))])
 	}

@@ -23,7 +23,7 @@ func Marshal(value any) []byte {
 }
 
 func marshalValue(builder *strings.Builder, value reflect.Value, depth int) {
-	if depth > depthMax {
+	if depth > maxDepth {
 		panic("js.Marshal: a value nests deeper than depthMax; is it a cycle?")
 	}
 

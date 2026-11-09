@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-// A launch reads a module's store at most bytesMax bytes, and only from a regular file: anything
+// A launch reads a module's store at most maxBytes bytes, and only from a regular file: anything
 // else is no store, so no review is resumed from it.
 func TestReadStoreText(t *testing.T) {
 	t.Parallel()
 
-	const bytesMax = 8
+	const maxBytes = 8
 
 	tests := []struct {
 		name     string
@@ -49,7 +49,7 @@ func TestReadStoreText(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "reviews.json")
 			tt.arrange(t, path)
 
-			text, read := readStoreText(path, bytesMax)
+			text, read := readStoreText(path, maxBytes)
 			if read != tt.wantRead {
 				t.Fatalf("read %v, want %v", read, tt.wantRead)
 			}

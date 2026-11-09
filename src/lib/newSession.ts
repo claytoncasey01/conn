@@ -4,7 +4,7 @@
 import { api } from './api.ts'
 
 export const NEW_SESSION_PATH = '/api/sessions/new'
-/** The most bytes a name may hold, as the server counts them (UTF-8): internal/newsession's nameBytesMax */
+/** The most bytes a name may hold, as the server counts them (UTF-8): internal/newsession's maxNameBytes */
 export const NAME_BYTES_MAX = 256
 
 /** Whether a name is longer than the server takes, counted in UTF-8 bytes as the server counts it, not in characters */

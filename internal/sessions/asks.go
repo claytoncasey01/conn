@@ -17,8 +17,8 @@ const (
 	askLines = 80
 	// askEveryMs is how often a waiting session's screen is read at most.
 	askEveryMs = 2000
-	// readsMax is how many waiting screens are read at once.
-	readsMax = 4
+	// maxReads is how many waiting screens are read at once.
+	maxReads = 4
 )
 
 // waitingFor is what the registry's waitingFor must say for a parsed dialog to keep its buttons.
@@ -29,7 +29,7 @@ func waitingFor(kind string) (string, bool) {
 	case ask.KindPermission:
 		return "permission prompt", true
 	case ask.KindQuestion:
-		return waitingDefault, true
+		return defaultWaiting, true
 	}
 
 	return "", false
@@ -85,7 +85,7 @@ func SharedAsk(found *ask.Ask, stamp float64) *ask.Ask {
 
 // readAsks starts reading the screen of every session the registry shows as waiting (and that
 // runs in a cmux surface). Each is read at most every 2 s, never by two reads at once, at most
-// readsMax together (the longest unread first). A read that hangs holds only its own session.
+// maxReads together (the longest unread first). A read that hangs holds only its own session.
 func (s *store) readAsks(ctx context.Context, now float64) {
 	s.forgetAsks()
 	s.readHostedAsks(now)
@@ -106,7 +106,7 @@ func (s *store) readAsks(ctx context.Context, now float64) {
 
 	detached := context.WithoutCancel(ctx)
 
-	for _, next := range ready[:min(len(ready), max(0, readsMax-len(s.reading)))] {
+	for _, next := range ready[:min(len(ready), max(0, maxReads-len(s.reading)))] {
 		s.reading[next.pid] = true
 		go s.readScreen(detached, next, now)
 	}

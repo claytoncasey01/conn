@@ -21,8 +21,8 @@ import (
 const (
 	// terminalBackgroundPath is the route.
 	terminalBackgroundPath = "/api/term/background"
-	// backgroundBodyBytesMax bounds the body: {"background":"#rrggbb"} with room to spare.
-	backgroundBodyBytesMax = 256
+	// maxBackgroundBodyBytes bounds the body: {"background":"#rrggbb"} with room to spare.
+	maxBackgroundBodyBytes = 256
 )
 
 // backgroundShape is the only colour the route takes: # and six hex digits.
@@ -56,14 +56,14 @@ func (s *Server) terminalBackground(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := io.ReadAll(io.LimitReader(r.Body, backgroundBodyBytesMax+1))
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxBackgroundBodyBytes+1))
 	if err != nil {
 		sendJSON(w, http.StatusBadRequest, errorBody{Error: errNotBackground.Error()})
 
 		return
 	}
 
-	if len(data) > backgroundBodyBytesMax {
+	if len(data) > maxBackgroundBodyBytes {
 		sendJSON(w, http.StatusRequestEntityTooLarge, errorBody{Error: errTooLarge.Error()})
 
 		return

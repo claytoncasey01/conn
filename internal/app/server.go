@@ -29,8 +29,8 @@ import (
 )
 
 const (
-	portDefault = 7777
-	portMax     = 65535
+	defaultPort = 7777
+	maxPort     = 65535
 )
 
 // ShutdownTimeout is how long a stopping server gives open requests to finish before it closes
@@ -61,9 +61,9 @@ const (
 	writeTimeout      = 0
 	idleTimeout       = 60 * time.Second
 
-	// headerBytesMax is net/http's default (http.DefaultMaxHeaderBytes), set here so the limit is
+	// maxHeaderBytes is net/http's default (http.DefaultMaxHeaderBytes), set here so the limit is
 	// a decision in this file rather than a default nobody looked at.
-	headerBytesMax = 1 << 20
+	maxHeaderBytes = 1 << 20
 )
 
 var errNotPort = errors.New("CONN_PORT is not a port")
@@ -460,7 +460,7 @@ func newHTTPServer(handler http.Handler) *http.Server {
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
-		MaxHeaderBytes:    headerBytesMax,
+		MaxHeaderBytes:    maxHeaderBytes,
 	}
 }
 
@@ -470,7 +470,7 @@ func port(lookup config.LookupFunc) (int, error) {
 	value = strings.TrimSpace(value)
 
 	if value == "" {
-		return portDefault, nil
+		return defaultPort, nil
 	}
 
 	number, err := strconv.Atoi(value)
@@ -482,7 +482,7 @@ func port(lookup config.LookupFunc) (int, error) {
 		return 0, fmt.Errorf("%w: %q", errNotPort, value)
 	}
 
-	if number > portMax {
+	if number > maxPort {
 		return 0, fmt.Errorf("%w: %q", errNotPort, value)
 	}
 

@@ -24,9 +24,9 @@ const (
 	keyProtocolPrefix = "conn.key."
 	// terminalProtocolsCount is how many subprotocols the page's handshake names.
 	terminalProtocolsCount = 2
-	// protocolHeaderBytesMax bounds the header the secret is read from: the two protocols take
+	// maxProtocolHeaderBytes bounds the header the secret is read from: the two protocols take
 	// 66 bytes.
-	protocolHeaderBytesMax = 128
+	maxProtocolHeaderBytes = 128
 	// headerSpace is the space HTTP allows around a header's list items.
 	headerSpace = " \t"
 
@@ -214,7 +214,7 @@ func hasToken(header http.Header, name, token string) bool {
 
 // terminalKey is the secret a terminal handshake carries, or "" for anything but the one shape
 // the page sends: no Authorization header (one credential, in one place), and exactly one
-// Sec-WebSocket-Protocol header of at most protocolHeaderBytesMax bytes, holding exactly two
+// Sec-WebSocket-Protocol header of at most maxProtocolHeaderBytes bytes, holding exactly two
 // protocols, terminalProtocol and then keyProtocolPrefix followed by the secret. The server
 // echoes only the first, so the second never comes back. An empty secret matches nothing.
 func terminalKey(header http.Header) string {
@@ -227,7 +227,7 @@ func terminalKey(header http.Header) string {
 		return ""
 	}
 
-	if len(values[0]) > protocolHeaderBytesMax {
+	if len(values[0]) > maxProtocolHeaderBytes {
 		return ""
 	}
 

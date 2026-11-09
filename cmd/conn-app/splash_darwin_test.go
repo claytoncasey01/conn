@@ -13,8 +13,8 @@ const tracedExport = "+ export PROFILE_VALUE=do-not-show-this"
 func TestSplashPage(t *testing.T) {
 	t.Parallel()
 
-	// pageBytesMax bounds the page whatever the reason: the template and a capped notice.
-	pageBytesMax := len(splashPage(splashFile, desk.SplashText(""))) + 1024
+	// maxPageBytes bounds the page whatever the reason: the template and a capped notice.
+	maxPageBytes := len(splashPage(splashFile, desk.SplashText(""))) + 1024
 
 	tests := []struct {
 		name       string
@@ -38,7 +38,7 @@ func TestSplashPage(t *testing.T) {
 			name:       "a long reason is cut",
 			reason:     "timed out " + strings.Repeat("x", 100_000),
 			wantHas:    "timed out x",
-			wantHasNot: strings.Repeat("x", desk.ReasonRunesMax+1),
+			wantHasNot: strings.Repeat("x", desk.MaxReasonRunes+1),
 		},
 	}
 	for _, tt := range tests {
@@ -55,8 +55,8 @@ func TestSplashPage(t *testing.T) {
 				t.Errorf("the splash page holds %q", tt.wantHasNot)
 			}
 
-			if len(page) > pageBytesMax {
-				t.Errorf("the splash page is %d bytes, want at most %d", len(page), pageBytesMax)
+			if len(page) > maxPageBytes {
+				t.Errorf("the splash page is %d bytes, want at most %d", len(page), maxPageBytes)
 			}
 		})
 	}

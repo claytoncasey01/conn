@@ -8,8 +8,8 @@ import (
 // CheckTimeout exposes checkTimeout to the tests in package update_test.
 const CheckTimeout time.Duration = checkTimeout
 
-// TagBytesMax exposes tagBytesMax to the tests in package update_test.
-const TagBytesMax = tagBytesMax
+// MaxTagBytes exposes maxTagBytes to the tests in package update_test.
+const MaxTagBytes = maxTagBytes
 
 // ResponseHeaderTimeout exposes responseHeaderTimeout to the tests in package update_test.
 const ResponseHeaderTimeout time.Duration = responseHeaderTimeout

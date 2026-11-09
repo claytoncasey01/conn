@@ -53,7 +53,7 @@ func (v *viewer) stop() {
 }
 
 // Subscribe adds a viewer to the session. A session that has ended gives its scrollback and an
-// Output that is already closed. A viewer holds one of the session's viewersMax places until it
+// Output that is already closed. A viewer holds one of the session's maxViewers places until it
 // is closed, or dropped for falling behind: close every viewer when its client goes.
 func (h *Host) Subscribe(sessionID ID) (Viewer, error) {
 	h.mu.Lock()
@@ -76,7 +76,7 @@ func (h *Host) Subscribe(sessionID ID) (Viewer, error) {
 		}, nil
 	}
 
-	if len(watched.viewers) >= h.limits.ViewersMax {
+	if len(watched.viewers) >= h.limits.MaxViewers {
 		return Viewer{}, ErrViewersFull
 	}
 

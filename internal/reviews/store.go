@@ -33,10 +33,10 @@ const (
 	// foundKeepMs is how long a discovery not fetched is kept (the next scan finds it again if
 	// it is still asked for).
 	foundKeepMs = 86_400_000
-	// FoundMax is the most discoveries kept waiting.
-	FoundMax = 300
-	// safeIntegerMax is Number.MAX_SAFE_INTEGER.
-	safeIntegerMax = 1<<53 - 1
+	// MaxFound is the most discoveries kept waiting.
+	MaxFound = 300
+	// maxSafeInteger is Number.MAX_SAFE_INTEGER.
+	maxSafeInteger = 1<<53 - 1
 )
 
 // The launch models.
@@ -165,7 +165,7 @@ type File struct {
 	// PRs are by key, `owner/repo#n` lowercase.
 	PRs *js.Map[*Entry] `json:"prs"`
 	// Found are by key: what the scans found and the fetches have not checked yet (at most
-	// FoundMax).
+	// MaxFound).
 	Found *js.Map[*Found] `json:"found"`
 	// Legacy are by old PR number: version 1 records whose repo could not be worked out. Kept,
 	// never shown, never fetched.
@@ -233,7 +233,7 @@ func digitsNumber(text string) (int64, bool) {
 		return 0, false
 	}
 
-	if value > safeIntegerMax {
+	if value > maxSafeInteger {
 		return 0, false
 	}
 
@@ -245,7 +245,7 @@ func safeNumber(number int64) bool {
 		return false
 	}
 
-	return number <= safeIntegerMax
+	return number <= maxSafeInteger
 }
 
 // ---- reading ----

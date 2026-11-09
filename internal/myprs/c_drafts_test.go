@@ -444,7 +444,7 @@ func TestCSavedDraftForAnOlderHeadIsNotShown(t *testing.T) {
 func TestCDraftRetriesStopAfterTheCap(t *testing.T) {
 	t.Parallel()
 
-	cSame(t, "DraftTriesMax", myprs.DraftTriesMax, 3)
+	cSame(t, "DraftTriesMax", myprs.MaxDraftTries, 3)
 
 	round := cReadyRound(t, cRoundOpts{})
 	round.setDraft(myprs.DraftResult{OK: false, Error: "timed out after 90s", Final: false})
@@ -501,7 +501,7 @@ func TestCDraftRefusedAsOneIsWaitingIsNotTriedAgain(t *testing.T) {
 	saved := round.savedDraft()
 	cSame(t, "state", saved.State, "failed")
 	cSame(t, "error", saved.Error, new(why))
-	cSame(t, "tries", saved.Tries, myprs.DraftTriesMax)
+	cSame(t, "tries", saved.Tries, myprs.MaxDraftTries)
 	cSame(t, "text", saved.Text, drafts[0].Text)
 	cSame(t, "status", round.status(), "draft-failed")
 

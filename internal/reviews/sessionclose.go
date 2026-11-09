@@ -22,8 +22,8 @@ const (
 	inputEmpty = "empty"
 	codeOK     = 200
 	codeBusy   = 409
-	// foldersUpMax bounds the walk up a path that does not exist yet.
-	foldersUpMax = 4096
+	// maxFoldersUp bounds the walk up a path that does not exist yet.
+	maxFoldersUp = 4096
 )
 
 var gitdirLine = regexp.MustCompile(`^gitdir:[` + js.SpaceClass + `]*(.+?)[` + js.SpaceClass +
@@ -77,7 +77,7 @@ func Real(path string) string {
 
 	current := path
 
-	for range foldersUpMax {
+	for range maxFoldersUp {
 		resolved, err := filepath.EvalSymlinks(current)
 		if err == nil {
 			absolute, absErr := filepath.Abs(resolved)

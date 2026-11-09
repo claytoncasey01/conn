@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	// seenMax is the most repositories the page is offered.
-	seenMax = 200
+	// maxSeen is the most repositories the page is offered.
+	maxSeen = 200
 
 	prefix = "/api/settings"
 )
@@ -310,14 +310,14 @@ func (a *API) clones(seen []Seen, allow []string) []cloneRow {
 }
 
 // seen are the repositories of the live sessions, the My PRs rows and History, each once
-// (lowercase, where it was seen first), at most seenMax. A name that is not owner/repo is left
+// (lowercase, where it was seen first), at most maxSeen. A name that is not owner/repo is left
 // out.
 func (a *API) seen() []Seen {
 	found := []Seen{}
 	listed := map[string]bool{}
 
 	add := func(repo, from string) {
-		if len(found) >= seenMax {
+		if len(found) >= maxSeen {
 			return
 		}
 

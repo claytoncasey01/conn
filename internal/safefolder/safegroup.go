@@ -19,10 +19,10 @@ const (
 	// groupFile and passwdFile are the system's lists of groups and of accounts.
 	groupFile  = "/etc/group"
 	passwdFile = "/etc/passwd"
-	// accountFileBytesMax and accountLinesMax bound the read of either file: one larger, or
+	// maxAccountFileBytes and maxAccountLines bound the read of either file: one larger, or
 	// longer, is not read, and every group counts as shared.
-	accountFileBytesMax = 1 << 20
-	accountLinesMax     = 10_000
+	maxAccountFileBytes = 1 << 20
+	maxAccountLines     = 10_000
 	// groupFields is how many fields a line of the group file has: name, password, id, members.
 	groupFields = 4
 	// passwdFields is how many a line of the passwd file has: name, password, uid, gid, gecos,
@@ -76,7 +76,7 @@ func currentName() string {
 }
 
 // readAccountFile is path's text, or "" when it cannot be read or is larger than
-// accountFileBytesMax.
+// maxAccountFileBytes.
 func readAccountFile(path string) string {
 	file, err := os.Open(path)
 	if err != nil {
@@ -86,12 +86,12 @@ func readAccountFile(path string) string {
 	// Only read: nothing useful can be done with a failed close.
 	defer func() { _ = file.Close() }()
 
-	data, err := io.ReadAll(io.LimitReader(file, accountFileBytesMax+1))
+	data, err := io.ReadAll(io.LimitReader(file, maxAccountFileBytes+1))
 	if err != nil {
 		return ""
 	}
 
-	if len(data) > accountFileBytesMax {
+	if len(data) > maxAccountFileBytes {
 		return ""
 	}
 
@@ -125,14 +125,14 @@ func privateGroup(who Person, gid uint32) bool {
 }
 
 // accountLines are the lines of an account file that are not blank or comments, and false when
-// the file is empty (it could not be read) or longer than accountLinesMax.
+// the file is empty (it could not be read) or longer than maxAccountLines.
 func accountLines(text string) ([]string, bool) {
 	if text == "" {
 		return nil, false
 	}
 
 	lines := strings.Split(text, "\n")
-	if len(lines) > accountLinesMax {
+	if len(lines) > maxAccountLines {
 		return nil, false
 	}
 

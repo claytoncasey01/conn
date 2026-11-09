@@ -19,11 +19,11 @@ import (
 // readScreenLines is how many lines the sessions code reads, as `cmux read-screen --lines 80`.
 const readScreenLines = 80
 
-// drawnColumns is the width of the screen recorded screens are drawn on, and drawnWidthMax the
+// drawnColumns is the width of the screen recorded screens are drawn on, and maxDrawnWidth the
 // widest line drawn on it, every character counted as two cells.
 const (
-	drawnColumns  = pty.ColumnsMax
-	drawnWidthMax = drawnColumns / 2
+	drawnColumns  = pty.MaxColumns
+	maxDrawnWidth = drawnColumns / 2
 )
 
 // recordedAsks is testdata/answers/ask/ask.json.gz: every screen the ask parser's tests use and
@@ -107,7 +107,7 @@ func fits(lines []string) bool {
 	}
 
 	for _, line := range lines {
-		if utf8.RuneCountInString(line) > drawnWidthMax {
+		if utf8.RuneCountInString(line) > maxDrawnWidth {
 			return false
 		}
 	}
@@ -247,17 +247,17 @@ func TestScreenReadsRecordedAsksAlike(t *testing.T) {
 		}
 	}
 
-	if compared < recordedComparedMin {
-		t.Fatalf("compared %d recorded screens, want at least %d", compared, recordedComparedMin)
+	if compared < minRecordedCompared {
+		t.Fatalf("compared %d recorded screens, want at least %d", compared, minRecordedCompared)
 	}
 
 	t.Logf("compared %d recorded screens, and %d without their bidirectional controls; "+
 		"not drawn as recorded, by reason: %v", compared, comparedWithoutBidi, skipped)
 }
 
-// recordedComparedMin is how many recorded screens must be compared, so a change that skips
+// minRecordedCompared is how many recorded screens must be compared, so a change that skips
 // more of them fails.
-const recordedComparedMin = 1393
+const minRecordedCompared = 1393
 
 // checkWithoutBidi draws text without its bidirectional controls and checks it parses to the
 // recorded ask, saying whether it could be drawn to check.

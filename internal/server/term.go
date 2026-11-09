@@ -23,37 +23,37 @@ const (
 	// terminalPrefix is the route's path before the session's id.
 	terminalPrefix = "/api/term/"
 
-	// inputFrameBytesMax is the most input one client frame carries; it is also the most the
+	// maxInputFrameBytes is the most input one client frame carries; it is also the most the
 	// host types in one Write.
-	inputFrameBytesMax = 64 << 10
-	// frameEnvelopeBytesMax is the most a client frame's JSON adds around its input, so
-	// frameBytesMax is the most one client frame may be: the WebSocket's read limit. A page
+	maxInputFrameBytes = 64 << 10
+	// maxFrameEnvelopeBytes is the most a client frame's JSON adds around its input, so
+	// maxFrameBytes is the most one client frame may be: the WebSocket's read limit. A page
 	// sends a paste whole in one frame, escaped as JSON, or refuses it.
-	frameEnvelopeBytesMax = 256
-	frameBytesMax         = inputFrameBytesMax + frameEnvelopeBytesMax
-	// outputFrameBytesMax is the most one binary frame of output holds; the replay and a large
+	maxFrameEnvelopeBytes = 256
+	maxFrameBytes         = maxInputFrameBytes + maxFrameEnvelopeBytes
+	// maxOutputFrameBytes is the most one binary frame of output holds; the replay and a large
 	// batch go in several.
-	outputFrameBytesMax = 64 << 10
-	// connectionsMax is the most terminals open at once over all sessions: more than the host's
+	maxOutputFrameBytes = 64 << 10
+	// maxConnections is the most terminals open at once over all sessions: more than the host's
 	// sessions times their viewers, so it only refuses a flood of handshakes for ended sessions.
-	connectionsMax = 64
+	maxConnections = 64
 	// replaysInFlightFull is how many full replays may be written at once.
 	replaysInFlightFull = 8
-	// replayBytesInFlightMax bounds the replays being written at once, in bytes: eight full
+	// maxReplayBytesInFlight bounds the replays being written at once, in bytes: eight full
 	// replays, each a mode preamble and a full scrollback. With the viewers' queues (at most
 	// 2 MiB for each of the host's 48 viewers) it bounds what viewers that do not read can make
 	// the server hold.
-	replayBytesInFlightMax = replaysInFlightFull * pty.ReplayBytesMax
-	// inputQueueFramesMax is how many of a viewer's frames may wait for the program while it
+	maxReplayBytesInFlight = replaysInFlightFull * pty.MaxReplayBytes
+	// maxInputQueueFrames is how many of a viewer's frames may wait for the program while it
 	// takes the one before. A frame past it is dropped, as input the program does not take is:
 	// the program is not reading, and the terminal stays open. The frames are typed on their own
 	// goroutine, so a program that is slow to take input never holds up the reading of pongs.
-	inputQueueFramesMax = 16
+	maxInputQueueFrames = 16
 
 	// frameWriteTimeout bounds the writing of each frame: a viewer that takes longer is closed.
 	frameWriteTimeout = 5 * time.Second
 	// replayWriteTimeout bounds the writing of a whole replay, so a viewer that reads it just fast
-	// enough for each frame holds its share of replayBytesInFlightMax for no longer than this.
+	// enough for each frame holds its share of maxReplayBytesInFlight for no longer than this.
 	// A full scrollback over loopback takes milliseconds.
 	replayWriteTimeout = 30 * time.Second
 	// pingInterval is how often a viewer is pinged, and pingTimeout how long its answer may
@@ -111,7 +111,7 @@ type Terminals struct {
 	// ended, when a test sets it, is told each session whose terminal has been told to end (its
 	// goroutines' context cancelled), before they have; nil does nothing.
 	ended func(pty.ID)
-	// open holds a value for each terminal open, at most connectionsMax.
+	// open holds a value for each terminal open, at most maxConnections.
 	open chan struct{}
 	// replayMu guards replayBytes, the bytes of the replays being written.
 	replayMu    sync.Mutex
@@ -152,7 +152,7 @@ func NewTerminals(ctx context.Context, host TerminalHost) *Terminals {
 		budgets:     newBudgets(time.Now),
 		interrupts:  newInterrupts(time.Now),
 		ended:       nil,
-		open:        make(chan struct{}, connectionsMax),
+		open:        make(chan struct{}, maxConnections),
 		replayMu:    sync.Mutex{},
 		replayBytes: 0,
 		stopping:    lifetime.Done(),
@@ -341,7 +341,7 @@ func (t *Terminals) serve(w http.ResponseWriter, r *http.Request, sessionID pty.
 }
 
 // serveViewer runs the terminal for a viewer the host gave, once its replay fits within
-// replayBytesInFlightMax.
+// maxReplayBytesInFlight.
 func (t *Terminals) serveViewer(
 	w http.ResponseWriter, r *http.Request, viewer pty.Viewer, replay []byte, sessionID pty.ID,
 ) {
@@ -375,7 +375,7 @@ func (t *Terminals) takeReplay(size int) bool {
 	t.replayMu.Lock()
 	defer t.replayMu.Unlock()
 
-	if t.replayBytes+size > replayBytesInFlightMax {
+	if t.replayBytes+size > maxReplayBytesInFlight {
 		return false
 	}
 
@@ -473,7 +473,7 @@ func (t *Terminals) accept(w http.ResponseWriter, r *http.Request) *websocket.Co
 		return nil
 	}
 
-	conn.SetReadLimit(frameBytesMax)
+	conn.SetReadLimit(maxFrameBytes)
 
 	return conn
 }

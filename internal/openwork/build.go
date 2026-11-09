@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	// answerUnitsMax is how much of an answer is kept.
-	answerUnitsMax = 600
+	// maxAnswerUnits is how much of an answer is kept.
+	maxAnswerUnits = 600
 	// resumeGapMs is how long after a session was opened for a run another may be.
 	resumeGapMs = 30_000
 	// delegationFile and briefFile are what the build session is started with.
@@ -166,7 +166,7 @@ func answerOf(answers any, questionID string) string {
 		return ""
 	}
 
-	return js.Cut(js.Trim(text), answerUnitsMax)
+	return js.Cut(js.Trim(text), maxAnswerUnits)
 }
 
 // BriefText is .conn/brief.md: where the session works, the ticket, the research brief, what the

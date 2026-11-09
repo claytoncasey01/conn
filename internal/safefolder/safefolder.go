@@ -30,9 +30,9 @@ const (
 	otherWriteBit = 0o002
 	// rootUID is the user id of root, who may own the folders above a person's own.
 	rootUID = 0
-	// pathPartsMax bounds the walk from a folder up to /: a path is at most PATH_MAX (4096)
+	// maxPathParts bounds the walk from a folder up to /: a path is at most PATH_MAX (4096)
 	// bytes, so it has at most 2048 parts.
-	pathPartsMax = 2048
+	maxPathParts = 2048
 )
 
 // ErrUnsafe is a folder a session may not start in by its path; each problem wraps it.
@@ -189,7 +189,7 @@ func checkSafeFolder(folder string, who Person, look func(string) (pathFacts, er
 
 	current := folder
 
-	for index := range pathPartsMax {
+	for index := range maxPathParts {
 		facts, err := look(current)
 		if err != nil {
 			return err
@@ -212,5 +212,5 @@ func checkSafeFolder(folder string, who Person, look func(string) (pathFacts, er
 		current = parent
 	}
 
-	return fmt.Errorf("%w: %s has more than %d parts", ErrUnsafe, folder, pathPartsMax)
+	return fmt.Errorf("%w: %s has more than %d parts", ErrUnsafe, folder, maxPathParts)
 }

@@ -84,7 +84,12 @@ func runPasted(t *testing.T, shell, script string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), testtime.Scaled(shellTimeout))
 	defer cancel()
 
-	command := exec.CommandContext(ctx, shell, "-c", script)
+	// The person's own startup files stay out: fish reads config.fish and zsh reads .zshenv even
+	// for -c, and a `cd` wrapped there (zoxide's, say) fails without the rest of that setup.
+	noConfig := map[string][]string{"fish": {"--no-config"}, "zsh": {"-f"}}
+	args := append(slices.Clone(noConfig[filepath.Base(shell)]), "-c", script)
+
+	command := exec.CommandContext(ctx, shell, args...)
 	command.Dir = t.TempDir()
 
 	var stdout, stderr bytes.Buffer

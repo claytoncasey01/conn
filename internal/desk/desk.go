@@ -25,26 +25,26 @@ const (
 	// from it.
 	ProbeTimeout = 2 * time.Second
 
-	// probeFailuresMax is how many questions in a row go unanswered before the window starts over.
-	probeFailuresMax = 3
+	// maxProbeFailures is how many questions in a row go unanswered before the window starts over.
+	maxProbeFailures = 3
 
-	// addressWaitMax is the least the window waits for a Conn that holds the folder to say where
+	// maxAddressWait is the least the window waits for a Conn that holds the folder to say where
 	// it listens, rounded up to whole polls (see addressPolls). A Conn writes its address a moment
 	// after it takes the lock; conn's own wait for it is this long, to the poll.
-	addressWaitMax = app.HolderWait
+	maxAddressWait = app.HolderWait
 
-	// restartsInARowMax is how many times the window may start over with no answer from a Conn in
+	// maxRestartsInARow is how many times the window may start over with no answer from a Conn in
 	// between. One more is a Conn that keeps stopping or never answers, and the window says so
 	// rather than start over for ever. There is no time window: a Conn that hangs makes each
 	// restart slow, and a count over a minute would then never fill.
-	restartsInARowMax = 5
+	maxRestartsInARow = 5
 )
 
 // addressPolls is how many times the window looks at the lock while it waits for an address: the
-// wait is rounded up to a whole number of polls, so it is never shorter than addressWaitMax.
-const addressPolls = int((addressWaitMax + probeEvery - 1) / probeEvery)
+// wait is rounded up to a whole number of polls, so it is never shorter than maxAddressWait.
+const addressPolls = int((maxAddressWait + probeEvery - 1) / probeEvery)
 
-// errGaveUp is a window that started over more than restartsInARowMax times in a row with no
+// errGaveUp is a window that started over more than maxRestartsInARow times in a row with no
 // answer from a Conn in between.
 var errGaveUp = errors.New("conn keeps stopping")
 
@@ -121,9 +121,9 @@ type session struct {
 // Run opens the window and keeps it on a live server until ctx ends. When nobody holds the data
 // folder it owns a server: Start, Open, and on the end of ctx it ends the server and waits for
 // it to let the folder go. When a Conn holds it, it attaches: Open, then Probe every probeEvery,
-// and probeFailuresMax in a row starts over from the top, as does an owned server that ends by
+// and maxProbeFailures in a row starts over from the top, as does an owned server that ends by
 // itself. Only an answered probe resets the count of restarts, so an owned server that ends by
-// itself counts toward it however long it ran. More than restartsInARowMax restarts in a row is
+// itself counts toward it however long it ran. More than maxRestartsInARow restarts in a row is
 // Fail and an error wrapping errGaveUp. An attached window never stops the server it attached to.
 //
 // The restart count bounds the passes: each pass that does not end Run counts toward it, and only
@@ -144,7 +144,7 @@ func Run(ctx context.Context, deps Deps) error {
 		}
 
 		running.restartsInARow++
-		if running.restartsInARow > restartsInARowMax {
+		if running.restartsInARow > maxRestartsInARow {
 			return running.giveUp()
 		}
 	}
@@ -249,7 +249,7 @@ func (s *session) startFailed(err error) (result, error) {
 }
 
 // attach shows the Conn at url, with the secret it published, and asks it every probeEvery
-// whether it is there, until ctx ends or probeFailuresMax questions in a row go unanswered. It
+// whether it is there, until ctx ends or maxProbeFailures questions in a row go unanswered. It
 // never stops that Conn.
 func (s *session) attach(ctx context.Context, url string, key secret.Secret) (result, error) {
 	s.lastURL = url
@@ -257,7 +257,7 @@ func (s *session) attach(ctx context.Context, url string, key secret.Secret) (re
 
 	failures := 0
 
-	for failures < probeFailuresMax {
+	for failures < maxProbeFailures {
 		select {
 		case <-ctx.Done():
 			return finished, nil
@@ -306,7 +306,7 @@ func PageURL(url string, key secret.Secret) string {
 	return url + "/#k=" + key.String()
 }
 
-// waitForAddress waits up to addressWaitMax for the Conn that holds the folder to say where it
+// waitForAddress waits up to maxAddressWait for the Conn that holds the folder to say where it
 // listens, or to let the folder go. A Conn that says nothing in that time counts as a restart.
 func (s *session) waitForAddress(ctx context.Context) (result, error) {
 	for range addressPolls {

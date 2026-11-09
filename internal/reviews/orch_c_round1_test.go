@@ -413,8 +413,8 @@ func TestOrchCAtMostFoundMaxLeadsWait(t *testing.T) {
 
 	tab, fakes := setup(t, setupOpts{settings: cSettings(settingsOpts{dms: new(false)})})
 
-	posts := make([]reviews.Post, 0, reviews.FoundMax+10)
-	for index := range reviews.FoundMax + 10 {
+	posts := make([]reviews.Post, 0, reviews.MaxFound+10)
+	for index := range reviews.MaxFound + 10 {
 		posts = append(posts, cPost(int64(1000+index)))
 	}
 
@@ -427,6 +427,6 @@ func TestOrchCAtMostFoundMaxLeadsWait(t *testing.T) {
 	held := 0
 
 	tab.WithFile(func(file *reviews.File) { held = file.Found.Len() })
-	cIs(t, "leads held", held, reviews.FoundMax)
-	cIs(t, "leads saved", reviews.LoadFile(fakes.file).Found.Len(), reviews.FoundMax)
+	cIs(t, "leads held", held, reviews.MaxFound)
+	cIs(t, "leads saved", reviews.LoadFile(fakes.file).Found.Len(), reviews.MaxFound)
 }

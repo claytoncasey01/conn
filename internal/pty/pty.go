@@ -6,15 +6,15 @@
 // pseudo-terminals (macOS and Linux); a test or the dry run hands NewHost a scripted fake instead.
 // Nothing here chooses a program: the Spec comes from Conn's own code, never from a client.
 //
-// Every limit is fixed: at most sessionsMax programs run at once, each keeps scrollbackBytesMax of
-// scrollback, has at most viewersMax viewers, each with a queue of at most viewerQueueBytesMax
+// Every limit is fixed: at most maxSessions programs run at once, each keeps maxScrollbackBytes of
+// scrollback, has at most maxViewers viewers, each with a queue of at most maxViewerQueueBytes
 // (counted in bytes, so a burst of small writes is one batch; with the batch being handed over, a
-// viewer holds at most twice that), and takes at most writeBytesMax of
-// input per Write. Writes to one session take turns, each waiting at most writeWaitMax for its
+// viewer holds at most twice that), and takes at most maxWriteBytes of
+// input per Write. Writes to one session take turns, each waiting at most maxWriteWait for its
 // turn. A viewer that falls behind is dropped, so the reader of a program's output never waits
-// for anyone. A viewer holds one of its session's viewersMax places until it is closed: close it
+// for anyone. A viewer holds one of its session's maxViewers places until it is closed: close it
 // when its client disconnects. Ended sessions are kept, for their exit code and scrollback, up to
-// endedMax; the oldest is forgotten first.
+// maxEnded; the oldest is forgotten first.
 //
 // Stopping: a stop signals the program's whole process group (the program is a session leader,
 // so the group's id is its pid): a polite SIGTERM, then SIGKILL if anything in the group is left
@@ -55,7 +55,7 @@
 // socket Go's os and net packages open, so a program inherits only its terminal. A descriptor
 // made by cgo or by a raw syscall without O_CLOEXEC (the desktop app's WebKit and Metal open
 // some) is marked close-on-exec by each spawn first (markCloseOnExec, from /dev/fd, or by a walk
-// below RLIMIT_NOFILE where /dev/fd cannot be listed), up to descriptorsSweptMax; one another
+// below RLIMIT_NOFILE where /dev/fd cannot be listed), up to maxDescriptorsSwept; one another
 // thread opens between that sweep and the spawn is not covered.
 //
 // Terminal content is never logged and never written to disk: the scrollback is memory only, and
@@ -65,13 +65,13 @@
 // The screen: each session keeps a Screen, a model of its terminal fed with the same output the
 // viewers get, so what a session shows (ScreenLines) and what it asks can be read with no terminal
 // app and no viewer. It keeps the live screen only, never the scrollback, and is bounded by the
-// terminal's size, at most cellsMax cells a screen.
+// terminal's size, at most maxCells cells a screen.
 //
 // Terminal queries: the host, not a viewer, answers the two queries in its fixed table (device
 // attributes, and the background colour from Config.Answers, later SetAnswers), once each, as
 // the output is read;
 // answers.go says why. Each reply is fixed bytes and hex digits, never text from the output. The
-// reader queues replies, at most answersQueuedMax, dropping the rest, and the session's
+// reader queues replies, at most maxAnswersQueued, dropping the rest, and the session's
 // answerer types them in turn with the viewers' input, so the reader never waits for a program to
 // read its input.
 //
@@ -102,12 +102,12 @@ import (
 
 // The limits a Host keeps by default, which are also the most it can be given.
 const (
-	// sessionsMax is how many programs may run at once.
-	sessionsMax = 12
-	// scrollbackBytesMax is how much of a program's output is kept for a viewer that joins late.
-	scrollbackBytesMax = 4 << 20
-	// viewersMax is how many viewers one session may have.
-	viewersMax = 4
+	// maxSessions is how many programs may run at once.
+	maxSessions = 12
+	// maxScrollbackBytes is how much of a program's output is kept for a viewer that joins late.
+	maxScrollbackBytes = 4 << 20
+	// maxViewers is how many viewers one session may have.
+	maxViewers = 4
 	// stopGrace is how long a polite stop waits before the program's group is killed.
 	stopGrace = 5 * time.Second
 )
@@ -117,18 +117,18 @@ const (
 	// readBufferBytes is the most one read of a program's output takes, so the most one chunk a
 	// viewer receives holds.
 	readBufferBytes = 32 << 10
-	// viewerQueueBytesMax bounds the output queued for one viewer, counted in bytes; a viewer
+	// maxViewerQueueBytes bounds the output queued for one viewer, counted in bytes; a viewer
 	// that output would take past it is dropped.
-	viewerQueueBytesMax = 1 << 20
-	// writeBytesMax is the most input one Write takes.
-	writeBytesMax = 64 << 10
-	// writeWaitMax bounds how long a Write waits for an earlier Write to the same session.
-	writeWaitMax = 5 * time.Second
+	maxViewerQueueBytes = 1 << 20
+	// maxWriteBytes is the most input one Write takes.
+	maxWriteBytes = 64 << 10
+	// maxWriteWait bounds how long a Write waits for an earlier Write to the same session.
+	maxWriteWait = 5 * time.Second
 	// foreignWriteSettle is how long after input a screen read is not taken as showing what the
 	// input did: a program takes some time to draw it (tens of milliseconds for Claude Code).
 	foreignWriteSettle = 250 * time.Millisecond
-	// endedMax is how many ended sessions are kept for their exit code and scrollback.
-	endedMax = sessionsMax
+	// maxEnded is how many ended sessions are kept for their exit code and scrollback.
+	maxEnded = maxSessions
 	// idBytes is the randomness in an ID: 128 bits.
 	idBytes = 16
 	// outputDrainTimeout is how long the output of a program that has exited may still be read
@@ -140,27 +140,27 @@ const (
 	// or been killed.
 	killWait = 5 * time.Second
 	// groupWatchInterval is how often the group of a session whose stop failed is looked at,
-	// and groupWatchesMax how many times: a day's worth.
+	// and maxGroupWatches how many times: a day's worth.
 	groupWatchInterval = time.Second
-	groupWatchesMax    = 24 * 60 * 60
-	// argumentsMax, environmentEntriesMax and nameBytesMax bound a Spec.
-	argumentsMax          = 256
-	environmentEntriesMax = 4096
-	nameBytesMax          = 256
-	// columnsMax and rowsMax bound a terminal's size, and cellsMax its area: the most cells one
+	maxGroupWatches    = 24 * 60 * 60
+	// maxArguments, maxEnvironmentEntries and maxNameBytes bound a Spec.
+	maxArguments          = 256
+	maxEnvironmentEntries = 4096
+	maxNameBytes          = 256
+	// maxColumns and maxRows bound a terminal's size, and maxCells its area: the most cells one
 	// screen of a session's model holds (a session has two, the main and the alternate).
-	columnsMax = 1000
-	rowsMax    = 1000
-	cellsMax   = 1 << 18
-	// columnsDefault and rowsDefault are a new terminal's size, until the first Resize.
-	columnsDefault = 80
-	rowsDefault    = 24
+	maxColumns = 1000
+	maxRows    = 1000
+	maxCells   = 1 << 18
+	// defaultColumns and defaultRows are a new terminal's size, until the first Resize.
+	defaultColumns = 80
+	defaultRows    = 24
 )
 
 var (
-	// ErrSessionsFull is a Start while sessionsMax programs are running.
+	// ErrSessionsFull is a Start while maxSessions programs are running.
 	ErrSessionsFull = errors.New("too many sessions are running")
-	// ErrViewersFull is a Subscribe to a session that has viewersMax viewers.
+	// ErrViewersFull is a Subscribe to a session that has maxViewers viewers.
 	ErrViewersFull = errors.New("the session has too many viewers")
 	// ErrNoSession is an ID the host does not hold.
 	ErrNoSession = errors.New("no such session")
@@ -172,9 +172,9 @@ var (
 	ErrClosed = errors.New("the host is stopping its sessions")
 	// ErrInvalidSpec is a Spec that cannot be started; each problem wraps it.
 	ErrInvalidSpec = errors.New("invalid session spec")
-	// ErrInputTooLarge is a Write of more than writeBytesMax.
+	// ErrInputTooLarge is a Write of more than maxWriteBytes.
 	ErrInputTooLarge = errors.New("too much input at once")
-	// ErrInputBlocked is a Write that waited writeWaitMax behind another: the program is not
+	// ErrInputBlocked is a Write that waited maxWriteWait behind another: the program is not
 	// reading its input.
 	ErrInputBlocked = errors.New("the program is not taking input")
 	// ErrPasteClosed is input refused because a paste a write cut short was still open: the
@@ -246,18 +246,18 @@ type Info struct {
 
 // Limits are a Host's limits. Each must be above zero and at most its default.
 type Limits struct {
-	SessionsMax        int
-	ScrollbackBytesMax int
-	ViewersMax         int
+	MaxSessions        int
+	MaxScrollbackBytes int
+	MaxViewers         int
 	StopGrace          time.Duration
 }
 
 // DefaultLimits are the limits Conn runs with.
 func DefaultLimits() Limits {
 	return Limits{
-		SessionsMax:        sessionsMax,
-		ScrollbackBytesMax: scrollbackBytesMax,
-		ViewersMax:         viewersMax,
+		MaxSessions:        maxSessions,
+		MaxScrollbackBytes: maxScrollbackBytes,
+		MaxViewers:         maxViewers,
 		StopGrace:          stopGrace,
 	}
 }
@@ -327,8 +327,8 @@ const (
 
 // Viewer is one viewer of a session: the scrollback when it joined, then the output after it, in
 // batches. Output closes once the session has ended and everything queued is handed over, when
-// Close is called, or when the viewer falls viewerQueueBytesMax behind. Each batch is the
-// viewer's own. Close every Viewer: until then it holds one of the session's viewersMax places
+// Close is called, or when the viewer falls maxViewerQueueBytes behind. Each batch is the
+// viewer's own. Close every Viewer: until then it holds one of the session's maxViewers places
 // (an ended session's viewer holds none) and its goroutine.
 type Viewer struct {
 	Replay []byte
@@ -341,7 +341,7 @@ type Viewer struct {
 }
 
 // ViewerEnd is why a viewer's Output closed: the session's program ended, with its exit code,
-// or the viewer fell viewerQueueBytesMax behind and was dropped. Neither is set while Output is
+// or the viewer fell maxViewerQueueBytes behind and was dropped. Neither is set while Output is
 // open, or when the viewer was closed by its owner.
 type ViewerEnd struct {
 	Dropped  bool

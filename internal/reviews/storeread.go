@@ -209,7 +209,7 @@ func readV2(raw *js.Object) *File {
 				continue
 			}
 
-			if out.Found.Len() < FoundMax {
+			if out.Found.Len() < MaxFound {
 				out.Found.Set(key, discovery)
 			}
 		}

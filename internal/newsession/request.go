@@ -15,9 +15,9 @@ const (
 	// keyRepo and keyName are the only keys a start's body may hold.
 	keyRepo = "repo"
 	keyName = "name"
-	// nameBytesMax bounds the name a request carries, before it is made safe: a name is a few
+	// maxNameBytes bounds the name a request carries, before it is made safe: a name is a few
 	// words, and cmux.WorkspaceName keeps at most 64 characters of it.
-	nameBytesMax = 256
+	maxNameBytes = 256
 	// flagSessionID and flagName are claude's options for the conversation's id and its name.
 	flagSessionID = "--session-id"
 	flagName      = "--name"
@@ -47,7 +47,7 @@ func parseRequest(body *js.Object) (startRequest, []string) {
 		}
 
 		problems = append(problems, fmt.Sprintf("%q is not a field of a new session: send only "+
-			"repo and name.", js.Cut(key, nameBytesMax)))
+			"repo and name.", js.Cut(key, maxNameBytes)))
 	}
 
 	repo, repoProblems := repoOf(body)
@@ -108,13 +108,13 @@ func nameOf(body *js.Object) (string, []string) {
 }
 
 // safeName is name as claude's --name and the session list get it: checked by launch's rule for
-// a session's name (no control, bidi or invisible character, UTF-8), at most nameBytesMax bytes,
+// a session's name (no control, bidi or invisible character, UTF-8), at most maxNameBytes bytes,
 // then reduced to [A-Za-z0-9._-] by cmux.WorkspaceName. A name with nothing left once reduced is
 // refused, rather than replaced by something the person did not type.
 func safeName(name string) (string, error) {
-	if len(name) > nameBytesMax {
+	if len(name) > maxNameBytes {
 		return "", fmt.Errorf("%w: the name is %d bytes, more than %d", launch.ErrInvalidSession,
-			len(name), nameBytesMax)
+			len(name), maxNameBytes)
 	}
 
 	err := launch.CheckName(name)

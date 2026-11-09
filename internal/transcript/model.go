@@ -24,8 +24,8 @@ const (
 	finalUnits = 4000
 	// toolCallsKept is how many of the lead's tool calls the live view keeps.
 	toolCallsKept = 600
-	// teamsMax is how many teams a lead's spawn record keeps, as many as the spawn index does.
-	teamsMax = 100
+	// maxTeams is how many teams a lead's spawn record keeps, as many as the spawn index does.
+	maxTeams = 100
 	// stallMs is how long an agent may be quiet before it shows as stalled.
 	stallMs = 180_000
 

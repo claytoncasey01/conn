@@ -60,10 +60,10 @@ type wireFrame struct {
 
 // parseClientFrame parses one client frame, strictly: one JSON object of exactly one of the two
 // shapes, with no other member, no member twice, names as spelled here, valid UTF-8 and nothing
-// after it. Input carries 1 to inputFrameBytesMax bytes. A frame longer than frameBytesMax is
+// after it. Input carries 1 to maxInputFrameBytes bytes. A frame longer than maxFrameBytes is
 // refused before it is decoded. The size is not checked here: the host bounds it.
 func parseClientFrame(text []byte) (clientFrame, error) {
-	if len(text) > frameBytesMax {
+	if len(text) > maxFrameBytes {
 		return clientFrame{}, errMalformedFrame
 	}
 
@@ -108,7 +108,7 @@ func inputFrame(wire wireFrame) (clientFrame, error) {
 		return clientFrame{}, errMalformedFrame
 	}
 
-	if len(*wire.Data) > inputFrameBytesMax {
+	if len(*wire.Data) > maxInputFrameBytes {
 		return clientFrame{}, errMalformedFrame
 	}
 

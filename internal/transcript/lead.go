@@ -101,14 +101,14 @@ type LeadState struct {
 
 	byID           map[string]*ToolCall
 	hasCustomTitle bool
-	toolCallsMax   int
+	maxToolCalls   int
 }
 
-// NewLeadState is an empty lead that keeps its last toolCallsMax tool calls (0 for the live
+// NewLeadState is an empty lead that keeps its last maxToolCalls tool calls (0 for the live
 // default of 600; a negative number keeps every call, for archiving).
-func NewLeadState(toolCallsMax int) *LeadState {
-	if toolCallsMax == 0 {
-		toolCallsMax = toolCallsKept
+func NewLeadState(maxToolCalls int) *LeadState {
+	if maxToolCalls == 0 {
+		maxToolCalls = toolCallsKept
 	}
 
 	return &LeadState{
@@ -117,7 +117,7 @@ func NewLeadState(toolCallsMax int) *LeadState {
 		Meter: NewUsageMeter(), ToolCalls: []*ToolCall{},
 		Consults: NewConsultTracker("lead", "LEAD"), ResultIDs: map[string]bool{},
 		OwesReply: false, Title: "", FinalText: "", Cwd: "", Teams: []string{},
-		byID: map[string]*ToolCall{}, hasCustomTitle: false, toolCallsMax: toolCallsMax,
+		byID: map[string]*ToolCall{}, hasCustomTitle: false, maxToolCalls: maxToolCalls,
 	}
 }
 
@@ -267,8 +267,8 @@ func (l *LeadState) toolUse(block *js.Object, when float64) {
 	l.ToolCalls = append(l.ToolCalls, call)
 	l.byID[call.ID] = call
 
-	if l.toolCallsMax > 0 {
-		if len(l.ToolCalls) > l.toolCallsMax {
+	if l.maxToolCalls > 0 {
+		if len(l.ToolCalls) > l.maxToolCalls {
 			delete(l.byID, l.ToolCalls[0].ID)
 			l.ToolCalls = l.ToolCalls[1:]
 		}
@@ -285,7 +285,7 @@ func (l *LeadState) user(line *js.Object, when float64) {
 
 	spawn, spawned := SpawnOf(line)
 	if spawned {
-		if len(l.Teams) < teamsMax {
+		if len(l.Teams) < maxTeams {
 			if !slices.Contains(l.Teams, spawn.Team) {
 				l.Teams = append(l.Teams, spawn.Team)
 			}

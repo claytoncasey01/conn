@@ -52,17 +52,17 @@ const (
 )
 
 const (
-	linesMax     = 20
-	charsMax     = 1500
+	maxLines     = 20
+	maxChars     = 1500
 	idHexChars   = 16
-	borderMax    = 80
+	maxBorder    = 80
 	footerText   = "Esc to cancel"
 	wantText     = "Do you want"
 	commandBar   = " │ "
 	commandEmpty = " │"
 	ellipsisRows = 2
 	pickerTail   = 2
-	pickerMin    = 3
+	minPicker    = 3
 )
 
 // Option is one choice: Key is the digit printed beside it, the key that picks it.
@@ -116,7 +116,7 @@ func isDotted(line string) bool { return wholeRun(line, dottedChar) }
 
 func wholeRun(line string, char rune) bool {
 	count := leadingRun(line, char)
-	if count < ruleMin {
+	if count < minRule {
 		return false
 	}
 
@@ -127,7 +127,7 @@ func wholeRun(line string, char rune) bool {
 // the session's name near its right end.
 func isBorder(line string) bool {
 	count := leadingRun(line, ruleChar)
-	if count < ruleMin {
+	if count < minRule {
 		return false
 	}
 
@@ -156,7 +156,7 @@ func isBorder(line string) bool {
 		return false
 	}
 
-	if units > borderMax {
+	if units > maxBorder {
 		return false
 	}
 
@@ -465,7 +465,7 @@ func shown(lines []string) string {
 
 	kept := trimBlank(cleaned)
 
-	return js.Cut(strings.Join(kept[:min(len(kept), linesMax)], "\n"), charsMax)
+	return js.Cut(strings.Join(kept[:min(len(kept), maxLines)], "\n"), maxChars)
 }
 
 // unknownText is what a dialog this does not read says: the area under the rule above its anchor
@@ -484,7 +484,7 @@ func unknownText(lines []string, from int) string {
 		return shown(lines[last+1:])
 	}
 
-	return shown(lines[max(0, len(lines)-linesMax):])
+	return shown(lines[max(0, len(lines)-maxLines):])
 }
 
 func unknown(lines []string, statusStamp float64, from int) *Ask {
@@ -509,9 +509,9 @@ func Unread(screen string, statusStamp float64) *Ask {
 		cleaned = append(cleaned, gutter(withoutCursor(line)))
 	}
 
-	bottom := trimBlank(cleaned[max(0, len(cleaned)-linesMax):])
+	bottom := trimBlank(cleaned[max(0, len(cleaned)-maxLines):])
 
-	return build(KindUnknown, "", js.Cut(strings.Join(bottom, "\n"), charsMax), []Option{},
+	return build(KindUnknown, "", js.Cut(strings.Join(bottom, "\n"), maxChars), []Option{},
 		statusStamp)
 }
 

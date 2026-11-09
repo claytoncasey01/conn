@@ -75,7 +75,7 @@ func (t *Terminals) run(
 		}
 	}
 	open := &link{conn: conn, cancel: ending, once: sync.Once{}}
-	queue := make(chan []byte, inputQueueFramesMax)
+	queue := make(chan []byte, maxInputQueueFrames)
 
 	var group sync.WaitGroup
 
@@ -180,7 +180,7 @@ func endOfOutput(end pty.ViewerEnd) (bool, websocket.StatusCode, string) {
 	return false, websocket.StatusInternalError, reasonHostFailed
 }
 
-// writeBinary sends output in frames of at most outputFrameBytesMax, each within
+// writeBinary sends output in frames of at most maxOutputFrameBytes, each within
 // frameWriteTimeout and before ctx ends; a peer that cannot take one in time is dropped. It says
 // whether all went.
 func (t *Terminals) writeBinary(ctx context.Context, open *link, output []byte) bool {
@@ -189,7 +189,7 @@ func (t *Terminals) writeBinary(ctx context.Context, open *link, output []byte) 
 			return false
 		}
 
-		size := min(len(output), outputFrameBytesMax)
+		size := min(len(output), maxOutputFrameBytes)
 
 		if !t.writeFrame(ctx, open, websocket.MessageBinary, output[:size]) {
 			return false
@@ -241,7 +241,7 @@ func (t *Terminals) readFrames(
 	reader := &frameReader{sessionID: sessionID, queue: queue, dropping: false}
 
 	for {
-		// The read limit is frameBytesMax: a longer frame closes the terminal (the library
+		// The read limit is maxFrameBytes: a longer frame closes the terminal (the library
 		// closes it as too big) without being read whole.
 		kind, data, err := open.conn.Read(ctx)
 		if err != nil {
@@ -350,9 +350,9 @@ func (t *Terminals) typeFrames(
 	}
 }
 
-// dropQueued empties the queue without waiting; it holds at most inputQueueFramesMax frames.
+// dropQueued empties the queue without waiting; it holds at most maxInputQueueFrames frames.
 func dropQueued(queue <-chan []byte) {
-	for range inputQueueFramesMax {
+	for range maxInputQueueFrames {
 		select {
 		case <-queue:
 		default:

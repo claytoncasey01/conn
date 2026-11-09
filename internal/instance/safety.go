@@ -13,9 +13,9 @@ const (
 	// writableByOthers is the group and other write bits: a folder with either lets another user
 	// put a file or a link where the lock file goes.
 	writableByOthers = 0o022
-	// linksMax is the one name a lock file may have: a second one is a hard link someone made to
+	// maxLinks is the one name a lock file may have: a second one is a hard link someone made to
 	// read what is written into it.
-	linksMax = 1
+	maxLinks = 1
 )
 
 // ErrUnsafe is a data folder or lock file that is not safe to keep the secret in: a folder another
@@ -90,7 +90,7 @@ func fileProblem(path string, facts owner, uid int) error {
 		return fmt.Errorf("%w: %s belongs to another user: remove it", ErrUnsafe, path)
 	}
 
-	if facts.links > linksMax {
+	if facts.links > maxLinks {
 		return fmt.Errorf("%w: %s has another name (a hard link): remove both", ErrUnsafe, path)
 	}
 

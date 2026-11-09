@@ -23,8 +23,8 @@ import (
 const (
 	// keepMs is how long a PR that has not been listed is remembered; GitHub still knows it.
 	keepMs = 14 * 86_400_000
-	// triesMax bounds a saved count of tries: a larger one is a bad record.
-	triesMax = 99
+	// maxTries bounds a saved count of tries: a larger one is a bad record.
+	maxTries = 99
 	// fileMode and folderMode keep myprs.json and its folder the owner's.
 	fileMode   = 0o600
 	folderMode = 0o700
@@ -179,7 +179,7 @@ func orDefault(record *js.Object, key string, fallback any) any {
 	return value
 }
 
-// smallCount is a whole number of tries from 1 to triesMax.
+// smallCount is a whole number of tries from 1 to maxTries.
 func smallCount(value any) (int, bool) {
 	number, ok := finiteNumber(value)
 	if !ok {
@@ -194,7 +194,7 @@ func smallCount(value any) (int, bool) {
 		return 0, false
 	}
 
-	if number > triesMax {
+	if number > maxTries {
 		return 0, false
 	}
 

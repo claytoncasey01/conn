@@ -20,7 +20,7 @@ const (
 )
 
 const (
-	ruleMin       = 10
+	minRule       = 10
 	ruleChar      = '─'
 	dottedChar    = '╌'
 	tryPrefix     = `Try "`
@@ -130,7 +130,7 @@ func oneSpace(text string) string {
 }
 
 // screenRule is screen.ts's /^\s*─{10,}/: a rule, indented or not, with anything after it.
-func screenRule(line string) bool { return leadingRun(trimSpace(line), ruleChar) >= ruleMin }
+func screenRule(line string) bool { return leadingRun(trimSpace(line), ruleChar) >= minRule }
 
 // leadingRun is how many times char starts text.
 func leadingRun(text string, char rune) int {

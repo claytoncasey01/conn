@@ -113,12 +113,12 @@ func TestIndexFailures(t *testing.T) {
 			want: "The theme index is not an index: it has no themes list",
 		},
 		{
-			name: "over 512 KB", answer: reply(200, strings.Repeat(" ", gallery.IndexBytesMax+1)),
+			name: "over 512 KB", answer: reply(200, strings.Repeat(" ", gallery.MaxIndexBytes+1)),
 			want: "The theme index is larger than 512 KB",
 		},
 		{
 			name:   "over 512 KB in bytes, not characters",
-			answer: reply(200, strings.Repeat("\u00e9", gallery.IndexBytesMax/2+1)),
+			answer: reply(200, strings.Repeat("\u00e9", gallery.MaxIndexBytes/2+1)),
 			want:   "The theme index is larger than 512 KB",
 		},
 		{
@@ -277,7 +277,7 @@ func TestAnEndlessBodyIsCutOffAtTheCap(t *testing.T) {
 	}
 
 	// Reading stops the moment the cap is passed: at most one chunk past it is ever read.
-	if read > gallery.IndexBytesMax+64*1024 {
+	if read > gallery.MaxIndexBytes+64*1024 {
 		t.Errorf("read %d bytes", read)
 	}
 }
@@ -288,7 +288,7 @@ func TestADeclaredLengthOverTheCapIsNeverRead(t *testing.T) {
 	body := &stream{guard: sync.Mutex{}, chunk: 10}
 	env := newWorld(t)
 	env.host.index = func(request *http.Request) (*http.Response, error) {
-		return respond(request, http.StatusOK, body, gallery.IndexBytesMax+1), nil
+		return respond(request, http.StatusOK, body, gallery.MaxIndexBytes+1), nil
 	}
 
 	_, problem := fetch(t, env)
@@ -379,7 +379,7 @@ func TestMoreThan500EntriesAreCut(t *testing.T) {
 		t.Fatal(problem)
 	}
 
-	if len(index.Themes) != gallery.IndexEntriesMax {
+	if len(index.Themes) != gallery.MaxIndexEntries {
 		t.Fatalf("themes = %d", len(index.Themes))
 	}
 

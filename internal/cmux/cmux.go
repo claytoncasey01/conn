@@ -20,7 +20,7 @@ const (
 	idShown    = 8
 	errorUnits = 400
 	timeout    = 20 * time.Second
-	outputMax  = 8 << 20
+	maxOutput  = 8 << 20
 )
 
 var (
@@ -110,7 +110,7 @@ func Open(bin string) Opener {
 		result := run.Cmd(ctx, bin, []string{
 			"workspace", "create", "--name", name, "--cwd", cwd, "--command", command,
 			"--focus", "false",
-		}, run.Opts{Dir: "", Timeout: timeout, OutputBytesMax: outputMax, Stdin: "", Env: nil})
+		}, run.Opts{Dir: "", Timeout: timeout, MaxOutputBytes: maxOutput, Stdin: "", Env: nil})
 		if result.Err == nil {
 			return Opened{OK: true, Error: "", ManualCommand: ""}
 		}

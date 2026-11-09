@@ -149,13 +149,13 @@ func (g Gh) Search(
 
 	// A round that reads anything moves every search on by a PR at least, so a search ends within
 	// its limit's rounds; one GitHub keeps answering with empty pages is cut off there.
-	roundsMax := 1
+	maxRounds := 1
 	for _, item := range pending {
-		roundsMax = max(roundsMax, item.limit+1)
+		maxRounds = max(maxRounds, item.limit+1)
 	}
 
 	for rounds := 0; len(pending) > 0; rounds++ {
-		if rounds >= roundsMax {
+		if rounds >= maxRounds {
 			for _, item := range pending {
 				out[item.index].Capped = true
 			}

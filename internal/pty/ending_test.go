@@ -90,7 +90,7 @@ func fallBehind(t *testing.T, host *pty.Host, sessionID pty.ID, process *fakePro
 	}
 
 	chunk := bytes.Repeat([]byte{'x'}, pty.ReadBufferBytes)
-	for sent := 0; sent < 2*pty.ViewerQueueBytesMax; sent += len(chunk) {
+	for sent := 0; sent < 2*pty.MaxViewerQueueBytes; sent += len(chunk) {
 		process.feed(t, chunk)
 	}
 

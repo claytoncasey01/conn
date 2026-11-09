@@ -29,8 +29,8 @@ func repeatSpend(count int, one spend) []spend {
 func TestSpendInputKeepsBothRates(t *testing.T) {
 	t.Parallel()
 
-	frameMax := inputFrameBytesMax
-	framesInBurst := inputBytesBurst / frameMax
+	maxFrame := maxInputFrameBytes
+	framesInBurst := inputBytesBurst / maxFrame
 
 	tests := []struct {
 		name   string
@@ -39,7 +39,7 @@ func TestSpendInputKeepsBothRates(t *testing.T) {
 		{"one keystroke", []spend{{0, 1, true, false}}},
 		{
 			"the whole byte burst, then one byte more",
-			append(repeatSpend(framesInBurst, spend{0, frameMax, true, false}),
+			append(repeatSpend(framesInBurst, spend{0, maxFrame, true, false}),
 				spend{0, 1, false, false}),
 		},
 		{
@@ -49,7 +49,7 @@ func TestSpendInputKeepsBothRates(t *testing.T) {
 		},
 		{
 			"bytes come back at their rate",
-			append(repeatSpend(framesInBurst, spend{0, frameMax, true, false}),
+			append(repeatSpend(framesInBurst, spend{0, maxFrame, true, false}),
 				spend{time.Second / 2, inputBytesPerSecond / 2, true, false},
 				spend{0, 1, false, false}),
 		},
@@ -92,8 +92,8 @@ func TestSpendInputKeepsBothRates(t *testing.T) {
 		// session's other viewers keep what was left.
 		{
 			"a refused frame costs nothing",
-			append(repeatSpend(framesInBurst-1, spend{0, frameMax, true, false}),
-				spend{0, frameMax + 1, false, false}, spend{0, frameMax, true, false}),
+			append(repeatSpend(framesInBurst-1, spend{0, maxFrame, true, false}),
+				spend{0, maxFrame + 1, false, false}, spend{0, maxFrame, true, false}),
 		},
 	}
 

@@ -24,10 +24,10 @@ import (
 const (
 	slackTool = "mcp__claude_ai_Slack__"
 	draftTool = slackTool + "slack_send_message_draft"
-	// draftTitleUnitsMax is where a title is cut in a draft, and draftTitleCleanMax how much of
+	// maxDraftTitleUnits is where a title is cut in a draft, and maxDraftTitleClean how much of
 	// it is cleaned before the spaces are collapsed.
-	draftTitleUnitsMax = 200
-	draftTitleCleanMax = draftTitleUnitsMax * 4
+	maxDraftTitleUnits = 200
+	maxDraftTitleClean = maxDraftTitleUnits * 4
 	// textDraftFailed is a failed draft with no reason of its own.
 	textDraftFailed = "the draft failed"
 	// draftExists is the draft tool's refusal when the channel already has a draft: Slack keeps
@@ -67,9 +67,9 @@ func DraftText(title, url string, round float64) (string, error) {
 		return "", errNotRound
 	}
 
-	shown := spaces.ReplaceAllString(Clean(title, draftTitleCleanMax), " ")
+	shown := spaces.ReplaceAllString(Clean(title, maxDraftTitleClean), " ")
 	shown = strings.NewReplacer("<", "\u2039", ">", "\u203a").Replace(shown)
-	shown = js.Cut(js.Trim(shown), draftTitleUnitsMax)
+	shown = js.Cut(js.Trim(shown), maxDraftTitleUnits)
 
 	return "Ready for review: " + shown + " " + url + " (self-review round " +
 		js.Number(round) + ", no open bot findings)", nil
@@ -115,7 +115,7 @@ func signedOut(why string) DraftResult {
 		text += " (" + why + ")"
 	}
 
-	return draftFailed(Clean(text, errorUnitsMax), false)
+	return draftFailed(Clean(text, maxErrorUnits), false)
 }
 
 // RunDraft saves one draft. It never fails: a failed, timed-out or signed-out run is a result
@@ -150,7 +150,7 @@ func RunDraft(ctx context.Context, channel, body string, run reviews.Run,
 		},
 	})
 	if err != nil {
-		why := Clean(err.Error(), errorUnitsMax)
+		why := Clean(err.Error(), maxErrorUnits)
 		if len(needing) > 0 {
 			return signedOut(why)
 		}
@@ -181,7 +181,7 @@ func draftAnswer(structured any, channel string) DraftResult {
 
 	if code == draftExists {
 		return draftFailed(Clean("a draft is already waiting in "+channel+
-			": send or delete it; the text to copy is below", errorUnitsMax), true)
+			": send or delete it; the text to copy is below", maxErrorUnits), true)
 	}
 
 	return draftFailed("the draft was not saved ("+code+")", false)

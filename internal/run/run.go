@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	// outputBytesMaxDefault caps each of stdout and stderr when Opts sets no cap.
-	outputBytesMaxDefault = 1 << 20
+	// defaultMaxOutputBytes caps each of stdout and stderr when Opts sets no cap.
+	defaultMaxOutputBytes = 1 << 20
 
 	// waitDelay is how long a stopped program's output pipes are read before they are abandoned.
 	waitDelay = 2 * time.Second
@@ -34,7 +34,7 @@ const (
 type Opts struct {
 	Dir            string
 	Timeout        time.Duration
-	OutputBytesMax int
+	MaxOutputBytes int
 	Stdin          string
 	Env            []string
 }
@@ -97,18 +97,18 @@ func Cmd(ctx context.Context, name string, args []string, opts Opts) Result {
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
 
-	bytesMax := opts.OutputBytesMax
-	if bytesMax <= 0 {
-		bytesMax = outputBytesMaxDefault
+	maxBytes := opts.MaxOutputBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxOutputBytes
 	}
 
 	first := &firstOverflow{mu: sync.Mutex{}, stream: "", stop: stop}
 	stdout := &capped{
-		mu: sync.Mutex{}, text: strings.Builder{}, bytesMax: bytesMax,
+		mu: sync.Mutex{}, text: strings.Builder{}, maxBytes: maxBytes,
 		stream: "stdout", first: first,
 	}
 	stderr := &capped{
-		mu: sync.Mutex{}, text: strings.Builder{}, bytesMax: bytesMax,
+		mu: sync.Mutex{}, text: strings.Builder{}, maxBytes: maxBytes,
 		stream: "stderr", first: first,
 	}
 
@@ -277,11 +277,11 @@ func (f *firstOverflow) name() string {
 	return f.stream
 }
 
-// capped collects at most bytesMax bytes of one stream and records when more came.
+// capped collects at most maxBytes bytes of one stream and records when more came.
 type capped struct {
 	mu       sync.Mutex
 	text     strings.Builder
-	bytesMax int
+	maxBytes int
 	stream   string
 	first    *firstOverflow
 }
@@ -291,7 +291,7 @@ type capped struct {
 func (c *capped) Write(chunk []byte) (int, error) {
 	c.mu.Lock()
 
-	room := c.bytesMax - c.text.Len()
+	room := c.maxBytes - c.text.Len()
 	if len(chunk) <= room {
 		c.text.Write(chunk)
 		c.mu.Unlock()

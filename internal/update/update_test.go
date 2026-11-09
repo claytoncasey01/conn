@@ -68,8 +68,8 @@ var errFetch = errors.New("network down")
 func TestEvaluate(t *testing.T) {
 	t.Parallel()
 
-	atLimit := longTag(update.TagBytesMax)
-	overLimit := longTag(update.TagBytesMax + 1)
+	atLimit := longTag(update.MaxTagBytes)
+	overLimit := longTag(update.MaxTagBytes + 1)
 
 	tests := []struct {
 		name       string

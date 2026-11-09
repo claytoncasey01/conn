@@ -5,9 +5,9 @@ import "time"
 // The limits and the restart count, for tests that state the rules in the rules' own terms.
 const (
 	ProbeEvery       = probeEvery
-	ProbeFailuresMax = probeFailuresMax
-	RestartsMax      = restartsInARowMax
-	AddressWaitMax   = addressWaitMax
+	MaxProbeFailures = maxProbeFailures
+	MaxRestarts      = maxRestartsInARow
+	MaxAddressWait   = maxAddressWait
 )
 
 // ErrGaveUp is the error Run wraps when it gives up.

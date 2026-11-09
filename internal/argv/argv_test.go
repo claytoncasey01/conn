@@ -16,12 +16,12 @@ import (
 // shellTimeout bounds one shell run of a round trip.
 const shellTimeout = 10 * time.Second
 
-// randomCases and randomWordsMax bound the generated round trips: each case is up to
-// randomWordsMax words of up to randomUnitsMax characters.
+// randomCases and maxRandomWords bound the generated round trips: each case is up to
+// maxRandomWords words of up to maxRandomUnits characters.
 const (
 	randomCases     = 300
-	randomWordsMax  = 6
-	randomUnitsMax  = 40
+	maxRandomWords  = 6
+	maxRandomUnits  = 40
 	randomSeedFirst = 7
 	randomSeedLast  = 11
 )
@@ -164,7 +164,7 @@ func (s *sequence) next() uint64 {
 	return s.state >> 33
 }
 
-// randomCase is up to randomWordsMax words, each up to randomUnitsMax characters drawn from
+// randomCase is up to maxRandomWords words, each up to maxRandomUnits characters drawn from
 // the characters shells treat specially, letters and a few beyond ASCII.
 func randomCase(random *sequence) []string {
 	alphabet := [...]rune{
@@ -172,10 +172,10 @@ func randomCase(random *sequence) []string {
 		'{', '}', '[', ']', '*', '?', '~', '=', '%', '^', ',', ':', '@', '+', '-', '.', '/',
 		'_', 'a', 'Z', '0', '9', '\u00e9', '\u65e5', '\u202e', '\x1b',
 	}
-	words := make([]string, 1+random.next()%randomWordsMax)
+	words := make([]string, 1+random.next()%maxRandomWords)
 
 	for index := range words {
-		runes := make([]rune, random.next()%randomUnitsMax)
+		runes := make([]rune, random.next()%maxRandomUnits)
 		for at := range runes {
 			runes[at] = alphabet[random.next()%uint64(len(alphabet))]
 		}

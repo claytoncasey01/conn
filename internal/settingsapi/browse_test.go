@@ -283,8 +283,8 @@ func TestBrowseCapsTheOwners(t *testing.T) {
 	}
 
 	_, body := browse(t, world)
-	if count := strings.Count(body, `"owner":`); count != settingsapi.BrowseOwnersMax {
-		t.Errorf("owners = %d, want %d", count, settingsapi.BrowseOwnersMax)
+	if count := strings.Count(body, `"owner":`); count != settingsapi.MaxBrowseOwners {
+		t.Errorf("owners = %d, want %d", count, settingsapi.MaxBrowseOwners)
 	}
 }
 

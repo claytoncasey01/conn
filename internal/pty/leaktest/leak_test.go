@@ -28,8 +28,8 @@ const (
 	settlePoll  = 10 * time.Millisecond
 )
 
-// descriptorsScanMax is how many descriptors the count looks at.
-const descriptorsScanMax = 4096
+// maxDescriptorsScan is how many descriptors the count looks at.
+const maxDescriptorsScan = 4096
 
 // stopGrace is short: the programs here all obey a polite stop.
 const stopGrace = 200 * time.Millisecond
@@ -49,13 +49,13 @@ func TestStartingAndStoppingLeavesNothingBehind(t *testing.T) {
 	dir := t.TempDir()
 
 	// A first round opens what the runtime opens once (its poller), so it is not counted.
-	fillAndEmpty(t, host, dir, limits.SessionsMax)
+	fillAndEmpty(t, host, dir, limits.MaxSessions)
 
 	descriptors := descriptorsOpen(t)
 	goroutines := runtime.NumGoroutine()
 
 	for range rounds {
-		fillAndEmpty(t, host, dir, limits.SessionsMax)
+		fillAndEmpty(t, host, dir, limits.MaxSessions)
 	}
 
 	waitSettled(t, "descriptors", descriptors, func() int { return descriptorsOpen(t) })
@@ -96,7 +96,7 @@ func fillAndEmpty(t *testing.T, host *pty.Host, dir string, count int) {
 	}
 }
 
-// descriptorsOpen is how many of this process's first descriptorsScanMax descriptors are open.
+// descriptorsOpen is how many of this process's first maxDescriptorsScan descriptors are open.
 // It asks each one, rather than listing /dev/fd, since macOS leaves a revoked terminal out of
 // that listing while the descriptor is still open.
 func descriptorsOpen(t *testing.T) int {
@@ -104,7 +104,7 @@ func descriptorsOpen(t *testing.T) int {
 
 	count := 0
 
-	for descriptor := range descriptorsScanMax {
+	for descriptor := range maxDescriptorsScan {
 		_, err := unix.FcntlInt(uintptr(descriptor), unix.F_GETFD, 0)
 		if err == nil {
 			count++

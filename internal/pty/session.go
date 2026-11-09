@@ -29,7 +29,7 @@ func (h *Host) readOutput(reading *session, readDone chan<- struct{}) {
 }
 
 // publish copies chunk into the scrollback and into every viewer's queue, dropping each viewer
-// whose queue it would take past viewerQueueBytesMax.
+// whose queue it would take past maxViewerQueueBytes.
 func (h *Host) publish(target *session, chunk []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -39,7 +39,7 @@ func (h *Host) publish(target *session, chunk []byte) {
 	kept := target.viewers[:0]
 
 	for _, watching := range target.viewers {
-		if len(watching.pending)+len(chunk) > viewerQueueBytesMax {
+		if len(watching.pending)+len(chunk) > maxViewerQueueBytes {
 			watching.why = ViewerEnd{Dropped: true, Ended: false, ExitCode: 0}
 			watching.stop()
 
@@ -150,14 +150,14 @@ func (h *Host) awaitEnd(waiting *session, readDone <-chan struct{}) {
 
 // watchGroup watches the group of a session whose stop failed until it empties on its own, then
 // records it empty, so its number is never signalled again: an empty group's number may be given
-// to a new program. It looks every groupWatchInterval, at most groupWatchesMax times, and stops
+// to a new program. It looks every groupWatchInterval, at most maxGroupWatches times, and stops
 // early once a stop has found the group empty or the host is closed (StopAll stops the rest). A
 // number given to a new program within one interval of the group emptying is not told apart.
 func (h *Host) watchGroup(watched *session) {
 	ticker := time.NewTicker(groupWatchInterval)
 	defer ticker.Stop()
 
-	for range groupWatchesMax {
+	for range maxGroupWatches {
 		<-ticker.C
 
 		if h.watchOver(watched) {
@@ -243,7 +243,7 @@ func (h *Host) groupEmptied(held *session) {
 }
 
 // retire gives back the session's running slot and adds it to the ended sessions, forgetting
-// the oldest past endedMax, once its program has ended and its group is known to be empty; only
+// the oldest past maxEnded, once its program has ended and its group is known to be empty; only
 // once. The caller holds h.mu.
 func (h *Host) retire(held *session) {
 	if held.retired {
@@ -262,7 +262,7 @@ func (h *Host) retire(held *session) {
 	h.running--
 
 	h.ended = append(h.ended, held.sessionID)
-	if len(h.ended) > endedMax {
+	if len(h.ended) > maxEnded {
 		oldest := h.ended[0]
 		h.ended = slices.Delete(h.ended, 0, 1)
 		delete(h.sessions, oldest)

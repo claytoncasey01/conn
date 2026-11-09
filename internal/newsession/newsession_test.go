@@ -26,9 +26,9 @@ import (
 const (
 	allowedRepo = "acme/widgets"
 	hostedID    = "0123456789abcdef0123456789abcdef"
-	// sessionsMax is the most sessions the rig's host runs, and sessionsFull a host at it.
-	sessionsMax  = 12
-	sessionsFull = sessionsMax
+	// maxSessions is the most sessions the rig's host runs, and sessionsFull a host at it.
+	maxSessions  = 12
+	sessionsFull = maxSessions
 	cooldown     = time.Minute
 	// waitLimit bounds each wait of a test on another goroutine, so a regression fails the test
 	// rather than hanging it.
@@ -708,9 +708,9 @@ func checkClone(folder string) error {
 	return nil
 }
 
-// roomOf is a host with running sessions running, at most sessionsMax.
+// roomOf is a host with running sessions running, at most maxSessions.
 func roomOf(running int) func() pty.Room {
-	return func() pty.Room { return pty.Room{Running: running, SessionsMax: sessionsMax} }
+	return func() pty.Room { return pty.Room{Running: running, MaxSessions: maxSessions} }
 }
 
 // TestCheckCloneReportsEveryProblemOfTheCloneAndTheFoldersItTrusts: the folder, its .git, and

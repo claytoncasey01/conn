@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	// nameMax is the longest plain review name; a longer one, or one whose owner GitHub would not
+	// maxName is the longest plain review name; a longer one, or one whose owner GitHub would not
 	// allow, takes the hashed form.
-	nameMax = 120
+	maxName = 120
 	// hashShown is how much of the hash a hashed name holds, in hex digits.
 	hashShown = 12
 	// lineUnits is how much of a failure's first line is kept.
@@ -104,7 +104,7 @@ type Names struct {
 // from 2; previous is how many launches the PR already has). It is one-to-one over (owner, repo,
 // number, launch): a GitHub owner never holds two dashes in a row or ends with one, and a repo
 // never starts with one, so the first `--` ends the owner. An owner that breaks that rule, or a
-// name longer than nameMax, takes `pr-<n>[.<k>]-x<first 12 hex of sha1(owner/repo)>` instead,
+// name longer than maxName, takes `pr-<n>[.<k>]-x<first 12 hex of sha1(owner/repo)>` instead,
 // which holds no `--` and so never reads as a plain one.
 func (n Names) ReviewName(repo string, number int64, previous int) (string, error) {
 	owner, name, err := splitRepo(repo)
@@ -148,7 +148,7 @@ func hashedName(owner, plain string) bool {
 		return true
 	}
 
-	return len(plain) > nameMax
+	return len(plain) > maxName
 }
 
 // IsReviewNameOf is whether name is the name of some launch of PR number of repo (the first, or
@@ -171,7 +171,7 @@ func (n Names) IsReviewNameOf(name, repo string, number int64) bool {
 		least = 2
 	}
 
-	if nth > safeIntegerMax {
+	if nth > maxSafeInteger {
 		return false
 	}
 

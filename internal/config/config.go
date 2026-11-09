@@ -25,19 +25,19 @@ const dataFolderName = "conn"
 
 // How long a finished review session may sit idle before it is closed, in minutes.
 const (
-	closeMinutesDefault = 10
-	closeMinutesMin     = 1
-	closeMinutesMax     = 60
+	defaultCloseMinutes = 10
+	minCloseMinutes     = 1
+	maxCloseMinutes     = 60
 )
 
 const (
-	// greptileBotDefault is the login of the Greptile app, whose review of the head a My PRs
+	// defaultGreptileBot is the login of the Greptile app, whose review of the head a My PRs
 	// round waits for.
-	greptileBotDefault = "greptile-apps"
+	defaultGreptileBot = "greptile-apps"
 
-	// themeIndexDefault is the repo the Themes gallery reads its index from; anyone can point
+	// defaultThemeIndex is the repo the Themes gallery reads its index from; anyone can point
 	// CONN_THEME_INDEX at their own.
-	themeIndexDefault = "claytoncasey01/conn-themes"
+	defaultThemeIndex = "claytoncasey01/conn-themes"
 )
 
 // The fixed tuning Config carries; Config's fields say what each is for.
@@ -70,9 +70,9 @@ type Config struct {
 	ClaudeDir string
 	// DataDir is where the dashboard keeps its own data (history.db, runs, caches).
 	DataDir string
-	// DataDirDefault is the data folder when CONN_DATA is unset: the real one. Dry runs refuse to
+	// DefaultDataDir is the data folder when CONN_DATA is unset: the real one. Dry runs refuse to
 	// write into it.
-	DataDirDefault string
+	DefaultDataDir string
 	// ClaudeBin is the claude program helper runs start (CONN_CLAUDE): a test points it at a
 	// fake.
 	ClaudeBin string
@@ -116,9 +116,9 @@ type Config struct {
 	// nobody has asked GitHub to request me on), while a dashboard is open.
 	ReviewChannelScanInterval time.Duration
 	// A finished review session is closed after ReviewCloseAfter idle (1 to 60 minutes), and
-	// never later than ReviewCloseAfterMax.
+	// never later than MaxReviewCloseAfter.
 	ReviewCloseAfter    time.Duration
-	ReviewCloseAfterMax time.Duration
+	MaxReviewCloseAfter time.Duration
 	// ReviewNamePattern matches the name of a review session working under $CONN_DATA/reviews
 	// (pr-<number>[.<k>]-<owner>--<repo>, or pr-<number>[-<k>] from before Reviews read several
 	// repos). Purely syntactic: the launch record says which PR a session is for.
@@ -173,10 +173,10 @@ func (d Dry) Any() bool {
 	return d.Work
 }
 
-// DataDirDefault is the folder Conn keeps everything it saves in when CONN_DATA is unset:
+// DefaultDataDir is the folder Conn keeps everything it saves in when CONN_DATA is unset:
 // $XDG_CONFIG_HOME/conn, or $HOME/.config/conn when XDG_CONFIG_HOME is unset, empty or not an
 // absolute path (the XDG rule for a relative value is to ignore it).
-func DataDirDefault(lookup LookupFunc) string {
+func DefaultDataDir(lookup LookupFunc) string {
 	base := valueOf(lookup, "XDG_CONFIG_HOME")
 	if filepath.IsAbs(base) {
 		return filepath.Join(base, dataFolderName)
@@ -191,15 +191,15 @@ func FromEnv(lookup LookupFunc) Config {
 	home := valueOf(lookup, "HOME")
 	claudeDir := filepath.Join(home, ".claude")
 	transcripts := filepath.Join(claudeDir, "projects")
-	dataDefault := DataDirDefault(lookup)
-	data := valueOr(lookup, "CONN_DATA", dataDefault)
+	defaultData := DefaultDataDir(lookup)
+	data := valueOr(lookup, "CONN_DATA", defaultData)
 	closeMinutes := parseCloseMinutes(valueOf(lookup, "CONN_REVIEW_CLOSE_MIN"))
 
 	return Config{
 		Home:                      home,
 		ClaudeDir:                 claudeDir,
 		DataDir:                   data,
-		DataDirDefault:            dataDefault,
+		DefaultDataDir:            defaultData,
 		ClaudeBin:                 valueOr(lookup, "CONN_CLAUDE", "claude"),
 		CmuxBin:                   valueOr(lookup, "CONN_CMUX", "cmux"),
 		ThemesUser:                filepath.Join(data, "themes"),
@@ -218,7 +218,7 @@ func FromEnv(lookup LookupFunc) Config {
 		ReviewDMScanInterval:      reviewDMScanInterval,
 		ReviewChannelScanInterval: reviewChannelScanInterval,
 		ReviewCloseAfter:          time.Duration(closeMinutes) * time.Minute,
-		ReviewCloseAfterMax:       closeMinutesMax * time.Minute,
+		MaxReviewCloseAfter:       maxCloseMinutes * time.Minute,
 		ReviewNamePattern: regexp.MustCompile(
 			`^pr-\d+(?:\.\d+)?(?:-[a-z0-9._-]{1,160})?$`),
 		FindingBots:      parseBots(valueOf(lookup, "CONN_FINDING_BOTS")),
@@ -259,19 +259,19 @@ func valueOr(lookup LookupFunc, key, fallback string) string {
 // not a finite number gives 10.
 func parseCloseMinutes(raw string) int {
 	if js.Trim(raw) == "" {
-		return closeMinutesDefault
+		return defaultCloseMinutes
 	}
 
 	minutes := js.ToNumber(raw)
 	if math.IsNaN(minutes) {
-		return closeMinutesDefault
+		return defaultCloseMinutes
 	}
 
 	if math.IsInf(minutes, 0) {
-		return closeMinutesDefault
+		return defaultCloseMinutes
 	}
 
-	return int(min(closeMinutesMax, max(closeMinutesMin, math.Floor(minutes))))
+	return int(min(maxCloseMinutes, max(minCloseMinutes, math.Floor(minutes))))
 }
 
 // split is a comma-separated list, trimmed, with empty entries dropped.
@@ -288,15 +288,15 @@ func split(list string) []string {
 	return entries
 }
 
-// findingBotsDefault are the bots whose open review threads count as findings.
-func findingBotsDefault() []string { return []string{"greptile-apps", "devin-ai-integration"} }
+// defaultFindingBots are the bots whose open review threads count as findings.
+func defaultFindingBots() []string { return []string{"greptile-apps", "devin-ai-integration"} }
 
 // parseBots reads CONN_FINDING_BOTS: logins separated by commas; unset or nothing left gives the
 // defaults.
 func parseBots(list string) []string {
 	bots := split(list)
 	if len(bots) == 0 {
-		return findingBotsDefault()
+		return defaultFindingBots()
 	}
 
 	return bots
@@ -306,15 +306,15 @@ func parseBots(list string) []string {
 func parseGreptileBot(raw string) string {
 	login := js.Trim(raw)
 	if login == "" {
-		return greptileBotDefault
+		return defaultGreptileBot
 	}
 
 	return login
 }
 
-// protectedHeadsDefault are branches a Self-Review never runs on: its session pushes its fixes
+// defaultProtectedHeads are branches a Self-Review never runs on: its session pushes its fixes
 // straight onto the PR's branch. A trailing * matches by prefix.
-func protectedHeadsDefault() []string {
+func defaultProtectedHeads() []string {
 	return []string{"main", "master", "develop", "staging", "release/*"}
 }
 
@@ -323,7 +323,7 @@ func protectedHeadsDefault() []string {
 func parseHeads(list string) []string {
 	heads := split(list)
 	if len(heads) == 0 {
-		return protectedHeadsDefault()
+		return defaultProtectedHeads()
 	}
 
 	return heads
@@ -356,5 +356,5 @@ func parseThemeIndex(raw string) string {
 		return value
 	}
 
-	return themeIndexDefault
+	return defaultThemeIndex
 }

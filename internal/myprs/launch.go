@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	// partUnitsMax is the longest repo owner or name a self-review folder takes.
-	partUnitsMax = 60
+	// maxPartUnits is the longest repo owner or name a self-review folder takes.
+	maxPartUnits = 60
 	// hashShown is how much of the repo's hash a folder name holds, in hex digits.
 	hashShown = 8
 	// gitTool is the git program's command name in a tool rule.
@@ -79,7 +79,7 @@ func repoName(repo string) (string, error) {
 	}
 
 	_, name, _ := strings.Cut(strings.ToLower(repo), "/")
-	if js.Len(name) > partUnitsMax {
+	if js.Len(name) > maxPartUnits {
 		return "", errNameTooLong
 	}
 
@@ -93,7 +93,7 @@ func ownerOf(repo string) (string, error) {
 	}
 
 	owner, _, _ := strings.Cut(strings.ToLower(repo), "/")
-	if js.Len(owner) > partUnitsMax {
+	if js.Len(owner) > maxPartUnits {
 		return "", errOwnerTooLong
 	}
 

@@ -32,10 +32,10 @@ import (
 const (
 	// rounds is how many times every way of leaving is tried after the first round.
 	rounds = 5
-	// viewersMax is the host's limit on one session's viewers.
-	viewersMax = 4
-	// descriptorsScanMax is how many descriptors the count looks at.
-	descriptorsScanMax = 4096
+	// maxViewers is the host's limit on one session's viewers.
+	maxViewers = 4
+	// maxDescriptorsScan is how many descriptors the count looks at.
+	maxDescriptorsScan = 4096
 	// waitLimit bounds every wait, and settlePoll is how often the counts are looked at.
 	waitLimit  = 5 * time.Second
 	settlePoll = 10 * time.Millisecond
@@ -229,7 +229,7 @@ func rawSend(t *testing.T, served rig, text string) {
 	_ = conn.Close()
 }
 
-// waitPlacesFree waits until viewersMax viewers can open the terminal at once: every place a
+// waitPlacesFree waits until maxViewers viewers can open the terminal at once: every place a
 // client that left held is free again.
 func waitPlacesFree(t *testing.T, served rig) {
 	t.Helper()
@@ -247,12 +247,12 @@ func waitPlacesFree(t *testing.T, served rig) {
 	t.Fatal("the places of viewers that left were never freed")
 }
 
-// openAtOnce says whether viewersMax viewers can open the terminal together; it closes them and
+// openAtOnce says whether maxViewers viewers can open the terminal together; it closes them and
 // waits until each is closed.
 func openAtOnce(t *testing.T, served rig) bool {
 	t.Helper()
 
-	opened := make([]*websocket.Conn, 0, viewersMax)
+	opened := make([]*websocket.Conn, 0, maxViewers)
 
 	defer func() {
 		for _, conn := range opened {
@@ -260,7 +260,7 @@ func openAtOnce(t *testing.T, served rig) bool {
 		}
 	}()
 
-	for range viewersMax {
+	for range maxViewers {
 		conn, err := tryDial(t, served)
 		if err != nil {
 			return false
@@ -272,11 +272,11 @@ func openAtOnce(t *testing.T, served rig) bool {
 	return true
 }
 
-// descriptorsOpen is how many of this process's first descriptorsScanMax descriptors are open.
+// descriptorsOpen is how many of this process's first maxDescriptorsScan descriptors are open.
 func descriptorsOpen() int {
 	count := 0
 
-	for descriptor := range descriptorsScanMax {
+	for descriptor := range maxDescriptorsScan {
 		_, err := unix.FcntlInt(uintptr(descriptor), unix.F_GETFD, 0)
 		if err == nil {
 			count++

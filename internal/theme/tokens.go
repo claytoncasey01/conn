@@ -19,9 +19,9 @@ const (
 
 // The size limits on a theme's files and on how many themes of the user's are listed.
 const (
-	ManifestBytesMax = 65536
-	CSSBytesMax      = 262144
-	UserThemesMax    = 100
+	MaxManifestBytes = 65536
+	MaxCSSBytes      = 262144
+	MaxUserThemes    = 100
 )
 
 // Slot is one token a theme may set and what a value for it may be.
