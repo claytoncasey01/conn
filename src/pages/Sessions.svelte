@@ -12,6 +12,8 @@
   import { hideTerminal, loadTerminal, terminalPanel, toggleTerminal } from '../lib/terminalPanel.svelte.ts'
   import Nav from '../lib/Nav.svelte'
   import FilterBar from '../lib/FilterBar.svelte'
+  import NewSession from '../lib/NewSession.svelte'
+  import { emptyHint } from '../lib/newSession.ts'
   import { barGroups, emptySelection, matches, toggle } from '../lib/filters.ts'
   import { emptyState, sessionGroups } from '../lib/sessionGroups.ts'
   import { sessionFilter } from '../lib/sessionFilter.svelte.ts'
@@ -34,6 +36,8 @@
   const bar = $derived(barGroups(sessions, groups, sessionFilter.selection))
   const empty = $derived(emptyState(sessions.length, shown.length, sessionFilter.selection))
   const fleet = $derived(fleetTotals(sessions))
+  /** Where sessions open, once New session has read it: the empty state's wording follows it */
+  let where = $state<string | null>(null)
   /** The hosted session whose terminal panel is open here, if it is still listed */
   const terminalOf = $derived(sessions.find(s => s.hosted && s.id === terminalPanel.open) ?? null)
 
@@ -116,6 +120,7 @@
         ontoggle={(groupId, chipId) => (sessionFilter.selection = toggle(sessionFilter.selection, groups.find(g => g.id === groupId)!, chipId))}
         onclear={() => (sessionFilter.selection = emptySelection())}
       />
+      <NewSession bind:where />
     </div>
 
     {#if terminalOf}
@@ -132,7 +137,11 @@
       <div role="status" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 56px 20px; border: 1px dashed color-mix(in oklch, var(--edge) 25%, transparent); border-radius: calc(var(--radius) * 1.5); background: color-mix(in oklch, var(--panel) 60%, transparent); text-align: center">
         {#if empty === 'no-sessions'}
           <div class="hud" style="font-weight: 700; font-size: 22px; letter-spacing: calc(var(--tracking) * 0.5714); color: color-mix(in oklab, var(--tx) 50%, var(--bright))">No running sessions</div>
-          <div style="font-size: 12px; color: var(--mu)">Start one with <span style="color: color-mix(in oklab, var(--role-lead) 65%, var(--bright))">claude</span> in a terminal and it shows up here.</div>
+          {#if emptyHint(where) === 'new-session'}
+            <div style="font-size: 12px; color: var(--mu)">Start one with <span style="color: color-mix(in oklab, var(--role-lead) 65%, var(--bright))">New session</span> above, in one of your repositories.</div>
+          {:else}
+            <div style="font-size: 12px; color: var(--mu)">Start one with <span style="color: color-mix(in oklab, var(--role-lead) 65%, var(--bright))">claude</span> in a terminal and it shows up here.</div>
+          {/if}
         {:else}
           <div class="hud" style="font-weight: 700; font-size: 22px; letter-spacing: calc(var(--tracking) * 0.5714); color: color-mix(in oklab, var(--tx) 50%, var(--bright))">No sessions match these filters</div>
           <button
