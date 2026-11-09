@@ -130,7 +130,7 @@
           {#if step === 'starting'}Starting…{:else}Start{/if}
         </button>
       {:else if choices}
-        <p style="flex: 1 1 220px; margin: 0; font-size: 12px; color: var(--tx)">No allowed repository has a local clone yet: set a clone folder in <a href={href.settings()} style="color: inherit">Settings</a>.</p>
+        <p style="flex: 1 1 220px; margin: 0; font-size: 12px; color: var(--tx)">No allowed repository has a local clone Conn can use yet: set a clone folder in <a href={href.settings()} style="color: inherit">Settings</a>. A clone must be a real folder of yours, not a link.</p>
       {/if}
       <button bind:this={cancel} type="button" class="cap" onclick={close} style={plain}>Cancel</button>
       {#if error}
