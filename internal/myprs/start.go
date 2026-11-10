@@ -85,13 +85,10 @@ func (m *MyPrs) Start(ctx context.Context, repo, number, model, chosenAdvisor an
 	}
 
 	chosen, _ := model.(string)
-	if !isModel(chosen) {
-		return bad(http.StatusBadRequest, "model must be sonnet or opus")
-	}
-
 	advisorChoice, isChoice := advisor.Requested(chosenAdvisor)
-	if !isChoice {
-		return bad(http.StatusBadRequest, "advisor must be "+advisor.List())
+
+	if problem := reviews.PicksProblem(isModel(chosen), isChoice); problem != "" {
+		return bad(http.StatusBadRequest, problem)
 	}
 
 	m.mu.Lock()
@@ -111,7 +108,7 @@ func (m *MyPrs) Start(ctx context.Context, repo, number, model, chosenAdvisor an
 		return *refused
 	}
 
-	advisorChoice = advisor.Or(advisorChoice, m.deps.Scope().Advisor)
+	advisorChoice = advisor.Or(advisorChoice, m.scope().Advisor)
 
 	return m.launch(ctx, target, chosen, advisorChoice)
 }

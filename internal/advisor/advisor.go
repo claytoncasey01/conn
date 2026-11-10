@@ -4,7 +4,8 @@
 // request or a settings file ever reaches a command line.
 //
 // Claude Code fixes a session's advisor when the session starts and keeps it on every resume,
-// whatever a resume is passed, so only a session's first start carries the choice.
+// whatever a resume is passed, so the choice matters only where a conversation starts. A resume
+// that may start one (--continue in a folder with no conversation yet) carries it too.
 package advisor
 
 import (
@@ -43,14 +44,11 @@ func List() string {
 	return strings.Join(choices[:last], ", ") + " or " + choices[last]
 }
 
-// Requested is the advisor a start request chose, from its advisor field (nil when it has none):
-// "" when it chose none, so the settings' choice applies; the choice when it is one; and false
-// for anything else, which the request is refused for.
-func Requested(raw any) (string, bool) {
-	if raw == nil {
-		return "", true
-	}
+// MustBe is the refusal of a value that is not a choice: "advisor must be " and the List.
+func MustBe() string { return "advisor must be " + List() }
 
+// Of is raw when it is text that is one of Choices, else "" and false.
+func Of(raw any) (string, bool) {
 	choice, isText := raw.(string)
 	if !isText {
 		return "", false
@@ -61,6 +59,17 @@ func Requested(raw any) (string, bool) {
 	}
 
 	return choice, true
+}
+
+// Requested is the advisor a start request chose, from its advisor field (nil when it has none,
+// or sent it as null): "" when it chose none, so the settings' choice applies; the choice when
+// it is one; and false for anything else, which the request is refused for (with MustBe).
+func Requested(raw any) (string, bool) {
+	if raw == nil {
+		return "", true
+	}
+
+	return Of(raw)
 }
 
 // Or is chosen, or saved (the settings' choice) when chosen is "".
@@ -79,12 +88,9 @@ func Args(choice string) []string {
 	switch choice {
 	case ClaudeCode:
 		return nil
-	case Fable:
-		return []string{settingsFlag, `{"advisorModel":"fable"}`}
-	case Opus:
-		return []string{settingsFlag, `{"advisorModel":"opus"}`}
-	case Sonnet:
-		return []string{settingsFlag, `{"advisorModel":"sonnet"}`}
+	case Fable, Opus, Sonnet:
+		// The choice is one of the constants above, so the JSON is only ever those words.
+		return []string{settingsFlag, `{"advisorModel":"` + choice + `"}`}
 	}
 
 	panic("advisor: Args was given " + choice + ", which is not a choice")

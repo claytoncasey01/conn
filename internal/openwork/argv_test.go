@@ -120,19 +120,28 @@ func TestTheBuildSessionsArgvIsGolden(t *testing.T) {
 }
 
 // TestTheResumeSessionsArgvIsGolden: resumed on its conversation when the id is a UUID, and on
-// the folder's last conversation when it is not (a tampered id never reaches an argument).
+// the folder's last conversation when it is not (a tampered id never reaches an argument). The
+// run's advisor goes with it, for a folder with no conversation yet to start one on.
 func TestTheResumeSessionsArgvIsGolden(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name      string
 		sessionID string
+		advisor   string
 		golden    string
 		verb      string
 	}{
-		{"a session id", "0f8fad5b-d9cb-469f-a165-70867728950e", "argv-resume.json", "resumed"},
 		{
-			"a tampered id", "0f8fad5b; rm -rf ~", "argv-continue.json",
+			"a session id", "0f8fad5b-d9cb-469f-a165-70867728950e", advisor.ClaudeCode,
+			"argv-resume.json", "resumed",
+		},
+		{
+			"a tampered id", "0f8fad5b; rm -rf ~", advisor.ClaudeCode, "argv-continue.json",
+			"reopened on its last conversation",
+		},
+		{
+			"an advisor", "0f8fad5b; rm -rf ~", advisor.Fable, "argv-continue-advisor.json",
 			"reopened on its last conversation",
 		},
 	}
@@ -158,7 +167,7 @@ func TestTheResumeSessionsArgvIsGolden(t *testing.T) {
 			lead.ClaudeSessionID = &tt.sessionID
 			record := hostileRecord("shared", lead, hostileLeg("acme/gadgets", folders[1]))
 
-			spec, verb := openwork.ResumeSpec(goldenClaude, record, lead)
+			spec, verb := openwork.ResumeSpec(goldenClaude, record, lead, tt.advisor)
 			goldenSpec(t, tt.golden, base, spec)
 
 			if verb != tt.verb {
@@ -180,7 +189,7 @@ func TestNothingFromTheTicketOrTheFolderIsAnArgument(t *testing.T) {
 	lead.ClaudeSessionID = &sessionID
 	other := hostileLeg("acme/gadgets", folders[1])
 	record := hostileRecord("shared", lead, other)
-	resumed, _ := openwork.ResumeSpec(goldenClaude, record, lead)
+	resumed, _ := openwork.ResumeSpec(goldenClaude, record, lead, advisor.Opus)
 
 	launched := openwork.LaunchSpec(goldenClaude, record, lead, advisor.Opus)
 	for _, spec := range []pty.Spec{launched, resumed} {
@@ -282,7 +291,7 @@ func TestAResumeAddsTheDelegationOnlyFromAConnFolderOfItsOwn(t *testing.T) {
 
 			lead := hostileLeg("acme/widgets", folders[0])
 			record := hostileRecord("shared", lead)
-			spec, _ := openwork.ResumeSpec(goldenClaude, record, lead)
+			spec, _ := openwork.ResumeSpec(goldenClaude, record, lead, advisor.ClaudeCode)
 
 			added := slices.Contains(spec.Argv, "--append-system-prompt-file")
 			if added != tt.want {

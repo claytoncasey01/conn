@@ -74,6 +74,23 @@ func TestAPressWithAnAdvisorThatIsNoChoiceIsRefused(t *testing.T) {
 	}
 }
 
+// A press with a bad model and a bad advisor is told of both at once.
+func TestAPressWithABadModelAndAdvisorIsToldOfBoth(t *testing.T) {
+	t.Parallel()
+
+	tab, fakes := aReady(t, setupOpts{open: []*reviews.PR{aRequestedPR()}})
+
+	reply, err := tab.Start(t.Context(), worldRepo, "7", "haiku", "gpt")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	aEqual(t, "code", reply.Code, 400)
+	aEqual(t, "body", aBody(reply), `{"error":"model must be sonnet or opus; `+
+		`advisor must be claude-code, fable, opus or sonnet"}`)
+	aEqual(t, "launches", aLaunchCount(fakes), 0)
+}
+
 // The advisor's settings go after the model and before --, so the prompt is still the only
 // argument after it.
 func TestTheReviewArgumentsCarryTheAdvisor(t *testing.T) {

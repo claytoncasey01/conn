@@ -44,7 +44,7 @@ func (w *Work) ResumeAtLaunch(key, worktree string) (pty.Spec, bool) {
 		return pty.Spec{}, false
 	}
 
-	spec, _ := ResumeSpec(w.deps.Claude, record, slot)
+	spec, _ := ResumeSpec(w.deps.Claude, record, slot, w.advisorOf(record))
 	w.resumedAt[slotKey(record, slot)] = w.now()
 
 	return spec, true

@@ -145,14 +145,10 @@ func whereOf(raw any) (string, bool) {
 
 // advisorOf is raw when it is one of advisor.Choices, else advisor.Default and false.
 func advisorOf(raw any) (string, bool) {
-	text, isText := raw.(string)
-	if !isText {
+	choice, isChoice := advisor.Of(raw)
+	if !isChoice {
 		return advisor.Default, false
 	}
 
-	if !advisor.IsChoice(text) {
-		return advisor.Default, false
-	}
-
-	return text, true
+	return choice, true
 }

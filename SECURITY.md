@@ -114,7 +114,8 @@ refused, because two Ctrl-C close together make `claude` quit.
 
 **New session.** `POST /api/sessions/new` starts a plain `claude` session. Its body is a JSON
 object with a repository name (`owner/name`) and, optionally, a session name and an advisor
-choice; any other field, a value that is not text, or a body over 64 KiB is refused. The page never sends a folder, a
+choice (`null` for none, as if it were absent); any other field, any other value that is not
+text, or a body over 64 KiB is refused. The page never sends a folder, a
 program, an argument or a variable, and the server reads none: the repository is only a key.
 - The repository must be on the allowlist now and have a local clone, found as Open work finds
   one. The clone's path is resolved first (a clone set in Settings may be a link), and the
@@ -163,7 +164,9 @@ program, an argument or a variable, and the server reads none: the repository is
   can set any Claude Code setting, so its value is never built from input: a request or
   `settings.json` names one of `claude-code`, `fable`, `opus` or `sonnet`, anything else is
   refused (a request) or read as none (a file), and the two arguments come from a fixed table in
-  `internal/advisor`, three constant strings (`claude-code` adds none). A resume carries none.
+  `internal/advisor`, three constant strings (`claude-code` adds none). A History resume carries
+  none; an Open work reopen carries the run's, since `--continue` in a folder with no
+  conversation yet starts one (Claude Code keeps a resumed conversation's own advisor).
 - The route needs the gate below, `x-conn: 1` and the page's own `Origin`: a request with no
   `Origin` is refused, as for the Settings and agents-and-skills writes, the terminal's
   background and Interrupt. The session actions (stop, reply, answer, terminal), History's

@@ -38,9 +38,10 @@ const (
 	folderMode = 0o777
 	// gitWorktree is git's worktree command.
 	gitWorktree = "worktree"
-	// claudeFixedArguments are the arguments of a review session besides its rules:
-	// --disallowedTools, --name and the name, --model and the model, --, and readPrompt.
-	claudeFixedArguments = 7
+	// claudeFixedArguments are the most arguments of a review session besides its rules:
+	// --disallowedTools, --name and the name, --model and the model, the advisor's two
+	// (advisor.Args), --, and readPrompt.
+	claudeFixedArguments = 9
 	// readPrompt is a review session's first message: the prompt is in its file.
 	readPrompt = "Read .conn/prompt.md and follow it exactly."
 )
@@ -246,9 +247,8 @@ func (p Prompts) BuildPrompt(number int64, reReviewSha *string, repo string) (st
 // rules it can never use, its name, its model, its advisor (advisor.Args of advisorChoice), and
 // the one instruction to read the prompt from its file, each one argument, never a shell string.
 // The prompt itself is only in the file, so no text of it is ever in an argument or a command
-// line. pattern is the name shape the session
-// kind allows. disallowed are permission rules the session can never use; the list is variadic,
-// so it goes first and --name ends it.
+// line. pattern is the name shape the session kind allows. disallowed are permission rules the
+// session can never use; the list is variadic, so it goes first and --name ends it.
 func ClaudeArgs(name, model, advisorChoice string, pattern *regexp.Regexp, disallowed []string) (
 	[]string, error,
 ) {

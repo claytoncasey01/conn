@@ -76,6 +76,28 @@ func TestARoundWithAnAdvisorThatIsNoChoiceIsRefused(t *testing.T) {
 	}
 }
 
+// A press with a bad model and a bad advisor is told of both at once.
+func TestARoundWithABadModelAndAdvisorIsToldOfBoth(t *testing.T) {
+	t.Parallel()
+
+	world, poller, _ := aPolled(t, pr())
+
+	reply := poller.Start(context.Background(), "org/repo", 7.0, "haiku", "gpt")
+	if reply.Code != 400 {
+		t.Errorf("code = %d, want 400", reply.Code)
+	}
+
+	want := `{"error":"model must be sonnet or opus; ` +
+		`advisor must be claude-code, fable, opus or sonnet"}`
+	if got := js.Stringify(reply.Body); got != want {
+		t.Errorf("body = %s, want %s", got, want)
+	}
+
+	if launched := aLaunched(world); len(launched) != 0 {
+		t.Errorf("launched %+v, want none", launched)
+	}
+}
+
 // The scope carries the sessions' saved advisor.
 func TestTheScopeCarriesTheSavedAdvisor(t *testing.T) {
 	t.Parallel()

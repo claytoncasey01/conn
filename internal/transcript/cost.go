@@ -133,16 +133,16 @@ type UsageMeter struct {
 	USD    float64
 	// Unpriced counts responses from a model with no known price: USD leaves them out.
 	Unpriced float64
-	// AdvisorModel is the model of the latest advisor call counted that names a real one, ""
+	// advisorModel is the model of the latest advisor call counted that names a real one, ""
 	// before one.
-	AdvisorModel string
+	advisorModel string
 	seen         map[string]meterEntry
 }
 
 // NewUsageMeter is an empty meter.
 func NewUsageMeter() *UsageMeter {
 	return &UsageMeter{
-		Output: 0, USD: 0, Unpriced: 0, AdvisorModel: "", seen: map[string]meterEntry{},
+		Output: 0, USD: 0, Unpriced: 0, advisorModel: "", seen: map[string]meterEntry{},
 	}
 }
 
@@ -173,7 +173,7 @@ func (m *UsageMeter) Add(message *js.Object) {
 
 		entry, advisor = withAdvisor(entry, item)
 		if shownModel(advisor) {
-			m.AdvisorModel = advisor
+			m.advisorModel = advisor
 		}
 	}
 

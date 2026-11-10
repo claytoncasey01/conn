@@ -21,7 +21,7 @@ func launchSpec(made *world, worktree string) (pty.Spec, bool) {
 // ownResume is the session RESUME SESSION opens for the leg-th leg of PROJ-1.
 func ownResume(made *world, leg int) pty.Spec {
 	record := made.record("PROJ-1")
-	spec, _ := openwork.ResumeSpec("claude", &record, record.Repos[leg])
+	spec, _ := openwork.ResumeSpec("claude", &record, record.Repos[leg], "claude-code")
 
 	return spec
 }

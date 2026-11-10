@@ -36,7 +36,7 @@ func hostileWords() []string {
 		"#comment", "a#b", "=cmd", "%1", "\\", `a\'b`, `\\'`, "'", "''", `'\''`, "\x1b[31mred",
 		"\r", "\u00e9\u65e5\u672c", "\u202eevil", "a\x7fb", "../../etc/passwd", "/tmp/it's here",
 		strings.Repeat("long ", 2000), "\xff\xfe", "(a)", "<in", ">out", "a&", "a^b",
-		// an advisor's settings (internal/advisor): braces, quotes and a colon in one word
+		// An advisor's settings (internal/advisor) put braces, quotes and a colon in one word.
 		`{"advisorModel":"fable"}`,
 	}
 }

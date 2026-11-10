@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/js"
@@ -78,13 +79,10 @@ func (r *Reviews) Start(ctx context.Context, repo, number, model, chosenAdvisor 
 	}
 
 	chosen, _ := model.(string)
-	if !isModel(chosen) {
-		return bad(codeBadRequest, "model must be sonnet or opus"), nil
-	}
-
 	advisorChoice, isChoice := advisor.Requested(chosenAdvisor)
-	if !isChoice {
-		return bad(codeBadRequest, "advisor must be "+advisor.List()), nil
+
+	if problem := PicksProblem(isModel(chosen), isChoice); problem != "" {
+		return bad(codeBadRequest, problem), nil
 	}
 
 	key, err := PRKey(name, num)
@@ -100,6 +98,22 @@ func (r *Reviews) Start(ctx context.Context, repo, number, model, chosenAdvisor 
 	}
 
 	return r.start(ctx, key, num, picks{model: chosen, advisor: advisorChoice})
+}
+
+// PicksProblem is what is wrong with a press's model and advisor, both at once, "" for nothing.
+// My PRs' presses send the same two picks, so it is shared with them.
+func PicksProblem(isModel, isAdvisor bool) string {
+	problems := []string{}
+
+	if !isModel {
+		problems = append(problems, "model must be sonnet or opus")
+	}
+
+	if !isAdvisor {
+		problems = append(problems, advisor.MustBe())
+	}
+
+	return strings.Join(problems, "; ")
 }
 
 // picks are the models a press chose: the session's, and its advisor's ("" for the settings').

@@ -150,6 +150,46 @@ func TestARequestChoosesAnAdvisorOrNone(t *testing.T) {
 	}
 }
 
+func TestOnlyTextThatIsAChoiceIsOne(t *testing.T) {
+	t.Parallel()
+
+	rows := []struct {
+		name   string
+		raw    any
+		want   string
+		wantOK bool
+	}{
+		{name: "a choice", raw: "opus", want: "opus", wantOK: true},
+		{name: "nothing", raw: nil, want: "", wantOK: false},
+		{name: "other text", raw: "haiku", want: "", wantOK: false},
+		{name: "a number", raw: 1.0, want: "", wantOK: false},
+	}
+
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, isChoice := advisor.Of(row.raw)
+			if got != row.want {
+				t.Errorf("Of(%v) = %q, want %q", row.raw, got, row.want)
+			}
+
+			if isChoice != row.wantOK {
+				t.Errorf("Of(%v) ok = %v, want %v", row.raw, isChoice, row.wantOK)
+			}
+		})
+	}
+}
+
+func TestTheRefusalNamesEveryChoice(t *testing.T) {
+	t.Parallel()
+
+	want := "advisor must be claude-code, fable, opus or sonnet"
+	if got := advisor.MustBe(); got != want {
+		t.Errorf("MustBe() = %q, want %q", got, want)
+	}
+}
+
 func TestTheSettingsChoiceAppliesWhenNoneIsChosen(t *testing.T) {
 	t.Parallel()
 

@@ -429,9 +429,12 @@ func decodeRecord(data []byte, object *js.Object) (*Record, bool) {
 	}
 
 	// An advisor that is not a choice (a hand-edited file) is none: the sessions take the one
-	// Settings has, and nothing from the file reaches a command line.
+	// Settings has, and nothing from the file reaches a command line. It leaves the keys read,
+	// too, so the next save writes no advisor rather than keeping the file's (ordered).
 	if !advisor.IsChoice(record.Advisor) {
 		record.Advisor = ""
+
+		object.Delete("advisor")
 	}
 
 	return record, usable(record)

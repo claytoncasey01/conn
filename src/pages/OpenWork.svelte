@@ -124,7 +124,7 @@
   }
 
   let model = $state<ResearchModel>('haiku')
-  // The advisor of this run's build sessions: Settings' unless picked here, and not remembered
+  // The advisor of this run's build sessions: Settings' unless picked here, and not remembered, not even from one ticket to the next
   let advisor = $state<Pick>('')
   const MODELS: { id: ResearchModel; label: string; hint: string }[] = [
     { id: 'haiku', label: 'HAIKU', hint: 'fast, cheap sweep' },
@@ -180,11 +180,12 @@
   let reasons = $state<Reason[]>([])
   let startError = $state('')
 
-  // Another ticket is selected: the half-made decision and its error belong to the old one.
+  // Another ticket is selected: the half-made decision, its advisor pick and its error belong to the old one.
   const selId = $derived(sel?.key)
   $effect(() => {
     selId
     step = 'idle'
+    advisor = ''
     startError = ''
   })
 
@@ -500,7 +501,7 @@
               </div>
 
               <div style="display: flex; flex-direction: column; gap: 8px">
-                <div id="build-advisor" style="font-size: 10px; letter-spacing: calc(var(--tracking) * 1.1429); color: color-mix(in oklab, var(--mu) 85%, var(--panel))" class="cap">Build advisor</div>
+                <div style="font-size: 10px; letter-spacing: calc(var(--tracking) * 1.1429); color: color-mix(in oklab, var(--mu) 85%, var(--panel))" class="cap">Build advisor</div>
                 <AdvisorPick bind:value={advisor} label="Advisor for the build sessions of {sel.key}" prefix="" disabled={step === 'working'} style="width: 100%" />
               </div>
 

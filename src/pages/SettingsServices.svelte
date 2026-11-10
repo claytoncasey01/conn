@@ -447,7 +447,7 @@
 
   <section class="surf card" aria-labelledby="sessions-h" style="--rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--edge) 6%, transparent), color-mix(in oklch, var(--panel) 92%, transparent) 55%)">
     <h2 id="sessions-h" class="hud cap">Where sessions open</h2>
-    <p class="sub">Where a session conn starts runs, and its advisor: a new session, a build from Open work, a review, a self-review or a resumed History session.</p>
+    <p class="sub">Where a session conn starts runs (a new session, a build from Open work, a review, a self-review or a resumed History session), and the advisor of each but a resume, which keeps the one it started with.</p>
 
     <fieldset class="choices">
       <legend class="sr">Where sessions open</legend>

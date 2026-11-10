@@ -2,6 +2,7 @@ package newsession
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/advisor"
@@ -42,21 +43,16 @@ type startRequest struct {
 func parseRequest(body *js.Object) (startRequest, []string) {
 	problems := []string{}
 
+	fields := requestFields()
+
 	for _, key := range body.Keys() {
-		if key == keyRepo {
-			continue
-		}
-
-		if key == keyName {
-			continue
-		}
-
-		if key == keyAdvisor {
+		if slices.Contains(fields, key) {
 			continue
 		}
 
 		problems = append(problems, fmt.Sprintf("%q is not a field of a new session: send only "+
-			"repo, name and advisor.", js.Cut(key, maxNameBytes)))
+			"%s and %s.", js.Cut(key, maxNameBytes), strings.Join(fields[:len(fields)-1], ", "),
+			fields[len(fields)-1]))
 	}
 
 	repo, repoProblems := repoOf(body)
@@ -69,11 +65,14 @@ func parseRequest(body *js.Object) (startRequest, []string) {
 
 	chosen, isChoice := advisor.Requested(raw)
 	if !isChoice {
-		problems = append(problems, "The advisor must be "+advisor.List()+".")
+		problems = append(problems, "The "+advisor.MustBe()+".")
 	}
 
 	return startRequest{Repo: repo, Name: name, Advisor: chosen}, problems
 }
+
+// requestFields are the fields a start's body may have, in the order a refusal names them.
+func requestFields() []string { return []string{keyRepo, keyName, keyAdvisor} }
 
 // repoOf is the body's repository name, or the problem with it.
 func repoOf(body *js.Object) (string, []string) {

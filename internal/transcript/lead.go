@@ -133,7 +133,7 @@ func (l *LeadState) AdvisorModel() string {
 		return l.advisorModel
 	}
 
-	return l.Meter.AdvisorModel
+	return l.Meter.advisorModel
 }
 
 // TokensOut is the output tokens of the lead's model.
