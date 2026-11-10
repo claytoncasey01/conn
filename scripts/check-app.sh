@@ -43,6 +43,15 @@ case "$plugin_archs" in
 	;;
 esac
 
+# The Dock loads the class the plug-in's Info.plist names, so the binary must define that class.
+plugin_contents=$app/Contents/PlugIns/ConnDockTile.docktileplugin/Contents
+plugin_class=$(plutil -extract NSPrincipalClass raw "$plugin_contents/Info.plist")
+echo "Dock tile plug-in class: $plugin_class"
+if ! nm -gU "$plugin_contents/MacOS/ConnDockTile" | grep -q "_OBJC_CLASS_\$_$plugin_class\$"; then
+	echo "the Dock tile plug-in does not define its principal class $plugin_class" >&2
+	exit 1
+fi
+
 # --print-env answers before any window code runs, so this starts the binary without a display.
 # The markers begin with a NUL byte, so only the end marker's visible text is searched for: it is
 # written after the last entry.

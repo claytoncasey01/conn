@@ -126,7 +126,13 @@ func writeIcon(path string, icon []byte) error {
 		return fmt.Errorf("writing the app icon: %w", err)
 	}
 
+	// The file is synced before the rename, so a crash leaves the old icon or the new one, never
+	// an empty file the Dock would show as nothing.
 	_, err = temporary.Write(icon)
+	if err == nil {
+		err = temporary.Sync()
+	}
+
 	closeErr := temporary.Close()
 
 	err = errors.Join(err, closeErr)

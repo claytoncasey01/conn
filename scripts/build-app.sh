@@ -20,6 +20,10 @@ set -eu
 # The bundle's identifier. Info.plist.tmpl takes it from here, so it is written once.
 bundle_identifier=io.github.claytoncasey01.conn
 
+# The Dock tile plug-in's Objective-C class: ConnDockTile and the identifier with every character
+# a class name cannot hold made an underscore, so each identifier's plug-in has its own class.
+docktile_class=ConnDockTile_$(printf '%s' "$bundle_identifier" | tr -c 'A-Za-z0-9' '_')
+
 # The oldest macOS the app runs on. Go 1.27 sets this floor. The build flags and Info.plist.tmpl
 # both take it from here.
 macos_minimum=13.0
@@ -65,21 +69,24 @@ build_arch() {
 
 # build_docktile builds the Dock tile plug-in (cmd/conn-app/docktile), which shows the icon chosen
 # in Settings > App icon while the app is closed, into the bundle at $1. It is a plain
-# Objective-C bundle, so clang builds both architectures in one go.
+# Objective-C bundle, so clang builds both architectures in one go. Its class is named after the
+# bundle identifier (docktile_class), so the plug-ins of two copies of Conn never share one.
 build_docktile() {
 	plugin=$1/Contents/PlugIns/ConnDockTile.docktileplugin
 	mkdir -p "$plugin/Contents/MacOS"
 	clang -bundle -fobjc-arc -O2 -arch arm64 -arch x86_64 \
 		-mmacosx-version-min=$macos_minimum -framework Cocoa \
+		-DCONN_DOCKTILE_CLASS="$docktile_class" \
 		-o "$plugin/Contents/MacOS/ConnDockTile" cmd/conn-app/docktile/ConnDockTile.m
 	fill_plist cmd/conn-app/docktile/Info.plist.tmpl >"$plugin/Contents/Info.plist"
 	plutil -lint "$plugin/Contents/Info.plist" >/dev/null
 }
 
-# fill_plist prints the Info.plist template $1 with the identifier, the macOS floor and the
-# version put in.
+# fill_plist prints the Info.plist template $1 with the identifier, the plug-in's class, the macOS
+# floor and the version put in.
 fill_plist() {
 	sed -e "s|@IDENTIFIER@|$bundle_identifier|" \
+		-e "s|@DOCKTILE_CLASS@|$docktile_class|" \
 		-e "s|@MACOS_MINIMUM@|$macos_minimum|" \
 		-e "s|@VERSION@|$(bundle_version)|" \
 		"$1"

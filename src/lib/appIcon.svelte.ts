@@ -1,15 +1,14 @@
 // Settings > App icon: the Dock icon of Conn.app, which follows the theme or is pinned to one look. Only inside the app,
 // whose connIcon handler (cmd/conn-app/icon_darwin.m) takes the icon this page draws; a browser has no Dock icon to change.
-// The choice is kept in this page's storage, like the theme it follows, and the page sends an icon only when the icon it
-// means has changed since the last one the app took, so a reload sends nothing.
+// The choice is kept in this page's storage, like the theme it follows. The page sends the icon once each time it opens,
+// and after that only when the icon it means changes. What it last sent is not kept in storage: the icon file is the app's,
+// and another page (another port's server) or a deleted file can change it, so each opening puts it right again.
 import { ICON_LIMITS, iconChoiceOf, iconChoiceText, iconKey, iconSpecFor, iconSvg, isClassic, type IconChoice, type IconSpec } from './theme/appIcon.ts'
 import { theme } from './theme/theme.svelte.ts'
 import defaultTheme from '../../themes/default/theme.json'
 import type { ThemeManifest } from './theme/types.ts'
 
 const KEY = 'conn:appIcon'
-/** The iconKey of the icon the app last took */
-const SENT_KEY = 'conn:appIcon:sent'
 
 /** The message handler WebKit gives the page: each post is answered with the app's reply, or rejected with its reason */
 export interface IconBridge {
@@ -70,6 +69,8 @@ async function png(spec: IconSpec): Promise<string> {
 // One send at a time: a theme changed during a send is sent after it, and only the newest icon wanted is.
 let sending = false
 let wanted: IconSpec | null = null
+/** The iconKey of the icon the app last took from this page, null until it takes one */
+let sent: string | null = null
 
 async function send(spec: IconSpec) {
   wanted = spec
@@ -80,10 +81,14 @@ async function send(spec: IconSpec) {
       const next: IconSpec = wanted
       wanted = null
       const key = iconKey(next)
-      if (key === read(SENT_KEY)) continue
+      if (key === sent) {
+        // The app already shows this icon, so an error from an icon wanted since is no longer true
+        appIcon.error = null
+        continue
+      }
       try {
         await bridge.postMessage(isClassic(next) ? { kind: 'classic' } : { kind: 'set', png: await png(next) })
-        write(SENT_KEY, key)
+        sent = key
         appIcon.error = null
       } catch (e) {
         appIcon.error = `The app icon did not change: ${e instanceof Error ? e.message : 'the app refused it'}`
@@ -94,15 +99,14 @@ async function send(spec: IconSpec) {
   }
 }
 
-/** Picks the icon: saved in this page, and sent to the app when it differs from the one there */
+/** Picks the icon: saved in this page. initAppIcon's effect follows the choice and sends it, so it is sent once. */
 export function chooseIcon(choice: IconChoice): void {
   appIcon.choice = choice
   write(KEY, iconChoiceText(choice))
-  void send(specFor(choice))
 }
 
 /**
- * Keeps the app's icon on the choice as the theme changes. Inside the app only, and only once the theme list is read: until
+ * Keeps the app's icon on the choice, sending it when the choice or the theme changes. Inside the app only, and only once the theme list is read: until
  * then the theme is Default's look, which would send the classic icon for a moment.
  */
 export function initAppIcon(): void {

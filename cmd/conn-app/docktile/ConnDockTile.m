@@ -7,16 +7,26 @@
 //
 // scripts/build-app.sh builds this into Conn.app/Contents/PlugIns/ConnDockTile.docktileplugin,
 // with ARC, for both architectures; Info.plist.tmpl beside it is the plug-in's.
+//
+// The Dock may load the plug-ins of several copies of Conn (built with other identifiers) into
+// one process, where Objective-C keeps one class of each name. The class finds its bundle by
+// itself (bundleForClass), so two copies sharing a name would both read the first copy's icon.
+// build-app.sh names the class after the bundle identifier instead, as CONN_DOCKTILE_CLASS, and
+// puts the same name in the plug-in's Info.plist.
 #import <Cocoa/Cocoa.h>
 
 #include "../dockicon_darwin.h"
 
-@interface ConnDockTile : NSObject <NSDockTilePlugIn>
+#ifndef CONN_DOCKTILE_CLASS
+#error "CONN_DOCKTILE_CLASS names the plug-in's class; scripts/build-app.sh sets it"
+#endif
+
+@interface CONN_DOCKTILE_CLASS : NSObject <NSDockTilePlugIn>
 @property(strong) NSDockTile *tile;
 @property(copy) NSString *appIdentifier;
 @end
 
-@implementation ConnDockTile
+@implementation CONN_DOCKTILE_CLASS
 
 // appIdentifierOf is the bundle identifier of the app the plug-in is inside:
 // Conn.app/Contents/PlugIns/ConnDockTile.docktileplugin is three folders down.

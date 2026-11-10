@@ -42,7 +42,8 @@ a notification. The app checks a notification before showing it: each field with
 one line with no control characters, and the page it opens a route of Conn (`#/...`), so a click
 can only open a page of Conn in the window. A refused notification is reported on stderr without
 its text. `connIcon` can only set the app's Dock icon or go back to the classic one. The icon must
-be a PNG of 1024 pixels square and at most 4 MiB, its length checked before it is copied; the app
+be a PNG of 1024 pixels square and at most 4 MiB, its length checked before it is decoded or copied
+into Go (WebKit itself has already handed the app the page's whole message by then); the app
 decodes it and writes only the pixels back, to one fixed file in its own folder in Application
 Support, so nothing else the page put in the file reaches the Dock, and the page chooses no path.
 The Dock tile plug-in in the bundle only reads that file.
