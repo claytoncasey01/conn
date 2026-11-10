@@ -177,6 +177,6 @@ test('each look slot changes what the preview draws: every variable its two valu
 
 test('the header mock draws the Conn mark inside its brand tile, for the token to show or hide', () => {
   const html = previewDoc(DEFAULT, 'dark', DEFAULT)
-  assert.match(html, /<span class="brand"[^>]*><span class="g-brand"><\/span><svg class="g-brand-mark"/)
+  assert.match(html, /<span class="brand g-brand-tile"[^>]*><span class="g-brand"><\/span><svg class="g-brand-mark"/)
   assert.ok(!/<script/i.test(html) && !/https?:/i.test(html))
 })

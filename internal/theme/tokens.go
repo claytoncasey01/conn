@@ -156,7 +156,8 @@ func lookSlots() []Slot {
 		enum("glyph-arrow", "triangle", "chevron", "arrow", "none"),
 		enum("glyph-bullet", "triangle", "dot", "dash", "prompt", "none"),
 		enum("glyph-sep", "slash", "dot", "bar", "dash"),
-		enum("glyph-brand", "conn", "blocks", "prompt", "diamond", "none"),
+		enum("glyph-brand", "conn", "conn-tube", "conn-pixel", "conn-phosphor", "blocks", "prompt",
+			"diamond", "none"),
 	)
 
 	return append(slots,

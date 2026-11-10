@@ -24,6 +24,29 @@ const diagonal = (dir: string, at: string) => `linear-gradient(${dir}, transpare
 const CHAMFER_RIM = [diagonal('to bottom right', 'top left'), diagonal('to bottom left', 'top right'), diagonal('to bottom left', 'bottom left'), diagonal('to bottom right', 'bottom right')].join(', ')
 const NOTCH_RIM = [diagonal('to bottom left', 'top right'), diagonal('to bottom left', 'bottom left')].join(', ')
 const plainCorner = (round: string) => ({ '--look-round': round, '--look-clip': 'none', '--look-cut': 'none', '--look-cut-art': 'none', '--look-focus': '3px', '--look-out': '1', '--look-sel': '1px solid color-mix(in oklch, var(--tx) 55%, transparent)' })
+// The brand tile: the accent with its ink, or lit, reversed so the mark is the accent glowing on its ink (a glow reads as light only
+// on the dark, so lit marks are for dark themes), with a ring so a tile the color of the page keeps its edge. The mark is one of
+// brandMark.ts's drawings, each a group a variable shows; a text glyph shows none of them
+const ACCENT_TILE = { '--look-brand-tile': 'var(--ac)', '--look-brand-ink': 'var(--onac)', '--look-brand-ring': 'none', '--look-brand-bloom': 'none', '--look-brand-lines': 'none' }
+const litTile = (bloom: string, lines: string) => ({
+  '--look-brand-tile': 'var(--onac)',
+  '--look-brand-ink': 'var(--ac)',
+  '--look-brand-ring': '1px solid color-mix(in oklab, var(--ac) 45%, transparent)',
+  '--look-brand-bloom': bloom,
+  '--look-brand-lines': lines,
+})
+const PHOSPHOR_BLOOM = 'drop-shadow(0 0 1px currentColor) drop-shadow(0 0 4px color-mix(in oklab, currentColor 70%, transparent))'
+const SCANLINES = 'repeating-linear-gradient(to bottom, #000 0 1.5px, rgb(0 0 0 / 45%) 1.5px 2.25px)'
+const BRAND_DRAWINGS = ['solid', 'tube', 'pixel'] as const
+const drawn = (shown: string) => Object.fromEntries(BRAND_DRAWINGS.map((name) => [`--look-brand-${name}`, name === shown ? 'inline' : 'none']))
+const brandMark = (drawing: (typeof BRAND_DRAWINGS)[number], tile: Record<string, string>) => ({
+  '--look-brand': '""',
+  '--look-brand-size': '1em',
+  '--look-brand-mark': 'block',
+  ...drawn(drawing),
+  ...tile,
+})
+const brandText = (glyph: string, size: string) => ({ '--look-brand': glyph, '--look-brand-size': size, '--look-brand-mark': 'none', ...drawn(''), ...ACCENT_TILE })
 export const LOOK: Readonly<Record<string, Readonly<Record<string, Readonly<Record<string, string>>>>>> = {
   'font-body': { ui: { '--look-body': 'var(--font-ui)' }, mono: { '--look-body': 'var(--font-mono), monospace' } },
   // styled chrome takes case and tracking from the tokens; authored chrome keeps what the markup gives it (Neon tracks each
@@ -107,14 +130,17 @@ export const LOOK: Readonly<Record<string, Readonly<Record<string, Readonly<Reco
     none: { '--look-bullet': '""', '--look-bullet-gap': '0' },
   },
   'glyph-sep': { slash: { '--look-sep': '"//"' }, dot: { '--look-sep': '"·"' }, bar: { '--look-sep': '"|"' }, dash: { '--look-sep': '"—"' } },
-  // one glyph alone is drawn larger, so it fills the tile as the three blocks do; `conn` is the Conn mark, an inline SVG (brandMark.ts)
-  // that `--look-brand-mark` shows, with no text glyph beside it
+  // `conn` and its kin are the Conn mark, an inline SVG (brandMark.ts) that `--look-brand-mark` shows in one of its drawings, with no
+  // text glyph beside it; a text glyph alone is drawn larger, so it fills the tile as the three blocks do
   'glyph-brand': {
-    conn: { '--look-brand': '""', '--look-brand-size': '1em', '--look-brand-mark': 'block' },
-    blocks: { '--look-brand': '"▟█▙"', '--look-brand-size': '1em', '--look-brand-mark': 'none' },
-    prompt: { '--look-brand': '"❯_"', '--look-brand-size': '1.15em', '--look-brand-mark': 'none' },
-    diamond: { '--look-brand': '"◆"', '--look-brand-size': '1.7em', '--look-brand-mark': 'none' },
-    none: { '--look-brand': '""', '--look-brand-size': '1em', '--look-brand-mark': 'none' },
+    conn: brandMark('solid', ACCENT_TILE),
+    'conn-tube': brandMark('tube', litTile('drop-shadow(0 0 1.5px currentColor) drop-shadow(0 0 5px currentColor)', 'none')),
+    'conn-pixel': brandMark('pixel', ACCENT_TILE),
+    'conn-phosphor': brandMark('solid', litTile(PHOSPHOR_BLOOM, SCANLINES)),
+    blocks: brandText('"▟█▙"', '1em'),
+    prompt: brandText('"❯_"', '1.15em'),
+    diamond: brandText('"◆"', '1.7em'),
+    none: brandText('""', '1em'),
   },
   // every wire of the agent tree is drawn as a base line, an under-sheath, a cutter and a sheen, and every head in each shape:
   // a style shows its parts (a cable is a dim sheath, the line as its core and a sheen; a rail is a sheath cut down its middle)

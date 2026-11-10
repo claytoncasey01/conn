@@ -4,6 +4,7 @@
   import Brand from '../lib/Brand.svelte'
   import Nav from '../lib/Nav.svelte'
   import SettingsAlerts from './SettingsAlerts.svelte'
+  import SettingsAppIcon from './SettingsAppIcon.svelte'
   import SettingsProvided from './SettingsProvided.svelte'
   import SettingsServices from './SettingsServices.svelte'
   import ReviewLegacy from './ReviewLegacy.svelte'
@@ -372,6 +373,9 @@
       <SettingsAlerts />
 
       {#if !setup}
+        <!-- Inside Conn.app only: the component shows nothing in a browser -->
+        <SettingsAppIcon />
+
         <section class="surf card clones" aria-labelledby="clones-h" style="--rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--edge) 6%, transparent), color-mix(in oklch, var(--panel) 92%, transparent) 55%)">
           <h2 id="clones-h" class="hud cap">Local clones</h2>
           <p class="sub">Reviews and builds work in a git worktree of a clone. conn looks in the clones folder, then in <code>~/projects/&lt;repo&gt;</code>, and uses a folder only when its origin is that repo.</p>

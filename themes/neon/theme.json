@@ -71,7 +71,7 @@
       "glyph-arrow": "triangle",
       "glyph-bullet": "triangle",
       "glyph-sep": "slash",
-      "glyph-brand": "blocks",
+      "glyph-brand": "conn-tube",
       "wire-style": "line",
       "wire-width": "2px",
       "wire-head": "arrow",

@@ -143,7 +143,7 @@ A color is a hex value, `rgb()`, `hsl()` or `oklch()` (with an alpha if you want
 | `glyph-arrow` | the arrows on links and buttons that go forward or back (`▸ ◂`, `› ‹`, `→ ←`, or none); a link to another page takes `→ ←` under `triangle`, and the keyword's own arrows otherwise | `triangle`, `chevron`, `arrow` or `none` |
 | `glyph-bullet` | the mark before a session's last activity and other status lines (`▸`, `•`, `–`, `❯`, or none) | `triangle`, `dot`, `dash`, `prompt` or `none` |
 | `glyph-sep` | the separator in section labels such as SESSIONS // 2 SHOWN (`//`, `·`, `\|`, `—`) | `slash`, `dot`, `bar` or `dash` |
-| `glyph-brand` | the mark in the brand tile at the top left (the Conn mark, `▟█▙`, `❯_`, `◆`, or an empty tile) | `conn`, `blocks`, `prompt`, `diamond` or `none` |
+| `glyph-brand` | the mark in the brand tile at the top left. The Conn mark, drawn as `conn` (the app icon's drawing), `conn-tube` (a neon tube), `conn-pixel` (on a pixel grid) or `conn-phosphor` (glowing phosphor with scanlines). `conn-tube` and `conn-phosphor` light the tile: it turns to the accent's ink with the mark glowing in the accent, which reads best in a dark theme. Or a glyph instead of the mark: `▟█▙`, `❯_`, `◆`, or an empty tile. Left out, the tile shows `conn` | `conn`, `conn-tube`, `conn-pixel`, `conn-phosphor`, `blocks`, `prompt`, `diamond` or `none` |
 | `wire-style` | the wires of the Overview agent tree: a `line`, a `cable` (a dim sheath with the line as its core and a sheen along it), a `rail` (two thin rails, a sheath cut down its middle) or a `dash` | `line`, `cable`, `rail` or `dash` |
 | `wire-width` | how thick those wires are (the thinner links to the advisor are three quarters of it; a cable or rail is wider than its line) | a length in `px` only, 1 to 6 |
 | `wire-head` | how a wire ends where it meets a card: an `arrow`, a `plug` (a connector block), a `dot`, a `bar` across it, or `none` | `arrow`, `plug`, `dot`, `bar` or `none` |
@@ -296,7 +296,7 @@ Reach for the look tokens before CSS: the backdrop, the top bar, the stage, the 
 - `.surf`, every card, panel, stat tile and row, with its state as data: `--rim` is its border color (a session waiting for input has a `warn` one), `--wash` and `--halo` its tinted fill and glow, `--c` its own color. Draw a frame with `outline` or an inset `box-shadow`, not a wider border, so the card keeps its size.
 - `.brk`, the main panels that `card-marks` marks; `.stripe`, the line along the top edge of a card or tile.
 - `.page-scan`, `.page-head`, `.glint`, `.stage`, `.stage-ticks`, `.stage-floor`, `.stage-glow`, `.orbit` and `.orbit2`: the pieces `backdrop-scan`, `header` and `stage` draw.
-- `.g-fwd`, `.g-back`, `.g-bullet`, `.g-sep`, `.g-brand` and `.g-brand-mark` (the Conn mark's SVG, shown by `glyph-brand: conn`): the glyphs.
+- `.g-fwd`, `.g-back`, `.g-bullet`, `.g-sep`, `.g-brand` and `.g-brand-mark` (the Conn mark's SVG, shown by the `conn` values of `glyph-brand`, with one group per drawing: `.bm-solid`, `.bm-tube` and `.bm-pixel`): the glyphs.
 
 Neon's `theme.css` is the example: it holds only Neon's motion and a few colors no token has.
 

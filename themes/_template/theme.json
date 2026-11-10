@@ -22,7 +22,8 @@
       "backdrop": "lines",
       "backdrop-strength": ".4",
       "wire-head": "dot",
-      "wire-flow": "pulse"
+      "wire-flow": "pulse",
+      "glyph-brand": "conn"
     },
     "dark": {
       "bg": "#16140f",
@@ -37,7 +38,8 @@
       "backdrop": "lines",
       "backdrop-strength": ".4",
       "wire-head": "dot",
-      "wire-flow": "pulse"
+      "wire-flow": "pulse",
+      "glyph-brand": "conn"
     }
   },
   "effects": []

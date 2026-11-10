@@ -68,7 +68,7 @@
       "glyph-arrow": "arrow",
       "glyph-bullet": "prompt",
       "glyph-sep": "bar",
-      "glyph-brand": "prompt",
+      "glyph-brand": "conn-pixel",
       "stage-backing": ".88",
       "node-beat": "off",
       "tree-orbits": "off",

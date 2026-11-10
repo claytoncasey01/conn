@@ -4,6 +4,7 @@ import './app.css'
 import { mount } from 'svelte'
 import App from './App.svelte'
 import { initTheme } from './lib/theme/theme.svelte.ts'
+import { initAppIcon } from './lib/appIcon.svelte.ts'
 import { LOOK_CSS } from './lib/theme/lookCss.ts'
 
 // the look's rules go first in the head: app.css and a theme's own CSS come after them, so a theme's rule wins a tie
@@ -13,5 +14,6 @@ look.textContent = LOOK_CSS
 document.head.prepend(look)
 
 initTheme()
+initAppIcon()
 
 mount(App, { target: document.getElementById('app')! })
