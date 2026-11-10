@@ -2,8 +2,10 @@ package newsession
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/cmux"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/launch"
@@ -12,9 +14,10 @@ import (
 )
 
 const (
-	// keyRepo and keyName are the only keys a start's body may hold.
-	keyRepo = "repo"
-	keyName = "name"
+	// keyRepo, keyName and keyAdvisor are the only keys a start's body may hold.
+	keyRepo    = "repo"
+	keyName    = "name"
+	keyAdvisor = "advisor"
 	// maxNameBytes bounds the name a request carries, before it is made safe: a name is a few
 	// words, and cmux.WorkspaceName keeps at most 64 characters of it.
 	maxNameBytes = 256
@@ -24,30 +27,32 @@ const (
 )
 
 // startRequest is what a start asks for once it is read: an allowed-looking repository name,
-// and the session's name made safe (cmux.WorkspaceName), "" for none.
+// the session's name made safe (cmux.WorkspaceName), "" for none, and its advisor (one of
+// advisor.Choices), "" for the one Settings has.
 type startRequest struct {
-	Repo string
-	Name string
+	Repo    string
+	Name    string
+	Advisor string
 }
 
 // parseRequest reads a start's body: an object with a string "repo" and, optionally, a string
-// "name". It is the request and every problem with the body, one sentence each; a request with a
-// problem is not used. Nothing in the body is a path, a flag or a command: the repository is only
-// a key to the allowlist, and the name reaches claude only as safeName makes it.
+// "name" and an "advisor" choice. It is the request and every problem with the body, one sentence
+// each; a request with a problem is not used. Nothing in the body is a path, a flag or a command:
+// the repository is only a key to the allowlist, the name reaches claude only as safeName makes
+// it, and the advisor only picks a row of advisor.Args.
 func parseRequest(body *js.Object) (startRequest, []string) {
 	problems := []string{}
 
-	for _, key := range body.Keys() {
-		if key == keyRepo {
-			continue
-		}
+	fields := requestFields()
 
-		if key == keyName {
+	for _, key := range body.Keys() {
+		if slices.Contains(fields, key) {
 			continue
 		}
 
 		problems = append(problems, fmt.Sprintf("%q is not a field of a new session: send only "+
-			"repo and name.", js.Cut(key, maxNameBytes)))
+			"%s and %s.", js.Cut(key, maxNameBytes), strings.Join(fields[:len(fields)-1], ", "),
+			fields[len(fields)-1]))
 	}
 
 	repo, repoProblems := repoOf(body)
@@ -56,8 +61,18 @@ func parseRequest(body *js.Object) (startRequest, []string) {
 	name, nameProblems := nameOf(body)
 	problems = append(problems, nameProblems...)
 
-	return startRequest{Repo: repo, Name: name}, problems
+	raw, _ := body.Get(keyAdvisor)
+
+	chosen, isChoice := advisor.Requested(raw)
+	if !isChoice {
+		problems = append(problems, "The "+advisor.MustBe()+".")
+	}
+
+	return startRequest{Repo: repo, Name: name, Advisor: chosen}, problems
 }
+
+// requestFields are the fields a start's body may have, in the order a refusal names them.
+func requestFields() []string { return []string{keyRepo, keyName, keyAdvisor} }
 
 // repoOf is the body's repository name, or the problem with it.
 func repoOf(body *js.Object) (string, []string) {
@@ -133,8 +148,9 @@ func safeName(name string) (string, error) {
 
 // specOf is the session a start opens: claude, as CONN_CLAUDE names it, on the conversation
 // sessionID (a UUID Conn chose), named when the request names it, in folder (the clone's real
-// path), under the request's name or else the repository's. Nothing else from the request is in
-// it. sessionID must be a UUID: anything else is a program error.
+// path), under the request's name or else the repository's, on the request's advisor (resolved:
+// one of advisor.Choices). Nothing else from the request is in it. sessionID must be a UUID:
+// anything else is a program error.
 func specOf(claude, sessionID, folder string, request startRequest) pty.Spec {
 	if !cmux.IsSessionID(sessionID) {
 		panic(fmt.Sprintf("newsession: the conversation id %q is not a UUID", sessionID))
@@ -146,6 +162,8 @@ func specOf(claude, sessionID, folder string, request startRequest) pty.Spec {
 	if name != "" {
 		argv = append(argv, flagName, name)
 	}
+
+	argv = append(argv, advisor.Args(request.Advisor)...)
 
 	if name == "" {
 		_, repoName, _ := strings.Cut(request.Repo, "/")

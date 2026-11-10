@@ -22,7 +22,7 @@ const defaultsJSON = `{"version":1,"repos":{"allow":null,"clones":{},"cloneRoot"
 	`"atlassian":{"enabled":false,"jira":{"projects":[],"buildRepo":null,"baseBranch":null,` +
 	`"baseBranches":{},"reviewMove":"all","sessionLayout":"shared"}},` +
 	`"reviews":{"requested":true,"allOpen":false},` +
-	`"sessions":{"where":"inside","resumeOnLaunch":true}}`
+	`"sessions":{"where":"inside","resumeOnLaunch":true,"advisor":"claude-code"}}`
 
 var errDiskFull = errors.New("disk full")
 
@@ -170,7 +170,7 @@ func TestAFullValidFileReadsAsItIs(t *testing.T) {
 		`"atlassian":{"enabled":true,"jira":{"projects":["PROJ","AB2"],"buildRepo":"acme/app",` +
 		`"baseBranch":null,"baseBranches":{},"reviewMove":"all","sessionLayout":"shared"}},` +
 		`"reviews":{"requested":false,"allOpen":true},` +
-		`"sessions":{"where":"terminal","resumeOnLaunch":false}}`
+		`"sessions":{"where":"terminal","resumeOnLaunch":false,"advisor":"fable"}}`
 
 	if got := js.Stringify(settings.Parse(parse(t, full), true)); got != full {
 		t.Fatalf("got %s", got)

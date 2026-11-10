@@ -282,7 +282,7 @@ func aSession(name, cwd, status, sessionID string, pid float64) sessions.LiveSes
 func aStart(t *testing.T, tab *reviews.Reviews, repo, number, model any) reviews.Reply {
 	t.Helper()
 
-	reply, err := tab.Start(t.Context(), repo, number, model)
+	reply, err := tab.Start(t.Context(), repo, number, model, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

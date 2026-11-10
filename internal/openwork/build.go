@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/drysession"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/launch"
@@ -339,7 +340,8 @@ func (w *Work) launchBuild(step *task, record *Record) error {
 		}
 
 		markLaunched(record, slot)
-		w.openWorkspace(step, record, slot, LaunchSpec(w.deps.Claude, record, slot), "opened")
+		w.openWorkspace(step, record, slot,
+			LaunchSpec(w.deps.Claude, record, slot, w.advisorOf(record)), "opened")
 	}
 
 	return nil
@@ -405,12 +407,15 @@ func legWorktrees(legs []*Leg) []string {
 }
 
 // LaunchSpec is what starts a slot's session for the first time: claude in the slot's worktree,
-// named for the ticket, reaching the other legs' worktrees when it is the shared session, told to
-// read the brief. The ticket's title, description and answers are in the brief, never in an
-// argument; the key is a checked ticket key and each folder is one argument.
-func LaunchSpec(claude string, record *Record, slot *Leg) pty.Spec {
+// named for the ticket, on the advisor advisorChoice (one of advisor.Choices), reaching the other
+// legs' worktrees when it is the shared session, told to read the brief. The ticket's title,
+// description and answers are in the brief, never in an argument; the key is a checked ticket key
+// and each folder is one argument. A resume (ResumeSpec) carries no advisor: Claude Code keeps
+// the one the session started with.
+func LaunchSpec(claude string, record *Record, slot *Leg, advisorChoice string) pty.Spec {
 	argv := slices.Concat([]string{
 		claude, "--name", record.Key, "--model", "sonnet",
+	}, advisor.Args(advisorChoice), []string{
 		"--append-system-prompt-file", ".conn/delegation.md",
 	}, reachArgs(record, slot), []string{
 		"--permission-mode", "acceptEdits",

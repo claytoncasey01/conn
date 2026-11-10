@@ -110,7 +110,7 @@ func newWorld(t *testing.T, prs ...*myprs.PR) *World {
 		t: t, Now: worldT0,
 		Scope: myprs.Scope{
 			Setup: false, Allow: []string{"org/*"}, GitHub: true, Slack: true,
-			DraftChannel: &channel,
+			DraftChannel: &channel, Advisor: "claude-code",
 		},
 		Clients: true, Clones: map[string]string{"org/repo": "/clone"}, OriginOK: true,
 		Present: map[string]bool{}, Replies: map[string]float64{}, Files: map[string]string{},

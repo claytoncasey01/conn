@@ -11,7 +11,7 @@ type Settings interface {
 
 // ScopeOf is the scope of current. Setup is true while there is no allowlist; the modules are
 // the settings' own switches, all off in setup; the draft channel is the setting, else the
-// first Slack channel, else nil (no draft).
+// first Slack channel, else nil (no draft); the advisor is the sessions' setting.
 func ScopeOf(current settings.Settings, setup bool, enabled func(name string) bool) Scope {
 	allow := current.Repos.Allow
 	if allow == nil {
@@ -29,6 +29,7 @@ func ScopeOf(current settings.Settings, setup bool, enabled func(name string) bo
 	return Scope{
 		Setup: setup, Allow: allow, GitHub: enabled(settings.ModuleGitHub),
 		Slack: enabled(settings.ModuleSlack), DraftChannel: channel,
+		Advisor: current.Sessions.Advisor,
 	}
 }
 

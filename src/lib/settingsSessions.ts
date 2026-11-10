@@ -2,12 +2,15 @@
 // what it sends, keeps a draft, and sends the whole section on save. No setting names a program: "My terminal" is cmux. No browser
 // globals.
 
+import { advisorLabel, advisorOf, type AdvisorChoice } from './advisor.ts'
+
 export type Where = 'inside' | 'terminal' | 'command'
 
-/** The `sessions` section as `settings.json` holds it. */
+/** The `sessions` section as `settings.json` holds it. `advisor` is the one a session conn starts runs when its start picks none. */
 export interface SessionsSettings {
   where: Where
   resumeOnLaunch: boolean
+  advisor: AdvisorChoice
 }
 
 /** The three choices, each with the one line of help the card shows under it. */
@@ -27,16 +30,22 @@ export function readSessions(v: unknown): SessionsSettings {
   return {
     where: WHERES.includes(o.where) ? (o.where as Where) : 'inside',
     resumeOnLaunch: typeof o.resumeOnLaunch === 'boolean' ? o.resumeOnLaunch : true,
+    advisor: advisorOf(o.advisor),
   }
 }
 
 /** The body a save sends: the whole section. */
-export const sessionsSection = (s: SessionsSettings): SessionsSettings => ({ where: s.where, resumeOnLaunch: s.resumeOnLaunch })
+export const sessionsSection = (s: SessionsSettings): SessionsSettings => ({ where: s.where, resumeOnLaunch: s.resumeOnLaunch, advisor: s.advisor })
 
-export const sameSessions = (a: SessionsSettings, b: SessionsSettings): boolean => a.where === b.where && a.resumeOnLaunch === b.resumeOnLaunch
+export const sameSessions = (a: SessionsSettings, b: SessionsSettings): boolean =>
+  a.where === b.where && a.resumeOnLaunch === b.resumeOnLaunch && a.advisor === b.advisor
 
-/** The line a save leaves: where sessions now open, and whether they resume. */
+/** The line a save leaves: where sessions now open, whether they resume, and their advisor. */
 export function wroteSessions(s: SessionsSettings): string {
+  return `${wroteWhere(s)}. Advisor: ${advisorLabel(s.advisor)}`
+}
+
+function wroteWhere(s: SessionsSettings): string {
   if (s.where === 'inside') return `Saved: sessions open inside Conn, and ${s.resumeOnLaunch ? 'resume' : 'do not resume'} when conn starts`
   const opened = s.where === 'command' ? 'conn shows the command to paste' : 'sessions open in cmux'
   // Sessions that ran inside Conn are kept, not resumed, while new ones open elsewhere (the server's resumeKept).

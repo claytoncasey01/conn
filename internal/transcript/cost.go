@@ -133,12 +133,17 @@ type UsageMeter struct {
 	USD    float64
 	// Unpriced counts responses from a model with no known price: USD leaves them out.
 	Unpriced float64
-	seen     map[string]meterEntry
+	// advisorModel is the model of the latest advisor call counted that names a real one, ""
+	// before one.
+	advisorModel string
+	seen         map[string]meterEntry
 }
 
 // NewUsageMeter is an empty meter.
 func NewUsageMeter() *UsageMeter {
-	return &UsageMeter{Output: 0, USD: 0, Unpriced: 0, seen: map[string]meterEntry{}}
+	return &UsageMeter{
+		Output: 0, USD: 0, Unpriced: 0, advisorModel: "", seen: map[string]meterEntry{},
+	}
 }
 
 // Add counts an assistant message's usage (its message object: id, model, usage).
@@ -164,7 +169,12 @@ func (m *UsageMeter) Add(message *js.Object) {
 	list, _ := iterations.([]any)
 
 	for _, item := range list {
-		entry = withAdvisor(entry, item)
+		var advisor string
+
+		entry, advisor = withAdvisor(entry, item)
+		if shownModel(advisor) {
+			m.advisorModel = advisor
+		}
 	}
 
 	m.replace(message, entry)
@@ -184,31 +194,35 @@ func modelName(message *js.Object) string {
 	return js.String(raw)
 }
 
-func withAdvisor(entry meterEntry, item any) meterEntry {
+// withAdvisor is entry with the cost of item added when item is an advisor call, and the model
+// that call ran on ("" for anything else, or a call that names no model).
+func withAdvisor(entry meterEntry, item any) (meterEntry, string) {
 	iteration, _ := item.(*js.Object)
 
 	kind, _ := iteration.Get("type")
 	if kind != advisorMessage {
-		return entry
+		return entry, ""
 	}
 
 	model, _ := iteration.Get("model")
 	if !js.Truthy(model) {
 		entry.unpriced++
 
-		return entry
+		return entry, ""
 	}
 
-	cost, priced := UsageCost(js.String(model), iteration)
+	name := js.String(model)
+
+	cost, priced := UsageCost(name, iteration)
 	if !priced {
 		entry.unpriced++
 
-		return entry
+		return entry, name
 	}
 
 	entry.usd += cost
 
-	return entry
+	return entry, name
 }
 
 // replace takes back the earlier count of the same response, if any, and adds this one.

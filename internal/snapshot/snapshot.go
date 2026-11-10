@@ -12,9 +12,6 @@ import (
 	"github.com/claytoncasey01/conn/internal/transcript"
 )
 
-// AdvisorModel is the model the advisor tool runs on, shown with every session.
-const AdvisorModel = "claude-opus-5-5"
-
 // Session statuses.
 const (
 	StatusBusy    = "busy"
@@ -94,9 +91,8 @@ type Live struct {
 type Opts struct {
 	// Trim is the live push: agent results clipped to a preview, only the latest consults and
 	// log lines.
-	Trim         bool
-	Kind         string
-	AdvisorModel string
+	Trim bool
+	Kind string
 	// Ended is set when the session is over: nothing is running or stalled any more.
 	Ended bool
 	// EndedAt is when it ended; the lead's last line when nil.
@@ -398,7 +394,7 @@ func Build(parts Parts, live Live, now float64, opts Opts) Detail {
 		StartedAt: live.StartedAt, UpdatedAt: max(live.UpdatedAt, lead.LastAt),
 		Model: lead.Model, Mode: lead.Mode, PR: live.PR, Shells: live.Shells,
 		CtxTokens: lead.CtxTokens, CtxWindow: window, LeadCalls: lead.Calls,
-		AdvisorCalls: len(consults), AdvisorModel: opts.AdvisorModel,
+		AdvisorCalls: len(consults), AdvisorModel: lead.AdvisorModel(),
 		AgentsTotal: len(agents), AgentsRunning: running, Activity: lead.Activity,
 		CostUSD: lead.Meter.USD + agentsUSD(parts), CostPartial: unpriced(parts) > 0,
 		Lead:     leadAgent(parts, live.Name, status, opts.Ended, opts.EndedAt),

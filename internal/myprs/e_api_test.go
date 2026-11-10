@@ -144,11 +144,13 @@ func TestEHandlePassesTheBodyOn(t *testing.T) {
 	}{
 		{
 			"start", myprs.RouteStart, `{"repo":"org/repo","number":7,"model":"opus","extra":1}`,
-			func(m *myprs.MyPrs) reviews.Reply { return m.Start(ctx, "org/repo", 7.0, "opus") },
+			func(m *myprs.MyPrs) reviews.Reply {
+				return m.Start(ctx, "org/repo", 7.0, "opus", nil)
+			},
 		},
 		{
 			"start, empty", myprs.RouteStart, "{}",
-			func(m *myprs.MyPrs) reviews.Reply { return m.Start(ctx, nil, nil, nil) },
+			func(m *myprs.MyPrs) reviews.Reply { return m.Start(ctx, nil, nil, nil, nil) },
 		},
 		{
 			"thread", myprs.RouteThread, `{"repo":"org/repo","number":7,` +

@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/pty"
@@ -165,6 +166,7 @@ func (a *API) Start(ctx context.Context, body *js.Object) (Reply, error) {
 	}
 
 	current := a.deps.Settings()
+	request.Advisor = advisor.Or(request.Advisor, current.Sessions.Advisor)
 
 	check := a.deps.CloneChecker()
 

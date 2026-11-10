@@ -181,7 +181,8 @@ func (r *eRig) ran(part string) bool {
 func eOpts(change ...func(opts *myprs.LaunchOpts)) myprs.LaunchOpts {
 	out := myprs.LaunchOpts{
 		Repo: "acme/web", Number: 12, HeadRef: "feature/login-fix", Model: "sonnet",
-		Name: "self-web-12", RepoPath: eRepo, DataDir: "/data/conn", Round: 1,
+		Advisor: "claude-code", Name: "self-web-12", RepoPath: eRepo, DataDir: "/data/conn",
+		Round: 1,
 	}
 
 	for _, one := range change {

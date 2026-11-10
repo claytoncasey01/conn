@@ -1,6 +1,8 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { NAME_BYTES_MAX, fetchChoices, nameTooLong, startSession, type NewSessionChoices } from './newSession.ts'
+  import AdvisorPick from './AdvisorPick.svelte'
+  import type { AdvisorPick as Pick } from './advisor.ts'
   import { href } from './router.svelte.ts'
   import { showTerminal } from './terminalPanel.svelte.ts'
 
@@ -8,6 +10,8 @@
   let choices = $state<NewSessionChoices | null>(null)
   let repo = $state('')
   let name = $state('')
+  /** The advisor of this one session: Settings' unless picked here */
+  let advisor = $state<Pick>('')
   let error = $state('')
   /** A line the person runs themselves: sessions open as a command, or a start that did not happen */
   let manual = $state('')
@@ -60,7 +64,7 @@
     const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
     step = 'starting'
     error = manual = dryCommand = ''
-    const result = await startSession(repo, name)
+    const result = await startSession(repo, name, advisor)
     step = 'form'
     if (result.dry || !result.ok) {
       dryCommand = result.dry ? (result.command ?? '') : ''
@@ -130,6 +134,10 @@
           <span class="cap" style={caption}>Name (optional)</span>
           <input bind:value={name} type="text" maxlength={NAME_BYTES_MAX} aria-invalid={longName} aria-describedby={longName ? 'new-session-name-long' : undefined} autocomplete="off" autocapitalize="off" spellcheck="false" disabled={step === 'starting'} style={field} />
         </label>
+        <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 160px">
+          <span class="cap" style={caption} aria-hidden="true">Advisor</span>
+          <AdvisorPick bind:value={advisor} label="Advisor" prefix="" disabled={step === 'starting'} style={field} />
+        </div>
         <button bind:this={starter} type="submit" class="cap" disabled={step === 'starting' || longName} style="{btn} border: 1px var(--border-style) var(--ac); background: var(--ac); color: var(--onac); font-weight: 700">
           {#if step === 'starting'}Starting…{:else}Start{/if}
         </button>

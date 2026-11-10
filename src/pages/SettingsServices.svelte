@@ -36,6 +36,7 @@
     type SlackSettings,
   } from '../lib/settingsModel.ts'
   import { WHERE_CHOICES, sameSessions, sessionsSection, wroteSessions, type SessionsSettings } from '../lib/settingsSessions.ts'
+  import { ADVISOR_CHOICES, advisorOf } from '../lib/advisor.ts'
   import SettingsNameList from './SettingsNameList.svelte'
 
   let { view, setup, apply, reload }: { view: SettingsView; setup: boolean; apply: (v: SettingsView) => void; reload: () => Promise<void> } = $props()
@@ -57,7 +58,8 @@
   let allOpen = $state(untrack(() => view.settings.reviews.allOpen))
   let where = $state(untrack(() => view.settings.sessions.where))
   let resume = $state(untrack(() => view.settings.sessions.resumeOnLaunch))
-  const sessionsDraft = $derived<SessionsSettings>({ where, resumeOnLaunch: resume })
+  let sessionsAdvisor = $state(untrack(() => view.settings.sessions.advisor))
+  const sessionsDraft = $derived<SessionsSettings>({ where, resumeOnLaunch: resume, advisor: sessionsAdvisor })
 
   // A draft nobody has touched follows what the server now holds (a save from another tab); an edited one stays.
   let baseGh = untrack(() => view.settings.github)
@@ -99,6 +101,7 @@
     if (untrack(() => sameSessions(sessionsDraft, baseSessions))) {
       where = held.where
       resume = held.resumeOnLaunch
+      sessionsAdvisor = held.advisor
     }
     baseSessions = held
   })
@@ -444,7 +447,7 @@
 
   <section class="surf card" aria-labelledby="sessions-h" style="--rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--edge) 6%, transparent), color-mix(in oklch, var(--panel) 92%, transparent) 55%)">
     <h2 id="sessions-h" class="hud cap">Where sessions open</h2>
-    <p class="sub">Where a session conn starts runs: a build from Open work, a review, a self-review or a resumed History session.</p>
+    <p class="sub">Where a session conn starts runs (a new session, a build from Open work, a review, a self-review or a resumed History session), and the advisor of each but a resume, which keeps the one it started with.</p>
 
     <fieldset class="choices">
       <legend class="sr">Where sessions open</legend>
@@ -463,6 +466,14 @@
     <div class="row">
       {@render sw(resume, 'Resume sessions when conn starts', () => { resume = !resume; edited('sessions') }, 'sessions-resume')}
       <span id="sessions-resume">Resume the sessions that were open when conn quit, when it starts again</span>
+    </div>
+
+    <div class="selrow">
+      <label class="lab" for="sessions-advisor">Advisor model</label>
+      <select id="sessions-advisor" class="sel" aria-describedby="sessions-advisor-hint" value={sessionsAdvisor} onchange={(e) => { sessionsAdvisor = advisorOf(e.currentTarget.value); edited('sessions') }}>
+        {#each ADVISOR_CHOICES as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
+      </select>
+      <p id="sessions-advisor-hint" class="hint">The advisor a session conn starts runs, unless you pick another when you start it. Claude Code’s setting is your own <code>advisorModel</code>. A session keeps its advisor when it is resumed.</p>
     </div>
 
     {@render saveRow('sessions', sessionsDirty, saveSessions)}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/openwork"
 	"github.com/claytoncasey01/conn/internal/pty"
 )
@@ -102,30 +103,45 @@ func TestTheBuildSessionsArgvIsGolden(t *testing.T) {
 	gadgets := hostileLeg("acme/gadgets", folders[1])
 
 	one := hostileRecord("shared", widgets)
-	goldenSpec(t, "argv-build.json", base, openwork.LaunchSpec(goldenClaude, one, widgets))
+	goldenSpec(t, "argv-build.json", base,
+		openwork.LaunchSpec(goldenClaude, one, widgets, advisor.ClaudeCode))
 
 	shared := hostileRecord("shared", widgets, gadgets)
 	goldenSpec(t, "argv-build-shared.json", base,
-		openwork.LaunchSpec(goldenClaude, shared, widgets))
+		openwork.LaunchSpec(goldenClaude, shared, widgets, advisor.ClaudeCode))
 
 	split := hostileRecord("split", widgets, gadgets)
-	goldenSpec(t, "argv-build-split.json", base, openwork.LaunchSpec(goldenClaude, split, gadgets))
+	goldenSpec(t, "argv-build-split.json", base,
+		openwork.LaunchSpec(goldenClaude, split, gadgets, advisor.ClaudeCode))
+
+	// An advisor of its own: its settings go after the model, and nothing else moves.
+	goldenSpec(t, "argv-build-advisor.json", base,
+		openwork.LaunchSpec(goldenClaude, one, widgets, advisor.Fable))
 }
 
 // TestTheResumeSessionsArgvIsGolden: resumed on its conversation when the id is a UUID, and on
-// the folder's last conversation when it is not (a tampered id never reaches an argument).
+// the folder's last conversation when it is not (a tampered id never reaches an argument). The
+// run's advisor goes with it, for a folder with no conversation yet to start one on.
 func TestTheResumeSessionsArgvIsGolden(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name      string
 		sessionID string
+		advisor   string
 		golden    string
 		verb      string
 	}{
-		{"a session id", "0f8fad5b-d9cb-469f-a165-70867728950e", "argv-resume.json", "resumed"},
 		{
-			"a tampered id", "0f8fad5b; rm -rf ~", "argv-continue.json",
+			"a session id", "0f8fad5b-d9cb-469f-a165-70867728950e", advisor.ClaudeCode,
+			"argv-resume.json", "resumed",
+		},
+		{
+			"a tampered id", "0f8fad5b; rm -rf ~", advisor.ClaudeCode, "argv-continue.json",
+			"reopened on its last conversation",
+		},
+		{
+			"an advisor", "0f8fad5b; rm -rf ~", advisor.Fable, "argv-continue-advisor.json",
 			"reopened on its last conversation",
 		},
 	}
@@ -151,7 +167,7 @@ func TestTheResumeSessionsArgvIsGolden(t *testing.T) {
 			lead.ClaudeSessionID = &tt.sessionID
 			record := hostileRecord("shared", lead, hostileLeg("acme/gadgets", folders[1]))
 
-			spec, verb := openwork.ResumeSpec(goldenClaude, record, lead)
+			spec, verb := openwork.ResumeSpec(goldenClaude, record, lead, tt.advisor)
 			goldenSpec(t, tt.golden, base, spec)
 
 			if verb != tt.verb {
@@ -173,9 +189,10 @@ func TestNothingFromTheTicketOrTheFolderIsAnArgument(t *testing.T) {
 	lead.ClaudeSessionID = &sessionID
 	other := hostileLeg("acme/gadgets", folders[1])
 	record := hostileRecord("shared", lead, other)
-	resumed, _ := openwork.ResumeSpec(goldenClaude, record, lead)
+	resumed, _ := openwork.ResumeSpec(goldenClaude, record, lead, advisor.Opus)
 
-	for _, spec := range []pty.Spec{openwork.LaunchSpec(goldenClaude, record, lead), resumed} {
+	launched := openwork.LaunchSpec(goldenClaude, record, lead, advisor.Opus)
+	for _, spec := range []pty.Spec{launched, resumed} {
 		if spec.Dir != lead.Worktree {
 			t.Errorf("folder %q", spec.Dir)
 		}
@@ -192,7 +209,7 @@ func checkArguments(t *testing.T, spec pty.Spec, record *openwork.Record, reach 
 	hostile := []string{record.Title, record.Desc, record.Repos[0].Branch, record.Repos[0].Worktree}
 	options := []string{
 		"--name", "--model", "--append-system-prompt-file", "--permission-mode", "--resume",
-		"--add-dir", "--",
+		"--add-dir", "--settings", "--",
 	}
 
 	for index, argument := range spec.Argv[1:] {
@@ -274,7 +291,7 @@ func TestAResumeAddsTheDelegationOnlyFromAConnFolderOfItsOwn(t *testing.T) {
 
 			lead := hostileLeg("acme/widgets", folders[0])
 			record := hostileRecord("shared", lead)
-			spec, _ := openwork.ResumeSpec(goldenClaude, record, lead)
+			spec, _ := openwork.ResumeSpec(goldenClaude, record, lead, advisor.ClaudeCode)
 
 			added := slices.Contains(spec.Argv, "--append-system-prompt-file")
 			if added != tt.want {

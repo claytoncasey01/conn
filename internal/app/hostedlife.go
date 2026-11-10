@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/config"
 	"github.com/claytoncasey01/conn/internal/historyapi"
 	"github.com/claytoncasey01/conn/internal/hosted"
@@ -373,7 +374,9 @@ func keptForLater(records []hosted.Record) ([]hosted.Record, string) {
 func insideOpener(host *pty.Host) launch.Opener {
 	return launch.New(launch.Deps{
 		Sessions: func() settings.Sessions {
-			return settings.Sessions{Where: settings.WhereInside, ResumeOnLaunch: true}
+			return settings.Sessions{
+				Where: settings.WhereInside, ResumeOnLaunch: true, Advisor: advisor.Default,
+			}
 		},
 		Start: host.Start, Cmux: nil, LookPath: exec.LookPath, Environ: os.Environ,
 	})

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/argv"
 
 	"github.com/claytoncasey01/conn/internal/jira"
@@ -278,6 +279,10 @@ type Record struct {
 	// review status), so no later PR asks again; a move that failed leaves it false. Only the
 	// server reads it.
 	ReviewMoved bool `json:"reviewMoved,omitempty"`
+	// Advisor is the advisor the START chose for the run's build sessions, one of
+	// advisor.Choices; "" when it chose none (or the run is from before), and the sessions take
+	// the one Settings has when they start. Only the server reads it.
+	Advisor string `json:"advisor,omitempty"`
 
 	// read is the record as its file held it: a record is written back with its keys where the
 	// file had them (a key this code does not know included), and the keys added since after them.
@@ -421,6 +426,15 @@ func decodeRecord(data []byte, object *js.Object) (*Record, bool) {
 
 	if _, present := object.Get("layout"); !present {
 		record.Layout = layoutShared
+	}
+
+	// An advisor that is not a choice (a hand-edited file) is none: the sessions take the one
+	// Settings has, and nothing from the file reaches a command line. It leaves the keys read,
+	// too, so the next save writes no advisor rather than keeping the file's (ordered).
+	if !advisor.IsChoice(record.Advisor) {
+		record.Advisor = ""
+
+		object.Delete("advisor")
 	}
 
 	return record, usable(record)

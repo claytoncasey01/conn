@@ -1,6 +1,7 @@
 // New session on the Sessions page: GET /api/sessions/new lists the repositories a plain Claude session may start in (the
 // allowlisted ones with a clone, as the server resolves them) and where sessions open; POST starts one. The page sends a
 // repository name and an optional name, never a folder, a command or a flag: the server builds the session itself.
+import { withAdvisor, type AdvisorChoice, type AdvisorPick } from './advisor.ts'
 import { api } from './api.ts'
 
 export const NEW_SESSION_PATH = '/api/sessions/new'
@@ -59,10 +60,10 @@ export function parseStarted(status: number, body: unknown): NewSessionResult {
   return out
 }
 
-/** The body a start sends: the repository, and the name only when one was typed. */
-export function startBody(repo: string, name: string): { repo: string; name?: string } {
+/** The body a start sends: the repository, the name only when one was typed, and the advisor only when one was picked. */
+export function startBody(repo: string, name: string, advisor: AdvisorPick = ''): { repo: string; name?: string; advisor?: AdvisorChoice } {
   const trimmed = name.trim()
-  return trimmed ? { repo, name: trimmed } : { repo }
+  return withAdvisor(trimmed ? { repo, name: trimmed } : { repo }, advisor)
 }
 
 /** What the empty Sessions page suggests: New session when sessions open inside Conn (there is no terminal to type claude
@@ -79,13 +80,13 @@ export async function fetchChoices(): Promise<NewSessionChoices | { error: strin
   }
 }
 
-/** Start a session in repo, named name when it is not blank. */
-export async function startSession(repo: string, name: string): Promise<NewSessionResult> {
+/** Start a session in repo, named name when it is not blank, on the advisor picked ('' for Settings'). */
+export async function startSession(repo: string, name: string, advisor: AdvisorPick = ''): Promise<NewSessionResult> {
   try {
     const r = await api(NEW_SESSION_PATH, {
       method: 'POST',
       headers: { 'x-conn': '1', 'content-type': 'application/json' },
-      body: JSON.stringify(startBody(repo, name)),
+      body: JSON.stringify(startBody(repo, name, advisor)),
     })
     return parseStarted(r.status, await r.json().catch(() => null))
   } catch (e) {

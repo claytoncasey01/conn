@@ -278,7 +278,7 @@ func (r *cRound) row() *myprs.Row {
 func (r *cRound) status() string { return r.row().Status }
 
 func (r *cRound) start() *js.Object {
-	return r.myPrs.Start(context.Background(), cRepo, cNumber, "sonnet").Body
+	return r.myPrs.Start(context.Background(), cRepo, cNumber, "sonnet", nil).Body
 }
 
 // cRestart is a new poller (a new world listing prs) on path.

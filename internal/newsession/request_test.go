@@ -37,7 +37,7 @@ func object(t *testing.T, text string) *js.Object {
 	return body
 }
 
-func TestParseRequestReadsOnlyARepositoryAndAName(t *testing.T) {
+func TestParseRequestReadsOnlyARepositoryANameAndAnAdvisor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -72,8 +72,15 @@ func TestParseRequestReadsOnlyARepositoryAndAName(t *testing.T) {
 			"an argument list", `{"repo":"acme/widgets","argv":["sh"]}`, "acme/widgets", "",
 			[]string{`"argv" is not a field`},
 		},
-		{"every problem at once", `{"repo":1,"name":2,"env":{}}`, "", "", []string{
-			`"env" is not a field`, "owner/name", "The name must be text.",
+		{"an advisor", `{"repo":"acme/widgets","advisor":"fable"}`, "acme/widgets", "", nil},
+		{"a null advisor", `{"repo":"acme/widgets","advisor":null}`, "acme/widgets", "", nil},
+		{
+			"an advisor that is no choice", `{"repo":"acme/widgets","advisor":"--x"}`,
+			"acme/widgets", "",
+			[]string{"The advisor must be claude-code, fable, opus or sonnet."},
+		},
+		{"every problem at once", `{"repo":1,"name":2,"env":{},"advisor":7}`, "", "", []string{
+			`"env" is not a field`, "owner/name", "The name must be text.", "The advisor must be",
 		}},
 	}
 
@@ -153,15 +160,26 @@ func TestSpecIsExactlyClaudeOnTheChosenConversation(t *testing.T) {
 	}{
 		{
 			"named",
-			newsession.Request{Repo: "acme/widgets", Name: "fix-the-widget"},
+			newsession.Request{
+				Repo: "acme/widgets", Name: "fix-the-widget", Advisor: "claude-code",
+			},
 			[]string{claudeProgram, "--session-id", conversationID, "--name", "fix-the-widget"},
 			"fix-the-widget",
 		},
 		{
 			"unnamed",
-			newsession.Request{Repo: "acme/widgets", Name: ""},
+			newsession.Request{Repo: "acme/widgets", Name: "", Advisor: "claude-code"},
 			[]string{claudeProgram, "--session-id", conversationID},
 			"widgets",
+		},
+		{
+			"an advisor of its own",
+			newsession.Request{Repo: "acme/widgets", Name: "fix", Advisor: "fable"},
+			[]string{
+				claudeProgram, "--session-id", conversationID, "--name", "fix",
+				"--settings", `{"advisorModel":"fable"}`,
+			},
+			"fix",
 		},
 	}
 
@@ -203,7 +221,7 @@ func TestSpecPanicsOnAnIDThatIsNotAUUID(t *testing.T) {
 	}()
 
 	newsession.Spec(claudeProgram, "--continue", cloneFolder, newsession.Request{
-		Repo: "acme/widgets", Name: "",
+		Repo: "acme/widgets", Name: "", Advisor: "claude-code",
 	})
 }
 

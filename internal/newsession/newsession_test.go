@@ -427,7 +427,7 @@ func TestStartOpensClaudeInTheClonesRealFolder(t *testing.T) {
 	}
 
 	want := newsession.Spec(claudeProgram, conversationID, realFolder, newsession.Request{
-		Repo: "ACME/Widgets", Name: "fix-the-widget",
+		Repo: "ACME/Widgets", Name: "fix-the-widget", Advisor: "claude-code",
 	})
 	got := setting.opened[0]
 

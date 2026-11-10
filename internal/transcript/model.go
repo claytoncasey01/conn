@@ -41,6 +41,8 @@ const (
 	keyTimestamp  = "timestamp"
 	keyContent    = "content"
 	keyMessage    = "message"
+	// keyAdvisorModel is a reply line's own key (beside its message) naming the session's advisor.
+	keyAdvisorModel = "advisorModel"
 
 	interruptedMark = "[Request interrupted by user"
 	commandOpen     = "<command-name>"
@@ -463,7 +465,16 @@ func modelOf(message any) (string, bool) {
 
 	model := js.String(value)
 
-	return model, !strings.HasPrefix(model, "<")
+	return model, shownModel(model)
+}
+
+// shownModel is whether model names a real model: set, and not a synthetic "<...>" one.
+func shownModel(model string) bool {
+	if model == "" {
+		return false
+	}
+
+	return !strings.HasPrefix(model, "<")
 }
 
 // meterAdd counts a message's usage.

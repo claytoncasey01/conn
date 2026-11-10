@@ -1,5 +1,6 @@
 // The repositories a START builds in and the layout of their sessions: what the picker starts on, and the viewer's remembered
 // choice of it. Remembering is a convenience only, so it lives in localStorage and the page works without it.
+import { withAdvisor, type AdvisorPick } from './advisor.ts'
 import type { ResearchModel, RunLayout, WorkBuild } from './types.ts'
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>
@@ -67,7 +68,7 @@ export function preselect(build: WorkBuild, remembered: readonly string[]): stri
 export const toggleRepo = (chosen: readonly string[], repo: string): string[] => (chosen.includes(repo) ? chosen.filter((r) => r !== repo) : [...chosen, repo])
 
 /** START's body: the repositories in order, and the layout only when there are several (one repository has one session). */
-export function startBody(model: ResearchModel, force: boolean, repos: readonly string[], layout: RunLayout) {
-  const body = { model, force: force || undefined, repos: [...repos] }
+export function startBody(model: ResearchModel, force: boolean, repos: readonly string[], layout: RunLayout, advisor: AdvisorPick = '') {
+  const body = withAdvisor({ model, force: force || undefined, repos: [...repos] }, advisor)
   return repos.length > 1 ? { ...body, layout } : body
 }

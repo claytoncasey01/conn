@@ -714,7 +714,7 @@ func TestLaunchesMatchTheRecording(t *testing.T) {
 		result := self.Launch(context.Background(), deps, myprs.LaunchOpts{
 			Repo: text(get(o, "repo")), Number: number(get(o, "number")),
 			HeadRef: text(get(o, "headRef")), Model: text(get(o, "model")),
-			Name: text(get(o, "name")), RepoPath: text(get(o, "repoPath")),
+			Advisor: "claude-code", Name: text(get(o, "name")), RepoPath: text(get(o, "repoPath")),
 			DataDir: text(get(o, "dataDir")), Round: number(get(o, "round")),
 		})
 

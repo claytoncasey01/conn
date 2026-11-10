@@ -59,7 +59,8 @@ func (m *MyPrs) Handle(ctx context.Context, route string, body *js.Object) (
 		return m.Thread(ctx, value("repo"), value("number"), value("threadId"),
 			value("text")), nil
 	case RouteStart:
-		return m.Start(ctx, value("repo"), value("number"), value("model")), nil
+		return m.Start(ctx, value("repo"), value("number"), value("model"),
+			value("advisor")), nil
 	}
 
 	return bad(http.StatusNotFound, "not found"), nil

@@ -236,7 +236,7 @@ func cGated(t *testing.T) *gate {
 func cStart(t *testing.T, tab *reviews.Reviews, repo, number string) reviews.Reply {
 	t.Helper()
 
-	reply, err := tab.Start(t.Context(), repo, number, cSonnet)
+	reply, err := tab.Start(t.Context(), repo, number, cSonnet, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

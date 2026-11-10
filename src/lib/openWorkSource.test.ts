@@ -82,7 +82,7 @@ test('the History field takes a ticket key only while Open work is on', () => {
   assert.match(history, /ref = \$derived\(tickets \|\| \/\^#\?\\d\+\$\/\.test\(typed\.ref\.trim\(\)\) \? typed\.ref : ''\)/)
 })
 
-test('START sends the model, the repositories and the layout, and nothing about a base branch: Settings and the clone decide it', () => {
-  assert.match(work, /startRun\(t\.key, startBody\(model, force, chosenReady, layout\)\)/)
+test('START sends the model, the repositories, the layout and the advisor picked, and nothing about a base branch: Settings and the clone decide it', () => {
+  assert.match(work, /startRun\(t\.key, startBody\(model, force, chosenReady, layout, advisor\)\)/)
   assert.doesNotMatch(work, /BASES|aria-label="Base branch"/)
 })

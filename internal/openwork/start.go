@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/jira"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/settings"
@@ -98,12 +99,13 @@ func (w *Work) Start(key string, body *js.Object) Reply {
 }
 
 // choice is what a START chose: the repositories by name, in order (none: the default
-// repository), and the layout of their sessions; with the places a run may build now, which
-// the choice is checked against.
+// repository), the layout of their sessions and their advisor ("" when the START chose none);
+// with the places a run may build now, which the choice is checked against.
 type choice struct {
-	repos  []string
-	layout string
-	all    []Target
+	repos   []string
+	layout  string
+	advisor string
+	all     []Target
 }
 
 // namesIn are the repository names a START's body lists, its other entries left out; choiceOf
@@ -121,43 +123,79 @@ func namesIn(body *js.Object) []string {
 	return names
 }
 
-// choiceOf is the choice a START's body makes, or a refusal of a body that is not one: repos
-// that is not a list of names, or a layout that is neither shared nor split. An absent layout is
-// the one Settings starts the picker on.
+// choiceOf is the choice a START's body makes, or a refusal of a body that is not one, naming
+// every problem at once: repos that is not a list of names, a layout that is neither shared nor
+// split, or an advisor that is not one of advisor.Choices. An absent layout is the one Settings
+// starts the picker on, and an absent advisor is the one Settings has when a session launches.
 func (w *Work) choiceOf(body *js.Object) (choice, Reply, bool) {
+	problems := []string{}
+
+	chosen, isNames := namesOf(field(body, "repos"))
+	if !isNames {
+		problems = append(problems, reposNotNames)
+	}
+
+	layout, isLayout := w.layoutOf(body)
+	if !isLayout {
+		problems = append(problems, "layout must be shared or split")
+	}
+
+	chosenAdvisor, isChoice := advisor.Requested(field(body, "advisor"))
+	if !isChoice {
+		problems = append(problems, advisor.MustBe())
+	}
+
+	if len(problems) > 0 {
+		return choice{}, badRequest(strings.Join(problems, "; ")), true
+	}
+
+	return choice{repos: chosen, layout: layout, advisor: chosenAdvisor, all: nil}, Reply{}, false
+}
+
+// namesOf is a START's repos (nil for none) as names, and false when it is not a list of text.
+func namesOf(value any) ([]string, bool) {
 	chosen := []string{}
-
-	if value := field(body, "repos"); value != nil {
-		list, isList := value.([]any)
-		if !isList {
-			return choice{}, badRequest(reposNotNames), true
-		}
-
-		for _, item := range list {
-			name, isText := item.(string)
-			if !isText {
-				return choice{}, badRequest(reposNotNames), true
-			}
-
-			chosen = append(chosen, name)
-		}
+	if value == nil {
+		return chosen, true
 	}
 
-	layout := layoutShared
-	if w.settings().Atlassian.Jira.SessionLayout == layoutSplit {
-		layout = layoutSplit
+	list, isList := value.([]any)
+	if !isList {
+		return nil, false
 	}
 
-	if value, present := body.Get("layout"); present {
-		switch value {
-		case layoutShared, layoutSplit:
-			layout, _ = value.(string)
-		default:
-			return choice{}, badRequest("layout must be shared or split"), true
+	for _, item := range list {
+		name, isText := item.(string)
+		if !isText {
+			return nil, false
 		}
+
+		chosen = append(chosen, name)
 	}
 
-	return choice{repos: chosen, layout: layout, all: nil}, Reply{}, false
+	return chosen, true
+}
+
+// layoutOf is a START's layout, or the one Settings starts the picker on when it sends none, and
+// false for one that is neither shared nor split.
+func (w *Work) layoutOf(body *js.Object) (string, bool) {
+	value, present := body.Get("layout")
+	if !present {
+		if w.settings().Atlassian.Jira.SessionLayout == layoutSplit {
+			return layoutSplit, true
+		}
+
+		return layoutShared, true
+	}
+
+	switch value {
+	case layoutShared, layoutSplit:
+		layout, _ := value.(string)
+
+		return layout, true
+	}
+
+	return "", false
 }
 
 func modelOf(value any) string {
@@ -216,7 +254,7 @@ func (w *Work) startTicket(key, model string, had *Record, force bool, chose cho
 		return conflict(strings.Join(moved, " "))
 	}
 
-	record := w.newRecord(key, model, ticket, targets, chose.layout)
+	record := w.newRecord(key, model, ticket, targets, chose)
 	w.runs.Set(key, record)
 	w.log(record, logStatus, startedLine(record)+w.leftAsItWas(had, targets))
 	w.pipeline(record)
@@ -369,8 +407,9 @@ func text(ticket *js.Object, key string) string {
 }
 
 func (w *Work) newRecord(key, model string, ticket *js.Object, targets []Target,
-	layout string,
+	chose choice,
 ) *Record {
+	layout := chose.layout
 	now := w.now()
 	title := text(ticket, "title")
 
@@ -406,7 +445,7 @@ func (w *Work) newRecord(key, model string, ticket *js.Object, targets []Target,
 		StartedAt: now, UpdatedAt: now, JiraStatus: text(ticket, "status"),
 		Agents: newAgents(), Answered: []Answered{}, Questions: []*Question{}, Log: []LogLine{},
 		Error: nil, Brief: "", Desc: text(ticket, "desc"), TicketStatus: text(ticket, "status"),
-		TicketCategory: &category, Repos: legs, Layout: layout,
+		TicketCategory: &category, Repos: legs, Layout: layout, Advisor: chose.advisor,
 	}
 }
 

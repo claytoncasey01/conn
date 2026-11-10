@@ -168,8 +168,8 @@ func (w *eGitWorld) round(t *testing.T, round float64) myprs.LaunchResult {
 	}
 
 	return selfOf().Launch(t.Context(), w.deps(), myprs.LaunchOpts{
-		Repo: "acme/web", Number: 12, HeadRef: "feat", Model: "sonnet", Name: name,
-		RepoPath: w.clone, DataDir: w.data, Round: round,
+		Repo: "acme/web", Number: 12, HeadRef: "feat", Model: "sonnet",
+		Advisor: "claude-code", Name: name, RepoPath: w.clone, DataDir: w.data, Round: round,
 	})
 }
 

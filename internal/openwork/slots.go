@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/advisor"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/pty"
@@ -374,7 +375,7 @@ func (w *Work) reopen(record *Record, slots []*Leg) Reply {
 func (w *Work) reopenSlot(record *Record, slot *Leg) error {
 	if launched(record, slot) {
 		w.resumedAt[slotKey(record, slot)] = w.now()
-		spec, verb := ResumeSpec(w.deps.Claude, record, slot)
+		spec, verb := ResumeSpec(w.deps.Claude, record, slot, w.advisorOf(record))
 		w.openWorkspace(w.held(), record, slot, spec, verb)
 
 		return nil
@@ -398,7 +399,8 @@ func (w *Work) launchFresh(record *Record, slot *Leg) error {
 
 	w.resumedAt[slotKey(record, slot)] = w.now()
 	markLaunched(record, slot)
-	w.openWorkspace(w.held(), record, slot, LaunchSpec(w.deps.Claude, record, slot), "opened")
+	w.openWorkspace(w.held(), record, slot,
+		LaunchSpec(w.deps.Claude, record, slot, w.advisorOf(record)), "opened")
 
 	return nil
 }
@@ -441,8 +443,9 @@ func sessionText(id *string) string {
 
 // ResumeSpec is what reopens a slot's session, and what the log says it did. The id comes from a
 // file on disk: only a plain UUID is passed to --resume, else the folder's last conversation is
-// continued.
-func ResumeSpec(claude string, record *Record, slot *Leg) (pty.Spec, string) {
+// continued. It carries the run's advisor (advisor.Args of advisorChoice) as a launch does: a
+// resumed conversation keeps its own, but a slot whose first launch wrote none starts one.
+func ResumeSpec(claude string, record *Record, slot *Leg, advisorChoice string) (pty.Spec, string) {
 	argv := []string{claude}
 	verb := "reopened on its last conversation"
 
@@ -455,6 +458,7 @@ func ResumeSpec(claude string, record *Record, slot *Leg) (pty.Spec, string) {
 	}
 
 	argv = append(argv, "--name", record.Key, "--model", "sonnet")
+	argv = append(argv, advisor.Args(advisorChoice)...)
 
 	if ownDelegation(slot.Worktree) {
 		argv = append(argv, "--append-system-prompt-file", ".conn/delegation.md")

@@ -208,15 +208,15 @@ test('the sections the page edits are read field by field: a wrong type is the d
   assert.deepEqual(r.view.settings.reviews, { requested: true, allOpen: false })
 })
 
-test('where sessions open is read as sent, and an older server that sends none is inside Conn with resume on', async () => {
-  reply(200, { ...VIEW, settings: { ...SETTINGS, sessions: { where: 'command', terminalCommand: ['/bin/sh', '-c', '{command}'], resumeOnLaunch: false } } })
+test('where sessions open is read as sent, and an older server that sends none is inside Conn with resume on and Claude Code’s advisor', async () => {
+  reply(200, { ...VIEW, settings: { ...SETTINGS, sessions: { where: 'command', terminalCommand: ['/bin/sh', '-c', '{command}'], resumeOnLaunch: false, advisor: 'fable' } } })
   const sent = await getSettings()
   assert.ok(sent.ok)
-  assert.deepEqual(sent.view.settings.sessions, { where: 'command', resumeOnLaunch: false })
+  assert.deepEqual(sent.view.settings.sessions, { where: 'command', resumeOnLaunch: false, advisor: 'fable' })
   reply(200, VIEW)
   const old = await getSettings()
   assert.ok(old.ok)
-  assert.deepEqual(old.view.settings.sessions, { where: 'inside', resumeOnLaunch: true })
+  assert.deepEqual(old.view.settings.sessions, { where: 'inside', resumeOnLaunch: true, advisor: 'claude-code' })
 })
 
 test('the base branch is read as a branch name or none, and an older server that sends none is none', async () => {

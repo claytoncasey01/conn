@@ -1,0 +1,10 @@
+{
+  "default": "claude-code",
+  "choices": ["claude-code", "fable", "opus", "sonnet"],
+  "args": {
+    "claude-code": [],
+    "fable": ["--settings", "{\"advisorModel\":\"fable\"}"],
+    "opus": ["--settings", "{\"advisorModel\":\"opus\"}"],
+    "sonnet": ["--settings", "{\"advisorModel\":\"sonnet\"}"]
+  }
+}

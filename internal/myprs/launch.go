@@ -208,6 +208,8 @@ type LaunchOpts struct {
 	Number  float64
 	HeadRef string
 	Model   string
+	// Advisor is the session's advisor, one of advisor.Choices.
+	Advisor string
 	Name    string
 	// RepoPath is the repo's local clone, which the worktree is made from.
 	RepoPath string
@@ -310,7 +312,8 @@ func (s Self) checks(opts LaunchOpts) (launchPlan, error) {
 		return launchPlan{}, errNotThisRound
 	}
 
-	args, err := reviews.ClaudeArgs(opts.Name, opts.Model, s.Pattern, SelfDisallowed())
+	args, err := reviews.ClaudeArgs(opts.Name, opts.Model, opts.Advisor, s.Pattern,
+		SelfDisallowed())
 	if err != nil {
 		return launchPlan{}, fmt.Errorf("%w", err)
 	}

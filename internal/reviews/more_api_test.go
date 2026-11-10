@@ -109,7 +109,7 @@ func TestDHandlePassesStartTheBodyAsSent(t *testing.T) {
 
 			got := dHandle(t, dDryTab(t), reviews.RouteStart, tt.body)
 
-			direct, err := dDryTab(t).Start(t.Context(), tt.repo, tt.number, tt.model)
+			direct, err := dDryTab(t).Start(t.Context(), tt.repo, tt.number, tt.model, nil)
 			dMust(t, err)
 
 			want := js.Number(float64(direct.Code)) + " " + dMarshal(direct.Body)
