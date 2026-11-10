@@ -68,7 +68,7 @@ export const SLOTS: Record<string, SlotSpec> = Object.freeze(
     ['glyph-arrow', { kind: 'enum', values: ['triangle', 'chevron', 'arrow', 'none'] }],
     ['glyph-bullet', { kind: 'enum', values: ['triangle', 'dot', 'dash', 'prompt', 'none'] }],
     ['glyph-sep', { kind: 'enum', values: ['slash', 'dot', 'bar', 'dash'] }],
-    ['glyph-brand', { kind: 'enum', values: ['conn', 'blocks', 'prompt', 'diamond', 'none'] }],
+    ['glyph-brand', { kind: 'enum', values: ['conn', 'conn-tube', 'conn-pixel', 'conn-phosphor', 'blocks', 'prompt', 'diamond', 'none'] }],
     // the Overview agent tree: how its wires are drawn and end, what crawls and travels along them, and what moves round the lead
     ['wire-style', { kind: 'enum', values: ['line', 'cable', 'rail', 'dash'] }],
     ['wire-width', { kind: 'length', unit: 'px', pxOnly: true, min: 1, max: 6 }],

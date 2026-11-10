@@ -133,7 +133,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 .brk::after{content:var(--look-marks, none);position:absolute;inset:-1px;pointer-events:none;color:var(--c, var(--edge));background:var(--look-marks-art, none)}
 
 /* the glyphs of the chrome: the arrows on links and buttons, the bullet before a status line, the separator in section labels and
-   the brand mark (a text glyph, or the Conn mark as an inline SVG). Decorative: the spans are aria-hidden, and the words around them carry the meaning */
+   the brand mark (a text glyph, or the Conn mark as an inline SVG in one of its drawings). Decorative: the spans are aria-hidden, and the words around them carry the meaning */
 .g-fwd::before{content:var(--look-fwd, "›")}
 .g-back::before{content:var(--look-back, "‹")}
 .g-go::before{content:var(--look-go, "›")}
@@ -141,7 +141,12 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 .g-bullet::before{content:var(--look-bullet, "•");margin-right:var(--look-bullet-gap, .45em)}
 .g-sep::before{content:var(--look-sep, "·")}
 .g-brand::before{content:var(--look-brand, "▟█▙");font-size:var(--look-brand-size, 1em)}
-.g-brand-mark{display:var(--look-brand-mark, none);width:1.85em;height:1.85em;flex:none}
+.g-brand-tile{background:var(--look-brand-tile, var(--ac));color:var(--look-brand-ink, var(--onac));outline:var(--look-brand-ring, none);outline-offset:-1px}
+.g-brand-mark{display:var(--look-brand-mark, none);width:1.85em;height:1.85em;flex:none;filter:var(--look-brand-bloom, none);-webkit-mask-image:var(--look-brand-lines, none);mask-image:var(--look-brand-lines, none)}
+.bm-solid{display:var(--look-brand-solid, none)}
+.bm-tube{display:var(--look-brand-tube, none)}
+.bm-pixel{display:var(--look-brand-pixel, none);shape-rendering:crispEdges}
+.bm-core{stroke:color-mix(in oklab, currentColor 35%, white)}
 `
 
 /** The same rules without their comments, for a place that strips comment openers (the preview's safeCss) */

@@ -167,7 +167,7 @@
       "glyph-arrow": "triangle",
       "glyph-bullet": "dash",
       "glyph-sep": "dash",
-      "glyph-brand": "none",
+      "glyph-brand": "conn-phosphor",
       "wire-style": "cable",
       "wire-width": "2px",
       "wire-head": "plug",

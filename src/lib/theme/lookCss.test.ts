@@ -20,6 +20,7 @@ test('each piece of the look is drawn only when a look token selects it', () => 
   assert.match(body('.stripe'), /display:var\(--look-stripe,none\)/)
   assert.match(body('.glint'), /display:var\(--look-glint,none\)/)
   assert.match(body('.g-brand-mark'), /display:var\(--look-brand-mark,none\)/)
+  for (const drawing of ['solid', 'tube', 'pixel']) assert.match(body(`.bm-${drawing}`), new RegExp(`display:var\\(--look-brand-${drawing},none\\)`), drawing)
   assert.match(body('.page-scan'), /display:var\(--look-scan,none\)/)
   for (const sel of ['.stage-ticks', '.stage-floor', '.stage-glow']) assert.match(body(sel), /display:var\(--look-hud,none\)/, sel)
   // the tree: orbits and their comet only under tree-orbits, and what travels a wire only under its wire-flow; the sheath, cutter

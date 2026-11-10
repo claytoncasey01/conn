@@ -43,7 +43,7 @@ body{background:var(--bg);color:var(--tx);font:12px/1.35 var(--font-ui,system-ui
 .page-scan{position:absolute;inset:0;pointer-events:none}
 .page-head{position:relative;display:flex;align-items:center;gap:4px;border-bottom:1px var(--border-style,solid) var(--line);margin-bottom:4px}
 .glint{position:absolute;left:0;right:0;bottom:-1px;height:1px}
-.brand{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:20px;padding:0 3px;margin-right:4px;border-radius:var(--radius,6px);background:var(--ac);color:var(--onac);font-size:9px;font-weight:700;letter-spacing:0}
+.brand{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:20px;padding:0 3px;margin-right:4px;border-radius:var(--radius,6px);font-size:9px;font-weight:700;letter-spacing:0}
 .tab{padding:3px 9px;color:var(--mu);border-bottom:2px solid transparent}
 .tab.on{color:var(--bright);border-bottom-color:var(--ac)}
 .label{font-size:10px;color:var(--mu);margin:0 0 4px}
@@ -90,7 +90,7 @@ export function previewDoc(manifest: ThemeManifest, mode: Mode, fallback: ThemeM
   const card = '--c: var(--ac); --r: calc(var(--radius) * 1.5); --rim: color-mix(in oklch, var(--ac) 34%, transparent); --wash: linear-gradient(170deg, color-mix(in oklch, var(--ac) 10%, transparent), color-mix(in oklch, var(--panel) 92%, transparent) 55%); --halo: 0 0 22px color-mix(in oklch, var(--ac) calc(16% * var(--glow, 0)), transparent)'
   const hide = 'aria-hidden="true"'
   const body = `<div class="page"><div class="page-scan" ${hide}></div>
-<div class="page-head"><span class="brand" ${hide}><span class="g-brand"></span>${BRAND_MARK}</span><span class="tab cap on">Sessions</span><span class="tab cap">Reviews</span><span class="tab cap">History</span><span class="glint"></span></div>
+<div class="page-head"><span class="brand g-brand-tile" ${hide}><span class="g-brand"></span>${BRAND_MARK}</span><span class="tab cap on">Sessions</span><span class="tab cap">Reviews</span><span class="tab cap">History</span><span class="glint"></span></div>
 <div class="label cap"><span class="g-go-back" ${hide}></span> Sessions <span class="g-sep" ${hide}></span> 3 live</div>
 <div class="card surf brk" style="${card}"><span class="stripe"></span><div class="row"><span class="dot ok"></span><span class="grow">Build passing</span><span class="mono">12s</span></div>
 <div class="row"><span class="dot warn"></span><span class="grow">Waiting on input</span><span class="chip cap">Ready</span></div>
