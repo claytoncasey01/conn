@@ -22,6 +22,7 @@
 #import <UserNotifications/UserNotifications.h>
 
 #include "notify_darwin.h"
+#include "bridge_darwin.h"
 #include "_cgo_export.h"
 
 // The name the page finds the handler by: window.webkit.messageHandlers.connNotify.
@@ -89,9 +90,9 @@ static NSString *originOf(WKSecurityOrigin *origin) {
 		(long)origin.port];
 }
 
-// fromServer says whether message came from the main frame of a page of the server the window
-// shows. Go decides the origin.
-static BOOL fromServer(WKScriptMessage *message) {
+// connMessageFromServer says whether message came from the main frame of a page of the server the
+// window shows. Go decides the origin. The Dock icon's handler (icon_darwin.m) asks it too.
+BOOL connMessageFromServer(WKScriptMessage *message) {
 	if (!message.frameInfo.isMainFrame) {
 		return NO;
 	}
@@ -221,7 +222,7 @@ static void openSettings(Reply reply) {
 - (void)userContentController:(WKUserContentController *)controller
 	didReceiveScriptMessage:(WKScriptMessage *)message
 	replyHandler:(void (^)(id reply, NSString *errorMessage))replyHandler {
-	if (!fromServer(message)) {
+	if (!connMessageFromServer(message)) {
 		replyHandler(nil, @"only a page of the server may ask");
 		return;
 	}

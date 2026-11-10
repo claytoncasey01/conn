@@ -156,14 +156,20 @@ func (s *shell) windowClosing(hide, cancelClose func()) {
 
 // startDeskWhenReady reads the environment and runs desk.Run once the app has started: a dialog
 // asked for before then is never shown, so a Conn that cannot start would end without a word, and
-// the splash is up while the login shell runs. The notifications bridge goes in first, on the
-// main thread, so it is there before the window loads the server's page; without it the app
-// still works.
+// the splash is up while the login shell runs. The notifications and Dock icon bridges go in
+// first, on the main thread, so they are there before the window loads the server's page;
+// without them the app still works.
 func (s *shell) startDeskWhenReady(ctx context.Context) {
 	s.app.Event.OnApplicationEvent(
 		events.Common.ApplicationStarted,
 		func(*application.ApplicationEvent) {
 			err := application.InvokeSyncWithError(s.installNotify)
+			if err != nil {
+				_, _ = fmt.Fprintf(s.proc.stderr, "conn-app: %v\n", err)
+			}
+
+			// After the notifications, whose origin check the icon's handler uses.
+			err = application.InvokeSyncWithError(s.installIcon)
 			if err != nil {
 				_, _ = fmt.Fprintf(s.proc.stderr, "conn-app: %v\n", err)
 			}

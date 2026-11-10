@@ -1,7 +1,7 @@
 #!/bin/sh
-# Check a built Conn.app: its signature is intact, its binary holds both architectures, and the
-# binary starts. ci.yml and release.yml both run this, so a release never carries a bundle CI
-# would have failed.
+# Check a built Conn.app: its signature is intact, its binary and its Dock tile plug-in hold both
+# architectures, and the binary starts. ci.yml and release.yml both run this, so a release never
+# carries a bundle CI would have failed.
 #
 #   scripts/check-app.sh <path-to-Conn.app>
 #
@@ -28,6 +28,17 @@ case "$archs" in
 *arm64*) ;;
 *)
 	echo "no arm64 slice" >&2
+	exit 1
+	;;
+esac
+
+# The Dock tile plug-in is a second binary, which must hold both architectures too.
+plugin_archs=$(lipo -archs "$app/Contents/PlugIns/ConnDockTile.docktileplugin/Contents/MacOS/ConnDockTile")
+echo "Dock tile plug-in archs: $plugin_archs"
+case "$plugin_archs" in
+*x86_64*arm64* | *arm64*x86_64*) ;;
+*)
+	echo "the Dock tile plug-in does not hold both x86_64 and arm64" >&2
 	exit 1
 	;;
 esac
