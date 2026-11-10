@@ -143,7 +143,8 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 .g-brand::before{content:var(--look-brand, "▟█▙");font-size:var(--look-brand-size, 1em)}
 .g-brand-tile{background:var(--look-brand-tile, var(--ac));color:var(--look-brand-ink, var(--onac));outline:var(--look-brand-ring, none);outline-offset:-1px}
 .g-brand-mark{display:var(--look-brand-mark, none);width:1.85em;height:1.85em;flex:none;filter:var(--look-brand-bloom, none);-webkit-mask-image:var(--look-brand-lines, none);mask-image:var(--look-brand-lines, none)}
-.bm-solid{display:var(--look-brand-solid, none)}
+/* the solid drawing is the one shown when no --look-brand-solid is set: a cached look from before the drawings set only --look-brand-mark */
+.bm-solid{display:var(--look-brand-solid, inline)}
 .bm-tube{display:var(--look-brand-tube, none)}
 .bm-pixel{display:var(--look-brand-pixel, none);shape-rendering:crispEdges}
 .bm-core{stroke:color-mix(in oklab, currentColor 35%, white)}
