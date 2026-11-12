@@ -284,7 +284,7 @@ test('a cold start paints the cached look: the real cache entry for Matrix carri
   const r = resolveTheme({ list: [{ id: 'matrix', source: 'builtin', hasCss: false, cssSha256: null, manifest: matrix }], choice: JSON.parse(choiceOf()), systemDark: true, accepted: {}, fallback: def })
   const entry = cacheEntryOf(r, null)
   const painted = run({ [KEYS.choice]: choiceOf(), [KEYS.css('matrix')]: JSON.stringify(entry) }).styles.map((s) => s.textContent).join('')
-  for (const decl of ['--look-gutter:1;', '--look-head-blur:blur(14px);', '--look-fill:color-mix(in oklch, var(--panel) 55%, transparent);', '--look-fwd:"→";', '--look-bullet:"❯";', '--look-body:var(--font-mono), monospace;'])
+  for (const decl of ['--look-gutter:1;', '--look-head-blur:blur(14px);', '--look-fill:color-mix(in oklch, var(--panel) calc(var(--glass-tint, 0.55) * 100%), transparent);', '--look-fwd:"→";', '--look-bullet:"❯";', '--look-body:var(--font-mono), monospace;'])
     assert.ok(painted.includes(decl), decl)
 })
 

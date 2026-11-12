@@ -3,6 +3,7 @@ package theme
 import (
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -385,4 +386,80 @@ func round(value float64) float64 {
 	}
 
 	return whole
+}
+
+// opaqueWhite is the white the look's light is drawn in.
+func opaqueWhite() RGBA { return RGBA{R: maxChannel, G: maxChannel, B: maxChannel, A: 1} }
+
+// channel is a filtered channel as the browser keeps it: a whole value from 0 to 255.
+func channel(value float64) float64 { return math.Min(maxChannel, math.Max(0, round(value))) }
+
+// Saturate is CSS saturate(amount) on an opaque color, by the Filter Effects matrix; 1 changes
+// nothing. Each product is converted on its own so no platform fuses it, and the answer matches
+// validate.ts's to the bit.
+func Saturate(color RGBA, amount float64) RGBA {
+	if amount == 1 {
+		return color
+	}
+
+	gains := saturateMatrix()
+	row := func(entries [3][2]float64) float64 {
+		// gain is an entry, base plus slope times the amount, its product rounded on its own.
+		gain := func(entry [2]float64) float64 { return entry[0] + float64(entry[1]*amount) }
+
+		red := float64(gain(entries[0]) * color.R)
+		green := float64(gain(entries[1]) * color.G)
+		blue := float64(gain(entries[2]) * color.B)
+
+		return channel(red + green + blue)
+	}
+
+	return RGBA{R: row(gains[0]), G: row(gains[1]), B: row(gains[2]), A: 1}
+}
+
+// saturateMatrix is the Filter Effects saturate matrix, row by row, each entry its base and its
+// slope: the entry is base plus slope times the amount.
+func saturateMatrix() [3][3][2]float64 {
+	return [3][3][2]float64{
+		{{0.213, 0.787}, {0.715, -0.715}, {0.072, -0.072}},
+		{{0.213, -0.213}, {0.715, 0.285}, {0.072, -0.072}},
+		{{0.213, -0.213}, {0.715, -0.715}, {0.072, 0.928}},
+	}
+}
+
+// Brightness is CSS brightness(amount) on an opaque color; 1 changes nothing.
+func Brightness(color RGBA, amount float64) RGBA {
+	if amount == 1 {
+		return color
+	}
+
+	return RGBA{
+		R: channel(color.R * amount), G: channel(color.G * amount), B: channel(color.B * amount),
+		A: 1,
+	}
+}
+
+// WallpaperAt is the page at point (shares of the window's width and height) under the
+// wallpaper: each field present, from the bottom layer up, fading from its center to nothing at
+// wallpaperFade of its radii.
+func WallpaperAt(point [2]float64, hues []RGBA, present []bool, strength float64, page RGBA) RGBA {
+	out := page
+	fields := wallpaperFields()
+
+	for index, field := range slices.Backward(fields) {
+		if !present[index] {
+			continue
+		}
+
+		across := (point[0] - field.x) / field.rx
+		down := (point[1] - field.y) / field.ry
+		reach := math.Sqrt(float64(across*across) + float64(down*down))
+
+		share := float64(strength * math.Max(0, 1-reach/wallpaperFade))
+		if share > 0 {
+			out = Composite(withAlpha(hues[index], share), out)
+		}
+	}
+
+	return out
 }

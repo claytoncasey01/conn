@@ -121,7 +121,7 @@ func Slots() []Slot {
 }
 
 // lookSlotCount is how many slots lookSlots lists.
-const lookSlotCount = 39
+const lookSlotCount = 50
 
 // lookSlots are the look: what the page is drawn on, how a card is shaped and marked, the glyphs
 // of the chrome and the Overview agent tree. Keywords and bounded numbers only.
@@ -144,6 +144,15 @@ func lookSlots() []Slot {
 		enum("stage", "plain", "dots", "hud"),
 		number("stage-backing", unit()),
 		enum("card-fill", "plain", "wash", "glass"),
+		number("glass-tint", span{0, 0.6}),
+		pxLength("glass-blur", span{0, 40}),
+		number("glass-saturate", span{1, 2.4}),
+		number("glass-edge", unit()),
+		number("card-sheen", unit()),
+		number("wallpaper-strength", unit()),
+	)
+	slots = append(slots, color(wallpaperSlots()...)...)
+	slots = append(slots,
 		enum("card-corner", "round", "square", "chamfer", "notch"),
 		pxLength("card-cut", span{4, 20}),
 		enum("card-frame", "none", "hairline", "bold", "double", "rule"),
@@ -200,4 +209,49 @@ func AllowedFonts() []string {
 // KnownEffects are the effects a theme may list.
 func KnownEffects() []string {
 	return []string{"rain", "scanlines", "vignette", "flicker", "glow", "roll", "grain"}
+}
+
+// The wallpaper: its color slots, its fields from the top layer down (tokens.ts WALLPAPER), each
+// fading to nothing at wallpaperFade of its radii, and the samples the gate takes of it.
+const (
+	wallpaperFade  = 0.72
+	wallpaperSteps = 24
+)
+
+// field is one of the wallpaper's fields: its center and radii, as shares of the window.
+type field struct{ x, y, rx, ry float64 }
+
+func wallpaperSlots() []string {
+	return []string{"wallpaper-1", "wallpaper-2", "wallpaper-3", "wallpaper-4", "wallpaper-5"}
+}
+
+func wallpaperFields() []field {
+	// Each row is a field's center (x, y) and radii (rx, ry), as shares of the window.
+	return []field{
+		{0.12, 0.18, 0.38, 0.46},
+		{0.86, 0.12, 0.42, 0.5},
+		{0.7, 0.92, 0.46, 0.52},
+		{0.22, 0.96, 0.34, 0.4},
+		{0.5, 0.48, 0.3, 0.34},
+	}
+}
+
+// wallpaperPoints is a grid of wallpaperSteps by wallpaperSteps over the window, row by row,
+// then each field's center, where it is strongest.
+func wallpaperPoints() [][2]float64 {
+	side := wallpaperSteps + 1
+	fields := wallpaperFields()
+	points := make([][2]float64, 0, side*side+len(fields))
+
+	for index := range side * side {
+		points = append(points, [2]float64{
+			float64(index%side) / wallpaperSteps, float64(index/side) / wallpaperSteps,
+		})
+	}
+
+	for _, center := range fields {
+		points = append(points, [2]float64{center.x, center.y})
+	}
+
+	return points
 }

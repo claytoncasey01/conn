@@ -117,7 +117,7 @@
     {:else}
 
     <!-- hero -->
-    <section aria-label="Advisor summary" class="surf brk" style="--c: var(--role-advisor); position: relative; display: flex; flex-wrap: wrap; gap: 20px 40px; align-items: center; justify-content: space-between; --wash: linear-gradient(120deg, color-mix(in oklch, var(--role-advisor) 16%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 55%); --rim: color-mix(in oklch, var(--role-advisor) 30%, transparent); --r: var(--radius); padding: 22px 28px; backdrop-filter: blur(6px); --halo: 0 0 30px color-mix(in oklch, var(--role-advisor) calc(10% * var(--glow)), transparent), inset 0 1px 0 color-mix(in oklch, var(--bright) 6%, transparent)">
+    <section aria-label="Advisor summary" class="surf brk" style="--c: var(--role-advisor); position: relative; display: flex; flex-wrap: wrap; gap: 20px 40px; align-items: center; justify-content: space-between; --wash: linear-gradient(120deg, color-mix(in oklch, var(--role-advisor) 16%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 55%); --rim: color-mix(in oklch, var(--role-advisor) 30%, transparent); --r: var(--radius); padding: 22px 28px; backdrop-filter: var(--look-surf-blur, blur(6px)); --halo: 0 0 30px color-mix(in oklch, var(--role-advisor) calc(10% * var(--glow)), transparent), inset 0 1px 0 color-mix(in oklch, var(--bright) 6%, transparent)">
       <div class="beam" aria-hidden="true"></div>
       <div style="flex: 1 1 380px; min-width: 0">
         <div class="hud cap" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--role-advisor) 55%, var(--mu))">Advisor</div>
@@ -143,7 +143,7 @@
       <!-- left: timeline, list, detail -->
       <div style="flex: 1 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
 
-        <section aria-label="Consult timeline" class="surf brk" style="--c: color-mix(in oklch, var(--role-advisor) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--role-advisor) 20%, transparent); --r: var(--radius); padding: 18px 22px 16px; backdrop-filter: blur(6px)">
+        <section aria-label="Consult timeline" class="surf brk" style="--c: color-mix(in oklch, var(--role-advisor) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--role-advisor) 20%, transparent); --r: var(--radius); padding: 18px 22px 16px; backdrop-filter: var(--look-surf-blur, blur(6px))">
           <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 14px">
             <div class="hud" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--role-advisor) 55%, var(--mu))"><span class="cap">Consults</span> <span class="g-sep" aria-hidden="true"></span> {dur(total)}</div>
             <div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 11px; letter-spacing: calc(var(--tracking) * 0.5714); color: var(--mu)">
@@ -172,7 +172,7 @@
           </div>
         </section>
 
-        <section aria-label="Consult list" class="surf brk" style="--c: color-mix(in oklch, var(--role-advisor) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--role-advisor) 20%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: blur(6px)">
+        <section aria-label="Consult list" class="surf brk" style="--c: color-mix(in oklch, var(--role-advisor) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--role-advisor) 20%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: var(--look-surf-blur, blur(6px))">
           <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin-bottom: 8px">
             <div class="hud cap" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--role-advisor) 55%, var(--mu))">Consults <span class="g-sep" aria-hidden="true"></span> newest first</div>
             <div style="font-size: 11px; letter-spacing: calc(var(--tracking) * 0.5714); color: color-mix(in oklab, var(--mu) 85%, var(--panel))">{ordered.length > LIST_CAP ? `NEWEST ${LIST_CAP} OF ` : ''}{ordered.length} TOTAL</div>
@@ -191,7 +191,7 @@
           </div>
         </section>
 
-        <section aria-label="Consult detail" class="surf brk" style="--c: var(--role-advisor); --wash: linear-gradient(180deg, color-mix(in oklch, var(--role-advisor) 12%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 40%); --rim: color-mix(in oklch, var(--role-advisor) 30%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: blur(6px); --halo: 0 0 30px color-mix(in oklch, var(--role-advisor) calc(10% * var(--glow)), transparent)">
+        <section aria-label="Consult detail" class="surf brk" style="--c: var(--role-advisor); --wash: linear-gradient(180deg, color-mix(in oklch, var(--role-advisor) 12%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 40%); --rim: color-mix(in oklch, var(--role-advisor) 30%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: var(--look-surf-blur, blur(6px)); --halo: 0 0 30px color-mix(in oklch, var(--role-advisor) calc(10% * var(--glow)), transparent)">
           {#if cur}
             {@const c = cur.c}
             <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 14px">
@@ -224,7 +224,7 @@
       <!-- right: stats -->
       <aside aria-label="Advisor stats" style="flex: 0 1 360px; min-width: min(280px, 100%); display: flex; flex-direction: column; gap: 20px">
 
-        <section class="surf brk" style="--c: var(--role-advisor); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; --wash: linear-gradient(180deg, color-mix(in oklch, var(--role-advisor) 12%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 30%); --rim: color-mix(in oklch, var(--role-advisor) 30%, transparent); --r: var(--radius); padding: 18px; backdrop-filter: blur(6px)">
+        <section class="surf brk" style="--c: var(--role-advisor); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; --wash: linear-gradient(180deg, color-mix(in oklch, var(--role-advisor) 12%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 30%); --rim: color-mix(in oklch, var(--role-advisor) 30%, transparent); --r: var(--radius); padding: 18px; backdrop-filter: var(--look-surf-blur, blur(6px))">
           <div style="background: color-mix(in oklch, var(--role-advisor) 8%, transparent); border: 1px var(--border-style) color-mix(in oklch, var(--role-advisor) 22%, transparent); border-radius: var(--radius); padding: 10px 12px">
             <div style="font-size: 10px; letter-spacing: calc(var(--tracking) * 1.1429); color: color-mix(in oklab, var(--role-advisor) 45%, var(--mu))" class="cap">Consults</div>
             <div class="hud" style="font-weight: 700; font-size: 28px; margin-top: 2px; color: color-mix(in oklab, var(--role-advisor) 40%, var(--bright)); text-shadow: 0 0 14px color-mix(in oklch, var(--role-advisor) calc(50% * var(--glow)), transparent)">{ordered.length}</div>
@@ -243,7 +243,7 @@
           </div>
         </section>
 
-        <section class="surf brk" style="--c: color-mix(in oklch, var(--role-advisor) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--role-advisor) 20%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: blur(6px)">
+        <section class="surf brk" style="--c: color-mix(in oklch, var(--role-advisor) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--role-advisor) 20%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: var(--look-surf-blur, blur(6px))">
           <div class="hud cap" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--role-advisor) 55%, var(--mu)); margin-bottom: 12px">Who asked</div>
           {#each askers as m (m.by)}
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 12px">

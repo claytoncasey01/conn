@@ -93,7 +93,7 @@
 </script>
 
 {#if entry && row}
-  <section aria-label="History entry" class="surf brk" style="--c: var(--role-advisor); position: relative; display: flex; flex-direction: column; gap: 16px; padding: 18px 22px; --rim: color-mix(in oklch, var(--role-advisor) 30%, transparent); --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--role-advisor) 10%, transparent), color-mix(in oklch, var(--panel) 90%, transparent) 60%); backdrop-filter: blur(6px)">
+  <section aria-label="History entry" class="surf brk" style="--c: var(--role-advisor); position: relative; display: flex; flex-direction: column; gap: 16px; padding: 18px 22px; --rim: color-mix(in oklch, var(--role-advisor) 30%, transparent); --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--role-advisor) 10%, transparent), color-mix(in oklch, var(--panel) 90%, transparent) 60%); backdrop-filter: var(--look-surf-blur, blur(6px))">
     <div class="stripe" style="position: absolute; left: 0; top: 0; width: 100%; height: 2px; background: linear-gradient(90deg, var(--role-advisor), transparent); box-shadow: 0 0 12px color-mix(in oklch, var(--role-advisor) calc(100% * var(--glow)), transparent)"></div>
 
     <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px">

@@ -405,7 +405,7 @@
       <!-- ticket panel -->
       {#if sel}
         {@const pri = priStyle(sel.priority)}
-        <aside aria-label="Selected ticket" class="surf brk" in:bootIn={{ skip: skip() }} out:bootOut style="--c: var(--ac); flex: 1 1 440px; max-width: 520px; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px; padding: 22px 24px; --rim: color-mix(in oklch, var(--ac) 34%, transparent); --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--ac) 9%, transparent), color-mix(in oklch, var(--panel) 94%, transparent) 55%); backdrop-filter: blur(6px)">
+        <aside aria-label="Selected ticket" class="surf brk" in:bootIn={{ skip: skip() }} out:bootOut style="--c: var(--ac); flex: 1 1 440px; max-width: 520px; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px; padding: 22px 24px; --rim: color-mix(in oklch, var(--ac) 34%, transparent); --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--ac) 9%, transparent), color-mix(in oklch, var(--panel) 94%, transparent) 55%); backdrop-filter: var(--look-surf-blur, blur(6px))">
           <div class="stripe" style="position: absolute; left: 0; top: 0; width: 100%; height: 2px; background: linear-gradient(90deg, var(--ac), transparent); box-shadow: 0 0 12px color-mix(in oklch, var(--ac) calc(100% * var(--glow)), transparent)"></div>
 
           <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">

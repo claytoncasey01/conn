@@ -145,8 +145,9 @@ const LOOK_VARS = [...new Set([...Object.values(LOOK).flatMap((t) => Object.valu
 // every number of the look (the slots from font-body down), from the contract, so a new one cannot be left out
 const LOOK_NUMBERS = Object.keys(SLOTS).slice(Object.keys(SLOTS).indexOf('font-body')).filter((n) => SLOTS[n].kind === 'number' || SLOTS[n].kind === 'length')
 
-// Neon with a cut corner and a text glow, so the numbers only those use (card-cut, text-glow) are in play too
-const EVERY_NUMBER = { ...(NEON.tokens.dark ?? {}), 'card-corner': 'chamfer', 'text-glow': '0.3' }
+// Neon with a cut corner and a text glow, so the numbers only those use (card-cut, text-glow) are in play too,
+// and glass with its light and a wallpaper on, so the glass's numbers (read through the fill, the filter and the light) are too
+const EVERY_NUMBER = { ...(NEON.tokens.dark ?? {}), 'card-corner': 'chamfer', 'text-glow': '0.3', 'card-fill': 'glass', 'glass-edge': '0.5', 'card-sheen': '0.5', 'wallpaper-strength': '0.5' }
 
 test('the preview reads every variable the look slots produce, and the numbers they come with', () => {
   const html = previewDoc(make({ tokens: { dark: EVERY_NUMBER } }), 'dark', DEFAULT)

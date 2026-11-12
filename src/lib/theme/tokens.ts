@@ -56,6 +56,19 @@ export const SLOTS: Record<string, SlotSpec> = Object.freeze(
     // a dense bg under the tree's stage, so an effect behind the page (the rain) does not print through its wires
     ['stage-backing', { kind: 'number', min: 0, max: 1 }],
     ['card-fill', { kind: 'enum', values: ['plain', 'wash', 'glass'] }],
+    // a glass card's own glass: how much of panel it carries, how much it blurs and how much it boosts the color behind it
+    // (with a matching lift on a light page and deepening on a dark one, GLASS.tone). Left out, they are the glass of before
+    // (GLASS_DEFAULT), so a theme that names none of them draws as it always has.
+    ['glass-tint', { kind: 'number', min: 0, max: 0.6 }],
+    ['glass-blur', { kind: 'length', unit: 'px', pxOnly: true, min: 0, max: 40 }],
+    ['glass-saturate', { kind: 'number', min: 1, max: 2.4 }],
+    // light along every card's edge, brightest at the top left, with a soft glow inside it; 0 is none
+    ['glass-edge', { kind: 'number', min: 0, max: 1 }],
+    // a soft highlight on every card that follows the pointer while Effects are on (and rests at the top left otherwise); 0 is none
+    ['card-sheen', { kind: 'number', min: 0, max: 1 }],
+    // a wallpaper behind every page: up to five soft fields of color at code-owned places (WALLPAPER), at this strength; 0 is none
+    ['wallpaper-strength', { kind: 'number', min: 0, max: 1 }],
+    ...colors('wallpaper-1', 'wallpaper-2', 'wallpaper-3', 'wallpaper-4', 'wallpaper-5'),
     ['card-corner', { kind: 'enum', values: ['round', 'square', 'chamfer', 'notch'] }],
     ['card-cut', { kind: 'length', unit: 'px', pxOnly: true, min: 4, max: 20 }],
     ['card-frame', { kind: 'enum', values: ['none', 'hairline', 'bold', 'double', 'rule'] }],
@@ -100,6 +113,29 @@ export const FROM_VAR: Readonly<Record<string, string>> = Object.freeze({
   'meter-lit': 'var(--ac)',
   'meter-lead': 'var(--role-lead)',
 })
+
+// The glass a card-fill of glass draws when a theme names none of the glass slots: panel at 55%, a 10px blur, no boost.
+export const GLASS_DEFAULT = Object.freeze({ tint: 0.55, blur: 10, saturate: 1 })
+
+// What the look's light does, per mode, as numbers both the stylesheet (lookCss.ts) and the contrast gate read, so the gate
+// measures what is painted. tone: how far the glass's boost lifts (light) or deepens (dark) the page behind, per unit of boost
+// past 1. sheen: white at most this share at the highlight's center, at card-sheen 1. edgeGlow: white at most this share in the
+// glow inside a card's edge, at glass-edge 1, where text nearest the edge can sit; edge: the scale of the edge light itself.
+export const GLASS = Object.freeze({
+  light: Object.freeze({ tone: 0.06, sheen: 0.32, edgeGlow: 0.14, edge: 1 }),
+  dark: Object.freeze({ tone: -0.1, sheen: 0.1, edgeGlow: 0.04, edge: 0.45 }),
+})
+
+// The wallpaper's fields, in order from the top layer down: each is wallpaper-N at its center, fading to nothing at FADE of
+// its radii. Centers and radii are shares of the viewport's width and height, so the fields keep their places on any window.
+export const WALLPAPER = Object.freeze([
+  Object.freeze({ x: 0.12, y: 0.18, rx: 0.38, ry: 0.46 }),
+  Object.freeze({ x: 0.86, y: 0.12, rx: 0.42, ry: 0.5 }),
+  Object.freeze({ x: 0.7, y: 0.92, rx: 0.46, ry: 0.52 }),
+  Object.freeze({ x: 0.22, y: 0.96, rx: 0.34, ry: 0.4 }),
+  Object.freeze({ x: 0.5, y: 0.48, rx: 0.3, ry: 0.34 }),
+])
+export const WALLPAPER_FADE = 0.72
 
 export const ALLOWED_FONTS: readonly string[] = ['Chakra Petch', 'JetBrains Mono', 'IBM Plex Sans', 'IBM Plex Mono', 'Share Tech Mono']
 

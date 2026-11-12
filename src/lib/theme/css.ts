@@ -1,6 +1,6 @@
 // Turns a manifest into stylesheet text. Pure: no DOM, so the server, the loader and `conn theme check` share it.
 import { accentTokens, DEFAULT_ACCENT } from './accent.ts'
-import { FROM_VAR, SLOTS } from './tokens.ts'
+import { FROM_VAR, GLASS, GLASS_DEFAULT, SLOTS } from './tokens.ts'
 import type { Mode, ThemeManifest, TokenSet } from './types.ts'
 import { slotProblem } from './validate.ts'
 
@@ -47,6 +47,16 @@ const brandMark = (drawing: (typeof BRAND_DRAWINGS)[number], tile: Record<string
   ...tile,
 })
 const brandText = (glyph: string, size: string) => ({ '--look-brand': glyph, '--look-brand-size': size, '--look-brand-mark': 'none', ...drawn(''), ...ACCENT_TILE })
+// the edge light: a lit line along the top and left edges, a fainter one along the bottom and right, and a soft glow inside,
+// in white at glass-edge and the mode's share of it. SHEEN is the highlight's image, a soft white spot each surface places
+const white = (share: string) => `color-mix(in oklch, white calc(var(--glass-edge) * var(--look-edge-k, 1) * ${share}), transparent)`
+const EDGE_LIGHT = [
+  `inset 1.5px 1.5px 0 -.5px ${white('95%')}`,
+  `inset -1px -1px 0 -.5px ${white('55%')}`,
+  `inset 0 0 8px ${white('35%')}`,
+  `inset 0 0 28px color-mix(in oklch, white calc(var(--glass-edge) * var(--look-edge-glow, ${GLASS.light.edgeGlow}) * 100%), transparent)`,
+].join(', ')
+const SHEEN = `radial-gradient(closest-side, color-mix(in oklch, white calc(var(--card-sheen) * var(--look-sheen-max, ${GLASS.light.sheen}) * 100%), transparent), transparent 62%)`
 export const LOOK: Readonly<Record<string, Readonly<Record<string, Readonly<Record<string, string>>>>>> = {
   'font-body': { ui: { '--look-body': 'var(--font-ui)' }, mono: { '--look-body': 'var(--font-mono), monospace' } },
   // styled chrome takes case and tracking from the tokens; authored chrome keeps what the markup gives it (Neon tracks each
@@ -85,10 +95,17 @@ export const LOOK: Readonly<Record<string, Readonly<Record<string, Readonly<Reco
     dots: { '--look-stage-dots': '1', '--look-stage-glow': '0', '--look-hud': 'none' },
     hud: { '--look-stage-dots': '1', '--look-stage-glow': '1', '--look-hud': 'block' },
   },
+  // glass is panel at glass-tint over a blur of what is behind, boosted by glass-saturate with the tone of its mode (lookCss.ts
+  // sets --look-tone per mode from GLASS); each slot left out is GLASS_DEFAULT, the glass of before. Its solid form is what
+  // Reduce transparency paints instead
   'card-fill': {
-    plain: { '--look-fill': 'var(--panel)', '--look-glass': 'none' },
-    wash: { '--look-fill': 'initial', '--look-glass': 'none' },
-    glass: { '--look-fill': 'color-mix(in oklch, var(--panel) 55%, transparent)', '--look-glass': 'blur(10px)' },
+    plain: { '--look-fill': 'var(--panel)', '--look-glass': 'none', '--look-fill-solid': 'initial' },
+    wash: { '--look-fill': 'initial', '--look-glass': 'none', '--look-fill-solid': 'initial' },
+    glass: {
+      '--look-fill': `color-mix(in oklch, var(--panel) calc(var(--glass-tint, ${GLASS_DEFAULT.tint}) * 100%), transparent)`,
+      '--look-glass': `blur(var(--glass-blur, ${GLASS_DEFAULT.blur}px)) saturate(var(--glass-saturate, ${GLASS_DEFAULT.saturate})) brightness(calc(1 + (var(--glass-saturate, ${GLASS_DEFAULT.saturate}) - 1) * var(--look-tone, ${GLASS.light.tone})))`,
+      '--look-fill-solid': 'var(--panel)',
+    },
   },
   // square and the cuts drop the radius; a cut clips, so the focus ring moves inside the card where the clip cannot take it
   'card-corner': {
@@ -190,6 +207,23 @@ export function lookDeclarations(all: TokenSet): string {
   }
   if (out['--look-shadow'] === 'var(--lift)' && (all.lift ?? '').trim() === 'none') out['--look-shadow'] = NULL
   if (all['backdrop-scan'] !== undefined) out['--look-scan'] = Number(all['backdrop-scan']) > 0 ? 'block' : 'none'
+  // a theme that tunes its glass (any glass slot off GLASS_DEFAULT, the glass of before) gets that glass on every surface,
+  // including the ones whose markup sets a blur of its own (--look-surf-blur, read before that blur), and on the agent tree's
+  // stage, whose usual fill is panel at 80%; a surface inside another does not filter again (--look-surf-blur-in). A theme of
+  // the glass of before keeps those blurs and that stage
+  if (all['card-fill'] !== undefined) {
+    const off = (slot: string, value: number) => all[slot] !== undefined && Number.parseFloat(all[slot]) !== value
+    const tuned = all['card-fill'] === 'glass' && (off('glass-tint', GLASS_DEFAULT.tint) || off('glass-blur', GLASS_DEFAULT.blur) || off('glass-saturate', GLASS_DEFAULT.saturate))
+    out['--look-surf-blur'] = tuned ? 'var(--look-glass)' : 'initial'
+    out['--look-surf-blur-in'] = tuned ? 'none' : 'initial'
+    out['--look-stage-panel'] = tuned ? 'var(--look-fill)' : 'initial'
+  }
+  // the light along each card's edge and the highlight that follows the pointer, both scaled by their slot and their mode's
+  // share (--look-edge-k, --look-edge-glow, --look-sheen-max: GLASS); the highlight is one image each surface moves
+  if (all['glass-edge'] !== undefined) out['--look-edge-light'] = Number(all['glass-edge']) > 0 ? EDGE_LIGHT : NULL
+  if (all['card-sheen'] !== undefined) out['--look-sheen'] = Number(all['card-sheen']) > 0 ? SHEEN : 'none'
+  // the wallpaper's layer is drawn only while it has a strength
+  if (all['wallpaper-strength'] !== undefined) out['--look-wall'] = Number(all['wallpaper-strength']) > 0 ? '""' : 'none'
   // numbers that switch a piece on: text glows only above 0, and wires and comets glow with the glow token
   if (all['text-glow'] !== undefined)
     out['--look-text-shadow'] = Number(all['text-glow']) > 0 ? '0 0 6px color-mix(in oklch, var(--tx) calc(var(--text-glow) * 100%), transparent), 0 0 1px color-mix(in oklch, var(--bright) min(100%, calc(var(--text-glow) * 150%)), transparent)' : 'none'

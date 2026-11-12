@@ -143,6 +143,15 @@ function tokenSet(count: number, contrastMinded: boolean): Record<string, unknow
     out.orbs = pick(['none', 'soft', 'bright'])
     out['orbs-tint'] = pick(['roles', 'accent', 'edge'])
     out['card-bloom'] = pick(['0', decimal(0, 1, 2)])
+    // the glass's own slots, the light on every card and the wallpaper, so the gate's filters and samples get cases too
+    if (rand() < 0.5) {
+      out['glass-tint'] = pick(['0', decimal(0, 0.6, 2)])
+      out['glass-saturate'] = pick(['1', decimal(1, 2.4, 2)])
+      out['glass-edge'] = pick(['0', decimal(0, 1, 2)])
+      out['card-sheen'] = pick(['0', decimal(0, 1, 2)])
+      out['wallpaper-strength'] = pick(['0', decimal(0, 1, 2)])
+      for (let i = 1; i <= 5; i++) if (rand() < 0.6) out[`wallpaper-${i}`] = goodValueFor(`wallpaper-${i}`)
+    }
   }
   return out
 }
