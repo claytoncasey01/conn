@@ -12,7 +12,7 @@ const SHEEN_BOX = 480
 const surfBackground = (fill: string) =>
   `background:var(--look-sheen, none) calc(var(--sx) - ${SHEEN_BOX / 2}px) calc(var(--sy) - ${SHEEN_BOX / 2}px)/${SHEEN_BOX}px ${SHEEN_BOX}px no-repeat, ${fill}`
 const FILL = 'var(--look-fill, var(--wash))'
-const SOLID = `var(--look-fill-solid, ${FILL})`
+const SOLID_FILL = `var(--look-fill-solid, ${FILL})`
 // each mode's share of the glass's light (GLASS), which the look variables css.ts writes read
 const modeShares = (Object.keys(GLASS) as (keyof typeof GLASS)[])
   .map((mode) => `[data-mode="${mode}"]{--look-tone:${GLASS[mode].tone};--look-sheen-max:${GLASS[mode].sheen};--look-edge-k:${GLASS[mode].edge};--look-edge-glow:${GLASS[mode].edgeGlow}}`)
@@ -21,8 +21,14 @@ const wallpaper = WALLPAPER.map(
   (f, i) =>
     `radial-gradient(${f.rx * 100}% ${f.ry * 100}% at ${f.x * 100}% ${f.y * 100}%, color-mix(in oklch, var(--wallpaper-${i + 1}, transparent) calc(var(--wallpaper-strength, 0) * 100%), transparent), transparent ${WALLPAPER_FADE * 100}%)`,
 ).join(', ')
-// the solid form of every surface and the top bar, for the OS's Reduce transparency or Conn.app passing it on (data-transparency)
-const SOLID_RULES = `.surf{${surfBackground(SOLID)};-webkit-backdrop-filter:none;backdrop-filter:none;--look-surf-blur:none;--look-surf-blur-in:none}.page-head{-webkit-backdrop-filter:none;backdrop-filter:none}`
+// the solid form of every surface and the top bar, and no wallpaper (so a tint or the top bar's own translucent fill lies over
+// the plain background), for the OS's Reduce transparency or Conn.app passing it on (data-transparency): [selector, body]
+const SOLID: [string, string][] = [
+  ['.surf', `${surfBackground(SOLID_FILL)};-webkit-backdrop-filter:none;backdrop-filter:none;--look-surf-blur:none;--look-surf-blur-in:none`],
+  ['.page-head', '-webkit-backdrop-filter:none;backdrop-filter:none'],
+  ['.page::before', 'content:none'],
+]
+const solidRules = (prefix: string) => SOLID.map(([selector, body]) => `${prefix}${selector}{${body}}`).join('')
 
 export const LOOK_CSS = `
 /* chrome takes the case and tracking tokens (chrome styled), or keeps what the markup gives it (authored: the var() is invalid,
@@ -141,10 +147,10 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 @media (prefers-reduced-motion: no-preference){[data-fx="on"] .surf{--sx:var(--mx, 64px);--sy:var(--my, 0px)}}
 /* the glass's light, each mode's share of it */
 ${modeShares}
-/* Reduce transparency: every surface solid and nothing frosted, from the OS or from Conn.app (which reads the Mac's setting
+/* Reduce transparency: every surface solid, nothing frosted and no wallpaper, from the OS or from Conn.app (which reads the Mac's setting
    itself, since WebKit does not pass it to the page) */
-@media (prefers-reduced-transparency: reduce){${SOLID_RULES}}
-[data-transparency="reduce"] ${SOLID_RULES.replace('}.page-head', '}[data-transparency="reduce"] .page-head')}
+@media (prefers-reduced-transparency: reduce){${solidRules('')}}
+${solidRules('[data-transparency="reduce"] ')}
 /* a cut corner clips the border and an outer focus ring: the rim is redrawn along each cut, and the ring moves inside
    (a surface that draws its own outline, like the Overview's selection, offsets it by --look-focus too) */
 .surf::before{content:var(--look-cut, none);position:absolute;inset:0;pointer-events:none;color:var(--rimc);background:var(--look-cut-art, none)}

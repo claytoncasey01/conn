@@ -93,3 +93,14 @@ test('a card\'s ports stand out from its edge on a plain corner and tuck inside 
   // forced colors paint no box-shadow and no rim art, so a cut would leave the border open at every corner
   assert.match(css, /@media \(forced-colors:active\)\{\.surf\{clip-path:none\}/)
 })
+
+// Reduce transparency comes from the OS (the media query) or from Conn.app, which marks the root itself since WebKit does not
+test('under Reduce transparency every surface is solid, nothing frosts and the wallpaper is not drawn, from either source', () => {
+  const reduce = '[data-transparency="reduce"]'
+  assert.match(body(`${reduce} .surf`), /var\(--look-fill-solid,var\(--look-fill,var\(--wash\)\)\)/)
+  assert.match(body(`${reduce} .surf`), /backdrop-filter:none;--look-surf-blur:none;--look-surf-blur-in:none/)
+  assert.match(body(`${reduce} .page-head`), /backdrop-filter:none/)
+  assert.equal(body(`${reduce} .page::before`), 'content:none')
+  const media = css.match(/@media \(prefers-reduced-transparency: reduce\)\{(.*)\}$/m)?.[1].replace(/\s+/g, '') ?? ''
+  for (const sel of ['.surf', '.page-head', '.page::before']) assert.ok(media.includes(`${sel}{${body(`${reduce} ${sel}`)}}`), sel)
+})
