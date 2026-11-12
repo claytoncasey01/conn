@@ -26,25 +26,28 @@ export function placeOn(rect: { left: number; top: number }, x: number, y: numbe
 }
 
 export function trackSheen(page: SheenPage): void {
-  let lit: SheenSurface | null = null
+  // the surface under the pointer, and whether the theme drew the highlight when the pointer came onto it: the theme is asked
+  // once a surface, not once a frame, since asking reads the page's computed style
+  let over: SheenSurface | null = null
+  let shining = false
   let queued: SheenPointer | null = null
-  const rest = () => {
-    if (!lit) return
-    lit.style.removeProperty('--mx')
-    lit.style.removeProperty('--my')
-    lit = null
-  }
   const frame = () => {
     const e = queued
     queued = null
     if (!e) return
     const surface = e.leftPage ? null : e.surface
-    if (surface !== lit) rest()
-    if (!surface || !page.lit()) return
-    const at = placeOn(surface.getBoundingClientRect(), e.clientX, e.clientY)
-    surface.style.setProperty('--mx', at.mx)
-    surface.style.setProperty('--my', at.my)
-    lit = surface
+    if (surface !== over) {
+      if (over && shining) {
+        over.style.removeProperty('--mx')
+        over.style.removeProperty('--my')
+      }
+      over = surface
+      shining = surface !== null && page.lit()
+    }
+    if (!over || !shining) return
+    const at = placeOn(over.getBoundingClientRect(), e.clientX, e.clientY)
+    over.style.setProperty('--mx', at.mx)
+    over.style.setProperty('--my', at.my)
   }
   const queue = (e: SheenPointer) => {
     // a touch or a pen has no hover to follow

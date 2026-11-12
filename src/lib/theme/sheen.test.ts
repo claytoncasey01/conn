@@ -13,13 +13,15 @@ function surface(left: number, top: number) {
 }
 
 function page(lit = true) {
+  let asked = 0
   const listeners = new Map<string, (e: SheenPointer) => void>()
   const frames: (() => void)[] = []
-  const p: SheenPage & { fire(type: string, e: Partial<SheenPointer>): void; flush(): void; frames: (() => void)[] } = {
+  const p: SheenPage & { fire(type: string, e: Partial<SheenPointer>): void; flush(): void; frames: (() => void)[]; asked(): number } = {
     frames,
     addEventListener: (type, listener) => void listeners.set(type, listener),
     requestAnimationFrame: (callback) => void frames.push(callback),
-    lit: () => lit,
+    lit: () => (asked++, lit),
+    asked: () => asked,
     fire: (type, e) => listeners.get(type)?.({ pointerType: 'mouse', clientX: 0, clientY: 0, surface: null, leftPage: false, ...e }),
     flush: () => frames.splice(0).forEach((f) => f()),
   }
@@ -68,4 +70,21 @@ test('a touch or pen moves nothing, and a theme without the highlight gets no wr
   unlit.fire('pointermove', { surface: card })
   unlit.flush()
   assert.equal(card.props.size, 0)
+})
+
+test('the theme is asked once a surface, not once a frame, since asking reads the computed style', () => {
+  const p = page()
+  const card = surface(0, 0)
+  trackSheen(p)
+  for (const x of [1, 2, 3]) {
+    p.fire('pointermove', { surface: card, clientX: x })
+    p.flush()
+  }
+  assert.equal(p.asked(), 1)
+  assert.equal(card.props.get('--mx'), '3px')
+  p.fire('pointermove', { surface: null })
+  p.flush()
+  p.fire('pointermove', { surface: card, clientX: 4 })
+  p.flush()
+  assert.equal(p.asked(), 2)
 })
