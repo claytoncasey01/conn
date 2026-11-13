@@ -55,6 +55,10 @@ const (
 // and the glow inside a card's edge lay under text.
 type glassLight struct{ tone, sheen, edgeGlow float64 }
 
+// maxGlassFilters is how many pages glassFilter gives for one: kept to 8 bits between its steps,
+// and carried through.
+const maxGlassFilters = 2
+
 // The light's numbers in each mode.
 const (
 	lightTone     = 0.06
@@ -505,10 +509,11 @@ func (l *look) glass(pages []RGBA, light glassLight) []RGBA {
 	boost := l.amount("glass-saturate", glassDefaultSaturate)
 	tone := 1 + float64((boost-1)*light.tone)
 
-	glassed := make([]RGBA, 0, len(pages))
+	glassed := make([]RGBA, 0, maxGlassFilters*len(pages))
 	for _, on := range pages {
-		behind := Brightness(Saturate(on, boost), tone)
-		glassed = append(glassed, Composite(withAlpha(panel, tint), behind))
+		for _, behind := range glassFilter(on, boost, tone) {
+			glassed = append(glassed, Composite(withAlpha(panel, tint), behind))
+		}
 	}
 
 	l.check(glassed, "a glass card over the page")
@@ -659,7 +664,7 @@ func (l *look) wallpaper(page RGBA) []RGBA {
 	walled := make([]RGBA, 0, len(points))
 
 	for _, point := range points {
-		walled = append(walled, WallpaperAt(point, hues, present, strength, page))
+		walled = append(walled, wallpaperAt(point, hues, present, strength, page))
 	}
 
 	l.check(walled, "the page's wallpaper at its strongest")

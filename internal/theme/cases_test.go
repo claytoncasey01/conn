@@ -275,7 +275,27 @@ func TestSlotValuesAreJudgedAsValidateTsJudgesThem(t *testing.T) {
 func TestManifestsAreJudgedAsValidateTsJudgesThem(t *testing.T) {
 	t.Parallel()
 
+	// Each set of manifests is judged against its own Default: today's, and one without the
+	// glass's slots, so a theme that leaves them out reaches the gate's own defaults.
+	tests := []struct{ name, fallback, manifests string }{
+		{name: "today's Default", fallback: "default", manifests: "manifests"},
+		{name: "Default without the glass", fallback: "bareDefault", manifests: "bareManifests"},
+	}
+
 	cases := readCases(t)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			judgeManifests(t, cases, test.fallback, test.manifests)
+		})
+	}
+}
+
+// judgeManifests judges each manifest in the cases' manifestsKey against the Default in
+// fallbackKey, and compares the answer with validate.ts's.
+func judgeManifests(t *testing.T, cases *js.Object, fallbackKey, manifestsKey string) {
+	t.Helper()
 
 	builtin := map[string]bool{}
 
@@ -284,13 +304,13 @@ func TestManifestsAreJudgedAsValidateTsJudgesThem(t *testing.T) {
 		builtin[name] = true
 	}
 
-	fallback, problems := theme.ParseManifest(field[string](t, cases, "default"),
+	fallback, problems := theme.ParseManifest(field[string](t, cases, fallbackKey),
 		theme.Context{Source: theme.SourceBuiltin, BuiltinIDs: builtin})
 	if len(problems) > 0 {
-		t.Fatalf("Default: %q", problems)
+		t.Fatalf("%s: %q", fallbackKey, problems)
 	}
 
-	for index, row := range rows(t, cases, "manifests") {
+	for index, row := range rows(t, cases, manifestsKey) {
 		source, _ := row[0].(string)
 		text, _ := row[1].(string)
 		want := js.Stringify(row[2])

@@ -294,21 +294,30 @@ const alpha = (c: Rgba, a: number): Rgba => ({ ...c, a: c.a * a })
 const WHITE: Rgba = { r: 255, g: 255, b: 255, a: 1 }
 const channel = (n: number) => Math.min(255, Math.max(0, Math.round(n)))
 
-// The glass's filter on the opaque page behind it, as the browser applies it: saturate() by the Filter Effects matrix, then
-// brightness(), each to a whole 8-bit value. 1 is no change, so a glass of before is measured exactly as it was.
+// The glass's filter on the opaque page behind it: saturate() by the Filter Effects matrix, then brightness(). Chrome keeps
+// each step to a whole 8-bit value; an engine that carries saturate()'s overshoot into brightness() lands brighter wherever
+// brightness() deepens (dark mode), so glassFilter gives both and the gate measures each. 1 is no change, so a glass of before
+// is measured exactly as it was.
+const saturateRows = (c: Rgba, s: number): [number, number, number] => [
+  (0.213 + 0.787 * s) * c.r + (0.715 - 0.715 * s) * c.g + (0.072 - 0.072 * s) * c.b,
+  (0.213 - 0.213 * s) * c.r + (0.715 + 0.285 * s) * c.g + (0.072 - 0.072 * s) * c.b,
+  (0.213 - 0.213 * s) * c.r + (0.715 - 0.715 * s) * c.g + (0.072 + 0.928 * s) * c.b,
+]
 export function saturate(c: Rgba, amount: number): Rgba {
   if (amount === 1) return c
-  const s = amount
-  return {
-    r: channel((0.213 + 0.787 * s) * c.r + (0.715 - 0.715 * s) * c.g + (0.072 - 0.072 * s) * c.b),
-    g: channel((0.213 - 0.213 * s) * c.r + (0.715 + 0.285 * s) * c.g + (0.072 - 0.072 * s) * c.b),
-    b: channel((0.213 - 0.213 * s) * c.r + (0.715 - 0.715 * s) * c.g + (0.072 + 0.928 * s) * c.b),
-    a: 1,
-  }
+  const [r, g, b] = saturateRows(c, amount)
+  return { r: channel(r), g: channel(g), b: channel(b), a: 1 }
 }
 export function brightness(c: Rgba, amount: number): Rgba {
   if (amount === 1) return c
   return { r: channel(c.r * amount), g: channel(c.g * amount), b: channel(c.b * amount), a: 1 }
+}
+/** The page behind the glass after its filter: clamped between the steps, and (when both steps change it) carried through */
+export function glassFilter(c: Rgba, boost: number, tone: number): Rgba[] {
+  const clamped = brightness(saturate(c, boost), tone)
+  if (boost === 1 || tone === 1) return [clamped]
+  const [r, g, b] = saturateRows(c, boost)
+  return [clamped, { r: channel(r * tone), g: channel(g * tone), b: channel(b * tone), a: 1 }]
 }
 
 // The wallpaper's samples: a grid of WALLPAPER_STEPS by WALLPAPER_STEPS over the window, and each field's center, where it is
@@ -404,7 +413,7 @@ function lookContrast(t: Record<string, string>, mode: Mode, where: string, read
     const tint = amount(t, 'glass-tint', GLASS_DEFAULT.tint)
     const boost = amount(t, 'glass-saturate', GLASS_DEFAULT.saturate)
     const tone = 1 + (boost - 1) * GLASS[mode].tone
-    const glassed = pages.map((on) => composite(alpha(panelRaw, tint), brightness(saturate(on, boost), tone)))
+    const glassed = pages.flatMap((on) => glassFilter(on, boost, tone).map((behind) => composite(alpha(panelRaw, tint), behind)))
     cards.push(...glassed)
     check(glassed, 'a glass card over the page')
   }

@@ -394,14 +394,21 @@ func opaqueWhite() RGBA { return RGBA{R: maxChannel, G: maxChannel, B: maxChanne
 // channel is a filtered channel as the browser keeps it: a whole value from 0 to 255.
 func channel(value float64) float64 { return math.Min(maxChannel, math.Max(0, round(value))) }
 
-// Saturate is CSS saturate(amount) on an opaque color, by the Filter Effects matrix; 1 changes
-// nothing. Each product is converted on its own so no platform fuses it, and the answer matches
-// validate.ts's to the bit.
-func Saturate(color RGBA, amount float64) RGBA {
+// saturate is CSS saturate(amount) on an opaque color, by the Filter Effects matrix, each channel
+// kept to a whole 8-bit value; 1 changes nothing.
+func saturate(color RGBA, amount float64) RGBA {
 	if amount == 1 {
 		return color
 	}
 
+	rows := saturateRows(color, amount)
+
+	return RGBA{R: channel(rows[0]), G: channel(rows[1]), B: channel(rows[2]), A: 1}
+}
+
+// saturateRows is saturate before its channels are kept to 8 bits. Each product is converted on
+// its own so no platform fuses it, and the answer matches validate.ts's to the bit.
+func saturateRows(color RGBA, amount float64) [3]float64 {
 	gains := saturateMatrix()
 	row := func(entries [3][2]float64) float64 {
 		// gain is an entry, base plus slope times the amount, its product rounded on its own.
@@ -411,10 +418,29 @@ func Saturate(color RGBA, amount float64) RGBA {
 		green := float64(gain(entries[1]) * color.G)
 		blue := float64(gain(entries[2]) * color.B)
 
-		return channel(red + green + blue)
+		return red + green + blue
 	}
 
-	return RGBA{R: row(gains[0]), G: row(gains[1]), B: row(gains[2]), A: 1}
+	return [3]float64{row(gains[0]), row(gains[1]), row(gains[2])}
+}
+
+// glassFilter is the page behind the glass after its filter, saturate then brightness: kept to 8
+// bits between the steps, as Chrome does, and, when both steps change it, with saturate's
+// overshoot carried into brightness, which lands brighter where brightness deepens (dark mode).
+// The gate measures each (validate.ts glassFilter).
+func glassFilter(color RGBA, boost, tone float64) []RGBA {
+	clamped := brightness(saturate(color, boost), tone)
+	if boost == 1 || tone == 1 {
+		return []RGBA{clamped}
+	}
+
+	rows := saturateRows(color, boost)
+	carried := RGBA{
+		R: channel(float64(rows[0] * tone)), G: channel(float64(rows[1] * tone)),
+		B: channel(float64(rows[2] * tone)), A: 1,
+	}
+
+	return []RGBA{clamped, carried}
 }
 
 // saturateMatrix is the Filter Effects saturate matrix, row by row, each entry its base and its
@@ -427,22 +453,23 @@ func saturateMatrix() [3][3][2]float64 {
 	}
 }
 
-// Brightness is CSS brightness(amount) on an opaque color; 1 changes nothing.
-func Brightness(color RGBA, amount float64) RGBA {
+// brightness is CSS brightness(amount) on an opaque color; 1 changes nothing.
+func brightness(color RGBA, amount float64) RGBA {
 	if amount == 1 {
 		return color
 	}
 
 	return RGBA{
-		R: channel(color.R * amount), G: channel(color.G * amount), B: channel(color.B * amount),
+		R: channel(float64(color.R * amount)), G: channel(float64(color.G * amount)),
+		B: channel(float64(color.B * amount)),
 		A: 1,
 	}
 }
 
-// WallpaperAt is the page at point (shares of the window's width and height) under the
+// wallpaperAt is the page at point (shares of the window's width and height) under the
 // wallpaper: each field present, from the bottom layer up, fading from its center to nothing at
 // wallpaperFade of its radii.
-func WallpaperAt(point [2]float64, hues []RGBA, present []bool, strength float64, page RGBA) RGBA {
+func wallpaperAt(point [2]float64, hues []RGBA, present []bool, strength float64, page RGBA) RGBA {
 	out := page
 	fields := wallpaperFields()
 
