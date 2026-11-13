@@ -43,6 +43,13 @@ test('the sample UI is painted from the theme own tokens in the asked mode', () 
   assert.equal(html.match(/class="dot /g)?.length, 4)
 })
 
+// the preview runs no script, so Conn.app's Reduce transparency mark on the page is passed on as an attribute
+test('a preview carries the page\'s Reduce transparency mark, and only when it is on', () => {
+  assert.match(htmlTag(previewDoc(DEFAULT, 'dark', DEFAULT, true)), /\bdata-transparency="reduce"/)
+  assert.doesNotMatch(htmlTag(previewDoc(DEFAULT, 'dark', DEFAULT)), /data-transparency/)
+  assert.ok(previewDoc(DEFAULT, 'dark', DEFAULT, true).includes('[data-transparency="reduce"] .surf{'), 'the rules it needs are in the sheet')
+})
+
 test('a mode the theme lacks shows the mode it has', () => {
   const darkOnly = make({ modes: ['dark'], tokens: { dark: { bg: '#010a04' } } })
   const html = previewDoc(darkOnly, 'light', DEFAULT)

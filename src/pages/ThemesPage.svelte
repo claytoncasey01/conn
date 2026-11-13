@@ -57,9 +57,17 @@
     checking = false
   }
 
+  // Conn.app marks the page while the Mac's Reduce transparency is on, and changes the mark when the setting changes; the
+  // previews run no script, so they are drawn with the page's mark
+  const reducedNow = () => document.documentElement.getAttribute('data-transparency') === 'reduce'
+  let reduced = $state(reducedNow())
+
   onMount(() => {
     void check()
     void refreshThemes()
+    const watch = new MutationObserver(() => (reduced = reducedNow()))
+    watch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-transparency'] })
+    return () => watch.disconnect()
   })
 
   // A press that removes or re-keys the control that had focus (an install turns a community card into an installed one,
@@ -122,7 +130,7 @@
 
   <div class="page-scan" aria-hidden="true" style="position: absolute; inset: 0; z-index: 5; pointer-events: none"></div>
 
-  <header class="page-head" style="position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 14px 32px; background: color-mix(in oklch, var(--panel) 72%, transparent); border-bottom: 1px var(--border-style) color-mix(in oklch, var(--edge) 16%, transparent)">
+  <header class="page-head" style="position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 14px 32px; background: color-mix(in oklch, var(--panel) var(--look-head-fill, 72%), transparent); border-bottom: 1px var(--border-style) color-mix(in oklch, var(--edge) 16%, transparent)">
     <div class="glint" style="position: absolute; left: 0; right: 0; bottom: -1px; height: 1px"></div>
     <Brand />
     <Nav active="themes" />
@@ -202,7 +210,7 @@
             {:else}
               {@const m = manifestOf(c, theme.list)}
               {#if m}
-                <iframe class="pv" tabindex="-1" title="Preview of {c.name}" height="252" loading="lazy" sandbox={previewAttrs.sandbox} csp={previewAttrs.csp} srcdoc={previewDoc(m, previewMode(m, theme.resolved.mode), FALLBACK)}></iframe>
+                <iframe class="pv" tabindex="-1" title="Preview of {c.name}" height="252" loading="lazy" sandbox={previewAttrs.sandbox} csp={previewAttrs.csp} srcdoc={previewDoc(m, previewMode(m, theme.resolved.mode), FALLBACK, reduced)}></iframe>
               {:else}
                 <div class="pv none">No preview</div>
               {/if}
