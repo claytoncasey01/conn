@@ -15,6 +15,8 @@ export type SheenPage = {
   requestAnimationFrame(callback: () => void): void
   /** Whether the current theme draws the highlight */
   lit(): boolean
+  /** Calls back when the theme or the mode changes, which can turn the highlight on or off */
+  onRestyle(callback: () => void): void
 }
 
 /** The part of a pointer event sheen.ts reads */
@@ -31,16 +33,21 @@ export function trackSheen(page: SheenPage): void {
   let over: SheenSurface | null = null
   let shining = false
   let queued: SheenPointer | null = null
+  const leave = () => {
+    if (over && shining) {
+      over.style.removeProperty('--mx')
+      over.style.removeProperty('--my')
+    }
+    over = null
+    shining = false
+  }
   const frame = () => {
     const e = queued
     queued = null
     if (!e) return
     const surface = e.leftPage ? null : e.surface
     if (surface !== over) {
-      if (over && shining) {
-        over.style.removeProperty('--mx')
-        over.style.removeProperty('--my')
-      }
+      leave()
       over = surface
       shining = surface !== null && page.lit()
     }
@@ -55,6 +62,8 @@ export function trackSheen(page: SheenPage): void {
     if (!queued) page.requestAnimationFrame(frame)
     queued = e
   }
+  // a new theme or mode is asked again on the next move, even over the same surface
+  page.onRestyle(leave)
   page.addEventListener('pointermove', queue, { passive: true })
   // leaving the window: pointerout with nothing under the pointer
   page.addEventListener('pointerout', (e) => (e.leftPage ? queue(e) : undefined), { passive: true })
@@ -79,5 +88,7 @@ export function browserSheenPage(doc: Document, win: Window): SheenPage {
       ),
     requestAnimationFrame: (callback) => void win.requestAnimationFrame(callback),
     lit: () => win.getComputedStyle(doc.documentElement).getPropertyValue('--look-sheen').trim() !== 'none',
+    onRestyle: (callback) =>
+      new MutationObserver(callback).observe(doc.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-mode'] }),
   }
 }

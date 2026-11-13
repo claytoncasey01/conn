@@ -14,14 +14,17 @@ function surface(left: number, top: number) {
 
 function page(lit = true) {
   let asked = 0
+  let restyle = () => {}
   const listeners = new Map<string, (e: SheenPointer) => void>()
   const frames: (() => void)[] = []
-  const p: SheenPage & { fire(type: string, e: Partial<SheenPointer>): void; flush(): void; frames: (() => void)[]; asked(): number } = {
+  const p: SheenPage & { fire(type: string, e: Partial<SheenPointer>): void; flush(): void; frames: (() => void)[]; asked(): number; restyle(): void } = {
     frames,
     addEventListener: (type, listener) => void listeners.set(type, listener),
     requestAnimationFrame: (callback) => void frames.push(callback),
     lit: () => (asked++, lit),
     asked: () => asked,
+    onRestyle: (callback) => void (restyle = callback),
+    restyle: () => restyle(),
     fire: (type, e) => listeners.get(type)?.({ pointerType: 'mouse', clientX: 0, clientY: 0, surface: null, leftPage: false, ...e }),
     flush: () => frames.splice(0).forEach((f) => f()),
   }
@@ -87,4 +90,23 @@ test('the theme is asked once a surface, not once a frame, since asking reads th
   p.fire('pointermove', { surface: card, clientX: 4 })
   p.flush()
   assert.equal(p.asked(), 2)
+})
+
+test('a theme or mode change is asked about on the next move, even over the same surface, and rests the old place', () => {
+  let shines = false
+  const p = page()
+  const card = surface(0, 0)
+  p.lit = () => shines
+  trackSheen(p)
+  p.fire('pointermove', { surface: card, clientX: 5 })
+  p.flush()
+  assert.equal(card.props.size, 0, 'a theme without the highlight')
+  shines = true
+  p.restyle()
+  p.fire('pointermove', { surface: card, clientX: 6 })
+  p.flush()
+  assert.equal(card.props.get('--mx'), '6px', 'the new theme draws it')
+  shines = false
+  p.restyle()
+  assert.equal(card.props.size, 0, 'and a change away rests it at once')
 })
