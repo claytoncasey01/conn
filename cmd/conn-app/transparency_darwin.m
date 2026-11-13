@@ -3,10 +3,13 @@
 // look (src/lib/theme/lookCss.ts) paints every surface solid while its root carries
 // data-transparency="reduce".
 //
-// A script at the start of every page load marks the root with the setting as it was when the app
-// started, then asks the connTransparency message handler for the setting now and marks it again
-// with the answer, so a page loaded after the setting changed is marked right once the reply
-// lands. While a page is open, a change to the setting marks it at once. Only the main frame of a
+// A script at the start of every page load marks the root with the setting as the page last heard
+// it (kept in its localStorage under transparencyKey), or as it was when the app started if it
+// never has, then asks the connTransparency message handler for the setting now and marks it
+// again with the answer. So a reload after the setting changed starts right, with no flash of the
+// old look while the reply is on its way. While a page is open, a change to the setting marks it
+// at once, and is kept too. A page whose origin has no storage (the splash) is marked all the
+// same. Only the main frame of a
 // page of the server the window shows is answered, by the notifications' rule
 // (connMessageFromServer). The file is built without ARC, as Wails' own Objective-C is.
 #import <Cocoa/Cocoa.h>
@@ -18,6 +21,9 @@
 // The name the page finds the handler by: window.webkit.messageHandlers.connTransparency.
 static NSString *const transparencyHandlerName = @"connTransparency";
 
+// The page's localStorage key for the setting it last heard: one of the handler's answers.
+static NSString *const transparencyKey = @"conn.transparency";
+
 // The handler's answers.
 static NSString *const transparencyReduce = @"reduce";
 static NSString *const transparencyNormal = @"normal";
@@ -27,17 +33,21 @@ static BOOL reduced(void) {
 	return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency;
 }
 
-// markScript is the script that marks the open page's root with the setting.
+// markScript is the script that marks the open page's root with the setting and keeps it.
 static NSString *markScript(BOOL reduce) {
-	if (reduce) {
-		return @"document.documentElement.setAttribute('data-transparency', 'reduce')";
-	}
-
-	return @"document.documentElement.removeAttribute('data-transparency')";
+	return [NSString stringWithFormat:
+		@"(function () {"
+		@"  var root = document.documentElement;"
+		@"  if (%@) root.setAttribute('data-transparency', 'reduce');"
+		@"  else root.removeAttribute('data-transparency');"
+		@"  try { localStorage.setItem('%@', '%@'); } catch (e) {}"
+		@"})();",
+		reduce ? @"true" : @"false", transparencyKey, reduce ? transparencyReduce : transparencyNormal];
 }
 
-// startScript runs at the start of every page load: it marks the root with launched (the setting
-// when the app started), then with the handler's answer.
+// startScript runs at the start of every page load: it marks the root with the setting the page
+// last kept, or launched (the setting when the app started) if none, then with the handler's
+// answer, which it keeps.
 static NSString *startScript(BOOL launched) {
 	return [NSString stringWithFormat:
 		@"(function () {"
@@ -46,12 +56,19 @@ static NSString *startScript(BOOL launched) {
 		@"    if (reduce) root.setAttribute('data-transparency', 'reduce');"
 		@"    else root.removeAttribute('data-transparency');"
 		@"  };"
-		@"  mark(%@);"
+		@"  var kept = null;"
+		@"  try { kept = localStorage.getItem('%@'); } catch (e) {}"
+		@"  mark(kept === '%@' || kept === '%@' ? kept === '%@' : %@);"
 		@"  var handlers = window.webkit && window.webkit.messageHandlers;"
 		@"  var ask = handlers && handlers.%@;"
-		@"  if (ask) ask.postMessage(null).then(function (answer) { mark(answer === '%@'); }, function () {});"
+		@"  if (!ask) return;"
+		@"  ask.postMessage(null).then(function (answer) {"
+		@"    mark(answer === '%@');"
+		@"    try { localStorage.setItem('%@', answer); } catch (e) {}"
+		@"  }, function () {});"
 		@"})();",
-		launched ? @"true" : @"false", transparencyHandlerName, transparencyReduce];
+		transparencyKey, transparencyReduce, transparencyNormal, transparencyReduce,
+		launched ? @"true" : @"false", transparencyHandlerName, transparencyReduce, transparencyKey];
 }
 
 @interface ConnTransparency : NSObject <WKScriptMessageHandlerWithReply>
