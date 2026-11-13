@@ -1,7 +1,7 @@
 // The look's rules (lookCss.ts) are the one place the look is drawn: the app loads them and so does the gallery preview, and
 // each piece shows only when a token selects it.
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import defaultTheme from '../../../themes/default/theme.json'
 import neon from '../../../themes/neon/theme.json'
@@ -95,12 +95,38 @@ test('a card\'s ports stand out from its edge on a plain corner and tuck inside 
 })
 
 // Reduce transparency comes from the OS (the media query) or from Conn.app, which marks the root itself since WebKit does not
-test('under Reduce transparency every surface is solid, nothing frosts and the wallpaper is not drawn, from either source', () => {
+test('under Reduce transparency every surface, the stage, the top bar and the footer is solid, nothing frosts and the wallpaper is not drawn, from either source', () => {
   const reduce = '[data-transparency="reduce"]'
-  assert.match(body(`${reduce} .surf`), /var\(--look-fill-solid,var\(--look-fill,var\(--wash\)\)\)/)
+  assert.match(body(`${reduce} .surf`), /var\(--look-fill-solid,var\(--look-fill,var\(--wash,transparent\)\)\)/)
   assert.match(body(`${reduce} .surf`), /backdrop-filter:none;--look-surf-blur:none;--look-surf-blur-in:none/)
-  assert.match(body(`${reduce} .page-head`), /backdrop-filter:none/)
+  // the stage, the top bar and the footer are drawn by their markup's inline style, which reads these
+  assert.equal(body(`${reduce} .stage`), '--look-surf-blur:none;--look-stage-panel:var(--panel)')
+  assert.match(body(`${reduce} .page-head`), /backdrop-filter:none;--look-head-fill:100%/)
+  assert.equal(body(`${reduce} .page-foot`), '--look-foot-blur:none;--look-foot-fill:100%')
   assert.equal(body(`${reduce} .page::before`), 'content:none')
+  // the OS's rules weigh what the attribute's do (:root), so both outweigh the nested-surface rule they follow
   const media = css.match(/@media \(prefers-reduced-transparency: reduce\)\{(.*)\}$/m)?.[1].replace(/\s+/g, '') ?? ''
-  for (const sel of ['.surf', '.page-head', '.page::before']) assert.ok(media.includes(`${sel}{${body(`${reduce} ${sel}`)}}`), sel)
+  for (const sel of ['.surf', '.stage', '.page-head', '.page-foot', '.page::before']) assert.ok(media.includes(`:root${sel}{${body(`${reduce} ${sel}`)}}`), sel)
+  assert.ok(css.indexOf('@media (prefers-reduced-transparency') > css.indexOf(':is(.surf,.stage) .surf{'))
 })
+
+// the markup that draws the stage, the top bar and the footer reads the variables Reduce transparency sets
+test('the stage, every top bar and the footer take their blur and fill from variables Reduce transparency can set', () => {
+  const pages = new URL('../../pages/', import.meta.url)
+  const heads = readdirSync(pages).filter((f) => f.endsWith('.svelte')).flatMap((f) => readFileSync(new URL(f, pages), 'utf8').match(/<[a-z]+ class="page-head[^>]*>/g) ?? [])
+  assert.ok(heads.length >= 10, 'every page has a top bar')
+  for (const head of heads) assert.match(head, /background: color-mix\(in oklch, var\(--panel\) var\(--look-head-fill, 72%\), transparent\)/)
+  const stage = readFileSync(new URL('Overview.svelte', pages), 'utf8').match(/<[a-z]+ [^>]*class="brk stage"[^>]*>/)?.[0] ?? ''
+  assert.match(stage, /backdrop-filter: var\(--look-surf-blur, blur\(6px\)\)/)
+  const foot = readFileSync(new URL('../StatusFooter.svelte', import.meta.url), 'utf8').match(/<footer[^>]*>/)?.[0] ?? ''
+  assert.match(foot, /class="page-foot"/)
+  assert.match(foot, /var\(--panel\) var\(--look-foot-fill, 90%\)/)
+  assert.match(foot, /[^-]backdrop-filter: var\(--look-foot-blur, blur\(14px\)\)/)
+})
+
+// a surface inside another or on the stage filters again only while the theme's glass is untuned (Matrix keeps its blur)
+test('a nested surface keeps the glass of before and drops it once a theme tunes its glass', () => {
+  assert.match(body(':is(.surf,.stage) .surf'), /[^-]backdrop-filter:var\(--look-surf-blur-in,var\(--look-glass,none\)\)/)
+  assert.equal(LOOK['card-fill'].glass['--look-glass'].startsWith('blur('), true)
+})
+
