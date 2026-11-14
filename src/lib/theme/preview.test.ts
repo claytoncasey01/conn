@@ -188,3 +188,12 @@ test('the header mock draws the Conn mark inside its brand tile, for the token t
   assert.match(html, /<span class="brand g-brand-tile"[^>]*><span class="g-brand"><\/span><svg class="g-brand-mark"/)
   assert.ok(!/<script/i.test(html) && !/https?:/i.test(html))
 })
+
+// the app's float is inset 12px and 16px; the sample's own sheet (after the look's) keeps it to the card's scale, and a bar at 0
+test('the header mock floats at the scale of the card under header-shape float, and is a bar otherwise', () => {
+  const sheet = (/<style>([\s\S]*)<\/style>/.exec(previewDoc(make(), 'dark', DEFAULT))?.[1] ?? '').split('\n').filter((line) => line.startsWith('.page-head{position'))
+  assert.equal(sheet.length, 1)
+  assert.match(sheet[0], /margin:calc\(3px \* var\(--look-head-float, 0\)\) 0 4px;padding:0 calc\(4px \* var\(--look-head-float, 0\)\)/)
+  // its bottom edge is line on a bar, and the float's ring color on a float, so the ring is one color all round as in the app
+  assert.match(sheet[0], /border-bottom:1px var\(--border-style,solid\) var\(--look-head-ring, var\(--line\)\)/)
+})

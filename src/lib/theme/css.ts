@@ -90,6 +90,12 @@ export const LOOK: Readonly<Record<string, Readonly<Record<string, Readonly<Reco
     rule: { '--look-head-blur': 'none', '--look-glint': 'none', '--look-head-rule': '1' },
     glint: { '--look-head-blur': 'blur(14px)', '--look-glint': 'block', '--look-head-rule': '0' },
   },
+  // a float is inset from the window's edges, ringed all round and lifted by the lift token; a bar spans the window
+  // (the preview's bar draws its bottom edge in line; a float's ring is one color all round, --look-head-ring, as in the app)
+  'header-shape': {
+    bar: { '--look-head-float': '0', '--look-head-lift': 'initial', '--look-head-ring': 'initial' },
+    float: { '--look-head-float': '1', '--look-head-lift': 'var(--lift)', '--look-head-ring': 'color-mix(in oklch, var(--edge) 16%, transparent)' },
+  },
   stage: {
     plain: { '--look-stage-dots': '0', '--look-stage-glow': '0', '--look-hud': 'none' },
     dots: { '--look-stage-dots': '1', '--look-stage-glow': '0', '--look-hud': 'none' },
@@ -205,7 +211,10 @@ export function lookDeclarations(all: TokenSet): string {
     const v = all[slot]
     if (v !== undefined && Object.hasOwn(table, v)) Object.assign(out, table[v])
   }
-  if (out['--look-shadow'] === 'var(--lift)' && (all.lift ?? '').trim() === 'none') out['--look-shadow'] = NULL
+  // none cannot stand in a list of shadows: the card's list and the floating top bar's (with its line) would draw no shadow at all
+  const liftNone = (all.lift ?? '').trim() === 'none'
+  if (out['--look-shadow'] === 'var(--lift)' && liftNone) out['--look-shadow'] = NULL
+  if (out['--look-head-lift'] === 'var(--lift)' && liftNone) out['--look-head-lift'] = NULL
   if (all['backdrop-scan'] !== undefined) out['--look-scan'] = Number(all['backdrop-scan']) > 0 ? 'block' : 'none'
   // a theme that tunes its glass (any glass slot off GLASS_DEFAULT, the glass of before) gets that glass on every surface,
   // including the ones whose markup sets a blur of its own (--look-surf-blur, read before that blur), and on the agent tree's
@@ -253,12 +262,20 @@ function merge(m: ThemeManifest, mode: Mode, base: TokenSet, pick: Pick | undefi
   return { ...ok(base), ...derived, ...ok(m.tokens[mode] ?? {}), ...ok(variant?.tokens ?? {}), ...ok(accent) }
 }
 
+// A length may be a bare 0 (the validator allows it), but a bare 0 is a number, not a length, to calc(): calc(0 + 14px) is
+// invalid and its property falls to its initial value. So a bare 0 is written with the slot's unit.
+const BARE_ZERO = /^[+-]?(?:0+(?:\.0*)?|\.0+)$/
+const slotValue = (slot: string, v: string): string => {
+  const spec = SLOTS[slot]
+  return spec.kind === 'length' && BARE_ZERO.test(v.trim()) ? `0${spec.unit ?? 'px'}` : v
+}
+
 function declarations(m: ThemeManifest, mode: Mode, base: TokenSet, pick: Pick | undefined): string {
   const all = merge(m, mode, base, pick, FROM_VAR)
   return (
     Object.keys(SLOTS)
       .filter((k) => Object.hasOwn(all, k))
-      .map((k) => `--${k}:${all[k]};`)
+      .map((k) => `--${k}:${slotValue(k, all[k])};`)
       .join('') + lookDeclarations(all)
   )
 }
