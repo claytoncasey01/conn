@@ -194,4 +194,6 @@ test('the header mock floats at the scale of the card under header-shape float, 
   const sheet = (/<style>([\s\S]*)<\/style>/.exec(previewDoc(make(), 'dark', DEFAULT))?.[1] ?? '').split('\n').filter((line) => line.startsWith('.page-head{position'))
   assert.equal(sheet.length, 1)
   assert.match(sheet[0], /margin:calc\(3px \* var\(--look-head-float, 0\)\) 0 4px;padding:0 calc\(4px \* var\(--look-head-float, 0\)\)/)
+  // its bottom edge is line on a bar, and the float's ring color on a float, so the ring is one color all round as in the app
+  assert.match(sheet[0], /border-bottom:1px var\(--border-style,solid\) var\(--look-head-ring, var\(--line\)\)/)
 })

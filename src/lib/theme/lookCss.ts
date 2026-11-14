@@ -130,7 +130,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
    markup draws the bottom edge (an inline border, which outranks this), and lifted; the glint keeps clear of the round ends. A
    gap under it keeps a strip that spans the window (the disconnected notice) off its edge. A bar, or a theme from before the
    slot, has each of these at 0 */
-.page-head{margin:calc(12px * var(--look-head-float, 0)) calc(16px * var(--look-head-float, 0)) calc(8px * var(--look-head-float, 0));border-radius:calc((var(--radius, 0px) + 14px) * var(--look-head-float, 0));border-style:var(--border-style);border-color:color-mix(in oklch, var(--edge) 16%, transparent);border-width:calc(1px * var(--look-head-float, 0))}
+.page-head{margin:calc(12px * var(--look-head-float, 0)) calc(16px * var(--look-head-float, 0)) calc(8px * var(--look-head-float, 0));border-radius:calc((var(--radius, 0px) + 14px) * var(--look-head-float, 0));border-style:var(--border-style);border-color:var(--look-head-ring, color-mix(in oklch, var(--edge) 16%, transparent));border-width:calc(1px * var(--look-head-float, 0))}
 .glint{margin-inline:calc((var(--radius, 0px) + 14px) * var(--look-head-float, 0))}
 .glint{display:var(--look-glint, none);background:linear-gradient(90deg,transparent,var(--edge),var(--role-lead),var(--role-advisor),transparent);background-size:220% 100%}
 /* the Overview stage: a dot grid and glows behind the lead and advisor over the panel; hud adds the ruler ticks on its edges, the

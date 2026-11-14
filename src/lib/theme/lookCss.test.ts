@@ -141,7 +141,7 @@ test('a float top bar is inset, rounded to its tabs, ringed and lifted, and a ba
   assert.match(head, /box-shadow:inset0calc\(-2px\*var\(--look-head-rule,0\)\)0var\(--edge\),var\(--look-head-lift,00transparent\)/)
   assert.match(body('.glint'), /margin-inline:calc\(\(var\(--radius,0px\)\+14px\)\*var\(--look-head-float,0\)\)/)
   assert.deepEqual(LOOK['header-shape'], {
-    bar: { '--look-head-float': '0', '--look-head-lift': 'initial' },
-    float: { '--look-head-float': '1', '--look-head-lift': 'var(--lift)' },
+    bar: { '--look-head-float': '0', '--look-head-lift': 'initial', '--look-head-ring': 'initial' },
+    float: { '--look-head-float': '1', '--look-head-lift': 'var(--lift)', '--look-head-ring': 'color-mix(in oklch, var(--edge) 16%, transparent)' },
   })
 })

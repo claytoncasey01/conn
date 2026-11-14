@@ -325,6 +325,9 @@ test('lookDeclarations writes the row for each keyword, makes a lift of none a s
   assert.ok(css.includes('--look-sep:"|";'))
   const flat = lookDeclarations({ ...base, lift: 'none', 'backdrop-scan': '0' })
   assert.ok(flat.includes('--look-shadow:0 0 transparent;') && flat.includes('--look-scan:none;'), flat)
+  // the floating top bar's shadow sits in a list with its line (header rule), so a lift of none there is the same empty shadow
+  assert.ok(lookDeclarations({ 'header-shape': 'float', lift: '0 1px 2px #0002' }).includes('--look-head-lift:var(--lift);'))
+  assert.ok(lookDeclarations({ 'header-shape': 'float', lift: ' none ' }).includes('--look-head-lift:0 0 transparent;'))
   // a keyword the table does not have writes nothing for that slot (the validator has dropped it before this in practice)
   assert.ok(!lookDeclarations({ backdrop: 'url(x)' }).includes('--look-grid'))
 })
@@ -335,4 +338,12 @@ test('the look reaches a theme block through the fallback, and never reaches the
   assert.ok(css.includes('--look-fill:var(--panel);'), 'from the fallback')
   assert.ok(css.includes('--look-fwd:"→";--look-back:"←";'), 'the theme overrides the fallback')
   assert.ok(Object.keys(themeTokens(make(), look, 'dark')).every((k) => !k.startsWith('--')))
+})
+
+// a bare 0 is a number to calc(), so calc(var(--radius) + 14px), the floating top bar's corner, would be invalid with it
+test('a length of bare 0 is written with its slot unit, so calc() can add to it', () => {
+  const css = themeCss(make({ tokens: { dark: { radius: '0', tracking: '0', 'card-cut': '8px' } } }), fallback)
+  assert.ok(css.includes('--radius:0px;'), css)
+  assert.ok(css.includes('--tracking:0em;'), css)
+  assert.ok(css.includes('--card-cut:8px;'), css)
 })
