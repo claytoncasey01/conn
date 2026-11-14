@@ -167,7 +167,7 @@
   <div class="page-scan" aria-hidden="true" style="position: absolute; inset: 0; z-index: 5; pointer-events: none"></div>
 
   <!-- top bar -->
-  <header class="page-head" style="position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 14px 32px; background: color-mix(in oklch, var(--panel) 72%, transparent); border-bottom: 1px var(--border-style) color-mix(in oklch, var(--edge) 16%, transparent)">
+  <header class="page-head" style="position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 14px 32px; background: color-mix(in oklch, var(--panel) var(--look-head-fill, 72%), transparent); border-bottom: 1px var(--border-style) color-mix(in oklch, var(--edge) 16%, transparent)">
     <div class="glint" style="position: absolute; left: 0; right: 0; bottom: -1px; height: 1px"></div>
     <Brand />
     <nav aria-label="Breadcrumb" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; flex: 1 1 360px; font-size: 13px">
@@ -239,7 +239,7 @@
     {/if}
 
     <!-- hero -->
-    <section aria-label="Agent summary" class="surf brk" style="--c: color-mix(in oklch, var(--edge) 75%, transparent); position: relative; display: flex; flex-wrap: wrap; gap: 20px 40px; align-items: center; justify-content: space-between; --wash: linear-gradient(120deg, color-mix(in oklch, var(--edge) 13%, transparent), color-mix(in oklch, var(--panel) 85%, transparent) 55%); --rim: color-mix(in oklch, var(--edge) 24%, transparent); --r: var(--radius); padding: 22px 28px; backdrop-filter: blur(6px); --halo: inset 0 1px 0 color-mix(in oklch, var(--bright) 6%, transparent)">
+    <section aria-label="Agent summary" class="surf brk" style="--c: color-mix(in oklch, var(--edge) 75%, transparent); position: relative; display: flex; flex-wrap: wrap; gap: 20px 40px; align-items: center; justify-content: space-between; --wash: linear-gradient(120deg, color-mix(in oklch, var(--edge) 13%, transparent), color-mix(in oklch, var(--panel) 85%, transparent) 55%); --rim: color-mix(in oklch, var(--edge) 24%, transparent); --r: var(--radius); padding: 22px 28px; backdrop-filter: var(--look-surf-blur, blur(6px)); --halo: inset 0 1px 0 color-mix(in oklch, var(--bright) 6%, transparent)">
       <div class="beam" aria-hidden="true"></div>
       <div style="flex: 1 1 380px; min-width: 0">
         <div class="hud" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--mu) 85%, var(--panel))"><span class="cap">Agent</span> <span class="g-sep" aria-hidden="true"></span> {labelOf(agent)}</div>
@@ -263,7 +263,7 @@
       <!-- left: timeline, stream, call detail -->
       <div style="flex: 1 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
 
-        <section aria-label="Activity timeline" class="surf brk" style="--c: color-mix(in oklch, var(--edge) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: var(--radius); padding: 18px 22px 16px; backdrop-filter: blur(6px)">
+        <section aria-label="Activity timeline" class="surf brk" style="--c: color-mix(in oklch, var(--edge) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: var(--radius); padding: 18px 22px 16px; backdrop-filter: var(--look-surf-blur, blur(6px))">
           <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 14px">
             <div class="hud" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--mu) 85%, var(--panel))"><span class="cap">Activity</span> <span class="g-sep" aria-hidden="true"></span> {dur(total)}</div>
             <div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 11px; letter-spacing: calc(var(--tracking) * 0.5714); color: var(--mu)">
@@ -298,7 +298,7 @@
           </div>
         </section>
 
-        <section aria-label="Tool calls" class="surf brk" style="--c: color-mix(in oklch, var(--edge) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: blur(6px)">
+        <section aria-label="Tool calls" class="surf brk" style="--c: color-mix(in oklch, var(--edge) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: var(--look-surf-blur, blur(6px))">
           <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin-bottom: 8px">
             <div class="hud cap" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--mu) 85%, var(--panel))">Tool calls <span class="g-sep" aria-hidden="true"></span> newest first</div>
             <div style="font-size: 11px; letter-spacing: calc(var(--tracking) * 0.5714); color: color-mix(in oklab, var(--mu) 85%, var(--panel))">{rows.length > LIST_CAP ? `NEWEST ${LIST_CAP} OF ` : ''}{rows.length} TOTAL</div>
@@ -321,7 +321,7 @@
           </div>
         </section>
 
-        <section aria-label="Call detail" class="surf brk" style="--c: var(--edge); --wash: linear-gradient(180deg, color-mix(in oklch, var(--edge) 10%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 40%); --rim: color-mix(in oklch, var(--edge) 26%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: blur(6px); --halo: 0 0 30px color-mix(in oklch, var(--edge) calc(8% * var(--glow)), transparent)">
+        <section aria-label="Call detail" class="surf brk" style="--c: var(--edge); --wash: linear-gradient(180deg, color-mix(in oklch, var(--edge) 10%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 40%); --rim: color-mix(in oklch, var(--edge) 26%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: var(--look-surf-blur, blur(6px)); --halo: 0 0 30px color-mix(in oklch, var(--edge) calc(8% * var(--glow)), transparent)">
           {#if cur}
             <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 12px">
               <div class="hud" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--mu) 85%, var(--panel))"><span class="cap">Call</span> #{cur.n} <span class="g-sep" aria-hidden="true"></span> <span data-content>{cur.c.name}</span></div>
@@ -341,7 +341,7 @@
       <!-- right: stats -->
       <aside aria-label="Agent stats" style="flex: 0 1 360px; min-width: min(280px, 100%); display: flex; flex-direction: column; gap: 20px">
 
-        <section class="surf brk" style="--c: var(--edge); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; --wash: linear-gradient(180deg, color-mix(in oklch, var(--edge) 10%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 30%); --rim: color-mix(in oklch, var(--edge) 26%, transparent); --r: var(--radius); padding: 18px; backdrop-filter: blur(6px)">
+        <section class="surf brk" style="--c: var(--edge); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; --wash: linear-gradient(180deg, color-mix(in oklch, var(--edge) 10%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 30%); --rim: color-mix(in oklch, var(--edge) 26%, transparent); --r: var(--radius); padding: 18px; backdrop-filter: var(--look-surf-blur, blur(6px))">
           <div style="background: color-mix(in oklch, var(--edge) 8%, transparent); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 22%, transparent); border-radius: var(--radius); padding: 10px 12px">
             <div style="font-size: 10px; letter-spacing: calc(var(--tracking) * 1.1429); color: var(--mu)" class="cap">Tool calls</div>
             <div class="hud" style="font-weight: 700; font-size: 28px; margin-top: 2px; text-shadow: 0 0 14px color-mix(in oklch, var(--edge) calc(50% * var(--glow)), transparent)">{agent.calls}</div>
@@ -360,7 +360,7 @@
           </div>
         </section>
 
-        <section class="surf brk" style="--c: color-mix(in oklch, var(--edge) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: blur(6px)">
+        <section class="surf brk" style="--c: color-mix(in oklch, var(--edge) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: var(--look-surf-blur, blur(6px))">
           <div class="hud cap" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--mu) 85%, var(--panel)); margin-bottom: 12px">Tool mix</div>
           {#each mix as m (m.name)}
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 12px">
@@ -373,7 +373,7 @@
           {/each}
         </section>
 
-        <section class="surf brk" style="--c: color-mix(in oklch, var(--edge) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: blur(6px)">
+        <section class="surf brk" style="--c: color-mix(in oklch, var(--edge) 50%, transparent); --wash: color-mix(in oklch, var(--panel) 80%, transparent); --rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: var(--look-surf-blur, blur(6px))">
           <div class="hud cap" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--mu) 85%, var(--panel)); margin-bottom: 10px">Files read</div>
           {#each files as f (f)}
             <div style="padding: 6px 0; border-top: 1px var(--border-style) color-mix(in oklch, var(--edge) 12%, transparent); font-size: 12px; line-height: 1.45; color: var(--tx); word-break: break-all"><span class="g-bullet" aria-hidden="true" style="color: var(--ac)"></span>{f}</div>
@@ -382,7 +382,7 @@
           {/each}
         </section>
 
-        <section class="surf brk" style="--c: var(--role-lead); --wash: linear-gradient(180deg, color-mix(in oklch, var(--role-lead) 9%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 40%); --rim: color-mix(in oklch, var(--role-lead) 28%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: blur(6px)">
+        <section class="surf brk" style="--c: var(--role-lead); --wash: linear-gradient(180deg, color-mix(in oklch, var(--role-lead) 9%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 40%); --rim: color-mix(in oklch, var(--role-lead) 28%, transparent); --r: var(--radius); padding: 18px 22px; backdrop-filter: var(--look-surf-blur, blur(6px))">
           {#if lead}
             <div class="hud cap" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 1.4286); color: color-mix(in oklab, var(--role-lead) 50%, var(--mu)); margin-bottom: 10px">Lead output</div>
             <div style="font-size: 12px; line-height: 1.6; color: color-mix(in oklab, var(--role-lead) 45%, var(--bright))">The lead's output is the conversation itself, so there is no separate result.</div>

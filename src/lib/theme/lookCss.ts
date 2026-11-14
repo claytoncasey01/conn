@@ -4,6 +4,36 @@
 // of tokens alone can draw it, and each var() has a fallback, so a sheet cached before the look still draws a whole page
 // (not Default's look in every piece: a fill falls back to the card's wash, a shadow to its halo). Fixed text: nothing from a
 // theme is written here.
+import { GLASS, WALLPAPER, WALLPAPER_FADE } from './tokens.ts'
+
+// A surface's background: the highlight (--look-sheen, an image or none) placed by --sx and --sy, over its fill. Reduce
+// transparency paints the same with the fill's solid form.
+const SHEEN_BOX = 480
+const surfBackground = (fill: string) =>
+  `background:var(--look-sheen, none) calc(var(--sx) - ${SHEEN_BOX / 2}px) calc(var(--sy) - ${SHEEN_BOX / 2}px)/${SHEEN_BOX}px ${SHEEN_BOX}px no-repeat, ${fill}`
+// a wash surface whose markup gives it no --wash has no fill (as before the highlight), but keeps the highlight
+const FILL = 'var(--look-fill, var(--wash, transparent))'
+const SOLID_FILL = `var(--look-fill-solid, ${FILL})`
+// each mode's share of the glass's light (GLASS), which the look variables css.ts writes read
+const modeShares = (Object.keys(GLASS) as (keyof typeof GLASS)[])
+  .map((mode) => `[data-mode="${mode}"]{--look-tone:${GLASS[mode].tone};--look-sheen-max:${GLASS[mode].sheen};--look-edge-k:${GLASS[mode].edge};--look-edge-glow:${GLASS[mode].edgeGlow}}`)
+  .join('\n')
+const wallpaper = WALLPAPER.map(
+  (f, i) =>
+    `radial-gradient(${f.rx * 100}% ${f.ry * 100}% at ${f.x * 100}% ${f.y * 100}%, color-mix(in oklch, var(--wallpaper-${i + 1}, transparent) calc(var(--wallpaper-strength, 0) * 100%), transparent), transparent ${WALLPAPER_FADE * 100}%)`,
+).join(', ')
+// the solid form of every surface, the stage, the top bar and the footer, and no wallpaper, for the OS's Reduce transparency or
+// Conn.app passing it on (data-transparency): [selector, body]. The top bar and the footer take their fills from the variables
+// their markup reads, and the stage's blur and fill likewise, since an inline style outranks this sheet.
+const SOLID: [string, string][] = [
+  ['.surf', `${surfBackground(SOLID_FILL)};-webkit-backdrop-filter:none;backdrop-filter:none;--look-surf-blur:none;--look-surf-blur-in:none`],
+  ['.stage', '--look-surf-blur:none;--look-stage-panel:var(--panel)'],
+  ['.page-head', '-webkit-backdrop-filter:none;backdrop-filter:none;--look-head-fill:100%'],
+  ['.page-foot', '--look-foot-blur:none;--look-foot-fill:100%'],
+  ['.page::before', 'content:none'],
+]
+const solidRules = (prefix: string) => SOLID.map(([selector, body]) => `${prefix}${selector}{${body}}`).join('')
+
 export const LOOK_CSS = `
 /* chrome takes the case and tracking tokens (chrome styled), or keeps what the markup gives it (authored: the var() is invalid,
    so the property inherits; a button goes back to its own normal and none). A label written in sentence case (.cap) always
@@ -90,13 +120,15 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
  linear-gradient(color-mix(in oklch, var(--edge) calc(9% * var(--backdrop-strength, 0) * var(--look-grid-h, 0)), transparent) 1px, transparent 1px) 0 0/var(--backdrop-size, 24px) var(--backdrop-size, 24px),
  linear-gradient(90deg, color-mix(in oklch, var(--edge) calc(9% * var(--backdrop-strength, 0) * var(--look-grid-v, 0)), transparent) 1px, transparent 1px) 0 0/var(--backdrop-size, 24px) var(--backdrop-size, 24px),
  radial-gradient(color-mix(in oklch, var(--edge) calc(30% * var(--backdrop-strength, 0) * var(--look-dots, 0)), transparent) 1px, transparent 1.5px) 0 0/var(--backdrop-size, 24px) var(--backdrop-size, 24px)}
+/* the wallpaper: up to five soft fields of color fixed to the window, under everything on the page (WALLPAPER places them) */
+.page::before{content:var(--look-wall, none);position:fixed;inset:0;z-index:-1;pointer-events:none;background:${wallpaper}}
 .page-scan{display:var(--look-scan, none);background:repeating-linear-gradient(0deg, color-mix(in oklch, var(--bright) calc(2.2% * var(--backdrop-scan, 0)), transparent) 0 1px, transparent 1px 3px)}
 /* the top bar: a frost of what is behind it, a rule along its bottom edge, or the glint, a lit line there (Neon sets it running) */
-.page-head{backdrop-filter:var(--look-head-blur, none);box-shadow:inset 0 calc(-2px * var(--look-head-rule, 0)) 0 var(--edge)}
+.page-head{-webkit-backdrop-filter:var(--look-head-blur, none);backdrop-filter:var(--look-head-blur, none);box-shadow:inset 0 calc(-2px * var(--look-head-rule, 0)) 0 var(--edge)}
 .glint{display:var(--look-glint, none);background:linear-gradient(90deg,transparent,var(--edge),var(--role-lead),var(--role-advisor),transparent);background-size:220% 100%}
 /* the Overview stage: a dot grid and glows behind the lead and advisor over the panel; hud adds the ruler ticks on its edges, the
    perspective floor, the glow behind the lead and the rings around it */
-.stage{background:radial-gradient(color-mix(in oklch, var(--edge) calc(22% * var(--look-stage-dots, 0)), transparent) 1px, transparent 1.3px) 0 0/24px 24px, radial-gradient(520px 300px at 62% 24%, color-mix(in oklch, var(--role-lead) calc(10% * var(--look-stage-glow, 0)), transparent), transparent 70%), radial-gradient(460px 360px at 12% 60%, color-mix(in oklch, var(--role-advisor) calc(10% * var(--look-stage-glow, 0)), transparent), transparent 70%), color-mix(in oklch, color-mix(in oklch, var(--panel) 80%, transparent), var(--bg) calc(var(--stage-backing, 0) * 100%))}
+.stage{background:radial-gradient(color-mix(in oklch, var(--edge) calc(22% * var(--look-stage-dots, 0)), transparent) 1px, transparent 1.3px) 0 0/24px 24px, radial-gradient(520px 300px at 62% 24%, color-mix(in oklch, var(--role-lead) calc(10% * var(--look-stage-glow, 0)), transparent), transparent 70%), radial-gradient(460px 360px at 12% 60%, color-mix(in oklch, var(--role-advisor) calc(10% * var(--look-stage-glow, 0)), transparent), transparent 70%), color-mix(in oklch, var(--look-stage-panel, color-mix(in oklch, var(--panel) 80%, transparent)), var(--bg) calc(var(--stage-backing, 0) * 100%))}
 .stage-ticks{display:var(--look-hud, none);background:repeating-linear-gradient(0deg, color-mix(in oklch, var(--edge) 40%, transparent) 0 1px, transparent 1px 12px)}
 .stage-floor{display:var(--look-hud, none)}
 .stage-glow{display:var(--look-hud, none);background:radial-gradient(closest-side, color-mix(in oklch, var(--role-lead) 24%, transparent), transparent)}
@@ -108,11 +140,23 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
    the panel, the wash or glass; card-rim how much of the rim the border takes and card-frame which sides show and what lines
    sit inside; card-corner the radius or a cut; the shadows stack the frame, the bloom, the gutter, the panel glow and then
    card-shadow (lift, or the halo), and last --lit, a glow a page's hover adds (it sets --lit, never box-shadow). */
-.surf{--wash:initial;--rim:initial;--halo:initial;--r:initial;--lit:initial;--rimc:color-mix(in oklch, var(--rim, var(--line)) calc(var(--card-rim, .5) * 100%), var(--line));position:relative;
- background:var(--look-fill, var(--wash));backdrop-filter:var(--look-glass, none);
+.surf{--wash:initial;--rim:initial;--halo:initial;--r:initial;--lit:initial;--mx:initial;--my:initial;--sx:64px;--sy:0px;--rimc:color-mix(in oklch, var(--rim, var(--line)) calc(var(--card-rim, .5) * 100%), var(--line));position:relative;
+ ${surfBackground(FILL)};-webkit-backdrop-filter:var(--look-glass, none);backdrop-filter:var(--look-glass, none);
  border:1px var(--border-style) transparent;border-color:color-mix(in oklch, var(--rimc) calc(var(--look-edge-top, 1) * 100%), transparent) color-mix(in oklch, var(--rimc) calc(var(--look-edge-sides, 1) * 100%), transparent);
  border-radius:calc(var(--r, var(--radius)) * var(--look-round, 1));clip-path:var(--look-clip, none);
- box-shadow:var(--look-frame, 0 0 transparent), inset 0 0 28px color-mix(in oklch, var(--tx) calc(var(--card-bloom, 0) * 20%), transparent), inset calc(2px * var(--look-gutter, 0)) 0 0 var(--c, color-mix(in oklch, var(--ac) 55%, transparent)), 0 0 calc(22px * var(--card-glow, 0)) color-mix(in oklch, var(--c, var(--edge)) calc(var(--card-glow, 0) * 30%), transparent), var(--look-shadow, var(--halo, 0 0 transparent)), var(--lit, 0 0 transparent)}
+ box-shadow:var(--look-edge-light, 0 0 transparent), var(--look-frame, 0 0 transparent), inset 0 0 28px color-mix(in oklch, var(--tx) calc(var(--card-bloom, 0) * 20%), transparent), inset calc(2px * var(--look-gutter, 0)) 0 0 var(--c, color-mix(in oklch, var(--ac) 55%, transparent)), 0 0 calc(22px * var(--card-glow, 0)) color-mix(in oklch, var(--c, var(--edge)) calc(var(--card-glow, 0) * 30%), transparent), var(--look-shadow, var(--halo, 0 0 transparent)), var(--lit, 0 0 transparent)}
+/* a surface inside another (or on the agent tree's stage) does not filter again once a theme tunes its glass (--look-surf-blur-in
+   is none; its own markup's blur reads --look-surf-blur), and keeps the glass of before otherwise; the highlight rests at the top
+   left, and follows the pointer (sheen.ts sets --mx and --my on the surface under it) only while motion may run */
+:is(.surf,.stage) .surf{-webkit-backdrop-filter:var(--look-surf-blur-in, var(--look-glass, none));backdrop-filter:var(--look-surf-blur-in, var(--look-glass, none));--look-surf-blur:var(--look-surf-blur-in, blur(6px))}
+@media (prefers-reduced-motion: no-preference){[data-fx="on"] .surf{--sx:var(--mx, 64px);--sy:var(--my, 0px)}}
+/* the glass's light, each mode's share of it */
+${modeShares}
+/* Reduce transparency: every surface, the stage, the top bar and the footer solid, nothing frosted and no wallpaper, from the OS
+   (with :root, so it weighs what the attribute form does) or from Conn.app (which reads the Mac's setting
+   itself, since WebKit does not pass it to the page) */
+@media (prefers-reduced-transparency: reduce){${solidRules(':root ')}}
+${solidRules('[data-transparency="reduce"] ')}
 /* a cut corner clips the border and an outer focus ring: the rim is redrawn along each cut, and the ring moves inside
    (a surface that draws its own outline, like the Overview's selection, offsets it by --look-focus too) */
 .surf::before{content:var(--look-cut, none);position:absolute;inset:0;pointer-events:none;color:var(--rimc);background:var(--look-cut-art, none)}

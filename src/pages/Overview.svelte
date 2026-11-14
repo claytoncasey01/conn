@@ -231,7 +231,7 @@
   <div class="page-scan" aria-hidden="true" style="position: absolute; inset: 0; z-index: 5; pointer-events: none"></div>
 
   <!-- top bar -->
-  <header class="page-head" style="position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 14px 32px; background: color-mix(in oklch, var(--panel) 72%, transparent); border-bottom: 1px var(--border-style) color-mix(in oklch, var(--edge) 16%, transparent)">
+  <header class="page-head" style="position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 14px 32px; background: color-mix(in oklch, var(--panel) var(--look-head-fill, 72%), transparent); border-bottom: 1px var(--border-style) color-mix(in oklch, var(--edge) 16%, transparent)">
     <div class="glint" style="position: absolute; left: 0; right: 0; bottom: -1px; height: 1px"></div>
     <Brand />
     {#if source.archived}
@@ -324,7 +324,7 @@
         </section>
 
         <!-- the stage -->
-        <section aria-label="Agent tree" class="brk stage" style="--c: color-mix(in oklch, var(--edge) 75%, transparent); position: relative; border: 1px var(--border-style) color-mix(in oklch, var(--edge) 20%, transparent); border-radius: var(--radius); padding: var(--stage-pt, 44px) var(--stage-px, 28px) 28px; overflow: hidden; backdrop-filter: blur(6px); box-shadow: inset 0 1px 0 color-mix(in oklch, var(--bright) 6%, transparent), 0 30px 80px color-mix(in oklch, var(--sunk) 45%, transparent)">
+        <section aria-label="Agent tree" class="brk stage" style="--c: color-mix(in oklch, var(--edge) 75%, transparent); position: relative; border: 1px var(--border-style) color-mix(in oklch, var(--edge) 20%, transparent); border-radius: var(--radius); padding: var(--stage-pt, 44px) var(--stage-px, 28px) 28px; overflow: hidden; backdrop-filter: var(--look-surf-blur, blur(6px)); box-shadow: inset 0 1px 0 color-mix(in oklch, var(--bright) 6%, transparent), 0 30px 80px color-mix(in oklch, var(--sunk) 45%, transparent)">
           <div class="stage-ticks" aria-hidden="true" style="position: absolute; left: 0; top: var(--stage-pt, 44px); bottom: 28px; width: 7px"></div>
           <div class="stage-ticks" aria-hidden="true" style="position: absolute; right: 0; top: var(--stage-pt, 44px); bottom: 28px; width: 7px"></div>
           <div class="beam" aria-hidden="true"></div>
@@ -560,7 +560,7 @@
           <div class="hud" style="font-weight: 700; font-size: 28px; margin-top: 2px; color: {color}; text-shadow: 0 0 14px color-mix(in oklch, var(--edge) calc(50% * var(--glow)), transparent)">{value}</div>
         </div>
       {/snippet}
-      <aside aria-label="Selected {selKind}" class="surf brk" style="--c: var(--edge); flex: 0 1 340px; min-width: min(280px, 100%); --wash: linear-gradient(180deg, color-mix(in oklch, var(--edge) 10%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 30%); --rim: color-mix(in oklch, var(--edge) 26%, transparent); --r: var(--radius); padding: 22px; display: flex; flex-direction: column; gap: 20px; backdrop-filter: blur(6px); --halo: inset 0 1px 0 color-mix(in oklch, var(--bright) 7%, transparent), 0 0 36px color-mix(in oklch, var(--edge) calc(10% * var(--glow)), transparent)">
+      <aside aria-label="Selected {selKind}" class="surf brk" style="--c: var(--edge); flex: 0 1 340px; min-width: min(280px, 100%); --wash: linear-gradient(180deg, color-mix(in oklch, var(--edge) 10%, transparent), color-mix(in oklch, var(--panel) 88%, transparent) 30%); --rim: color-mix(in oklch, var(--edge) 26%, transparent); --r: var(--radius); padding: 22px; display: flex; flex-direction: column; gap: 20px; backdrop-filter: var(--look-surf-blur, blur(6px)); --halo: inset 0 1px 0 color-mix(in oklch, var(--bright) 7%, transparent), 0 0 36px color-mix(in oklch, var(--edge) calc(10% * var(--glow)), transparent)">
         <div class="beam" aria-hidden="true" style="animation-duration: 24s"></div>
         {#if selKind === 'advisor'}
           <div>

@@ -57,7 +57,7 @@
 
   <div class="page-scan" aria-hidden="true" style="position: absolute; inset: 0; z-index: 5; pointer-events: none"></div>
 
-  <header class="page-head" style="position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 14px 32px; background: color-mix(in oklch, var(--panel) 72%, transparent); border-bottom: 1px var(--border-style) color-mix(in oklch, var(--edge) 16%, transparent)">
+  <header class="page-head" style="position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 14px 32px; background: color-mix(in oklch, var(--panel) var(--look-head-fill, 72%), transparent); border-bottom: 1px var(--border-style) color-mix(in oklch, var(--edge) 16%, transparent)">
     <div class="glint" style="position: absolute; left: 0; right: 0; bottom: -1px; height: 1px"></div>
     <Brand />
     <Nav active="sessions" />
@@ -166,7 +166,7 @@
           <a
             class="surf sess brk"
             href={href.overview(s.id)}
-            style="--c: {accent}; flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; gap: 14px; box-sizing: border-box; padding: 18px 20px 16px; --rim: {waiting ? 'color-mix(in oklch, var(--warn) 55%, transparent)' : busy ? 'color-mix(in oklch, var(--role-lead) 40%, transparent)' : 'color-mix(in oklch, var(--edge) 18%, transparent)'}; --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, {waiting ? 'color-mix(in oklch, var(--warn) 12%, transparent)' : busy ? 'color-mix(in oklch, var(--role-lead) 10%, transparent)' : 'color-mix(in oklch, var(--edge) 6%, transparent)'}, color-mix(in oklch, var(--panel) 92%, transparent) 55%); backdrop-filter: blur(6px); text-decoration: none; color: inherit"
+            style="--c: {accent}; flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; gap: 14px; box-sizing: border-box; padding: 18px 20px 16px; --rim: {waiting ? 'color-mix(in oklch, var(--warn) 55%, transparent)' : busy ? 'color-mix(in oklch, var(--role-lead) 40%, transparent)' : 'color-mix(in oklch, var(--edge) 18%, transparent)'}; --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, {waiting ? 'color-mix(in oklch, var(--warn) 12%, transparent)' : busy ? 'color-mix(in oklch, var(--role-lead) 10%, transparent)' : 'color-mix(in oklch, var(--edge) 6%, transparent)'}, color-mix(in oklch, var(--panel) 92%, transparent) 55%); backdrop-filter: var(--look-surf-blur, blur(6px)); text-decoration: none; color: inherit"
           >
             <div class="stripe" style="position: absolute; left: 0; top: 0; width: 100%; height: 2px; background: linear-gradient(90deg, {accent}, transparent); box-shadow: 0 0 12px color-mix(in oklch, {accent} calc(100% * var(--glow)), transparent)"></div>
 

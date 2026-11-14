@@ -78,8 +78,10 @@ function document(title: string, body: string, css: string, attrs = ''): string 
 // Plain system colors, so the placeholder is readable in either scheme without a theme.
 const PLACEHOLDER_CSS = 'html{color-scheme:light dark}body{font:13px/1.4 system-ui;padding:12px;background:Canvas;color:CanvasText}'
 
-/** The preview document for `manifest` in `mode` (a one-mode theme shows its own mode). A manifest that fails validation gets a placeholder. */
-export function previewDoc(manifest: ThemeManifest, mode: Mode, fallback: ThemeManifest): string {
+/** The preview document for `manifest` in `mode` (a one-mode theme shows its own mode). A manifest that fails validation gets a placeholder.
+ * `reduce` draws it as Reduce transparency does: the preview runs no script, so Conn.app's mark on the page (data-transparency)
+ * is passed on here; a browser's own setting reaches the preview through the media query. */
+export function previewDoc(manifest: ThemeManifest, mode: Mode, fallback: ThemeManifest, reduce = false): string {
   const checked = validateManifest(manifest, { source: 'builtin', builtinIds: new Set() })
   if (!checked.ok) return document('Preview', '<p>This theme cannot be previewed.</p>', PLACEHOLDER_CSS)
   const m = checked.manifest
@@ -99,6 +101,6 @@ export function previewDoc(manifest: ThemeManifest, mode: Mode, fallback: ThemeM
 <div class="line"><span class="g-bullet" ${hide}></span>Tests look fine <span class="g-go" ${hide}></span></div>
 <div class="actions"><span class="btn primary cap">Open <span class="g-fwd" ${hide}></span></span><span class="btn ghost cap"><span class="g-back" ${hide}></span> Back</span></div></div>
 <div class="stage"><span class="stage-ticks"></span><span class="stage-glow"></span><span class="orbit"></span>${WIRE}<span class="lead cap">Lead</span></div></div>`
-  const attrs = ` data-theme="${esc(m.id)}" data-mode="${shown}" data-led="${LEDS.includes(led) ? led : 'circle'}"`
+  const attrs = ` data-theme="${esc(m.id)}" data-mode="${shown}" data-led="${LEDS.includes(led) ? led : 'circle'}"${reduce ? ' data-transparency="reduce"' : ''}`
   return document(m.name, body, css, attrs)
 }

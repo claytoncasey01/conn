@@ -55,10 +55,11 @@ test('the look draws a surface from the look tokens: fill, rim and sides, radius
   const look = strip(LOOK_CSS)
   const surf = /(?:^|\})\s*\.surf\{([^}]*)\}/.exec(look)?.[1].replace(/\s*\n\s*/g, '') ?? ''
   assert.match(surf, /--rimc:color-mix\(in oklch, var\(--rim, var\(--line\)\) calc\(var\(--card-rim, \.5\) \* 100%\), var\(--line\)\)/)
-  assert.match(surf, /background:var\(--look-fill, var\(--wash\)\)/)
+  // the fill last, under the highlight (an image, or none) that each surface places at --sx and --sy
+  assert.match(surf, /background:var\(--look-sheen, none\) calc\(var\(--sx\) - 240px\) calc\(var\(--sy\) - 240px\)\/480px 480px no-repeat, var\(--look-fill, var\(--wash, transparent\)\)/)
   assert.match(surf, /border-color:color-mix\(in oklch, var\(--rimc\) calc\(var\(--look-edge-top, 1\) \* 100%\), transparent\) color-mix\(in oklch, var\(--rimc\) calc\(var\(--look-edge-sides, 1\) \* 100%\), transparent\)/)
   assert.match(surf, /border-radius:calc\(var\(--r, var\(--radius\)\) \* var\(--look-round, 1\)\);clip-path:var\(--look-clip, none\)/)
-  assert.match(surf, /box-shadow:var\(--look-frame, [^;]*var\(--card-bloom, 0\)[^;]*var\(--look-gutter, 0\)[^;]*var\(--card-glow, 0\)[^;]*var\(--look-shadow, var\(--halo, 0 0 transparent\)\)/)
+  assert.match(surf, /box-shadow:var\(--look-edge-light, 0 0 transparent\), var\(--look-frame, [^;]*var\(--card-bloom, 0\)[^;]*var\(--look-gutter, 0\)[^;]*var\(--card-glow, 0\)[^;]*var\(--look-shadow, var\(--halo, 0 0 transparent\)\)/)
   assert.match(look, /(?:^|\})\s*\.stripe\{display:var\(--look-stripe, none\)\}/)
   assert.doesNotMatch(strip(read('themes/neon/theme.css')), /\.surf|\.stripe/)
 })

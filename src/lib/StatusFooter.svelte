@@ -11,8 +11,9 @@
 </script>
 
 <footer
+  class="page-foot"
   aria-label="Session status"
-  style="position: sticky; bottom: 0; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; padding: 11px 32px; background: color-mix(in oklch, var(--panel) 90%, transparent); backdrop-filter: blur(14px); border-top: 1px var(--border-style) color-mix(in oklch, var(--edge) 18%, transparent); font-size: 12px; letter-spacing: calc(var(--tracking) * 0.5714); font-family: var(--font-mono), monospace"
+  style="position: sticky; bottom: 0; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; padding: 11px 32px; background: color-mix(in oklch, var(--panel) var(--look-foot-fill, 90%), transparent); -webkit-backdrop-filter: var(--look-foot-blur, blur(14px)); backdrop-filter: var(--look-foot-blur, blur(14px)); border-top: 1px var(--border-style) color-mix(in oklch, var(--edge) 18%, transparent); font-size: 12px; letter-spacing: calc(var(--tracking) * 0.5714); font-family: var(--font-mono), monospace"
 >
   {#if s.team}
     <span title="A teammate: its own claude, started by a lead; its cost is counted in the lead's" style="padding: 1px 6px; border-radius: calc(var(--radius) * 0.75); border: 1px var(--border-style) {TEAMMATE_COLORS.border}; background: {TEAMMATE_COLORS.bg}; color: {TEAMMATE_COLORS.fg}">{TEAMMATE_LABEL}</span>

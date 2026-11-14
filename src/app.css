@@ -12,6 +12,9 @@ button,input,select{font:inherit}
 /* glass: a panel drawn from `panel` frosts what is behind it; the top bar's frost is the header token's and a surface's is
    card-fill's (lookCss.ts), not this */
 [data-glass="on"] [style*="var(--panel)"]:not(.page-head):not(.surf){backdrop-filter:blur(var(--blur))}
+/* nor under Reduce transparency: the OS's (this sheet comes after lookCss.ts's, so the same weight wins) or Conn.app's */
+@media (prefers-reduced-transparency: reduce){[data-glass="on"] [style*="var(--panel)"]:not(.page-head):not(.surf){backdrop-filter:none}}
+[data-transparency="reduce"][data-glass="on"] [style*="var(--panel)"]:not(.page-head):not(.surf){backdrop-filter:none}
 
 /* status dots take the theme's led shape */
 .led{border-radius:50%}

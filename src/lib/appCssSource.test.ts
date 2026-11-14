@@ -81,10 +81,18 @@ test('Neon\'s motion is not in the base: no ring, beam, glint run, lift, pulse, 
 // the glass rule (0,2,0) outweighs .page-head and .surf (0,1,0), so it must leave both to their own tokens: the header's frost,
 // and card-fill's blur (Matrix's glass cards were drawn at the 5px of `blur`, not card-fill's 10px, and unlike the preview)
 test('glass frosts panels but not the top bar or a surface, so the header and card-fill tokens decide their own blur', () => {
-  const glass = rules.filter((r) => r.sel.startsWith('[data-glass="on"]'))
+  const glass = rules.filter((r) => r.sel.startsWith('[data-glass="on"]') && r.body.includes('blur(var(--blur))'))
   assert.equal(glass.length, 1)
   assert.match(glass[0].sel, /:not\(\.page-head\)/)
   assert.match(glass[0].sel, /:not\(\.surf\)/)
+})
+
+// Reduce transparency takes the frost off those panels, from the OS (the same weight, later in the cascade) or from Conn.app
+test('glass frosts no panel under Reduce transparency, from either source', () => {
+  const frost = '[data-glass="on"] [style*="var(--panel)"]:not(.page-head):not(.surf)'
+  assert.ok(css.includes(`@media (prefers-reduced-transparency: reduce){${frost}{backdrop-filter:none}}`), 'the OS setting')
+  assert.ok(css.includes(`[data-transparency="reduce"]${frost}{backdrop-filter:none}`), 'Conn.app passing it on')
+  assert.ok(css.indexOf(`${frost}{backdrop-filter:none}`) > css.indexOf(`${frost}{backdrop-filter:blur(var(--blur))}`), 'after the frost')
 })
 
 // the base's animations run only behind the Effects gate (motionGateSource.test.ts); reduced motion also drops its transitions

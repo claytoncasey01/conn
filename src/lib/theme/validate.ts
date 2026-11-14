@@ -1,6 +1,6 @@
 // Manifest validation and the contrast gate. Pure: no DOM, no dependencies, no I/O.
 import { composite, contrast, cssTrim, parseColor, type Rgba } from './color.ts'
-import { ALLOWED_FONTS, FROM_VAR, KNOWN_EFFECTS, LIMITS, SLOTS, type SlotSpec } from './tokens.ts'
+import { ALLOWED_FONTS, FROM_VAR, GLASS, GLASS_DEFAULT, KNOWN_EFFECTS, LIMITS, SLOTS, type SlotSpec, WALLPAPER, WALLPAPER_FADE } from './tokens.ts'
 import type { EffectSpec, Mode, ThemeManifest, ThemeSource, TokenSet } from './types.ts'
 
 export type Ctx = { source: ThemeSource; builtinIds: ReadonlySet<string> }
@@ -291,8 +291,65 @@ const ORB_HUES: Record<string, string[]> = { roles: ['edge', 'role-advisor', 'ro
 const ORB_AMOUNT: Record<string, number> = { none: 0, soft: 0.5, bright: 1 }
 const PATTERN_ALPHA: Record<string, number> = { none: 0, grid: 0.09, lines: 0.09, dots: 0.3 }
 const alpha = (c: Rgba, a: number): Rgba => ({ ...c, a: c.a * a })
+const WHITE: Rgba = { r: 255, g: 255, b: 255, a: 1 }
+const channel = (n: number) => Math.min(255, Math.max(0, Math.round(n)))
 
-function lookContrast(t: Record<string, string>, where: string, read: (slot: string) => Rgba | null, s: { bg: Rgba | null; panel: Rgba | null }): string[] {
+// The glass's filter on the opaque page behind it: saturate() by the Filter Effects matrix, then brightness(). Chrome keeps
+// each step to a whole 8-bit value; an engine that carries saturate()'s overshoot into brightness() lands brighter wherever
+// brightness() deepens (dark mode), so glassFilter gives both and the gate measures each. 1 is no change, so a glass of before
+// is measured exactly as it was.
+const saturateRows = (c: Rgba, s: number): [number, number, number] => [
+  (0.213 + 0.787 * s) * c.r + (0.715 - 0.715 * s) * c.g + (0.072 - 0.072 * s) * c.b,
+  (0.213 - 0.213 * s) * c.r + (0.715 + 0.285 * s) * c.g + (0.072 - 0.072 * s) * c.b,
+  (0.213 - 0.213 * s) * c.r + (0.715 - 0.715 * s) * c.g + (0.072 + 0.928 * s) * c.b,
+]
+export function saturate(c: Rgba, amount: number): Rgba {
+  if (amount === 1) return c
+  const [r, g, b] = saturateRows(c, amount)
+  return { r: channel(r), g: channel(g), b: channel(b), a: 1 }
+}
+export function brightness(c: Rgba, amount: number): Rgba {
+  if (amount === 1) return c
+  return { r: channel(c.r * amount), g: channel(c.g * amount), b: channel(c.b * amount), a: 1 }
+}
+/** The page behind the glass after its filter: clamped between the steps, and (when both steps change it) carried through */
+export function glassFilter(c: Rgba, boost: number, tone: number): Rgba[] {
+  const clamped = brightness(saturate(c, boost), tone)
+  if (boost === 1 || tone === 1) return [clamped]
+  const [r, g, b] = saturateRows(c, boost)
+  return [clamped, { r: channel(r * tone), g: channel(g * tone), b: channel(b * tone), a: 1 }]
+}
+
+// The wallpaper's samples: a grid of WALLPAPER_STEPS by WALLPAPER_STEPS over the window, and each field's center, where it is
+// strongest. The fields are placed in shares of the window, so these points cover every window's shape.
+export const WALLPAPER_STEPS = 24
+const WALLPAPER_POINTS: readonly [number, number][] = [
+  ...Array.from({ length: (WALLPAPER_STEPS + 1) ** 2 }, (_, i): [number, number] => [(i % (WALLPAPER_STEPS + 1)) / WALLPAPER_STEPS, Math.floor(i / (WALLPAPER_STEPS + 1)) / WALLPAPER_STEPS]),
+  ...WALLPAPER.map((f): [number, number] => [f.x, f.y]),
+]
+
+/** The page at (x, y) under the wallpaper: each field from the bottom layer up, fading from its center to nothing at FADE */
+export function wallpaperAt(x: number, y: number, hues: readonly (Rgba | null)[], strength: number, bg: Rgba): Rgba {
+  let out = bg
+  for (let i = WALLPAPER.length - 1; i >= 0; i--) {
+    const hue = hues[i]
+    if (!hue) continue
+    const f = WALLPAPER[i]
+    const dx = (x - f.x) / f.rx
+    const dy = (y - f.y) / f.ry
+    const share = strength * Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) / WALLPAPER_FADE)
+    if (share > 0) out = composite(alpha(hue, share), out)
+  }
+  return out
+}
+
+// a number slot as the look reads it, or its default when the theme leaves it out
+function amount(t: Record<string, string>, slot: string, fallback: number): number {
+  const n = Number(t[slot])
+  return t[slot] !== undefined && Number.isFinite(n) ? n : fallback
+}
+
+function lookContrast(t: Record<string, string>, mode: Mode, where: string, read: (slot: string) => Rgba | null, s: { bg: Rgba | null; panel: Rgba | null }): string[] {
   const out: string[] = []
   const tx = read('tx')
   const mu = read('mu')
@@ -309,33 +366,63 @@ function lookContrast(t: Record<string, string>, where: string, read: (slot: str
     if (!c && t[hue] !== undefined) out.push(`${where}: the look's layers cannot be measured, ${hue} has no usable value`)
     return c
   }
-  // the page as text and see-through layers find it: plain, and where the pattern's line and each orb are strongest
+  // the page as text and see-through layers find it: plain, all over the wallpaper, and where the pattern's line and each orb
+  // are strongest, over each of those
+  const bg = s.bg
+  const bases: Rgba[] = [bg]
+  const wall = amount(t, 'wallpaper-strength', 0)
+  if (wall > 0) {
+    const hues = WALLPAPER.map((_, i) => (t[`wallpaper-${i + 1}`] !== undefined ? hueOf(`wallpaper-${i + 1}`) : null))
+    if (hues.some((h) => h)) {
+      const walled = WALLPAPER_POINTS.map(([x, y]) => wallpaperAt(x, y, hues, wall, bg))
+      bases.push(...walled)
+      check(walled, "the page's wallpaper at its strongest")
+    }
+  }
   const pattern = PATTERN_ALPHA[t.backdrop] ?? 0
   const strength = Math.min(1, Math.max(0, Number(t['backdrop-strength'] ?? 0) || 0))
   const orb = ORB_AMOUNT[t.orbs] ?? 0
   const edge = read('edge') ?? mu
-  const pages: Rgba[] = [s.bg]
+  const pages: Rgba[] = [...bases]
   if (pattern * strength > 0 || orb > 0) {
     const hues = orb > 0 ? ORB_HUES[t['orbs-tint']] ?? ORB_HUES.roles : ['edge']
     for (const hue of hues) {
       const c = hueOf(hue)
       if (!c) continue
-      const lit = orb > 0 ? composite(alpha(c, ORB_MAX * orb), s.bg) : s.bg
-      const page = composite(alpha(edge, pattern * strength), lit)
-      pages.push(page)
-      check([page], `the page's backdrop at its strongest (${t.backdrop ?? 'none'}${orb > 0 ? `, ${hue} orb` : ''})`)
+      const lit = bases.map((base) => composite(alpha(edge, pattern * strength), orb > 0 ? composite(alpha(c, ORB_MAX * orb), base) : base))
+      pages.push(...lit)
+      check(lit, `the page's backdrop at its strongest (${t.backdrop ?? 'none'}${orb > 0 ? `, ${hue} orb` : ''})`)
     }
   }
   const fill = t['card-fill']
+  // every card's fill as text finds it, for the light laid over it below
+  const cards: Rgba[] = fill === 'wash' || fill === 'glass' ? [] : [s.panel]
   if (fill === 'wash') {
     // a wash paints no panel under its start: the hue lies over the page there, and over the panel where it ends
     for (const hue of WASH_HUES) {
       const c = hueOf(hue)
-      if (c) check([s.panel, ...pages].map((on) => composite(alpha(c, WASH_MAX), on)), `the strongest card wash (${hue})`)
+      if (!c) continue
+      const washed = [s.panel, ...pages].map((on) => composite(alpha(c, WASH_MAX), on))
+      cards.push(...washed)
+      check(washed, `the strongest card wash (${hue})`)
     }
   }
   const panelRaw = read('panel')
-  if (fill === 'glass' && panelRaw) check(pages.map((on) => composite(alpha(panelRaw, 0.55), on)), 'a glass card over the page')
+  if (fill === 'glass' && panelRaw) {
+    // panel at glass-tint over the page behind, which the glass boosts and lifts (or deepens) by its mode's tone
+    const tint = amount(t, 'glass-tint', GLASS_DEFAULT.tint)
+    const boost = amount(t, 'glass-saturate', GLASS_DEFAULT.saturate)
+    const tone = 1 + (boost - 1) * GLASS[mode].tone
+    const glassed = pages.flatMap((on) => glassFilter(on, boost, tone).map((behind) => composite(alpha(panelRaw, tint), behind)))
+    cards.push(...glassed)
+    check(glassed, 'a glass card over the page')
+  }
+  // the glow inside a card's edge and the highlight at its center, both white, at their strongest over every fill
+  const edgeLight = amount(t, 'glass-edge', 0) * GLASS[mode].edgeGlow
+  const sheen = amount(t, 'card-sheen', 0) * GLASS[mode].sheen
+  if (edgeLight > 0 || sheen > 0) {
+    check(cards.map((on) => composite(alpha(WHITE, sheen), composite(alpha(WHITE, edgeLight), on))), "a card under its edge light and highlight")
+  }
   // the bloom glows tx in from a card's edges (at most 20% of tx at full strength), under the text nearest the edge
   const bloom = Math.min(1, Math.max(0, Number(t['card-bloom'] ?? 0) || 0))
   if (bloom > 0) check([composite(alpha(tx, 0.2 * bloom), s.panel)], "a card's edge under its bloom")
@@ -371,7 +458,7 @@ export function checkContrast(m: ThemeManifest, fallback: ThemeManifest): string
       const raise = panel && raiseRaw && composite(raiseRaw, panel)
       const ac = bg && (read('ac') ? composite(read('ac') as Rgba, bg) : null)
       const surface = { bg, panel, raise, ac }
-      out.push(...lookContrast(t, where, read, { bg, panel }))
+      out.push(...lookContrast(t, mode, where, read, { bg, panel }))
       for (const [fgName, onName] of PAIRS) {
         const fg = read(fgName)
         const on = surface[onName]

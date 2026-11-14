@@ -16,7 +16,6 @@ const (
 	MaxWash = 0.16
 	MaxOrb  = 0.22
 
-	glassAlpha  = 0.55
 	bloomShare  = 0.2
 	fixedPlaces = 2
 
@@ -43,6 +42,40 @@ const (
 	slotEdge  = "edge"
 	slotLine2 = "line2"
 )
+
+// The glass a card-fill of glass draws when a theme names none of its slots (tokens.ts
+// GLASS_DEFAULT): panel at 55% and no boost.
+const (
+	glassDefaultTint     = 0.55
+	glassDefaultSaturate = 1
+)
+
+// glassLight is what the look's light does in one mode (tokens.ts GLASS): how far the glass's
+// boost lifts or deepens the page behind it per unit past 1, and the most white the highlight
+// and the glow inside a card's edge lay under text.
+type glassLight struct{ tone, sheen, edgeGlow float64 }
+
+// maxGlassFilters is how many pages glassFilter gives for one: kept to 8 bits between its steps,
+// and carried through.
+const maxGlassFilters = 2
+
+// The light's numbers in each mode.
+const (
+	lightTone     = 0.06
+	lightSheen    = 0.32
+	lightEdgeGlow = 0.14
+	darkTone      = -0.1
+	darkSheen     = 0.1
+	darkEdgeGlow  = 0.04
+)
+
+func glassLightOf(mode string) glassLight {
+	if mode == ModeDark {
+		return glassLight{tone: darkTone, sheen: darkSheen, edgeGlow: darkEdgeGlow}
+	}
+
+	return glassLight{tone: lightTone, sheen: lightSheen, edgeGlow: lightEdgeGlow}
+}
 
 var varReference = regexp.MustCompile(`var\(--([a-z-]+)\)`)
 
@@ -260,7 +293,7 @@ func gate(tokens map[string]string, mode, where string) []string {
 
 	surface := paint(read, mode)
 
-	out := lookContrast(tokens, where, read, surface)
+	out := lookContrast(tokens, mode, where, read, surface)
 
 	for _, measured := range pairs() {
 		out = append(out, pairProblem(measured, where, read, surface)...)
@@ -404,7 +437,7 @@ func (l *look) share(slot string) float64 {
 	return math.Min(1, math.Max(0, number))
 }
 
-func lookContrast(tokens map[string]string, where string, read func(string) (RGBA, bool),
+func lookContrast(tokens map[string]string, mode, where string, read func(string) (RGBA, bool),
 	surface surfaces,
 ) []string {
 	text, hasText := read(slotTx)
@@ -420,26 +453,18 @@ func lookContrast(tokens map[string]string, where string, read func(string) (RGB
 	}
 	pages := measure.pages(surface.bg)
 
+	var cards []RGBA
+
 	switch tokens["card-fill"] {
 	case "wash":
-		ons := append([]RGBA{surface.panel}, pages...)
-
-		for _, name := range washHues() {
-			color, ok := measure.hue(name)
-			if !ok {
-				continue
-			}
-
-			washed := make([]RGBA, 0, len(ons))
-			for _, on := range ons {
-				washed = append(washed, Composite(withAlpha(color, MaxWash), on))
-			}
-
-			measure.check(washed, "the strongest card wash ("+name+")")
-		}
+		cards = measure.washes(append([]RGBA{surface.panel}, pages...))
 	case "glass":
-		measure.glass(pages)
+		cards = measure.glass(pages, glassLightOf(mode))
+	default:
+		cards = []RGBA{surface.panel}
 	}
+
+	measure.light(cards, glassLightOf(mode))
 
 	bloom := measure.share("card-bloom")
 	if bloom > 0 {
@@ -450,23 +475,91 @@ func lookContrast(tokens map[string]string, where string, read func(string) (RGB
 	return measure.out
 }
 
-func (l *look) glass(pages []RGBA) {
-	panel, painted := l.read(slotPanel)
-	if !painted {
-		return
+// washes measures the strongest wash of each hue over ons, and returns every washed fill.
+func (l *look) washes(ons []RGBA) []RGBA {
+	var cards []RGBA
+
+	for _, name := range washHues() {
+		color, ok := l.hue(name)
+		if !ok {
+			continue
+		}
+
+		washed := make([]RGBA, 0, len(ons))
+		for _, on := range ons {
+			washed = append(washed, Composite(withAlpha(color, MaxWash), on))
+		}
+
+		cards = append(cards, washed...)
+		l.check(washed, "the strongest card wash ("+name+")")
 	}
 
-	glassed := make([]RGBA, 0, len(pages))
+	return cards
+}
+
+// glass measures panel at glass-tint over each page, which the glass boosts by glass-saturate
+// and lifts or deepens by its mode's tone, and returns those fills.
+func (l *look) glass(pages []RGBA, light glassLight) []RGBA {
+	panel, painted := l.read(slotPanel)
+	if !painted {
+		return nil
+	}
+
+	tint := l.amount("glass-tint", glassDefaultTint)
+	boost := l.amount("glass-saturate", glassDefaultSaturate)
+	tone := 1 + float64((boost-1)*light.tone)
+
+	glassed := make([]RGBA, 0, maxGlassFilters*len(pages))
 	for _, on := range pages {
-		glassed = append(glassed, Composite(withAlpha(panel, glassAlpha), on))
+		for _, behind := range glassFilter(on, boost, tone) {
+			glassed = append(glassed, Composite(withAlpha(panel, tint), behind))
+		}
 	}
 
 	l.check(glassed, "a glass card over the page")
+
+	return glassed
 }
 
-// pages is the page as text and see-through layers find it: plain, and where the pattern's line
-// and each orb are strongest.
+// light measures tx and mu over every card fill under the glow inside its edge and the
+// highlight, both white, at their strongest.
+func (l *look) light(cards []RGBA, light glassLight) {
+	edgeLight := float64(l.amount("glass-edge", 0) * light.edgeGlow)
+	sheen := float64(l.amount("card-sheen", 0) * light.sheen)
+
+	if edgeLight <= 0 && sheen <= 0 {
+		return
+	}
+
+	lit := make([]RGBA, 0, len(cards))
+	for _, on := range cards {
+		glowing := Composite(withAlpha(opaqueWhite(), edgeLight), on)
+		lit = append(lit, Composite(withAlpha(opaqueWhite(), sheen), glowing))
+	}
+
+	l.check(lit, "a card under its edge light and highlight")
+}
+
+// amount is a number slot as the look reads it, or fallback when the theme leaves it out.
+func (l *look) amount(slot string, fallback float64) float64 {
+	value, ok := l.tokens[slot]
+	if !ok {
+		return fallback
+	}
+
+	number := js.ToNumber(value)
+	if math.IsNaN(number) || math.IsInf(number, 0) {
+		return fallback
+	}
+
+	return number
+}
+
+// pages is the page as text and see-through layers find it: plain, all over the wallpaper, and
+// where the pattern's line and each orb are strongest over each of those.
 func (l *look) pages(page RGBA) []RGBA {
+	bases := append([]RGBA{page}, l.wallpaper(page)...)
+
 	backdrop, hasBackdrop := l.tokens["backdrop"]
 	pattern := patternAlpha(backdrop)
 	strength := l.share("backdrop-strength")
@@ -477,7 +570,7 @@ func (l *look) pages(page RGBA) []RGBA {
 		edge = l.muted
 	}
 
-	pages := []RGBA{page}
+	pages := slices.Clone(bases)
 
 	if pattern*strength <= 0 {
 		if orb <= 0 {
@@ -500,18 +593,81 @@ func (l *look) pages(page RGBA) []RGBA {
 			continue
 		}
 
-		lit := page
 		label := backdrop
-
 		if orb > 0 {
-			lit = Composite(withAlpha(color, MaxOrb*orb), page)
 			label += ", " + name + " orb"
 		}
 
-		strongest := Composite(withAlpha(edge, pattern*strength), lit)
-		pages = append(pages, strongest)
-		l.check([]RGBA{strongest}, "the page's backdrop at its strongest ("+label+")")
+		strongest := strongestPages(bases, layers{
+			orb: withAlpha(color, float64(MaxOrb*orb)), hasOrb: orb > 0,
+			line: withAlpha(edge, float64(pattern*strength)),
+		})
+		pages = append(pages, strongest...)
+		l.check(strongest, "the page's backdrop at its strongest ("+label+")")
 	}
 
 	return pages
+}
+
+// layers are what the backdrop lays over the page at its strongest: an orb, when there are
+// orbs, and the pattern's line.
+type layers struct {
+	orb    RGBA
+	hasOrb bool
+	line   RGBA
+}
+
+// strongestPages is each base under the backdrop's layers.
+func strongestPages(bases []RGBA, over layers) []RGBA {
+	strongest := make([]RGBA, 0, len(bases))
+
+	for _, base := range bases {
+		lit := base
+		if over.hasOrb {
+			lit = Composite(over.orb, base)
+		}
+
+		strongest = append(strongest, Composite(over.line, lit))
+	}
+
+	return strongest
+}
+
+// wallpaper is the page at each of the wallpaper's samples, measured as the page text finds it,
+// or none when the theme draws no wallpaper.
+func (l *look) wallpaper(page RGBA) []RGBA {
+	strength := l.amount("wallpaper-strength", 0)
+	if strength <= 0 {
+		return nil
+	}
+
+	hues := make([]RGBA, 0, len(wallpaperSlots()))
+	present := make([]bool, 0, len(wallpaperSlots()))
+	anyHue := false
+
+	for _, name := range wallpaperSlots() {
+		color, painted := RGBA{}, false
+		if _, set := l.tokens[name]; set {
+			color, painted = l.hue(name)
+		}
+
+		hues = append(hues, color)
+		present = append(present, painted)
+		anyHue = anyHue || painted
+	}
+
+	if !anyHue {
+		return nil
+	}
+
+	points := wallpaperPoints()
+	walled := make([]RGBA, 0, len(points))
+
+	for _, point := range points {
+		walled = append(walled, wallpaperAt(point, hues, present, strength, page))
+	}
+
+	l.check(walled, "the page's wallpaper at its strongest")
+
+	return walled
 }

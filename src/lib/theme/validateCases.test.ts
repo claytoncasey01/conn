@@ -143,6 +143,15 @@ function tokenSet(count: number, contrastMinded: boolean): Record<string, unknow
     out.orbs = pick(['none', 'soft', 'bright'])
     out['orbs-tint'] = pick(['roles', 'accent', 'edge'])
     out['card-bloom'] = pick(['0', decimal(0, 1, 2)])
+    // the glass's own slots, the light on every card and the wallpaper, so the gate's filters and samples get cases too
+    if (rand() < 0.5) {
+      out['glass-tint'] = pick(['0', decimal(0, 0.6, 2)])
+      out['glass-saturate'] = pick(['1', decimal(1, 2.4, 2)])
+      out['glass-edge'] = pick(['0', decimal(0, 1, 2)])
+      out['card-sheen'] = pick(['0', decimal(0, 1, 2)])
+      out['wallpaper-strength'] = pick(['0', decimal(0, 1, 2)])
+      for (let i = 1; i <= 5; i++) if (rand() < 0.6) out[`wallpaper-${i}`] = goodValueFor(`wallpaper-${i}`)
+    }
   }
   return out
 }
@@ -183,6 +192,15 @@ function manifestCase(): unknown {
   return base
 }
 
+// the glass's own slots, which a Default from before them leaves out
+const GLASS_SLOTS = ['glass-tint', 'glass-blur', 'glass-saturate', 'glass-edge', 'card-sheen', 'wallpaper-strength', 'wallpaper-1', 'wallpaper-2',
+  'wallpaper-3', 'wallpaper-4', 'wallpaper-5']
+function withoutGlass(text: string): string {
+  const theme = JSON.parse(text) as { tokens: Record<string, Record<string, unknown>> }
+  for (const tokens of Object.values(theme.tokens)) for (const slot of GLASS_SLOTS) delete tokens[slot]
+  return JSON.stringify(theme)
+}
+
 // built-in folders as the server reads them: Default is the fallback every theme's missing slots read from. Read only when the
 // cases are built afresh.
 const themesDir = `${root}themes`
@@ -215,6 +233,14 @@ function build() {
     const r = checkTheme(text, { source, builtinIds: ids }, fallback)
     return [source, text, r.ok ? { ok: true, manifest: r.manifest } : { ok: false, errors: r.errors }]
   })
+  // the same judgment over a Default without the glass's slots, so a theme that leaves them out reaches the gate's own defaults
+  const bareDefault = withoutGlass(defaultText)
+  const bare = parseManifest(bareDefault, { source: 'builtin', builtinIds: ids })
+  if (!bare.ok) throw new Error('the Default without the glass does not parse')
+  const bareManifests = Array.from({ length: 300 }, () => JSON.stringify(manifestCase())).map((text) => {
+    const r = checkTheme(text, { source: 'user', builtinIds: ids }, bare.manifest)
+    return ['user', text, r.ok ? { ok: true, manifest: r.manifest } : { ok: false, errors: r.errors }]
+  })
 
   return {
     slots: Object.entries(SLOTS),
@@ -228,6 +254,8 @@ function build() {
     pairs,
     values,
     manifests,
+    bareDefault,
+    bareManifests,
   }
 }
 
@@ -237,6 +265,8 @@ function answers(kept: ReturnType<typeof build>) {
   const ids = new Set(kept.builtinIds)
   const base = parseManifest(kept.default, { source: 'builtin', builtinIds: ids })
   if (!base.ok) throw new Error('the kept Default does not parse')
+  const bareBase = parseManifest(kept.bareDefault, { source: 'builtin', builtinIds: ids })
+  if (!bareBase.ok) throw new Error('the kept Default without the glass does not parse')
   return {
     ...kept,
     slots: Object.entries(SLOTS),
@@ -249,6 +279,10 @@ function answers(kept: ReturnType<typeof build>) {
     values: kept.values.map(([slot, v]) => [slot, v, slotProblem(slot as string, v as string)]),
     manifests: kept.manifests.map(([source, text]) => {
       const r = checkTheme(text as string, { source: source as ThemeSource, builtinIds: ids }, base.manifest)
+      return [source, text, r.ok ? { ok: true, manifest: r.manifest } : { ok: false, errors: r.errors }]
+    }),
+    bareManifests: kept.bareManifests.map(([source, text]) => {
+      const r = checkTheme(text as string, { source: source as ThemeSource, builtinIds: ids }, bareBase.manifest)
       return [source, text, r.ok ? { ok: true, manifest: r.manifest } : { ok: false, errors: r.errors }]
     }),
   }

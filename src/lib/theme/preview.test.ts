@@ -43,6 +43,13 @@ test('the sample UI is painted from the theme own tokens in the asked mode', () 
   assert.equal(html.match(/class="dot /g)?.length, 4)
 })
 
+// the preview runs no script, so Conn.app's Reduce transparency mark on the page is passed on as an attribute
+test('a preview carries the page\'s Reduce transparency mark, and only when it is on', () => {
+  assert.match(htmlTag(previewDoc(DEFAULT, 'dark', DEFAULT, true)), /\bdata-transparency="reduce"/)
+  assert.doesNotMatch(htmlTag(previewDoc(DEFAULT, 'dark', DEFAULT)), /data-transparency/)
+  assert.ok(previewDoc(DEFAULT, 'dark', DEFAULT, true).includes('[data-transparency="reduce"] .surf{'), 'the rules it needs are in the sheet')
+})
+
 test('a mode the theme lacks shows the mode it has', () => {
   const darkOnly = make({ modes: ['dark'], tokens: { dark: { bg: '#010a04' } } })
   const html = previewDoc(darkOnly, 'light', DEFAULT)
@@ -145,8 +152,9 @@ const LOOK_VARS = [...new Set([...Object.values(LOOK).flatMap((t) => Object.valu
 // every number of the look (the slots from font-body down), from the contract, so a new one cannot be left out
 const LOOK_NUMBERS = Object.keys(SLOTS).slice(Object.keys(SLOTS).indexOf('font-body')).filter((n) => SLOTS[n].kind === 'number' || SLOTS[n].kind === 'length')
 
-// Neon with a cut corner and a text glow, so the numbers only those use (card-cut, text-glow) are in play too
-const EVERY_NUMBER = { ...(NEON.tokens.dark ?? {}), 'card-corner': 'chamfer', 'text-glow': '0.3' }
+// Neon with a cut corner and a text glow, so the numbers only those use (card-cut, text-glow) are in play too,
+// and glass with its light and a wallpaper on, so the glass's numbers (read through the fill, the filter and the light) are too
+const EVERY_NUMBER = { ...(NEON.tokens.dark ?? {}), 'card-corner': 'chamfer', 'text-glow': '0.3', 'card-fill': 'glass', 'glass-edge': '0.5', 'card-sheen': '0.5', 'wallpaper-strength': '0.5' }
 
 test('the preview reads every variable the look slots produce, and the numbers they come with', () => {
   const html = previewDoc(make({ tokens: { dark: EVERY_NUMBER } }), 'dark', DEFAULT)
