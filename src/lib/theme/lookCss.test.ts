@@ -38,7 +38,7 @@ test('each piece of the look is drawn only when a look token selects it', () => 
   // a look var that is not set leaves nothing drawn: every multiplier falls back to 0
   assert.match(body('[data-fx="on"] .gly'), /display:var\(--look-glyphs,none\)/)
   for (const set of ['binary', 'hex', 'kana', 'ascii']) assert.match(body(`.gs-${set}`), new RegExp(`display:var\\(--look-gs-${set},none\\)`), set)
-  for (const v of ['look-orbs', 'look-grid-h', 'look-grid-v', 'look-dots', 'backdrop-strength', 'backdrop-scan', 'look-stage-dots', 'look-stage-glow', 'look-gutter', 'card-bloom', 'card-glow', 'look-head-rule', 'stage-backing']) {
+  for (const v of ['look-orbs', 'look-grid-h', 'look-grid-v', 'look-dots', 'backdrop-strength', 'backdrop-scan', 'look-stage-dots', 'look-stage-glow', 'look-gutter', 'card-bloom', 'card-glow', 'look-head-rule', 'look-head-float', 'stage-backing']) {
     const uses = [...css.matchAll(new RegExp(`var\\(--${v}(,[^)]*)?\\)`, 'g'))]
     assert.ok(uses.length > 0, `--${v} is read`)
     for (const u of uses) assert.equal(u[1]?.replace(/\s/g, ''), ',0', `--${v} falls back to 0`)
@@ -130,3 +130,18 @@ test('a nested surface keeps the glass of before and drops it once a theme tunes
   assert.equal(LOOK['card-fill'].glass['--look-glass'].startsWith('blur('), true)
 })
 
+
+// header-shape: the float's shape is the stylesheet's, since the markup's inline style sets only the bar's padding, fill and
+// bottom edge; every piece is a multiple of --look-head-float, so a bar (and a theme from before the slot) is today's bar
+test('a float top bar is inset, rounded to its tabs, ringed and lifted, and a bar keeps none of it', () => {
+  const head = body('.page-head')
+  assert.match(head, /margin:calc\(12px\*var\(--look-head-float,0\)\)calc\(16px\*var\(--look-head-float,0\)\)calc\(8px\*var\(--look-head-float,0\)\)/)
+  assert.match(head, /border-radius:calc\(\(var\(--radius,0px\)\+14px\)\*var\(--look-head-float,0\)\)/)
+  assert.match(head, /border-width:calc\(1px\*var\(--look-head-float,0\)\)/)
+  assert.match(head, /box-shadow:inset0calc\(-2px\*var\(--look-head-rule,0\)\)0var\(--edge\),var\(--look-head-lift,00transparent\)/)
+  assert.match(body('.glint'), /margin-inline:calc\(\(var\(--radius,0px\)\+14px\)\*var\(--look-head-float,0\)\)/)
+  assert.deepEqual(LOOK['header-shape'], {
+    bar: { '--look-head-float': '0', '--look-head-lift': 'initial' },
+    float: { '--look-head-float': '1', '--look-head-lift': 'var(--lift)' },
+  })
+})

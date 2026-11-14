@@ -312,7 +312,7 @@ test('LOOK maps every keyword of every enum look slot, and nothing else', () => 
       assert.ok(!/url\(|[;{}<>]|@import|expression|\/\*/i.test(v), `${k}:${v}`)
     }
   }
-  const looks = ['font-body', 'chrome', 'cursor', 'hover-lift', 'meter', 'backdrop', 'orbs', 'orbs-tint', 'header', 'stage', 'card-fill', 'card-corner', 'card-frame', 'card-marks', 'card-stripe', 'card-shadow', 'glyph-arrow', 'glyph-bullet', 'glyph-sep', 'glyph-brand', 'wire-style', 'wire-head', 'wire-crawl', 'wire-flow', 'wire-glyphs', 'wire-signal', 'tree-orbits', 'node-beat']
+  const looks = ['font-body', 'chrome', 'cursor', 'hover-lift', 'meter', 'backdrop', 'orbs', 'orbs-tint', 'header', 'header-shape', 'stage', 'card-fill', 'card-corner', 'card-frame', 'card-marks', 'card-stripe', 'card-shadow', 'glyph-arrow', 'glyph-bullet', 'glyph-sep', 'glyph-brand', 'wire-style', 'wire-head', 'wire-crawl', 'wire-flow', 'wire-glyphs', 'wire-signal', 'tree-orbits', 'node-beat']
   assert.deepEqual(Object.keys(LOOK).sort(), looks.sort())
 })
 

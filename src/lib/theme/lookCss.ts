@@ -124,7 +124,14 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 .page::before{content:var(--look-wall, none);position:fixed;inset:0;z-index:-1;pointer-events:none;background:${wallpaper}}
 .page-scan{display:var(--look-scan, none);background:repeating-linear-gradient(0deg, color-mix(in oklch, var(--bright) calc(2.2% * var(--backdrop-scan, 0)), transparent) 0 1px, transparent 1px 3px)}
 /* the top bar: a frost of what is behind it, a rule along its bottom edge, or the glint, a lit line there (Neon sets it running) */
-.page-head{-webkit-backdrop-filter:var(--look-head-blur, none);backdrop-filter:var(--look-head-blur, none);box-shadow:inset 0 calc(-2px * var(--look-head-rule, 0)) 0 var(--edge)}
+.page-head{-webkit-backdrop-filter:var(--look-head-blur, none);backdrop-filter:var(--look-head-blur, none);box-shadow:inset 0 calc(-2px * var(--look-head-rule, 0)) 0 var(--edge), var(--look-head-lift, 0 0 transparent)}
+/* its shape (header-shape): a float sits inset from the window's edges, its ends rounded to match the tabs inside it (their radius
+   and the bar's 14px padding, so two rows of tabs make a round-cornered panel rather than a pill), ringed on every side as its
+   markup draws the bottom edge (an inline border, which outranks this), and lifted; the glint keeps clear of the round ends. A
+   gap under it keeps a strip that spans the window (the disconnected notice) off its edge. A bar, or a theme from before the
+   slot, has each of these at 0 */
+.page-head{margin:calc(12px * var(--look-head-float, 0)) calc(16px * var(--look-head-float, 0)) calc(8px * var(--look-head-float, 0));border-radius:calc((var(--radius, 0px) + 14px) * var(--look-head-float, 0));border-style:var(--border-style);border-color:color-mix(in oklch, var(--edge) 16%, transparent);border-width:calc(1px * var(--look-head-float, 0))}
+.glint{margin-inline:calc((var(--radius, 0px) + 14px) * var(--look-head-float, 0))}
 .glint{display:var(--look-glint, none);background:linear-gradient(90deg,transparent,var(--edge),var(--role-lead),var(--role-advisor),transparent);background-size:220% 100%}
 /* the Overview stage: a dot grid and glows behind the lead and advisor over the panel; hud adds the ruler ticks on its edges, the
    perspective floor, the glow behind the lead and the rings around it */

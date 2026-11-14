@@ -58,6 +58,7 @@
       "orbs": "bright",
       "backdrop-scan": "1",
       "header": "glint",
+      "header-shape": "bar",
       "stage": "hud",
       "stage-backing": "0",
       "card-fill": "wash",

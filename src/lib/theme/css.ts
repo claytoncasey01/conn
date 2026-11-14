@@ -90,6 +90,8 @@ export const LOOK: Readonly<Record<string, Readonly<Record<string, Readonly<Reco
     rule: { '--look-head-blur': 'none', '--look-glint': 'none', '--look-head-rule': '1' },
     glint: { '--look-head-blur': 'blur(14px)', '--look-glint': 'block', '--look-head-rule': '0' },
   },
+  // a float is inset from the window's edges, ringed all round and lifted by the lift token; a bar spans the window
+  'header-shape': { bar: { '--look-head-float': '0', '--look-head-lift': 'initial' }, float: { '--look-head-float': '1', '--look-head-lift': 'var(--lift)' } },
   stage: {
     plain: { '--look-stage-dots': '0', '--look-stage-glow': '0', '--look-hud': 'none' },
     dots: { '--look-stage-dots': '1', '--look-stage-glow': '0', '--look-hud': 'none' },
