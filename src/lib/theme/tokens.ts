@@ -52,6 +52,8 @@ export const SLOTS: Record<string, SlotSpec> = Object.freeze(
     ['orbs-tint', { kind: 'enum', values: ['roles', 'accent', 'edge'] }],
     ['backdrop-scan', { kind: 'number', min: 0, max: 1 }],
     ['header', { kind: 'enum', values: ['flat', 'frost', 'rule', 'glint'] }],
+    // the top bar's shape: a bar across the window, or a float, inset from the window's edges with round ends and the lift's shadow
+    ['header-shape', { kind: 'enum', values: ['bar', 'float'] }],
     ['stage', { kind: 'enum', values: ['plain', 'dots', 'hud'] }],
     // a dense bg under the tree's stage, so an effect behind the page (the rain) does not print through its wires
     ['stage-backing', { kind: 'number', min: 0, max: 1 }],

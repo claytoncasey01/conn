@@ -141,6 +141,7 @@ func lookSlots() []Slot {
 		enum("orbs-tint", "roles", "accent", "edge"),
 		number("backdrop-scan", unit()),
 		enum("header", "flat", "frost", "rule", "glint"),
+		enum("header-shape", "bar", "float"),
 		enum("stage", "plain", "dots", "hud"),
 		number("stage-backing", unit()),
 		enum("card-fill", "plain", "wash", "glass"),
