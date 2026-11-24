@@ -13,10 +13,11 @@ import (
 // skills/deep-code-review/scripts/post_review.py, as pure functions of the diff text.
 
 const (
-	// maxDiffBytes is the most of a diff that is read. A reader caps what it fetches at this too;
-	// the cut here keeps the function bounded whatever it is handed. A cut can only lose
-	// positions, and a finding without one goes in the review body, so it is safe.
-	maxDiffBytes = 8 << 20
+	// MaxDiffBytes is the most of a diff that is read. Gh.Diff's read stops gh at this
+	// (gh.Capped) and refuses a diff that reaches past it; the cut in Positions keeps the
+	// function bounded whatever it is handed. A cut can only lose positions, and a finding
+	// without one goes in the review body, so it is safe.
+	MaxDiffBytes = 8 << 20
 
 	// outsideHeading introduces the findings the review body carries because GitHub cannot take
 	// them as line comments.
@@ -55,8 +56,8 @@ type diffReader struct {
 // Positions is every position GitHub accepts a comment on in diff: an added line on the right at
 // its new number, a removed line on the left at its old number, and a context line on both.
 func Positions(diff string) map[Position]bool {
-	if len(diff) > maxDiffBytes {
-		diff = diff[:maxDiffBytes]
+	if len(diff) > MaxDiffBytes {
+		diff = diff[:MaxDiffBytes]
 	}
 
 	reader := diffReader{positions: map[Position]bool{}}

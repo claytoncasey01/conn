@@ -13,18 +13,23 @@ import (
 	"testing"
 	"unicode/utf16"
 
+	"github.com/claytoncasey01/conn/internal/gh"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// errGitHubRefused is how gh words GitHub refusing a posted review.
-var errGitHubRefused = errors.New("gh: Unprocessable Entity (HTTP 422)")
+// errGitHubRefused is gh's error for GitHub refusing a posted review.
+var errGitHubRefused error = &gh.Error{
+	Message: "gh: Unprocessable Entity (HTTP 422)", Status: 422, Overflowed: false, Err: nil,
+}
 
 // errUnclear is a post that failed with no answer from GitHub: it may have taken the review.
 var errUnclear = errors.New("context deadline exceeded")
 
-// errBadGateway is how gh words GitHub failing with a server error.
-var errBadGateway = errors.New("gh: Bad Gateway (HTTP 502)")
+// errBadGateway is gh's error for GitHub failing with a server error.
+var errBadGateway error = &gh.Error{
+	Message: "gh: Bad Gateway (HTTP 502)", Status: 502, Overflowed: false, Err: nil,
+}
 
 // pRefusedText is how gh words GitHub refusing a posted review with a client error.
 const pRefusedText = "gh: Unprocessable Entity (HTTP 422)"

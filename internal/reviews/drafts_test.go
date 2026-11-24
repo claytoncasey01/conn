@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/claytoncasey01/conn/internal/gh"
 	"github.com/claytoncasey01/conn/internal/reviews"
 	"github.com/claytoncasey01/conn/internal/sessions"
 )
@@ -337,6 +338,15 @@ func TestTheDiffIsTheCompareAsADiffWithinItsCap(t *testing.T) {
 			"",
 			reviews.ErrDiffTooLarge, 1,
 		},
+		{
+			"gh stopped at the cap", "development",
+			dStep{out: "", failed: &gh.Error{
+				Message: "stdout maxBuffer length exceeded", Status: 0, Overflowed: true,
+				Err: nil,
+			}},
+			"",
+			reviews.ErrDiffTooLarge, 1,
+		},
 		{"gh fails", "development", dStep{out: "partial", failed: errDBad}, "", errDBad, 1},
 		{
 			"an unsafe base", "../main",
@@ -351,7 +361,7 @@ func TestTheDiffIsTheCompareAsADiffWithinItsCap(t *testing.T) {
 			t.Parallel()
 
 			source := &dGh{steps: []dStep{test.answer}, calls: nil}
-			out, err := reviews.Gh{Exec: nil, Large: source.exec}.Diff(t.Context(), worldRepo,
+			out, err := reviews.Gh{Exec: nil, DiffRead: source.exec, Send: nil}.Diff(t.Context(), worldRepo,
 				test.baseRef, dCommit)
 
 			if !errors.Is(err, test.wantErr) {

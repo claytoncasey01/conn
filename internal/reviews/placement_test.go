@@ -150,7 +150,7 @@ func TestPositionsOfNothing(t *testing.T) {
 	}
 }
 
-// TestPositionsStopAtTheDiffLimit: a diff past maxDiffBytes is read only up to it, so the lines
+// TestPositionsStopAtTheDiffLimit: a diff past MaxDiffBytes is read only up to it, so the lines
 // after the limit cannot be commented on.
 func TestPositionsStopAtTheDiffLimit(t *testing.T) {
 	t.Parallel()

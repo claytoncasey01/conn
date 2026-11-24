@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"math"
-	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/gh"
 	"github.com/claytoncasey01/conn/internal/ghbudget"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/repos"
@@ -79,9 +79,6 @@ var (
 // errPostRefused is a post GitHub refused with a client error: it surely took no review.
 var errPostRefused = errors.New("GitHub refused the review")
 
-// httpClientError is how gh ends the message of a call GitHub answered with a client error.
-var httpClientError = regexp.MustCompile(`\(HTTP 4\d\d\)`)
-
 // errLookupUnsafe is a PR's reviews not read because its repo, number or login is not safe.
 var errLookupUnsafe = errors.New("the PR or login is not safe to read reviews of")
 
@@ -126,8 +123,9 @@ type GhExec func(ctx context.Context, args []string) (string, error)
 // Gh is the GraphQL source of the Reviews poll, and the REST reads it makes beside it.
 type Gh struct {
 	Exec GhExec
-	// Large runs the calls whose answer may be large (a PR's diff), with the room gh.Large has.
-	Large GhExec
+	// DiffRead runs the read of a PR's diff with gh's output capped at MaxDiffBytes
+	// (gh.Capped(MaxDiffBytes)), so a larger diff is stopped, never held whole.
+	DiffRead GhExec
 	// Send runs the calls that write a body to GitHub (a review), fed to gh on stdin.
 	Send GhSend
 }
@@ -176,11 +174,11 @@ func (e *postError) Error() string { return e.message }
 // Unwrap is gh's own error, and errPostRefused: GitHub took no review.
 func (e *postError) Unwrap() []error { return []error{e.err, errPostRefused} }
 
-// refusedBy is the error of a failed post. When GitHub answered with a client error (gh says
-// HTTP 4xx and printed GitHub's JSON error), it is a *postError carrying the reasons the answer
-// gives (its errors, each a text or an object with a message) after gh's message. Any other
-// failure (a timeout, a killed gh, a dropped connection, a 5xx) is kept as it is: GitHub may
-// have taken the review.
+// refusedBy is the error of a failed post. When GitHub answered with a client error (gh's error
+// says HTTP 4xx, and gh printed GitHub's JSON error), it is a *postError carrying the reasons the
+// answer gives (its errors, each a text or an object with a message) after gh's message. Any
+// other failure (a timeout, a killed gh, a dropped connection, a 5xx) is kept as it is: GitHub
+// may have taken the review.
 func refusedBy(answer string, err error) error {
 	parsed, parseErr := js.Parse([]byte(answer))
 	if parseErr != nil {
@@ -188,7 +186,13 @@ func refusedBy(answer string, err error) error {
 	}
 
 	_, answered := text(memberOf(object(parsed), "message"))
-	if !all(answered, httpClientError.MatchString(err.Error())) {
+	ghErr, fromGh := errors.AsType[*gh.Error](err)
+
+	if !all(answered, fromGh) {
+		return asIs(err)
+	}
+
+	if !ghErr.ClientError() {
 		return asIs(err)
 	}
 
@@ -239,25 +243,31 @@ func reviewURL(answer string) string {
 }
 
 // Diff is the diff of repo from baseRef to commit, the three-dot compare GitHub shows a PR's
-// diff as, read through Large. It fails without a call when repo, baseRef or commit is not one
-// that is safe in the path, and fails when gh does or the diff is over maxDiffBytes.
+// diff as, read through DiffRead. It fails without a call when repo, baseRef or commit is not
+// one that is safe in the path, and fails when gh does or the diff is over MaxDiffBytes (gh
+// stopped at the cap, or a reader that does not cap handed back more).
 func (g Gh) Diff(ctx context.Context, repo, baseRef, commit string) (string, error) {
 	if !all(repos.IsName(repo), IsSafeRef(baseRef), commitShape.MatchString(commit)) {
 		return "", errDiffUnsafe
 	}
 
-	if g.Large == nil {
-		panic("reviews: Gh.Diff called with no Large to run gh with")
+	if g.DiffRead == nil {
+		panic("reviews: Gh.Diff called with no DiffRead to run gh with")
 	}
 
-	out, err := g.Large(ctx, []string{
+	out, err := g.DiffRead(ctx, []string{
 		ghAPI, "-H", diffMediaType, "repos/" + repo + "/compare/" + baseRef + "..." + commit,
 	})
+
+	if ghErr, fromGh := errors.AsType[*gh.Error](err); fromGh && ghErr.Overflowed {
+		return "", errDiffTooLarge
+	}
+
 	if err != nil {
 		return "", asIs(err)
 	}
 
-	if len(out) > maxDiffBytes {
+	if len(out) > MaxDiffBytes {
 		return "", errDiffTooLarge
 	}
 
