@@ -78,7 +78,9 @@ they post every comment and approve, so that path is one click.
   belong to it, so the diff check and the post use it, not `Launch.HeadSha`.
 - A launch removes any `.conn/review.json` left in a reused worktree before the session starts,
   as My PRs does for `replies.json`, and the review session is denied the GitHub write commands
-  (`gh pr review`, `gh api` with a write method), following `myprs.SelfDisallowed`.
+  (`gh pr review`, `gh pr create`, `gh issue create`, `git push`, `gh api` with a write method),
+  following `myprs.SelfDisallowed`. GitHub's MCP tools are not denied by name, as the same tools
+  read; the prompt is what forbids writing through them.
 - `skills/deep-code-review/SKILL.md` gains this as a fourth PR-review case: when the request
   says to write the review for Conn, write it to `.conn/review.json` in that shape and post
   nothing. Its verdict rule is the posting rule it already has: approve when no P0 or P1
@@ -109,6 +111,11 @@ they post every comment and approve, so that path is one click.
   type, capped in bytes) and a pure function, ported from `post_review.py`'s hunk rule, marks each
   finding inline or summary-only. Summary-only findings are shown on the row with that label and
   go into the review body under an "Outside this PR's diff" heading, as the script does.
+- A draft whose diff cannot be read (GitHub off or rate limited, a failed call, a diff over the
+  cap) is stored with every finding in the body, and its diff is read again on a later tick, at
+  least a minute after a failed read, at most `maxDiffTries` failed reads per write of the file,
+  counted on the stored draft so a restart does not start them over. A posted draft is never
+  placed again.
 - If the PR's head has moved past the draft's `commit`, the row says so and Post review still
   posts against that commit (`commit_id`), so line positions stay right.
 

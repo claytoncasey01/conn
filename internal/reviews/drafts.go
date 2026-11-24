@@ -121,14 +121,16 @@ func (r *Reviews) placeAgain(ref launchRef) {
 	r.placeDraft(ref.key, launch, *launch.Draft, pull)
 }
 
-// unplaced is whether launch has a live, unposted draft whose findings were never placed on the
-// diff and whose diff may be read again.
+// unplaced is whether launch has a live, unposted draft with findings that were never placed on
+// the diff, and whose diff may be read again. A draft with no findings has nothing to place.
 func unplaced(launch *Launch) bool {
 	if anyOf(!liveDraft(launch), posted(launch)) {
 		return false
 	}
 
-	return all(launch.Draft.Inline == nil, launch.Draft.DiffTries < maxDiffTries)
+	draft := launch.Draft
+
+	return all(len(draft.Findings) > 0, draft.Inline == nil, draft.DiffTries < maxDiffTries)
 }
 
 // diffReadable is the PR key names when its diff may be read now: GitHub is on and its rate
