@@ -14,7 +14,7 @@
 // turn. A viewer that falls behind is dropped, so the reader of a program's output never waits
 // for anyone. A viewer holds one of its session's maxViewers places until it is closed: close it
 // when its client disconnects. Ended sessions are kept, for their exit code and scrollback, up to
-// maxEnded; the oldest is forgotten first.
+// maxEnded; the oldest is forgotten first, and Forget lets one go at once.
 //
 // Stopping: a stop signals the program's whole process group (the program is a session leader,
 // so the group's id is its pid): a polite SIGTERM, then SIGKILL if anything in the group is left
@@ -168,6 +168,9 @@ var (
 	ErrInvalidID = errors.New("not a session id")
 	// ErrEnded is input or a resize for a session whose program has ended.
 	ErrEnded = errors.New("the session has ended")
+	// ErrStillRunning is a Forget of a session whose program has not ended, or whose group is
+	// not known to be empty.
+	ErrStillRunning = errors.New("the session's program or its group is still running")
 	// ErrClosed is a Start after StopAll.
 	ErrClosed = errors.New("the host is stopping its sessions")
 	// ErrInvalidSpec is a Spec that cannot be started; each problem wraps it.
