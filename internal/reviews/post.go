@@ -5,7 +5,6 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/repos"
@@ -24,8 +23,6 @@ const (
 	eventComment = "COMMENT"
 	// codeBadGateway is GitHub refusing or failing a post.
 	codeBadGateway = 502
-	// postTimeout stops one post to GitHub: gh's own limit on a call.
-	postTimeout = 30 * time.Second
 	// maxReviewBodyUnits is the longest review body GitHub takes, 65,536 characters, counted
 	// in UTF-16 units as the draft's own limits are (a character outside the Basic Multilingual
 	// Plane counts as two, which errs towards refusing).
@@ -397,11 +394,9 @@ func (r *Reviews) send(ctx context.Context, request postRequest, built ReviewPos
 		err error
 	)
 
+	// The post is bounded where gh is run: gh.RunWithInput stops a call at gh's own time limit.
 	r.outside(func() {
-		bounded, cancel := context.WithTimeout(ctx, postTimeout)
-		defer cancel()
-
-		url, err = r.deps.Gh.PostReview(bounded, request.parts.Repo, request.parts.Number, built)
+		url, err = r.deps.Gh.PostReview(ctx, request.parts.Repo, request.parts.Number, built)
 	})
 
 	if err != nil {

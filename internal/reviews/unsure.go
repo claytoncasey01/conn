@@ -80,7 +80,7 @@ func (r *Reviews) checkPost(target launchID, sent unsurePost, login string) {
 		err   error
 	)
 
-	// gh's own limit on a call bounds the read.
+	// The read is bounded where gh is run: gh.GraphQL stops a call at gh's own time limit.
 	r.outside(func() {
 		found, err = r.deps.Gh.MyReviews(r.ctx, parts.Repo, parts.Number, login)
 	})
