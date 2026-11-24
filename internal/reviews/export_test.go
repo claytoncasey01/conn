@@ -72,3 +72,6 @@ func (r *Reviews) SetDeps(change func(deps *Deps)) {
 
 	change(&r.deps)
 }
+
+// MaxDiffBytes is the largest diff Positions reads.
+const MaxDiffBytes = maxDiffBytes

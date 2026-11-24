@@ -1,0 +1,8 @@
+diff --git a/a.go b/a.go
+--- a/a.go
++++ b/a.go
+@@ -20,4 +20,2 @@
+ keep
+-gone
+--- a comment line
+ tail

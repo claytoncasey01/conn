@@ -1,0 +1,14 @@
+Looks good.
+
+---
+
+**Outside this PR's diff** (GitHub can't attach these as line comments, so they're here instead):
+
+**docs/README.md:4**
+
+P3: Say what it is.
+
+**src/main.go:120**
+
+P1: This
+spans two.

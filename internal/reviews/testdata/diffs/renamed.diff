@@ -1,0 +1,10 @@
+diff --git a/old.go b/new.go
+similarity index 80%
+rename from old.go
+rename to new.go
+--- a/old.go
++++ b/new.go
+@@ -5,2 +5,2 @@
+ same
+-before
++after
