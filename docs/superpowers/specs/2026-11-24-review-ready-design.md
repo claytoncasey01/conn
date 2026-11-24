@@ -156,7 +156,7 @@ acme/app #12  Add retry to the uploader               [REVIEW READY]
   `"summary"`, a short markdown list of each fix and why it was needed (and what was not fixed,
   and why). My PRs reads it with the same checks as the replies (capped, cleaned, optional:
   a file without it still ends the round) and stores it on the round.
-- The My PRs row shows it in a collapsible "What this round fixed" block. Nothing is posted.
+- The My PRs row shows it in a collapsible "What round N fixed" block. Nothing is posted.
 
 ### Notifications
 
