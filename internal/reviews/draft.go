@@ -31,10 +31,10 @@ const (
 	// maxSummaryUnits is the longest summary after cleaning, in UTF-16 units; a longer one makes
 	// the whole file unreadable, it is never cut.
 	maxSummaryUnits = 8000
-	// maxFindingUnits is the longest finding body after cleaning, in UTF-16 units; a longer one
-	// is dropped whole, never cut. It is My PRs' limit for a reply (myprs.MaxReplyUnits, which
-	// this package cannot import: My PRs imports it).
-	maxFindingUnits = 2000
+	// MaxCommentUnits is the longest comment Conn writes to GitHub after cleaning, in UTF-16
+	// units: a review's finding here, and a reply in My PRs. A longer one is dropped whole, never
+	// cut. It is defined here, as My PRs imports this package and not the other way.
+	MaxCommentUnits = 2000
 )
 
 // commitShape is a full commit sha, as git prints it.
@@ -65,7 +65,7 @@ type Draft struct {
 // cleaned, a verdict that is not approve or comment), all of them at once; with any, the draft
 // is empty. A finding is dropped whole, and counted, when its path is not a clean relative path,
 // its line is not a positive whole number, its side (RIGHT when absent) or severity is not in
-// its table, or its body is empty or over maxFindingUnits once cleaned. No more than
+// its table, or its body is empty or over MaxCommentUnits once cleaned. No more than
 // maxDraftFindings are kept; the rest count as dropped.
 func AcceptDraft(raw any) (Draft, []string) {
 	empty := Draft{Commit: "", Summary: "", Verdict: "", Findings: []Finding{}, Dropped: 0}
@@ -212,7 +212,7 @@ func findingSide(value any) (string, bool) {
 	return side, isText && slices.Contains([]string{SideRight, SideLeft}, side)
 }
 
-// findingBody is a body once cleaned, when it is not empty and not over maxFindingUnits.
+// findingBody is a body once cleaned, when it is not empty and not over MaxCommentUnits.
 func findingBody(value any) (string, bool) {
 	body, isText := text(value)
 	if !isText {
@@ -220,7 +220,7 @@ func findingBody(value any) (string, bool) {
 	}
 
 	cleaned := CleanMultiline(body)
-	if cleaned == "" || js.Len(cleaned) > maxFindingUnits {
+	if cleaned == "" || js.Len(cleaned) > MaxCommentUnits {
 		return "", false
 	}
 

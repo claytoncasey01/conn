@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
+	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
 // The reply file a Self-Review session writes (`.conn/replies.json`): what of it Conn believes.
@@ -11,9 +12,6 @@ import (
 // checked and the file can never grow a proposal list without limit.
 
 const (
-	// MaxReplyUnits is the longest reply text after cleaning, in UTF-16 units; a longer one is
-	// dropped whole, never cut.
-	MaxReplyUnits = 2000
 	// RepliesPerRead is the most entries taken from one read of the file.
 	RepliesPerRead = 50
 	// MaxRepliesFileBytes is the largest file that is read at all.
@@ -41,9 +39,9 @@ type Replies struct {
 
 // AcceptReplies are the entries of `{"threads":[{"threadId","text"}]}` that may become
 // proposals: the thread is one of open (the PR's unresolved threads, outdated ones included),
-// the text a string of at most MaxReplyUnits units once cleaned with its line breaks kept (an
-// empty or all-blank one means resolve only), a thread appears once (the first entry wins) and
-// no more than RepliesPerRead are kept. An otherwise good entry for a thread in settled
+// the text a string of at most reviews.MaxCommentUnits units once cleaned with its line breaks
+// kept (an empty or all-blank one means resolve only), a thread appears once (the first entry
+// wins) and no more than RepliesPerRead are kept. An otherwise good entry for a thread in settled
 // (resolved since the file was written) is passed over like a taken one. Dropped counts every
 // other entry, so the count for one file stays the same while its threads are resolved.
 func AcceptReplies(raw any, open, settled map[string]bool) Replies {
@@ -132,7 +130,7 @@ func replyEntry(value any, seen map[string]bool) (string, string, bool) {
 	}
 
 	cleaned := CleanMultiline(body, noCut)
-	if js.Len(cleaned) > MaxReplyUnits {
+	if js.Len(cleaned) > reviews.MaxCommentUnits {
 		return "", "", false
 	}
 

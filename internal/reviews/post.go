@@ -111,7 +111,7 @@ func buildPost(draft StoredDraft, ticked []int, verdict string) (ReviewPost, []e
 	body := ReviewBody(draft.Summary, outside)
 
 	// Each line comment is within GitHub's limit already: a finding's body is at most
-	// maxFindingUnits.
+	// MaxCommentUnits.
 	if js.Len(body) > maxReviewBodyUnits {
 		empty := ReviewPost{Commit: "", Event: "", Body: "", Comments: []PostComment{}}
 

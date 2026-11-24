@@ -16,6 +16,7 @@ import (
 
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/repos"
+	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
 // ReplyQuery and ResolveQuery are the two thread writes.
@@ -97,7 +98,7 @@ func replyText(body string) bool {
 		return false
 	}
 
-	if units > MaxReplyUnits {
+	if units > reviews.MaxCommentUnits {
 		return false
 	}
 
