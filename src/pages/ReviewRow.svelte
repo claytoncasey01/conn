@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { href } from '../lib/router.svelte.ts'
+  import { untrack } from 'svelte'
+  import { href, router } from '../lib/router.svelte.ts'
+  import { rowId, rowKey } from '../lib/routes.ts'
   import { dur } from '../lib/format.ts'
   import { safeUrl } from '../lib/reviewGroups.ts'
   import { loadModel, saveModel, startReview } from '../lib/reviewsApi.ts'
@@ -18,6 +20,14 @@
     /** Reviews cannot be started right now (setup, GitHub off, or GitHub was never read) */
     offReason: string | null
   } = $props()
+
+  // A link to this row (#/reviews/<key>, an alert's) scrolls it into view when the page opens and on every hash change.
+  $effect(() => {
+    void router.route
+    untrack(() => {
+      if (rowKey(location.hash, 'reviews') === row.key) document.getElementById(rowId('reviews', row.key))?.scrollIntoView({ block: 'center' })
+    })
+  })
 
   let model = $state<'sonnet' | 'opus'>(loadModel())
   function pick(m: 'sonnet' | 'opus') {
@@ -87,7 +97,7 @@
   const btn = 'font: inherit; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571); padding: 8px 16px; min-height: 44px; box-sizing: border-box; border-radius: var(--radius)'
 </script>
 
-<article class="surf" aria-label="PR {row.repo}#{row.number}" style="position: relative; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 12px 18px; --rim: {done ? 'color-mix(in oklch, var(--edge) 10%, transparent)' : 'color-mix(in oklch, var(--edge) 18%, transparent)'}; --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--edge) calc({done ? 0.025 : 0.06} * 100%), transparent), color-mix(in oklch, var(--panel) 92%, transparent) 55%)">
+<article id={rowId('reviews', row.key)} class="surf" aria-label="PR {row.repo}#{row.number}" style="position: relative; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 12px 18px; --rim: {done ? 'color-mix(in oklch, var(--edge) 10%, transparent)' : 'color-mix(in oklch, var(--edge) 18%, transparent)'}; --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--edge) calc({done ? 0.025 : 0.06} * 100%), transparent), color-mix(in oklch, var(--panel) 92%, transparent) 55%)">
   <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px">
     <span data-content style="font-size: 12px; letter-spacing: calc(var(--tracking) * 0.5714); color: var(--mu); overflow-wrap: anywhere">{row.repo}</span>
     {#if github}

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { attention, diffAlerts, newSeen, oneLine } from './alerts.ts'
+import { attention, diffAlerts, MAX_SEEN_READY, MAX_SEEN_ROUNDS, newSeen, oneLine } from './alerts.ts'
 import type { MyPrDraft, MyPrRow, ReviewDraft, ReviewFinding, ReviewRow, Snapshot } from './types.ts'
 
 const sess = (id: string, status: string) => ({ id, name: 'n' + id, status, waitingFor: status === 'waiting' ? 'permission prompt' : null, activity: 'did a thing' })
@@ -522,7 +522,7 @@ test('a Reviews row entering ready raises one alert that opens Reviews, and the 
   const seen = newSeen()
   diffAlerts(seen, withReviews(reviewRow()))
   const a = diffAlerts(seen, withReviews(readyRow()))
-  assert.deepEqual(a, [{ tag: 'vacme/app#12:1000', title: 'acme/app#12 review ready', body: 'approve, 3 comments', href: '#/reviews' }])
+  assert.deepEqual(a, [{ tag: 'vacme/app#12:1000', title: 'acme/app#12 review ready', body: 'approve, 3 comments', href: '#/reviews/acme%2Fapp%2312' }])
   assert.equal(diffAlerts(seen, withReviews(readyRow())).length, 0)
 })
 
@@ -571,13 +571,24 @@ test('a row that is not ready, or a posted marker, does not alert', () => {
   assert.equal(diffAlerts(seen, withReviews(reviewRow(), posted, reviewRow({ key: 'acme/app#14', number: 14, state: 'ready', draft: null }))).length, 0)
 })
 
-test('the seen marks of a row that left the list are dropped, so the set stays as small as the list', () => {
+test('a row that leaves the list and returns with the same draft raises nothing', () => {
   const seen = newSeen()
   diffAlerts(seen, withReviews())
-  diffAlerts(seen, withReviews(readyRow()))
+  assert.equal(diffAlerts(seen, withReviews(readyRow())).length, 1)
+  // A Slack scan failing hides the rows only it found, and they come back as they were.
+  assert.equal(diffAlerts(seen, withReviews()).length, 0)
+  assert.equal(diffAlerts(seen, withReviews(readyRow())).length, 0)
   assert.equal(seen.ready.size, 1)
+})
+
+test('the ready set is capped and forgets the oldest draft first', () => {
+  const seen = newSeen()
   diffAlerts(seen, withReviews())
-  assert.equal(seen.ready.size, 0)
+  const rows = (from: number, to: number) => Array.from({ length: to - from }, (_, n) => readyRow({ key: `acme/app#${from + n}`, number: from + n }))
+  assert.equal(diffAlerts(seen, withReviews(...rows(0, MAX_SEEN_READY + 1))).length, MAX_SEEN_READY + 1)
+  assert.equal(seen.ready.size, MAX_SEEN_READY)
+  assert.ok(!seen.ready.has('vacme/app#0:1000'))
+  assert.ok(seen.ready.has(`vacme/app#${MAX_SEEN_READY}:1000`))
 })
 
 test('a title with control characters is one clean line in the review ready alert', () => {
@@ -596,7 +607,7 @@ test('a new round summary raises one alert with its first line that opens My PRs
   const seen = newSeen()
   diffAlerts(seen, withPrs(roundRow({ roundSummary: null })))
   const a = diffAlerts(seen, withPrs(roundRow()))
-  assert.deepEqual(a, [{ tag: 'macme/app#9:500', title: 'acme/app#9 self-review round 2 done', body: 'Fixed the nil check.', href: '#/myprs' }])
+  assert.deepEqual(a, [{ tag: 'macme/app#9:500', title: 'acme/app#9 self-review round 2 done', body: 'Fixed the nil check.', href: '#/myprs/acme%2Fapp%239' }])
   assert.equal(diffAlerts(seen, withPrs(roundRow())).length, 0)
 })
 
@@ -634,13 +645,24 @@ test('the summary line is trimmed, skips blank lines, is cut at a limit and has 
   }
 })
 
-test('the seen marks of a row that left My PRs are dropped', () => {
+test('a row that leaves My PRs and returns with the same summary raises nothing', () => {
   const seen = newSeen()
   diffAlerts(seen, withPrs())
-  diffAlerts(seen, withPrs(roundRow()))
+  assert.equal(diffAlerts(seen, withPrs(roundRow())).length, 1)
+  // A poll that lists fewer rows (capped) drops it for a while.
+  assert.equal(diffAlerts(seen, withPrs()).length, 0)
+  assert.equal(diffAlerts(seen, withPrs(roundRow())).length, 0)
   assert.equal(seen.rounds.size, 1)
+})
+
+test('the rounds set is capped and forgets the oldest summary first', () => {
+  const seen = newSeen()
   diffAlerts(seen, withPrs())
-  assert.equal(seen.rounds.size, 0)
+  const rows = Array.from({ length: MAX_SEEN_ROUNDS + 1 }, (_, n) => roundRow({ number: n }))
+  assert.equal(diffAlerts(seen, withPrs(...rows)).length, MAX_SEEN_ROUNDS + 1)
+  assert.equal(seen.rounds.size, MAX_SEEN_ROUNDS)
+  assert.ok(!seen.rounds.has('macme/app#0:500'))
+  assert.ok(seen.rounds.has(`macme/app#${MAX_SEEN_ROUNDS}:500`))
 })
 
 test('a round alert and a Ready to post alert for one row are both raised', () => {

@@ -37,9 +37,9 @@ export interface Seen {
   myprs: Set<string>
   /** A Reviews view with a finished poll has been seen: the first one only seeds `ready` */
   reviewsSeeded: boolean
-  /** `v<key>:<launchAt>` of every review draft seen ready on a row still listed, so one draft alerts once */
+  /** `v<key>:<launchAt>` of every review draft seen ready, so one draft alerts once; kept past the row leaving the list, bounded by `MAX_SEEN_READY` */
   ready: Set<string>
-  /** `m<repo>#<number>:<launchAt>` of the round summary each listed My PRs row has shown, so one summary alerts once */
+  /** `m<repo>#<number>:<launchAt>` of every round summary seen, so one summary alerts once; kept past the row leaving the list, bounded by `MAX_SEEN_ROUNDS` */
   rounds: Set<string>
 }
 
@@ -61,6 +61,9 @@ const TITLE_MAX = 80
 const BODY_MAX = 120
 /** A PR title in the body of a failed-draft alert, leaving the rest of the line for the reason */
 const FAILED_TITLE_MAX = 50
+/** How many review drafts and round summaries are remembered as seen; past it the oldest are forgotten, which can only repeat a very old alert */
+export const MAX_SEEN_READY = 500
+export const MAX_SEEN_ROUNDS = 500
 /** What a round summary says when its first line is empty */
 const NO_SUMMARY_LINE = 'summary written'
 /** A finding at this severity or worse holds a review back from an approval */
@@ -137,27 +140,35 @@ function readyBody(row: ReviewRow): string {
   return parts.filter(Boolean).join(', ')
 }
 
+/** Remember a tag, forgetting the oldest ones past `max` (a Set keeps its insertion order). Returns whether the tag was new. */
+function remember(set: Set<string>, tag: string, max: number): boolean {
+  if (set.has(tag)) return false
+  set.add(tag)
+  for (const oldest of set) {
+    if (set.size <= max) break
+    set.delete(oldest)
+  }
+  return true
+}
+
 /**
  * Reviews rows that entered REVIEW READY. The tag names the row and its draft's launch, so one draft alerts once, a newer launch alerts
- * again, and a row that leaves and re-enters ready with the same draft stays quiet. Only rows still listed are remembered.
+ * again, and a row that drops off the list for a while (a Slack scan failing hides the rows only it found) and returns stays quiet.
+ * The tags are kept, not derived from the rows now listed, and bounded by `MAX_SEEN_READY`.
  */
 function reviewReadyAlerts(seen: Seen, view: ReviewsView | undefined): Alert[] {
   // Before the first poll the view has no rows because none were read: it must not seed
   if (!view || view.lastPollAt === null) return []
   const first = !seen.reviewsSeeded
   const out: Alert[] = []
-  const next = new Set<string>()
   for (const r of view.rows) {
-    if (!r.draft) continue
+    if (!r.draft || r.state !== 'ready') continue
     const tag = `v${r.key}:${r.draft.launchAt}`
-    const known = seen.ready.has(tag)
-    if (r.state !== 'ready' && !known) continue
-    next.add(tag)
-    if (r.state !== 'ready' || known || first) continue
-    out.push({ tag, title: oneLine(`${r.repo}#${r.number} review ready`, TITLE_MAX), body: readyBody(r), href: href.reviews() })
+    const isNew = remember(seen.ready, tag, MAX_SEEN_READY)
+    if (!isNew || first) continue
+    out.push({ tag, title: oneLine(`${r.repo}#${r.number} review ready`, TITLE_MAX), body: readyBody(r), href: href.reviews(r.key) })
   }
   seen.reviewsSeeded = true
-  seen.ready = next
   return out
 }
 
@@ -175,16 +186,14 @@ function roundAlerts(seen: Seen, view: MyPrsView | undefined): Alert[] {
   if (!view?.loaded) return []
   const first = !seen.myprsSeeded
   const out: Alert[] = []
-  const next = new Set<string>()
   for (const r of view.rows) {
     if (!r.roundSummary) continue
     const tag = `m${r.repo}#${r.number}:${r.roundSummary.launchAt}`
-    next.add(tag)
-    if (first || seen.rounds.has(tag)) continue
+    const isNew = remember(seen.rounds, tag, MAX_SEEN_ROUNDS)
+    if (!isNew || first) continue
     const title = oneLine(`${r.repo}#${r.number} self-review round ${r.roundSummary.round} done`, TITLE_MAX)
-    out.push({ tag, title, body: summaryLine(r.roundSummary.text), href: href.myprs() })
+    out.push({ tag, title, body: summaryLine(r.roundSummary.text), href: href.myprs(`${r.repo}#${r.number}`) })
   }
-  seen.rounds = next
   return out
 }
 

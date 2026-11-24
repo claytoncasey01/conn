@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { dur, whenLabel } from './format.ts'
   import { startSelf } from './myPrsApi.ts'
+  import { router } from './router.svelte.ts'
+  import { rowId, rowKey } from './routes.ts'
   import { clock, draftView, statusText } from './myPrsDraftView.ts'
   import { settleStarted, startedShows, type StartedAt } from './myPrsStarted.ts'
   import ThreadPanel from './ThreadPanel.svelte'
@@ -13,6 +16,15 @@
 
   // Everything in `row` came from GitHub: it is only ever shown as text, and a link is used only when it is https.
   let { row, now, channel }: { row: MyPrRow; now: number; channel: string | null } = $props()
+
+  const key = $derived(`${row.repo}#${row.number}`)
+  // A link to this row (#/myprs/<repo#number>, an alert's) scrolls it into view when the page opens and on every hash change.
+  $effect(() => {
+    void router.route
+    untrack(() => {
+      if (rowKey(location.hash, 'myprs') === key) document.getElementById(rowId('myprs', key))?.scrollIntoView({ block: 'center' })
+    })
+  })
 
   const STATUS: Record<MyPrStatus, { fg: string; line: string }> = {
     'no-clone': { fg: 'var(--mu)', line: 'color-mix(in oklch, var(--edge) 30%, transparent)' },
@@ -108,7 +120,7 @@
   const btn = 'font: inherit; font-size: 12px; letter-spacing: calc(var(--tracking) * 0.8571); padding: 8px 16px; min-height: 44px; box-sizing: border-box; border-radius: var(--radius)'
 </script>
 
-<article class="surf" aria-label="{row.repo} PR {row.number}" style="position: relative; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 12px 18px; --rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--edge) 6%, transparent), color-mix(in oklch, var(--panel) 92%, transparent) 55%)">
+<article id={rowId('myprs', key)} class="surf" aria-label="{row.repo} PR {row.number}" style="position: relative; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 12px 18px; --rim: color-mix(in oklch, var(--edge) 18%, transparent); --r: calc(var(--radius) * 1.5); --wash: linear-gradient(170deg, color-mix(in oklch, var(--edge) 6%, transparent), color-mix(in oklch, var(--panel) 92%, transparent) 55%)">
   <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px">
     <span style="font-size: 11px; letter-spacing: calc(var(--tracking) * 0.5714); color: var(--mu); overflow-wrap: anywhere">{row.repo}</span>
     {#if github}

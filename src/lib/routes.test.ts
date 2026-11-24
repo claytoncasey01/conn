@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { href, isAgentId, isHistoryId, needsSetup, parseRoute, type Route } from './routes.ts'
+import { href, isAgentId, isHistoryId, needsSetup, parseRoute, rowId, rowKey, type Route } from './routes.ts'
 
 const UUID = '0f3c2a9e-1b2d-4c5e-8f70-123456789abc'
 
@@ -132,4 +132,26 @@ test('isHistoryId and isAgentId accept only the shapes the server accepts', () =
   assert.equal(isAgentId('lead'), true)
   assert.equal(isAgentId('a1b2-c3_d4'), true)
   for (const bad of ['', '../x', 'a/b', 'a b', 'x'.repeat(129), '%2F']) assert.equal(isAgentId(bad), false, bad)
+})
+
+test('a keyed Reviews or My PRs link opens that page and names its row', () => {
+  assert.equal(href.reviews('acme/app#12'), '#/reviews/acme%2Fapp%2312')
+  assert.equal(href.myprs('Acme/App#9'), '#/myprs/Acme%2FApp%239')
+  assert.deepEqual(parseRoute(href.reviews('acme/app#12')), { page: 'reviews' })
+  assert.deepEqual(parseRoute(href.myprs('Acme/App#9')), { page: 'myprs' })
+  assert.equal(rowKey(href.reviews('acme/app#12'), 'reviews'), 'acme/app#12')
+  assert.equal(rowKey(href.myprs('Acme/App#9'), 'myprs'), 'Acme/App#9')
+})
+
+test('rowKey names no row for a plain page, another page or a bad escape', () => {
+  assert.equal(rowKey('#/reviews', 'reviews'), null)
+  assert.equal(rowKey('#/myprs/a%2Fb%231', 'reviews'), null)
+  assert.equal(rowKey('#/reviews/%E0%A4%A', 'reviews'), null)
+  assert.equal(rowKey('', 'reviews'), null)
+})
+
+test('a row id is stable, per page and per key', () => {
+  assert.equal(rowId('reviews', 'acme/app#12'), 'row-reviews-acme/app#12')
+  assert.notEqual(rowId('reviews', 'a#1'), rowId('myprs', 'a#1'))
+  assert.equal(rowId('myprs', 'Acme/App#9'), rowId('myprs', 'Acme/App#9'))
 })
