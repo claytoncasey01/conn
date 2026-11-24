@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -116,6 +117,10 @@ func TestReviewDisallowedBlocksEveryGitHubWrite(t *testing.T) {
 		"Bash(*post_review.py*)", "Bash(gh api *-X*)", "Bash(gh api *--method*)",
 		"Bash(gh api *-f *)", "Bash(gh api *-F *)", "Bash(gh api *--field*)",
 		"Bash(gh api *--raw-field*)", "Bash(gh api *--input*)", "Bash(gh api graphql*)",
+		"Bash(gh api * -f*)", "Bash(gh api * -F*)", "Bash(gh api -f*)", "Bash(gh api -F*)",
+		"Bash(gh issue comment:*)", "Bash(gh issue close:*)", "Bash(gh issue edit:*)",
+		"Bash(gh pr edit:*)", "Bash(gh pr close:*)", "Bash(gh pr ready:*)",
+		"Bash(gh pr reopen:*)",
 	}, claude.SlackWrite())
 
 	for _, rule := range tests {
@@ -124,6 +129,70 @@ func TestReviewDisallowedBlocksEveryGitHubWrite(t *testing.T) {
 
 			if !slices.Contains(rules, rule) {
 				t.Errorf("ReviewDisallowed() lacks %q", rule)
+			}
+		})
+	}
+}
+
+// ruleMatches is whether a Bash permission rule refuses command, read as Claude Code reads one:
+// a trailing ":*" matches any rest of the command and each other "*" any text.
+func ruleMatches(rule, command string) bool {
+	inner, isBash := strings.CutPrefix(rule, "Bash(")
+	if !isBash {
+		return false
+	}
+
+	inner = strings.TrimSuffix(inner, ")")
+	inner = strings.Replace(inner, ":*", "*", 1)
+
+	parts := strings.Split(inner, "*")
+	for index, part := range parts {
+		parts[index] = regexp.QuoteMeta(part)
+	}
+
+	return regexp.MustCompile("^" + strings.Join(parts, ".*") + "$").MatchString(command)
+}
+
+// TestReviewDisallowedRefusesWritesAndKeepsReads: each GitHub write a review session might
+// try is refused by some rule, with a short flag glued to its value too, and a read of a repo
+// whose name holds a dash and a letter stays allowed.
+func TestReviewDisallowedRefusesWritesAndKeepsReads(t *testing.T) {
+	t.Parallel()
+
+	rules := reviews.ReviewDisallowed()
+
+	tests := []struct {
+		command     string
+		wantRefused bool
+	}{
+		{"gh api repos/acme/web-frontend/pulls/1/comments -fbody=hi", true},
+		{"gh api repos/acme/web-frontend/pulls/1/comments -Fline=3", true},
+		{"gh api -fbody=hi repos/acme/app/issues/1/comments", true},
+		{"gh api -Fbody=@file repos/acme/app/issues/1/comments", true},
+		{"gh issue comment 7 --body hi", true},
+		{"gh issue close 7", true},
+		{"gh issue edit 7 --title x", true},
+		{"gh pr edit 7 --title x", true},
+		{"gh pr close 7", true},
+		{"gh pr ready 7", true},
+		{"gh pr reopen 7", true},
+		{"gh pr review 7 --approve", true},
+		{"gh api repos/acme/web-frontend/pulls/1/comments", false},
+		{"gh api repos/acme/fast-Forward/pulls/1", false},
+		{"gh pr view 7 --comments", false},
+		{"gh pr diff 7", false},
+		{"gh issue view 7", false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.command, func(t *testing.T) {
+			t.Parallel()
+
+			refused := slices.ContainsFunc(rules, func(rule string) bool {
+				return ruleMatches(rule, test.command)
+			})
+			if refused != test.wantRefused {
+				t.Errorf("refused = %v, want %v", refused, test.wantRefused)
 			}
 		})
 	}

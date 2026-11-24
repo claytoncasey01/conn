@@ -250,18 +250,28 @@ func (p Prompts) BuildPrompt(number int64, reReviewSha *string, repo string) (st
 const DraftFile = "review.json"
 
 // ReviewDisallowed is what a review session can never do, whatever its settings allow: send to
-// Slack, or write to GitHub, since Conn posts the review once the person has checked it (the
-// prompt forbids posting too; these rules are the backstop). It covers `gh pr review`, `comment`
-// and `merge`; the skill's own poster, post_review.py; and `gh api` in every form that can
-// write: an explicit method (-X, --method, with or without a space), a body (-f, -F, --field,
-// --raw-field, --input, which make gh send a POST) and `graphql`, whose mutations write. A plain
-// `gh api` GET stays usable, to read comments. A rule's `*` matches any text, so a rule can match
-// more than it names; that errs towards refusing.
+// Slack, or write to GitHub, since Conn posts the review once the person has checked it. The
+// prompt forbids posting; these rules are a guard beside it against the forms a session is
+// likely to reach for, not a proof against every possible way of writing. They cover `gh pr`
+// review, comment, merge, edit, close, ready and reopen; `gh issue` comment, close and edit; the
+// skill's own poster, post_review.py; and `gh api` with an explicit method (-X, --method), a
+// body (-f, -F, glued to their value or not, --field, --raw-field, --input, which make gh send a
+// POST) or `graphql`, whose mutations write. The glued short flags are matched after a space, so
+// a repo name holding "-f" is not refused. A plain `gh api` GET stays usable, to read comments.
+// A rule's `*` matches any text, so a rule can match more than it names; that errs towards
+// refusing.
 func ReviewDisallowed() []string {
 	return append(claude.SlackWrite(),
 		"Bash(gh pr review:*)",
 		"Bash(gh pr comment:*)",
 		"Bash(gh pr merge:*)",
+		"Bash(gh pr edit:*)",
+		"Bash(gh pr close:*)",
+		"Bash(gh pr ready:*)",
+		"Bash(gh pr reopen:*)",
+		"Bash(gh issue comment:*)",
+		"Bash(gh issue close:*)",
+		"Bash(gh issue edit:*)",
 		"Bash(*post_review.py*)",
 		"Bash(gh api --method POST:*)",
 		"Bash(gh api -X POST:*)",
@@ -271,6 +281,10 @@ func ReviewDisallowed() []string {
 		"Bash(gh api *--method*)",
 		"Bash(gh api *-f *)",
 		"Bash(gh api *-F *)",
+		"Bash(gh api -f*)",
+		"Bash(gh api -F*)",
+		"Bash(gh api * -f*)",
+		"Bash(gh api * -F*)",
 		"Bash(gh api *--field*)",
 		"Bash(gh api *--raw-field*)",
 		"Bash(gh api *--input*)",
