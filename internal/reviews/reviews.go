@@ -97,6 +97,9 @@ type GitHub interface {
 		*js.Map[*PR], error)
 	// Diff is the diff of repo from baseRef to commit, as GitHub shows a PR's.
 	Diff(ctx context.Context, repo, baseRef, commit string) (string, error)
+	// PostReview posts post to PR number of repo as one review, and answers where it is ("" when
+	// GitHub did not say).
+	PostReview(ctx context.Context, repo string, number int64, post ReviewPost) (string, error)
 }
 
 // SettingsSource is the settings holder: read again on every tick.
@@ -258,6 +261,8 @@ type state struct {
 	drafting map[*Launch]bool
 	// draftLooked are the closed launches whose draft file was looked at since they closed.
 	draftLooked map[*Launch]bool
+	// posting are the launches whose review is being posted now.
+	posting map[launchID]bool
 }
 
 // New is Reviews over deps; nothing runs until Run (or Tick) is called.
@@ -282,7 +287,7 @@ func New(ctx context.Context, deps Deps) *Reviews {
 		finishing: map[string]bool{}, idleSince: map[string]float64{},
 		nextLook: map[string]float64{}, seenPid: map[*Launch]float64{},
 		clones: map[string]cloneHit{}, drafting: map[*Launch]bool{},
-		draftLooked: map[*Launch]bool{},
+		draftLooked: map[*Launch]bool{}, posting: map[launchID]bool{},
 	}
 }
 

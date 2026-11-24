@@ -33,6 +33,8 @@ const (
 	pollMs    = 180_000
 	gateWait  = 5 * time.Second
 	gateDepth = 64
+	// worldReviewURL is where GitHub says a posted review is.
+	worldReviewURL = "https://github.com/acme/widgets/pull/7#pullrequestreview-1"
 )
 
 // errGhHiccup is a read by number that fails once, as gh can.
@@ -279,8 +281,13 @@ type world struct {
 	// as "<repo> <base>...<commit>".
 	diff      func(repo, baseRef, commit string) (string, error)
 	diffCalls []string
-	dir       string
-	file      string
+	// postResult is GitHub's answer to a posted review; posts are the reviews posted, and
+	// postGate holds every post.
+	postResult func() (string, error)
+	posts      []worldPost
+	postGate   *gate
+	dir        string
+	file       string
 }
 
 // setupOpts are what a test starts from.
@@ -357,8 +364,9 @@ func newWorld(dir, file string, current settings.Settings, open []*reviews.PR,
 		originOf:   func(string) string { return "" },
 		worktreeOf: func(string) string { return "/nowhere/clones/widgets" },
 		known:      map[string]*reviews.PR{}, dir: dir, file: file,
-		drafts: map[string]worldDraftFile{},
-		diff:   func(string, string, string) (string, error) { return worldDiff, nil },
+		drafts:     map[string]worldDraftFile{},
+		diff:       func(string, string, string) (string, error) { return worldDiff, nil },
+		postResult: func() (string, error) { return worldReviewURL, nil },
 	}
 }
 
@@ -863,4 +871,24 @@ func (g worldGh) Diff(_ context.Context, repo, baseRef, commit string) (string, 
 	g.w.mu.Unlock()
 
 	return answer(repo, baseRef, commit)
+}
+
+// worldPost is one review posted to GitHub.
+type worldPost struct {
+	repo   string
+	number int64
+	post   reviews.ReviewPost
+}
+
+func (g worldGh) PostReview(_ context.Context, repo string, number int64,
+	post reviews.ReviewPost,
+) (string, error) {
+	g.w.mu.Lock()
+	g.w.posts = append(g.w.posts, worldPost{repo: repo, number: number, post: post})
+	held, answer := g.w.postGate, g.w.postResult
+	g.w.mu.Unlock()
+
+	held.pass()
+
+	return answer()
 }

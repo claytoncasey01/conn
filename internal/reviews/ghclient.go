@@ -58,6 +58,8 @@ const (
 	diffMediaType   = "Accept: application/vnd.github.diff"
 	typeNotFound    = "NOT_FOUND"
 	typeRateLimited = "RATE_LIMITED"
+	// ghAPI is gh's command for a call to GitHub's API.
+	ghAPI = "api"
 )
 
 // Why a PR's diff is not read.
@@ -65,6 +67,9 @@ var (
 	errDiffUnsafe   = errors.New("the PR's repo, base or commit is not safe to read a diff of")
 	errDiffTooLarge = errors.New("the PR's diff is too large to read")
 )
+
+// errPostUnsafe is a review not posted because its repo or number is not safe in the path.
+var errPostUnsafe = errors.New("the PR's repo or number is not safe to post a review to")
 
 // FailureError is a GitHub call that failed, in the words Conn shows.
 type FailureError struct {
@@ -106,6 +111,63 @@ type Gh struct {
 	Exec GhExec
 	// Large runs the calls whose answer may be large (a PR's diff), with the room gh.Large has.
 	Large GhExec
+	// Send runs the calls that write a body to GitHub (a review), fed to gh on stdin.
+	Send GhSend
+}
+
+// GhSend runs gh with these arguments (no shell) and input on its stdin, and answers what it
+// printed.
+type GhSend func(ctx context.Context, args []string, input string) (string, error)
+
+// PostReview posts post to PR number of repo as one review (`gh api --method POST
+// repos/<repo>/pulls/<n>/reviews --input -`, the review as JSON on stdin) and answers the
+// review's html_url. It fails without a call when repo or number is not safe in the path, and
+// fails with gh's own message when gh does. A review GitHub took but whose answer does not
+// read is still posted: it answers "", never an error that would invite posting it again.
+func (g Gh) PostReview(ctx context.Context, repo string, number int64, post ReviewPost) (
+	string, error,
+) {
+	if !all(repos.IsName(repo), safeNumber(number)) {
+		return "", errPostUnsafe
+	}
+
+	if g.Send == nil {
+		panic("reviews: Gh.PostReview called with no Send to run gh with")
+	}
+
+	path := "repos/" + repo + "/pulls/" + strconv.FormatInt(number, 10) + "/reviews"
+
+	out, err := g.Send(ctx, []string{ghAPI, "--method", "POST", path, "--input", "-"},
+		string(js.Marshal(reviewPayload(post))))
+	if err != nil {
+		return "", asIs(err)
+	}
+
+	return reviewURL(out), nil
+}
+
+// reviewPayload is post as GitHub's create-review call takes it, its keys in GitHub's own
+// spelling.
+func reviewPayload(post ReviewPost) *js.Object {
+	payload := js.NewObject()
+	payload.Set("commit_id", post.Commit)
+	payload.Set("event", post.Event)
+	payload.Set("body", post.Body)
+	payload.Set("comments", post.Comments)
+
+	return payload
+}
+
+// reviewURL is the html_url of a posted review's answer, "" when the answer does not say.
+func reviewURL(answer string) string {
+	parsed, err := js.Parse([]byte(answer))
+	if err != nil {
+		return ""
+	}
+
+	url, _ := text(memberOf(object(parsed), "html_url"))
+
+	return url
 }
 
 // Diff is the diff of repo from baseRef to commit, the three-dot compare GitHub shows a PR's
@@ -121,7 +183,7 @@ func (g Gh) Diff(ctx context.Context, repo, baseRef, commit string) (string, err
 	}
 
 	out, err := g.Large(ctx, []string{
-		"api", "-H", diffMediaType, "repos/" + repo + "/compare/" + baseRef + "..." + commit,
+		ghAPI, "-H", diffMediaType, "repos/" + repo + "/compare/" + baseRef + "..." + commit,
 	})
 	if err != nil {
 		return "", asIs(err)
@@ -151,7 +213,7 @@ type SearchResult struct {
 
 // Login is the signed-in GitHub login.
 func (g Gh) Login(ctx context.Context) (string, error) {
-	out, err := g.Exec(ctx, []string{"api", "user", "--jq", ".login"})
+	out, err := g.Exec(ctx, []string{ghAPI, "user", "--jq", ".login"})
 	if err != nil {
 		return "", err
 	}
@@ -267,7 +329,7 @@ type graphqlError struct {
 // rate limit is used up is a *ghbudget.RateLimitError.
 func (g Gh) graphql(ctx context.Context, query string, strs, ints []variable) (answer, error) {
 	args := make([]string, 0, graphqlArgsFixed+2*len(strs)+2*len(ints))
-	args = append(args, "api", "graphql", "-f", "query="+query)
+	args = append(args, ghAPI, "graphql", "-f", "query="+query)
 
 	for _, item := range strs {
 		args = append(args, "-f", item.name+"="+item.value)

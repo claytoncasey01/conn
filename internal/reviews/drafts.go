@@ -85,15 +85,17 @@ func (r *Reviews) draftWaits(ref launchRef) bool {
 
 // draftLaunch is the launch of a PR whose draft file is looked at: its newest (the worktree is
 // the PR's, so the file is that session's), while it is Conn's own, has no diff being read for
-// it, has not posted its draft and, once closed, has not been looked at since; nil when there is
-// none.
+// it and no review being posted, has not posted its draft and, once closed, has not been looked
+// at since; nil when there is none.
 func (r *Reviews) draftLaunch(ref launchRef) *Launch {
 	if len(ref.entry.Launches) == 0 {
 		return nil
 	}
 
 	launch := ref.entry.Launches[len(ref.entry.Launches)-1]
-	if anyOf(r.draftLooked[launch], r.drafting[launch], posted(launch)) {
+
+	posting := r.posting[launchID{key: ref.key, at: launch.At}]
+	if anyOf(r.draftLooked[launch], r.drafting[launch], posting, posted(launch)) {
 		return nil
 	}
 
@@ -254,6 +256,11 @@ func (r *Reviews) storeDraft(key string, launch *Launch, draft StoredDraft) {
 
 	index := indexOf(entry.Launches, launch)
 	if index < 0 {
+		return
+	}
+
+	// The draft being posted is the one the post records: a newer file is read again after it.
+	if r.posting[launchID{key: key, at: launch.At}] {
 		return
 	}
 

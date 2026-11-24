@@ -81,3 +81,23 @@ var (
 	ErrDiffUnsafe   = errDiffUnsafe
 	ErrDiffTooLarge = errDiffTooLarge
 )
+
+// Why a review is not built, or not posted.
+var (
+	ErrBadVerdict      = errBadVerdict
+	ErrBadFindings     = errBadFindings
+	ErrBlockerApproved = errBlockerApproved
+	ErrPostUnsafe      = errPostUnsafe
+)
+
+// Why a press of Post review is refused.
+const (
+	TextPostNoPR       = textPostNoPR
+	TextPostNoDraft    = textPostNoDraft
+	TextPostInFlight   = textPostInFlight
+	TextPostPosted     = textPostPosted
+	TextPostSetAside   = textPostSetAside
+	TextPostEnded      = textPostEnded
+	TextPostNotAllowed = textPostNotAllowed
+	TextPostGitHubOff  = textPostGitHubOff
+)

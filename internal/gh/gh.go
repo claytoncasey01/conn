@@ -52,6 +52,19 @@ func Run(ctx context.Context, args []string) (string, error) {
 	return "", &Error{Message: Message(result), Err: result.Err}
 }
 
+// RunWithInput runs gh with args as Run does, with Run's limits, and feeds it input on stdin: a
+// body too large or too free-form to pass as arguments, such as a review sent with --input -.
+func RunWithInput(ctx context.Context, args []string, input string) (string, error) {
+	result := run.Cmd(ctx, "gh", args, run.Opts{
+		Dir: "", Timeout: timeout, MaxOutputBytes: maxOutputBytes, Stdin: input, Env: nil,
+	})
+	if result.Err == nil {
+		return result.Stdout, nil
+	}
+
+	return "", &Error{Message: Message(result), Err: result.Err}
+}
+
 // GraphQL runs gh as Run does, with the longer limits a GraphQL query needs, and keeps what gh
 // printed when it fails: gh exits non-zero when an answer carries errors (a PR that is gone, one
 // organization's SAML rule) and still prints the answer, the parts that did resolve included.

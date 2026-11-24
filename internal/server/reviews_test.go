@@ -140,7 +140,7 @@ func TestReviewsPostsAreGuarded(t *testing.T) {
 		},
 	}
 
-	for _, route := range []string{"start", "refresh", "legacy"} {
+	for _, route := range []string{"start", "refresh", "legacy", "post"} {
 		for name, call := range cases {
 			t.Run(route+" "+name, func(t *testing.T) {
 				t.Parallel()

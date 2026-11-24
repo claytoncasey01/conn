@@ -120,7 +120,7 @@ func reviewsDeps(parts reviewsParts, live *sessions.Loop) reviews.Deps {
 	launch := launchDeps(parts, names)
 
 	return reviews.Deps{
-		Gh: reviews.Gh{Exec: gh.GraphQL, Large: gh.Large},
+		Gh: reviews.Gh{Exec: gh.GraphQL, Large: gh.Large, Send: gh.RunWithInput},
 		Scan: func(ctx context.Context, input reviews.ScanInput) (reviews.ScanResult, error) {
 			return reviews.RunScan(ctx, input, parts.runner.Run, scanConfig, nowMs())
 		},
