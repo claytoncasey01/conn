@@ -134,7 +134,7 @@ test('postReview sends the key, the launch, the write of the file shown, the tic
 })
 
 test("postReview gives the server's words for a refusal, whatever the status", async () => {
-  const held = 'Checking whether GitHub took the review: try again after the next poll'
+  const held = 'checking whether GitHub took the review: try again after the next poll'
   for (const status of [400, 403, 404, 409, 502]) {
     stub(status, { error: held })
     assert.deepEqual(await postReview('acme/app#12', 1, 2, [], 'approve'), { ok: false, error: held }, String(status))

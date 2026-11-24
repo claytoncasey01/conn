@@ -18,7 +18,7 @@ const (
 
 // Why a press is refused while posts are unsettled.
 const (
-	textPostChecking = "Checking whether GitHub took the review: try again after the next poll"
+	textPostChecking = "checking whether GitHub took the review: try again after the next poll"
 	textPostTooMany  = "too many reviews are being posted or checked: try again after the next poll"
 )
 

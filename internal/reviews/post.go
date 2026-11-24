@@ -50,7 +50,7 @@ const (
 	textPostBadFileAt  = "fileAt: not the time of a review file"
 	// textPostRewritten is a press made on a draft the file has since replaced: what was
 	// ticked was read off the old one.
-	textPostRewritten = "The review file was written again: check the new draft"
+	textPostRewritten = "the review file was written again: check the new draft"
 	textPostBadTicked = "findings: not a list of finding numbers"
 )
 
