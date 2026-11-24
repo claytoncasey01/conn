@@ -53,7 +53,10 @@ func Run(ctx context.Context, args []string) (string, error) {
 }
 
 // RunWithInput runs gh with args as Run does, with Run's limits, and feeds it input on stdin: a
-// body too large or too free-form to pass as arguments, such as a review sent with --input -.
+// body too large or too free-form to pass as arguments, such as a review sent with --input -. On
+// a failure what gh printed is returned beside the error: gh api prints GitHub's answer, whose
+// errors say why it refused, while the first line of stderr (all Message keeps) may say only
+// the status.
 func RunWithInput(ctx context.Context, args []string, input string) (string, error) {
 	result := run.Cmd(ctx, "gh", args, run.Opts{
 		Dir: "", Timeout: timeout, MaxOutputBytes: maxOutputBytes, Stdin: input, Env: nil,
@@ -62,7 +65,7 @@ func RunWithInput(ctx context.Context, args []string, input string) (string, err
 		return result.Stdout, nil
 	}
 
-	return "", &Error{Message: Message(result), Err: result.Err}
+	return result.Stdout, &Error{Message: Message(result), Err: result.Err}
 }
 
 // GraphQL runs gh as Run does, with the longer limits a GraphQL query needs, and keeps what gh

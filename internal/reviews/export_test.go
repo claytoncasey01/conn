@@ -95,6 +95,8 @@ const (
 	TextPostNoPR       = textPostNoPR
 	TextPostNoDraft    = textPostNoDraft
 	TextPostInFlight   = textPostInFlight
+	TextPostReading    = textPostReading
+	TextPostUnread     = textPostUnread
 	TextPostPosted     = textPostPosted
 	TextPostSetAside   = textPostSetAside
 	TextPostEnded      = textPostEnded

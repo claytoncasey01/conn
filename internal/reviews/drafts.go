@@ -259,11 +259,6 @@ func (r *Reviews) storeDraft(key string, launch *Launch, draft StoredDraft) {
 		return
 	}
 
-	// The draft being posted is the one the post records: a newer file is read again after it.
-	if r.posting[launchID{key: key, at: launch.At}] {
-		return
-	}
-
 	if launch.Draft != nil {
 		if anyOf(posted(launch), launch.Draft.FileAt >= draft.FileAt) {
 			return

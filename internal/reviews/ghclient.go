@@ -60,6 +60,8 @@ const (
 	typeRateLimited = "RATE_LIMITED"
 	// ghAPI is gh's command for a call to GitHub's API.
 	ghAPI = "api"
+	// maxReasonsShown is the most of GitHub's reasons for refusing a post that its error says.
+	maxReasonsShown = 5
 )
 
 // Why a PR's diff is not read.
@@ -140,10 +142,51 @@ func (g Gh) PostReview(ctx context.Context, repo string, number int64, post Revi
 	out, err := g.Send(ctx, []string{ghAPI, "--method", "POST", path, "--input", "-"},
 		string(js.Marshal(reviewPayload(post))))
 	if err != nil {
-		return "", asIs(err)
+		return "", refusedBy(out, err)
 	}
 
 	return reviewURL(out), nil
+}
+
+// postError is a post GitHub refused: gh's message, with GitHub's reasons after it.
+type postError struct {
+	message string
+	err     error
+}
+
+// Error is the message the page shows.
+func (e *postError) Error() string { return e.message }
+
+// Unwrap is gh's own error.
+func (e *postError) Unwrap() error { return e.err }
+
+// refusedBy is the error of a failed post: gh's, with the reasons GitHub's answer gives (its
+// errors, each a text or an object with a message) after it, when it gives any.
+func refusedBy(answer string, err error) error {
+	parsed, parseErr := js.Parse([]byte(answer))
+	if parseErr != nil {
+		return asIs(err)
+	}
+
+	list, _ := memberOf(object(parsed), "errors").([]any)
+	reasons := []string{}
+
+	for _, item := range list[:min(len(list), maxReasonsShown)] {
+		reason, isText := text(item)
+		if !isText {
+			reason, _ = text(memberOf(object(item), "message"))
+		}
+
+		if reason = js.Trim(reason); reason != "" {
+			reasons = append(reasons, js.Slice(reason, messageUnits))
+		}
+	}
+
+	if len(reasons) == 0 {
+		return asIs(err)
+	}
+
+	return &postError{message: err.Error() + ": " + strings.Join(reasons, "; "), err: err}
 }
 
 // reviewPayload is post as GitHub's create-review call takes it, its keys in GitHub's own

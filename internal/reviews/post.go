@@ -34,6 +34,8 @@ const (
 	textPostNoPR       = "that PR is not in the list"
 	textPostNoDraft    = "that launch has no review to post"
 	textPostInFlight   = "this review is being posted already"
+	textPostReading    = "the review file is being read again: try again in a moment"
+	textPostUnread     = "the PR has not been read from GitHub yet: try again after the next poll"
 	textPostPosted     = "this review was posted already"
 	textPostSetAside   = "this draft was set aside: a newer review replaced it"
 	textPostEnded      = "the PR has merged or closed, so its review is not posted"
@@ -325,9 +327,12 @@ func (r *Reviews) postRefusal(target launchID, entry *Entry, launch *Launch) str
 		why     string
 	}{
 		{refused: r.posting[target], why: textPostInFlight},
+		// A diff read in flight would store a newer draft than the one posted.
+		{refused: r.drafting[launch], why: textPostReading},
 		{refused: posted(launch), why: textPostPosted},
 		{refused: launch.Draft.SetAside != nil, why: textPostSetAside},
 		{refused: ended, why: textPostEnded},
+		{refused: !known, why: textPostUnread},
 		{refused: !repos.Allowed(parts.Repo, current.Repos.Allow), why: textPostNotAllowed},
 		{refused: !r.githubOn(&current), why: textPostGitHubOff},
 		// A post that could not be recorded would be posted again after a restart.

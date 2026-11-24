@@ -443,15 +443,7 @@ func TestASecondPostWhileOneIsInFlightIsRefused(t *testing.T) {
 
 	fakes.with(func(w *world) { w.postGate = held })
 
-	first := make(chan reviews.Reply, 1)
-
-	go func() {
-		parsed, _ := js.Parse([]byte(pAll()))
-		object, _ := parsed.(*js.Object)
-
-		reply, _ := tab.Handle(context.WithoutCancel(t.Context()), reviews.RoutePost, object)
-		first <- reply
-	}()
+	first := pPostLater(t, tab, pAll())
 
 	held.reached(t)
 
@@ -471,6 +463,160 @@ func TestASecondPostWhileOneIsInFlightIsRefused(t *testing.T) {
 	}
 
 	if len(fakes.posts) != 1 {
+		t.Errorf("posts %d", len(fakes.posts))
+	}
+}
+
+// pPostLater is a post through Handle on a goroutine of its own; its reply comes on the channel.
+func pPostLater(t *testing.T, tab *reviews.Reviews, body string) <-chan reviews.Reply {
+	t.Helper()
+
+	parsed, err := js.Parse([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	object, _ := parsed.(*js.Object)
+	replies := make(chan reviews.Reply, 1)
+
+	go func() {
+		reply, _ := tab.Handle(context.WithoutCancel(t.Context()), reviews.RoutePost, object)
+		replies <- reply
+	}()
+
+	return replies
+}
+
+// pDraftPost is the post of both findings of the draft the harness's launch stored.
+func pDraftPost(run *bHarness) string {
+	return pPostBody(keyOf(run.number), run.launch().At, "[0,1]", reviews.VerdictComment)
+}
+
+// pSummary is the summary of the draft the harness's launch holds now, and whether it is posted.
+func pSummary(run *bHarness) (string, bool) {
+	draft := dLaunches(run)[0].Draft
+	if draft == nil {
+		return "", false
+	}
+
+	return draft.Summary, draft.PostedAt != nil
+}
+
+// TestADraftRewrittenWhileItIsPostedIsKept: the draft posted is the one recorded, and a newer
+// file the session wrote meanwhile is read once the post is refused.
+func TestADraftRewrittenWhileItIsPostedIsKept(t *testing.T) {
+	t.Parallel()
+
+	for name, row := range map[string]struct {
+		postErr    error
+		wantCode   int
+		wantAfter  string
+		wantPosted bool
+	}{
+		"the post lands": {wantCode: 200, wantAfter: "Sound.", wantPosted: true},
+		"GitHub refuses": {postErr: errGitHubRefused, wantCode: 502, wantAfter: "Newer."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			run := bLaunched(t, bLaunchOpts{number: 0, sessions: nil})
+			dWrite(run, 1, dDraft("Sound."))
+			run.at(2)
+
+			held := newGate()
+
+			run.fakes.with(func(w *world) {
+				w.postGate = held
+				w.postResult = func() (string, error) { return worldReviewURL, row.postErr }
+			})
+
+			replies := pPostLater(t, run.tab, pDraftPost(run))
+			held.reached(t)
+			dWrite(run, 3, dDraft("Newer."))
+			run.at(4)
+
+			if summary, _ := pSummary(run); summary != "Sound." {
+				t.Errorf("while posting the draft is %q", summary)
+			}
+
+			held.open()
+
+			if reply := <-replies; reply.Code != row.wantCode {
+				t.Errorf("code %d", reply.Code)
+			}
+
+			run.at(5)
+
+			summary, posted := pSummary(run)
+			if summary != row.wantAfter {
+				t.Errorf("after the post the draft is %q", summary)
+			}
+
+			if posted != row.wantPosted {
+				t.Errorf("posted %v", posted)
+			}
+		})
+	}
+}
+
+// TestAPostWaitsForTheDiffBeingRead: a draft whose diff is being read is not posted, so the
+// draft that read stores is never one other than the one posted.
+func TestAPostWaitsForTheDiffBeingRead(t *testing.T) {
+	t.Parallel()
+
+	run := bLaunched(t, bLaunchOpts{number: 0, sessions: nil})
+	dWrite(run, 1, dDraft("Sound."))
+	run.at(2)
+
+	held := newGate()
+
+	run.fakes.with(func(w *world) {
+		w.diff = func(string, string, string) (string, error) {
+			held.pass()
+
+			return worldDiff, nil
+		}
+	})
+
+	dWrite(run, 3, dDraft("Newer."))
+	run.fakes.with(func(fakes *world) { fakes.now = worldT0 + 4*minuteMs })
+	run.tab.Tick()
+	held.reached(t)
+
+	reply := pPost(t, run.tab, pDraftPost(run))
+
+	held.open()
+	run.tab.Settle()
+
+	if got := string(js.Marshal(reply.Body)); got != `{"error":"`+reviews.TextPostReading+`"}` {
+		t.Errorf("body %s", got)
+	}
+
+	if len(run.fakes.posts) != 0 {
+		t.Errorf("posts %d", len(run.fakes.posts))
+	}
+}
+
+// TestAPRNotReadYetIsNotPostedTo: a tracked PR the poll has not read is not known to be open.
+func TestAPRNotReadYetIsNotPostedTo(t *testing.T) {
+	t.Parallel()
+
+	tab, fakes := pReady(t, pRow{})
+	other := keyOf(8)
+
+	tab.WithFile(func(file *reviews.File) {
+		entry := rEntry()
+		pSeedDraft(nil)(entry)
+		file.PRs.Set(other, entry)
+	})
+
+	reply := pPost(t, tab, pPostBody(other, rLaunchAt, "[0]", reviews.VerdictComment))
+
+	if got := string(js.Marshal(reply.Body)); got != `{"error":"`+reviews.TextPostUnread+`"}` {
+		t.Errorf("body %s", got)
+	}
+
+	if len(fakes.posts) != 0 {
 		t.Errorf("posts %d", len(fakes.posts))
 	}
 }
@@ -523,6 +669,7 @@ func TestGhPostReview(t *testing.T) {
 		err       error
 		wantURL   string
 		wantErr   error
+		wantText  string
 		wantCalls int
 	}{
 		"the review's url": {
@@ -534,6 +681,13 @@ func TestGhPostReview(t *testing.T) {
 		},
 		"gh fails": {
 			repo: worldRepo, err: errGitHubRefused, wantErr: errGitHubRefused, wantCalls: 1,
+		},
+		"GitHub's reasons follow gh's message": {
+			repo: worldRepo, err: errGitHubRefused, wantErr: errGitHubRefused, wantCalls: 1,
+			answer: `{"message":"Unprocessable Entity","errors":["Can not approve your own ` +
+				`pull request",{"resource":"PullRequestReview","message":"Line is gone"}]}`,
+			wantText: errGitHubRefused.Error() +
+				": Can not approve your own pull request; Line is gone",
 		},
 		"a repo that is not safe calls nothing": {
 			repo: "../x", wantErr: reviews.ErrPostUnsafe, wantCalls: 0,
@@ -547,6 +701,10 @@ func TestGhPostReview(t *testing.T) {
 
 			if !errors.Is(err, row.wantErr) {
 				t.Errorf("error %v", err)
+			}
+
+			if row.wantText != "" && err.Error() != row.wantText {
+				t.Errorf("error text %q", err.Error())
 			}
 
 			if url != row.wantURL {
