@@ -120,7 +120,7 @@ func reviewsDeps(parts reviewsParts, live *sessions.Loop) reviews.Deps {
 	launch := launchDeps(parts, names)
 
 	return reviews.Deps{
-		Gh: reviews.Gh{Exec: gh.GraphQL},
+		Gh: reviews.Gh{Exec: gh.GraphQL, Large: gh.Large},
 		Scan: func(ctx context.Context, input reviews.ScanInput) (reviews.ScanResult, error) {
 			return reviews.RunScan(ctx, input, parts.runner.Run, scanConfig, nowMs())
 		},
@@ -155,8 +155,8 @@ func reviewsDeps(parts reviewsParts, live *sessions.Loop) reviews.Deps {
 
 			return reply.Code, js.String(why)
 		},
-		Exists: nil, WorktreeClone: nil, Record: parts.statuses.Record, Budget: parts.budget,
-		Logger: parts.logger,
+		Exists: nil, WorktreeClone: nil, DraftAt: draftAt, ReadDraft: readDraft,
+		Record: parts.statuses.Record, Budget: parts.budget, Logger: parts.logger,
 		Config: reviews.Config{
 			PollMs: millis(cfg.ReviewPoll), FirstWindowDays: float64(cfg.ReviewFirstWindowDays),
 			DMScanMs:      millis(cfg.ReviewDMScanInterval),

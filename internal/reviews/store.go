@@ -84,6 +84,46 @@ type Launch struct {
 	// Clone is the clone the worktree was made from ("" for a launch from before this was
 	// recorded: its worktree's .git pointer says).
 	Clone string `json:"clone,omitempty"`
+	// Draft is the review the session wrote in its worktree's .conn/review.json, once read.
+	Draft *StoredDraft `json:"draft,omitempty"`
+	// DraftProblem is why the last write of that file could not be read; DraftProblemAt is that
+	// file's mtime (ms), so the same write is not read again. Both clear when a readable one is.
+	DraftProblem   []string `json:"draftProblem,omitempty"`
+	DraftProblemAt float64  `json:"draftProblemAt,omitempty"`
+}
+
+// Why a stored draft is no longer the review to post.
+const (
+	// SetAsideReviewed is a review of mine that landed on GitHub after the draft was written.
+	SetAsideReviewed = "reviewed"
+	// SetAsideNewer is a newer launch of the PR: its review replaces this one.
+	SetAsideNewer = "newer"
+)
+
+// StoredDraft is a draft as a launch keeps it: where its findings land on the diff, the file it
+// came from, whether it was posted, and whether it was set aside.
+type StoredDraft struct {
+	Draft
+
+	// Inline is, per finding, whether it lands on a line of the diff; nil when the diff could
+	// not be read, so every finding goes in the review's body.
+	Inline []bool `json:"inline"`
+	// FileAt is the mtime (ms) of the file it was read from.
+	FileAt float64 `json:"fileAt"`
+	// PostedAt and URL are when the review was posted and where it is; nil until it is.
+	PostedAt *float64 `json:"postedAt"`
+	URL      *string  `json:"url"`
+	// SetAside is SetAsideReviewed or SetAsideNewer; nil while the draft is live.
+	SetAside *string `json:"setAside"`
+}
+
+// liveDraft is whether a launch has a draft that was not set aside (posted or not).
+func liveDraft(launch *Launch) bool {
+	if launch.Draft == nil {
+		return false
+	}
+
+	return launch.Draft.SetAside == nil
 }
 
 // Scan is the back-off bookkeeping of one scan of one PR.
@@ -345,9 +385,13 @@ func asLaunch(value any) *Launch {
 		clone = ""
 	}
 
+	problemAt, _ := number(memberOf(raw, "draftProblemAt"))
+
 	return &Launch{
 		At: when, Model: model, Name: name, HeadSha: headSha, Worktree: worktree,
 		SessionID: sessionID, ClosedAt: closedAt, Clone: clone,
+		Draft: asStoredDraft(memberOf(raw, "draft")), DraftProblem: asProblems(raw),
+		DraftProblemAt: problemAt,
 	}
 }
 

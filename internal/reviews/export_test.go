@@ -75,3 +75,9 @@ func (r *Reviews) SetDeps(change func(deps *Deps)) {
 
 // MaxDiffBytes is the largest diff Positions reads.
 const MaxDiffBytes = maxDiffBytes
+
+// Why a PR's diff is not read.
+var (
+	ErrDiffUnsafe   = errDiffUnsafe
+	ErrDiffTooLarge = errDiffTooLarge
+)

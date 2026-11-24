@@ -417,6 +417,13 @@ func (r *Reviews) applyPoll(run *pollRun) {
 
 	r.prs = next
 	r.endedPrs = ended
+
+	// A review of mine that landed after a draft was written is the review: the draft is set
+	// aside.
+	if setAsideReviewed(run.file, run.me, r.pullOf) {
+		r.bump()
+	}
+
 	r.capped = run.capped
 	r.failed = failedList(run.failed)
 	r.rate = ghbudget.AddRate(run.rate, run.spent)

@@ -118,8 +118,19 @@ func repoMatches(ctx context.Context, repo, path string) (bool, error) {
 // there. It is read only from a regular file reached through a .conn folder of the person's
 // own, with no link followed: a link a branch committed would give the time of what it points to.
 func repliesAt(worktree string) *float64 {
-	file, err := reviews.OpenInOwnFolder(filepath.Join(worktree, myprs.ConnFolder),
-		myprs.RepliesFile)
+	return connFileAt(worktree, myprs.RepliesFile)
+}
+
+// draftAt is the mtime (ms, floored) of <worktree>/.conn/review.json, read as repliesAt reads
+// the replies file's; nil when it is not there.
+func draftAt(worktree string) *float64 {
+	return connFileAt(worktree, reviews.DraftFile)
+}
+
+// connFileAt is the mtime (ms, floored) of the regular file name in worktree's .conn folder, a
+// folder of the person's own, with no link followed; nil when there is none.
+func connFileAt(worktree, name string) *float64 {
+	file, err := reviews.OpenInOwnFolder(filepath.Join(worktree, myprs.ConnFolder), name)
 	if err != nil {
 		return nil
 	}
@@ -146,6 +157,17 @@ func repliesAt(worktree string) *float64 {
 // elsewhere, costs nothing.
 func readReplies(path string) (string, bool) {
 	data, err := readCapped(path, myprs.MaxRepliesFileBytes+1)
+	if err != nil {
+		return "", false
+	}
+
+	return js.DecodeUTF8(data, false), true
+}
+
+// readDraft is the text of a review session's draft file, read as readReplies reads a replies
+// file, never more than its limit plus one byte.
+func readDraft(path string) (string, bool) {
+	data, err := readCapped(path, reviews.MaxDraftFileBytes+1)
 	if err != nil {
 		return "", false
 	}

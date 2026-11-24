@@ -54,8 +54,16 @@ const (
 	textNoLogin     = "gh did not report a login"
 	textSearchFails = "GitHub could not run the search"
 	textSearchFail  = "GitHub could not run this search"
+	// diffMediaType asks GitHub for a compare as a unified diff.
+	diffMediaType   = "Accept: application/vnd.github.diff"
 	typeNotFound    = "NOT_FOUND"
 	typeRateLimited = "RATE_LIMITED"
+)
+
+// Why a PR's diff is not read.
+var (
+	errDiffUnsafe   = errors.New("the PR's repo, base or commit is not safe to read a diff of")
+	errDiffTooLarge = errors.New("the PR's diff is too large to read")
 )
 
 // FailureError is a GitHub call that failed, in the words Conn shows.
@@ -93,9 +101,37 @@ func asIs(err error) error {
 // answers the output too (gh prints a GraphQL answer that carries errors and exits non-zero).
 type GhExec func(ctx context.Context, args []string) (string, error)
 
-// Gh is the GraphQL source of the Reviews poll.
+// Gh is the GraphQL source of the Reviews poll, and the REST reads it makes beside it.
 type Gh struct {
 	Exec GhExec
+	// Large runs the calls whose answer may be large (a PR's diff), with the room gh.Large has.
+	Large GhExec
+}
+
+// Diff is the diff of repo from baseRef to commit, the three-dot compare GitHub shows a PR's
+// diff as, read through Large. It fails without a call when repo, baseRef or commit is not one
+// that is safe in the path, and fails when gh does or the diff is over maxDiffBytes.
+func (g Gh) Diff(ctx context.Context, repo, baseRef, commit string) (string, error) {
+	if !all(repos.IsName(repo), IsSafeRef(baseRef), commitShape.MatchString(commit)) {
+		return "", errDiffUnsafe
+	}
+
+	if g.Large == nil {
+		panic("reviews: Gh.Diff called with no Large to run gh with")
+	}
+
+	out, err := g.Large(ctx, []string{
+		"api", "-H", diffMediaType, "repos/" + repo + "/compare/" + baseRef + "..." + commit,
+	})
+	if err != nil {
+		return "", asIs(err)
+	}
+
+	if len(out) > maxDiffBytes {
+		return "", errDiffTooLarge
+	}
+
+	return out, nil
 }
 
 // Query is one search and the most PRs it reads.

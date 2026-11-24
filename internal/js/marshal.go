@@ -10,10 +10,11 @@ import (
 )
 
 // Marshal writes a Go value as JSON.stringify writes the value it stands for: struct fields in
-// their order under their json names (omitempty and "-" honoured), a nil pointer, slice or map
-// as null, map keys sorted, numbers as JavaScript prints them (NaN and the infinities as null,
-// where encoding/json fails), strings with only what JSON.stringify escapes escaped, and a
-// value's own MarshalJSON used as it is. An *Object keeps its keys in order.
+// their order under their json names (omitempty and "-" honoured, an exported struct embedded
+// without a name written as its fields), a nil pointer, slice or map as null, map keys sorted,
+// numbers as JavaScript prints them (NaN and the infinities as null, where encoding/json fails),
+// strings with only what JSON.stringify escapes escaped, and a value's own MarshalJSON used as it
+// is. An *Object keeps its keys in order.
 func Marshal(value any) []byte {
 	var builder strings.Builder
 
@@ -175,13 +176,44 @@ func fieldOf(field reflect.StructField) jsonField {
 	}
 }
 
+// flattened is whether a struct field is an exported struct embedded with no json name of its
+// own: encoding/json writes its fields as the outer struct's.
+func flattened(field reflect.StructField) bool {
+	if !all(field.Anonymous, field.IsExported(), field.Type.Kind() == reflect.Struct) {
+		return false
+	}
+
+	name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+
+	return all(name == "", field.Tag.Get("json") != "-")
+}
+
+func all(checks ...bool) bool {
+	return !slices.Contains(checks, false)
+}
+
 func marshalStruct(builder *strings.Builder, value reflect.Value, depth int) {
 	builder.WriteByte('{')
+	marshalMembers(builder, value, depth, 0)
+	builder.WriteByte('}')
+}
 
-	written := 0
+// marshalMembers writes a struct's fields after written others, an embedded struct's in its
+// place, and answers how many it has written in all.
+func marshalMembers(builder *strings.Builder, value reflect.Value, depth, written int) int {
+	if depth > maxDepth {
+		panic("js.Marshal: a value nests deeper than depthMax; is it a cycle?")
+	}
+
 	kind := value.Type()
 
 	for index := range kind.NumField() {
+		if flattened(kind.Field(index)) {
+			written = marshalMembers(builder, value.Field(index), depth+1, written)
+
+			continue
+		}
+
 		field := fieldOf(kind.Field(index))
 		if field.skip {
 			continue
@@ -205,7 +237,7 @@ func marshalStruct(builder *strings.Builder, value reflect.Value, depth int) {
 		written++
 	}
 
-	builder.WriteByte('}')
+	return written
 }
 
 func marshalList(builder *strings.Builder, value reflect.Value, depth int) {

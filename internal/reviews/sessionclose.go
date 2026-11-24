@@ -437,22 +437,11 @@ func (r *Reviews) pin(launch *Launch, sessionID string) {
 }
 
 func (r *Reviews) closeFacts(key string, launch *Launch, idleForMs float64) CloseFacts {
-	pull, found := r.prs.Get(key)
-	if !found {
-		pull, found = r.endedPrs.Get(key)
-	}
+	// A draft the session wrote counts as its review landing, as a review on GitHub does.
+	reviewed := liveDraft(launch)
 
-	reviewed := false
-
-	if found {
-		if r.me != nil {
-			for _, review := range pull.Reviews {
-				if all(same(review.Author, *r.me), review.State != reviewPending,
-					review.SubmittedAt > launch.At) {
-					reviewed = true
-				}
-			}
-		}
+	if pull, found := r.pullOf(key); all(found, r.me != nil) {
+		reviewed = anyOf(reviewed, reviewedSince(pull, *r.me, launch.At))
 	}
 
 	return CloseFacts{

@@ -564,7 +564,7 @@ func prepareConnFolder(deps LaunchDeps, worktree, prompt string) error {
 		return err
 	}
 
-	return deps.Write(filepath.Join(worktree, ".conn", "prompt.md"), prompt, false)
+	return deps.Write(filepath.Join(worktree, connFolder, "prompt.md"), prompt, false)
 }
 
 // removeStaleDraft removes the draft a reused worktree may still hold (or the repository may
@@ -572,7 +572,7 @@ func prepareConnFolder(deps LaunchDeps, worktree, prompt string) error {
 // which is not an error. The removal goes through the folder's own descriptor, so a link put in
 // its place is never followed.
 func removeStaleDraft(deps LaunchDeps, worktree string) error {
-	err := deps.Unlink(filepath.Join(worktree, ".conn"), DraftFile)
+	err := deps.Unlink(filepath.Join(worktree, connFolder), DraftFile)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}

@@ -95,6 +95,8 @@ type GitHub interface {
 	Search(ctx context.Context, queries []Query) ([]SearchResult, *ghbudget.RateInfo, error)
 	Fetch(ctx context.Context, prs []KeyParts, onRate func(*ghbudget.RateInfo)) (
 		*js.Map[*PR], error)
+	// Diff is the diff of repo from baseRef to commit, as GitHub shows a PR's.
+	Diff(ctx context.Context, repo, baseRef, commit string) (string, error)
 }
 
 // SettingsSource is the settings holder: read again on every tick.
@@ -163,6 +165,11 @@ type Deps struct {
 	Exists func(path string) bool
 	// WorktreeClone is the clone a worktree was made from ("" for none).
 	WorktreeClone func(worktree string) string
+	// DraftAt is the mtime (ms) of <worktree>/.conn/review.json, nil when there is none.
+	DraftAt func(worktree string) *float64
+	// ReadDraft is the text of a regular draft file of at most MaxDraftFileBytes plus one byte;
+	// false when it cannot be read.
+	ReadDraft func(path string) (string, bool)
 	// Record tells the Settings cards how a GitHub read or a Slack scan went.
 	Record func(name string, ok bool, detail string)
 	// Budget is what the GitHub pollers of this process share.
@@ -247,6 +254,8 @@ type state struct {
 	nextLook       map[string]float64
 	seenPid        map[*Launch]float64
 	clones         map[string]cloneHit
+	// drafting are the launches whose draft waits on its diff being read.
+	drafting map[*Launch]bool
 }
 
 // New is Reviews over deps; nothing runs until Run (or Tick) is called.
@@ -270,7 +279,7 @@ func New(ctx context.Context, deps Deps) *Reviews {
 		closing: false, sweeping: false, sweepFailed: map[string]string{},
 		finishing: map[string]bool{}, idleSince: map[string]float64{},
 		nextLook: map[string]float64{}, seenPid: map[*Launch]float64{},
-		clones: map[string]cloneHit{},
+		clones: map[string]cloneHit{}, drafting: map[*Launch]bool{},
 	}
 }
 
@@ -315,6 +324,12 @@ func (r *Reviews) Tick() {
 	current, version := r.settings()
 
 	r.readAtBoot()
+
+	// Before the close: a draft stored now counts as the review landing.
+	if r.takeDrafts(r.entries()) {
+		r.bump()
+	}
+
 	r.startAutoClose()
 
 	if r.seenKey == nil {
