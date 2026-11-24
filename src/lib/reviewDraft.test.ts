@@ -23,6 +23,7 @@ afterEach(() => {
 const finding = (over: Partial<ReviewFinding> = {}): ReviewFinding => ({ path: 'a.go', line: 3, side: 'RIGHT', severity: 'P3', body: 'b', inline: true, ...over })
 const draft = (over: Partial<ReviewDraft> = {}): ReviewDraft => ({
   launchAt: 1700000000000,
+  fileAt: 1700000000500,
   commit: 'a'.repeat(40),
   headMoved: false,
   summary: 's',
@@ -119,39 +120,39 @@ const stub = (status: number, body: unknown, seen: { url: string; init?: Request
   return seen
 }
 
-test('postReview sends the key, the launch, the ticked indexes and the verdict with the page header', async () => {
+test('postReview sends the key, the launch, the write of the file shown, the ticked indexes and the verdict with the page header', async () => {
   const link = 'https://github.com/acme/app/pull/12#pullrequestreview-1'
   const seen = stub(200, { ok: true, url: link })
-  assert.deepEqual(await postReview('acme/app#12', 1700000000000, [0, 2], 'comment'), { ok: true, url: link })
+  assert.deepEqual(await postReview('acme/app#12', 1700000000000, 1700000000500, [0, 2], 'comment'), { ok: true, url: link })
   assert.equal(seen.length, 1)
   assert.equal(seen[0].url, '/api/reviews/post')
   assert.equal(seen[0].init?.method, 'POST')
   const headers = seen[0].init?.headers as Record<string, string>
   assert.equal(headers['x-conn'], '1')
   assert.equal(headers['content-type'], 'application/json')
-  assert.deepEqual(JSON.parse(seen[0].init?.body as string), { key: 'acme/app#12', launchAt: 1700000000000, findings: [0, 2], verdict: 'comment' })
+  assert.deepEqual(JSON.parse(seen[0].init?.body as string), { key: 'acme/app#12', launchAt: 1700000000000, fileAt: 1700000000500, findings: [0, 2], verdict: 'comment' })
 })
 
 test("postReview gives the server's words for a refusal, whatever the status", async () => {
   const held = 'Checking whether GitHub took the review: try again after the next poll'
   for (const status of [400, 403, 404, 409, 502]) {
     stub(status, { error: held })
-    assert.deepEqual(await postReview('acme/app#12', 1, [], 'approve'), { ok: false, error: held }, String(status))
+    assert.deepEqual(await postReview('acme/app#12', 1, 2, [], 'approve'), { ok: false, error: held }, String(status))
   }
 })
 
 test('postReview names the status when the answer has no error text, and the failure when there is no answer', async () => {
   globalThis.fetch = (async () => new Response('<html>', { status: 502 })) as unknown as typeof fetch
-  assert.deepEqual(await postReview('acme/app#12', 1, [], 'approve'), { ok: false, error: 'HTTP 502' })
+  assert.deepEqual(await postReview('acme/app#12', 1, 2, [], 'approve'), { ok: false, error: 'HTTP 502' })
   globalThis.fetch = (async () => {
     throw new Error('connection refused')
   }) as unknown as typeof fetch
-  assert.deepEqual(await postReview('acme/app#12', 1, [], 'approve'), { ok: false, error: 'connection refused' })
+  assert.deepEqual(await postReview('acme/app#12', 1, 2, [], 'approve'), { ok: false, error: 'connection refused' })
 })
 
 test('postReview takes a 200 with ok false as the failure it says, and a 200 with no link as posted without one', async () => {
   stub(200, { ok: false, error: 'nope' })
-  assert.deepEqual(await postReview('acme/app#12', 1, [], 'approve'), { ok: false, error: 'nope' })
+  assert.deepEqual(await postReview('acme/app#12', 1, 2, [], 'approve'), { ok: false, error: 'nope' })
   stub(200, { ok: true })
-  assert.deepEqual(await postReview('acme/app#12', 1, [], 'approve'), { ok: true, url: '' })
+  assert.deepEqual(await postReview('acme/app#12', 1, 2, [], 'approve'), { ok: true, url: '' })
 })

@@ -512,7 +512,7 @@ test('a title with control characters is one clean line in the alert', () => {
 // ---- Reviews: a row entering REVIEW READY ----
 
 const finding = (severity: string): ReviewFinding => ({ path: 'a.go', line: 1, side: 'RIGHT', severity, body: 'x', inline: true })
-const reviewDraft = (over: Partial<ReviewDraft> = {}): ReviewDraft => ({ launchAt: 1000, commit: 'abc', headMoved: false, summary: 's', verdict: 'approve', findings: [finding('P2'), finding('P3'), finding('P3')], dropped: 0, postedAt: null, url: null, problems: [], ...over })
+const reviewDraft = (over: Partial<ReviewDraft> = {}): ReviewDraft => ({ launchAt: 1000, fileAt: 1001, commit: 'abc', headMoved: false, summary: 's', verdict: 'approve', findings: [finding('P2'), finding('P3'), finding('P3')], dropped: 0, postedAt: null, url: null, problems: [], ...over })
 const reviewRow = (over: Partial<ReviewRow> = {}): ReviewRow => ({ key: 'acme/app#12', repo: 'acme/app', number: 12, title: 'Add a thing', state: 'reviewing', draft: null, ...over }) as ReviewRow
 const readyRow = (over: Partial<ReviewRow> = {}) => reviewRow({ state: 'ready', draft: reviewDraft(), ...over })
 const withReviews = (...rows: ReviewRow[]) => ({ at: 0, sessions: [], runs: [], reviews: { enabled: true, lastPollAt: 1, rows } }) as unknown as Snapshot

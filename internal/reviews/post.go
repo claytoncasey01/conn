@@ -47,7 +47,11 @@ const (
 	textPostGitHubOff  = "GitHub is off in Settings"
 	textPostBadKey     = "key: not a PR"
 	textPostBadLaunch  = "launchAt: not a launch"
-	textPostBadTicked  = "findings: not a list of finding numbers"
+	textPostBadFileAt  = "fileAt: not the time of a review file"
+	// textPostRewritten is a press made on a draft the file has since replaced: what was
+	// ticked was read off the old one.
+	textPostRewritten = "The review file was written again: check the new draft"
+	textPostBadTicked = "findings: not a list of finding numbers"
 )
 
 // Why a review cannot be built from a draft.
@@ -211,8 +215,11 @@ func blockerTicked(findings []Finding, chosen []bool) bool {
 
 // postRequest is a press of Post review as the page sent it.
 type postRequest struct {
-	launch  launchID
-	parts   KeyParts
+	launch launchID
+	parts  KeyParts
+	// fileAt names the write of the review file whose draft the page showed: what was ticked
+	// was read off it.
+	fileAt  float64
 	ticked  []int
 	verdict string
 }
@@ -232,6 +239,11 @@ func postRequestOf(body *js.Object) (postRequest, []string) {
 		problems = append(problems, textPostBadLaunch)
 	}
 
+	fileAt, isTime := number(memberOf(body, "fileAt"))
+	if !isTime {
+		problems = append(problems, textPostBadFileAt)
+	}
+
 	ticked, isList := tickedOf(memberOf(body, "findings"))
 	if !isList {
 		problems = append(problems, textPostBadTicked)
@@ -243,7 +255,8 @@ func postRequestOf(body *js.Object) (postRequest, []string) {
 	}
 
 	return postRequest{
-		launch: launchID{key: key, at: launchAt}, parts: parts, ticked: ticked, verdict: verdict,
+		launch: launchID{key: key, at: launchAt}, parts: parts, fileAt: fileAt, ticked: ticked,
+		verdict: verdict,
 	}, problems
 }
 
@@ -287,6 +300,12 @@ func (r *Reviews) post(ctx context.Context, body *js.Object) Reply {
 	launch, refusal := r.postable(request.launch)
 	if refusal != nil {
 		return *refusal
+	}
+
+	// The file replaced the draft the page showed: a post now would send findings the person
+	// never saw.
+	if launch.Draft.FileAt != request.fileAt {
+		return bad(codeBusy, textPostRewritten)
 	}
 
 	built, buildProblems := buildPost(*launch.Draft, request.ticked, request.verdict)

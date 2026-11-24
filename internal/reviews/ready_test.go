@@ -197,7 +197,8 @@ func TestTheDraftOnTheRow(t *testing.T) {
 	}
 
 	for name, check := range map[string]func() bool{
-		"names its launch": func() bool { return view.LaunchAt == rLaunchAt },
+		"names its launch":            func() bool { return view.LaunchAt == rLaunchAt },
+		"names the write of its file": func() bool { return view.FileAt == rLaunchAt+1 },
 		"carries the draft": func() bool {
 			return view.Commit == rCommit && view.Summary == "Sound; two nits." && view.Dropped == 1
 		},

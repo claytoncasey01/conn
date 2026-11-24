@@ -104,7 +104,8 @@ func dryReady(now, hour float64) *Row {
 	ready.Author, ready.State, ready.Launches = dryAuthorAna, StateReady, 1
 	ready.UpdatedAt = dryAt(now, dryReadyHours, hour)
 	ready.Draft = &DraftView{
-		LaunchAt: dryAt(now, dryReadyHours, hour), Commit: dryReadyCommit, HeadMoved: false,
+		LaunchAt: dryAt(now, dryReadyHours, hour), FileAt: dryAt(now, dryReadyHours, hour),
+		Commit: dryReadyCommit, HeadMoved: false,
 		Summary: "Retry logic is sound; one P2 on the backoff cap, one P3 nit.",
 		Verdict: VerdictComment,
 		Findings: []FindingView{

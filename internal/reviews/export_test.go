@@ -76,6 +76,9 @@ func (r *Reviews) SetDeps(change func(deps *Deps)) {
 // MaxDiffBytes is the largest diff Positions reads.
 const MaxDiffBytes = maxDiffBytes
 
+// MaxReviewBodyUnits is the longest review body GitHub takes.
+const MaxReviewBodyUnits = maxReviewBodyUnits
+
 // Why a PR's diff is not read.
 var (
 	ErrDiffUnsafe   = errDiffUnsafe
@@ -88,7 +91,6 @@ var (
 	ErrBadFindings     = errBadFindings
 	ErrBlockerApproved = errBlockerApproved
 	ErrReviewTooLong   = errReviewTooLong
-	MaxReviewBodyUnits = maxReviewBodyUnits
 	ErrPostUnsafe      = errPostUnsafe
 	ErrPostRefused     = errPostRefused
 )
@@ -97,6 +99,7 @@ var (
 const (
 	TextPostNoPR       = textPostNoPR
 	TextPostNoDraft    = textPostNoDraft
+	TextPostRewritten  = textPostRewritten
 	TextPostInFlight   = textPostInFlight
 	TextPostReading    = textPostReading
 	TextPostChecking   = textPostChecking

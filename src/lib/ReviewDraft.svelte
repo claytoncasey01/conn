@@ -39,7 +39,7 @@
     if (busy || greyed !== null) return
     busy = true
     error = null
-    const r = await postReview(rowKey, draft.launchAt, ticked, verdict)
+    const r = await postReview(rowKey, draft.launchAt, draft.fileAt, ticked, verdict)
     busy = false
     if (r.ok) postedNow = { url: r.url }
     else error = r.error

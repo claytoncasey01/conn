@@ -19,7 +19,10 @@ type FindingView struct {
 type DraftView struct {
 	// LaunchAt names the launch the draft belongs to: the post names it.
 	LaunchAt float64 `json:"launchAt"`
-	Commit   string  `json:"commit"`
+	// FileAt names the write of the review file the draft was read from: the post names it,
+	// and is refused once a newer write has replaced the draft. 0 with no draft to show.
+	FileAt float64 `json:"fileAt"`
+	Commit string  `json:"commit"`
 	// HeadMoved is that the PR's head is no longer Commit.
 	HeadMoved bool          `json:"headMoved"`
 	Summary   string        `json:"summary"`
@@ -67,7 +70,7 @@ func draftViewOf(tracking *Entry, pull *PR) *DraftView {
 	}
 
 	view := &DraftView{
-		LaunchAt: launch.At, Commit: "", HeadMoved: false, Summary: "", Verdict: "",
+		LaunchAt: launch.At, FileAt: 0, Commit: "", HeadMoved: false, Summary: "", Verdict: "",
 		Findings: []FindingView{}, Dropped: 0, PostedAt: nil, URL: nil,
 		Problems: append([]string{}, launch.DraftProblem...),
 	}
@@ -87,6 +90,7 @@ func draftViewOf(tracking *Entry, pull *PR) *DraftView {
 
 // fillDraft copies a stored draft into view, and says whether pull's head has moved past it.
 func fillDraft(view *DraftView, stored *StoredDraft, pull *PR) {
+	view.FileAt = stored.FileAt
 	view.Commit, view.Summary, view.Verdict = stored.Commit, stored.Summary, stored.Verdict
 	view.Dropped, view.PostedAt, view.URL = stored.Dropped, stored.PostedAt, stored.URL
 	view.HeadMoved = stored.Commit != "" && pull.Ended == nil && stored.Commit != pull.HeadSha

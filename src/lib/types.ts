@@ -456,6 +456,8 @@ export interface ReviewFinding {
 export interface ReviewDraft {
   /** Names the launch the draft belongs to: POST /api/reviews/post sends it back */
   launchAt: number
+  /** The write of the review file the draft was read from (ms; 0 when there is no draft to show): POST /api/reviews/post sends it back, and is refused once the file was written again */
+  fileAt: number
   /** The head sha the session reviewed ('' for a posted draft whose details are no longer kept) */
   commit: string
   /** The PR's head is no longer `commit` */

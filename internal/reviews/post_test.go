@@ -171,18 +171,26 @@ func TestBuildPost(t *testing.T) {
 				t.Errorf("comments %+v", post.Comments)
 			}
 
-			if row.wantUnits > 0 {
-				if units := len(utf16.Encode([]rune(post.Body))); units != row.wantUnits {
-					t.Errorf("body of %d units, want %d", units, row.wantUnits)
-				}
-
-				return
-			}
-
-			if post.Body != row.wantBody {
-				t.Errorf("body %q", post.Body)
-			}
+			pCheckBody(t, post.Body, row.wantBody, row.wantUnits)
 		})
+	}
+}
+
+// pCheckBody checks a review's body: its length in UTF-16 units when wantUnits is set, else
+// the text itself.
+func pCheckBody(t *testing.T, body, wantBody string, wantUnits int) {
+	t.Helper()
+
+	if wantUnits > 0 {
+		if units := len(utf16.Encode([]rune(body))); units != wantUnits {
+			t.Errorf("body of %d units, want %d", units, wantUnits)
+		}
+
+		return
+	}
+
+	if body != wantBody {
+		t.Errorf("body %q", body)
 	}
 }
 
@@ -217,9 +225,19 @@ type pRow struct {
 	wantPosted bool
 }
 
-// pPostBody is a post's body naming the PR, the launch, the ticked findings and the verdict.
+// pFileAt is when rDraft's file was written.
+const pFileAt = rLaunchAt + 1
+
+// pPostBody is a post's body naming the PR, the launch, the ticked findings and the verdict,
+// for the draft of rDraft's file.
 func pPostBody(key string, launchAt float64, findings, verdict string) string {
+	return pPostBodyAt(key, launchAt, pFileAt, findings, verdict)
+}
+
+// pPostBodyAt is pPostBody for the draft of the file written at fileAt.
+func pPostBodyAt(key string, launchAt, fileAt float64, findings, verdict string) string {
 	return `{"key":"` + key + `","launchAt":` + strconv.FormatFloat(launchAt, 'f', -1, 64) +
+		`,"fileAt":` + strconv.FormatFloat(fileAt, 'f', -1, 64) +
 		`,"findings":` + findings + `,"verdict":"` + verdict + `"}`
 }
 
@@ -295,9 +313,20 @@ func pRows() map[string]pRow {
 			wantCode: 400, wantBody: busy(reviews.ErrBlockerApproved.Error()),
 		},
 		"a body that names nothing": {
-			body: `{"key":7,"launchAt":"x","findings":[0.5]}`, wantCode: 400,
+			body: `{"key":7,"launchAt":"x","fileAt":null,"findings":[0.5]}`, wantCode: 400,
 			wantBody: busy("key: not a PR; launchAt: not a launch; " +
+				"fileAt: not the time of a review file; " +
 				"findings: not a list of finding numbers; verdict: not approve or comment"),
+		},
+		"a body that does not say which file it shows": {
+			body: `{"key":"` + rKey + `","launchAt":` +
+				strconv.FormatFloat(rLaunchAt, 'f', -1, 64) +
+				`,"findings":[0],"verdict":"comment"}`,
+			wantCode: 400, wantBody: busy("fileAt: not the time of a review file"),
+		},
+		"a draft whose file was written again since the page showed it": {
+			body:     pPostBodyAt(rKey, rLaunchAt, pFileAt-1, "[0,1]", reviews.VerdictComment),
+			wantCode: 409, wantBody: busy(reviews.TextPostRewritten),
 		},
 	}
 }
@@ -529,7 +558,10 @@ func pPostLater(t *testing.T, tab *reviews.Reviews, body string) <-chan reviews.
 
 // pDraftPost is the post of both findings of the draft the harness's launch stored.
 func pDraftPost(run *bHarness) string {
-	return pPostBody(keyOf(run.number), run.launch().At, "[0,1]", reviews.VerdictComment)
+	launch := run.launch()
+
+	return pPostBodyAt(keyOf(run.number), launch.At, launch.Draft.FileAt, "[0,1]",
+		reviews.VerdictComment)
 }
 
 // pSummary is the summary of the draft the harness's launch holds now, and whether it is posted.
