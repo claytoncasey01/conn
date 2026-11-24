@@ -16,6 +16,7 @@ import (
 // The states a row is in, in the order the list shows them.
 const (
 	StateRereview  = "rereview"
+	StateReady     = "ready"
 	StateNew       = "new"
 	StateReviewing = "reviewing"
 	StateWaiting   = "waiting"
@@ -136,6 +137,8 @@ type Row struct {
 	Ended     *string     `json:"ended"`
 	Session   *RowSession `json:"session"`
 	Launches  int         `json:"launches"`
+	// Draft is the review the session left for the person to post; nil when none is shown.
+	Draft *DraftView `json:"draft"`
 	// Stale is that a pattern covering this repo could not be searched at the last poll.
 	Stale bool `json:"stale,omitempty"`
 }
@@ -300,7 +303,8 @@ func DeriveRow(pull *PR, tracking *Entry, ctx *DeriveContext, key string) *Row {
 		Author: pull.Author, URL: pull.URL, BaseRef: pull.BaseRef, State: state, ReAsked: reAsked,
 		Updated: updated, SlackURL: nil, DMURL: nil, InChannel: false, Checks: pull.Checks,
 		CreatedAt: pull.CreatedAt, UpdatedAt: pull.UpdatedAt, Ended: pull.Ended,
-		Session: ctx.Session, Launches: len(tracking.Launches), Stale: false,
+		Session: ctx.Session, Launches: len(tracking.Launches),
+		Draft: draftViewOf(tracking, pull), Stale: false,
 	}
 
 	if listing.post != nil {
@@ -335,6 +339,11 @@ func stateOf(
 ) (string, *string) {
 	if pull.Ended != nil {
 		return StateDone, nil
+	}
+
+	// A draft waiting to be posted is news while its session is still open and idle.
+	if waitsForPost(tracking) {
+		return StateReady, nil
 	}
 
 	if ctx.Session != nil {
@@ -392,12 +401,15 @@ func askedSince(tracking *Entry, listing listed, since float64) bool {
 
 // stateOrder is the order states are listed in.
 func stateOrder(state string) float64 {
-	return float64(slices.Index(
-		[]string{StateRereview, StateNew, StateReviewing, StateWaiting, StateDone}, state))
+	order := []string{
+		StateRereview, StateReady, StateNew, StateReviewing, StateWaiting, StateDone,
+	}
+
+	return float64(slices.Index(order, state))
 }
 
-// SortRows is re-reviews first, then new, reviewing, waiting, done; the most recently updated
-// first within a state. Stable, as JavaScript's sort is.
+// SortRows is re-reviews first, then ready, new, reviewing, waiting, done; the most recently
+// updated first within a state. Stable, as JavaScript's sort is.
 func SortRows(rows []*Row) []*Row {
 	sorted := slices.Clone(rows)
 

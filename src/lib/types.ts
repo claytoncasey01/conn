@@ -438,7 +438,40 @@ export interface HistoryEntry {
 
 // ---- Reviews: pull requests that ask Casey for a review ----
 
-export type ReviewState = 'new' | 'reviewing' | 'waiting' | 'rereview' | 'done'
+export type ReviewState = 'new' | 'reviewing' | 'waiting' | 'rereview' | 'ready' | 'done'
+
+/** One comment of a review draft: a line of a file in the PR's diff and what to say of it */
+export interface ReviewFinding {
+  path: string
+  line: number
+  side: 'RIGHT' | 'LEFT'
+  /** P0 to P3 */
+  severity: string
+  body: string
+  /** Whether it lands on a line of the diff; null when the diff was not read (it then goes in the review's body) */
+  inline: boolean | null
+}
+
+/** The review a session wrote for Casey to post, as the row shows it */
+export interface ReviewDraft {
+  /** Names the launch the draft belongs to: POST /api/reviews/post sends it back */
+  launchAt: number
+  /** The head sha the session reviewed ('' for a posted draft whose details are no longer kept) */
+  commit: string
+  /** The PR's head is no longer `commit` */
+  headMoved: boolean
+  summary: string
+  /** Claude's verdict: what the review would be posted as */
+  verdict: 'approve' | 'comment' | ''
+  findings: ReviewFinding[]
+  /** Findings of the file that were not kept (not valid, or over the limit) */
+  dropped: number
+  /** When it was posted, and where; null until it is */
+  postedAt: number | null
+  url: string | null
+  /** Why the review file could not be read, else empty; listed beside the draft when a newer write was unreadable */
+  problems: string[]
+}
 
 /** One line of the Reviews list. */
 export interface ReviewRow {
@@ -472,6 +505,8 @@ export interface ReviewRow {
   ended: 'merged' | 'closed' | null
   session: { name: string; status: SessionStatus } | null
   launches: number
+  /** The review the session left to post (state ready); also kept once posted, and greyed when the PR has ended. Null when none is shown */
+  draft: ReviewDraft | null
 }
 
 /** The Reviews tab's state. It rides the snapshot as `Snapshot.reviews` (there is no GET route for it). */

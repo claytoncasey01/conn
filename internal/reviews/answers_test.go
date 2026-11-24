@@ -170,22 +170,7 @@ func TestRowsMatchTheRecording(t *testing.T) {
 	data := answers(t)
 
 	for index, row := range section(t, data, "deriveRow") {
-		pull := decode[reviews.PR](t, get(row, "pr"))
-		tracking := decode[reviews.Entry](t, get(row, "tracking"))
-		recorded := decode[ctxJSON](t, get(row, "ctx"))
-
-		var channels []string
-		if recorded.Sources.Channels != nil {
-			channels = *recorded.Sources.Channels
-		}
-
-		got := reviews.DeriveRow(&pull, &tracking, &reviews.DeriveContext{
-			Me: recorded.Me, Session: recorded.Session, Now: recorded.Now,
-			Sources: reviews.Sources{
-				Requested: recorded.Sources.Requested, Channels: channels,
-				DMs: recorded.Sources.DMs, AllOpen: recorded.Sources.AllOpen,
-			},
-		}, str(get(row, "key")))
+		got := deriveOf(t, row)
 		check(t, "deriveRow "+strconv.Itoa(index), got, get(row, "out"))
 	}
 

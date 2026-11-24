@@ -61,6 +61,7 @@
     reviewing: { label: 'Reviewing', fg: 'color-mix(in oklab, var(--role-lead) 65%, var(--bright))', line: 'color-mix(in oklch, var(--role-lead) 50%, transparent)' },
     waiting: { label: 'Waiting', fg: 'color-mix(in oklab, var(--warn) 60%, var(--bright))', line: 'color-mix(in oklch, var(--warn) 45%, transparent)' },
     rereview: { label: 'Re-review', fg: 'color-mix(in oklab, var(--role-advisor) 50%, var(--bright))', line: 'color-mix(in oklch, var(--role-advisor) 55%, transparent)' },
+    ready: { label: 'Review ready', fg: 'color-mix(in oklab, var(--ok) 50%, var(--bright))', line: 'color-mix(in oklch, var(--ok) 50%, transparent)' },
     done: { label: 'Done', fg: 'color-mix(in oklab, var(--mu) 85%, var(--panel))', line: 'color-mix(in oklch, var(--edge) 18%, transparent)' },
   }
   const CHECKS = { none: { label: 'No checks', fg: 'color-mix(in oklab, var(--mu) 85%, var(--panel))' }, pending: { label: 'Checks pending', fg: 'color-mix(in oklab, var(--warn) 60%, var(--bright))' }, passing: { label: 'Checks passing', fg: 'color-mix(in oklab, var(--ok) 50%, var(--bright))' }, failing: { label: 'Checks failing', fg: 'color-mix(in oklab, var(--bad) 70%, var(--bright))' } }
