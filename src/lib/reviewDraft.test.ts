@@ -103,6 +103,8 @@ test('a draft is a posted one, an unreadable file, or a draft to post', () => {
 test('a draft keeps its identity while it is posted or its head moves, and changes when the file is written again', () => {
   const same = draftId(draft())
   assert.equal(draftId(draft({ headMoved: true, postedAt: 9, url: 'https://x', problems: ['p'] })), same)
+  // A diff read that succeeds on a later try places the findings of the same write: the ticks stay
+  assert.equal(draftId(draft({ findings: [finding({ inline: null })] })), draftId(draft({ findings: [finding({ inline: true })] })))
   assert.notEqual(draftId(draft({ launchAt: 2 })), same)
   assert.notEqual(draftId(draft({ summary: 'other' })), same)
   assert.notEqual(draftId(draft({ findings: [finding({ body: 'changed' })] })), same)

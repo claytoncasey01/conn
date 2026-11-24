@@ -46,9 +46,12 @@ export function tickedAfter(ticked: number[], index: number, on: boolean): numbe
 
 /**
  * Names the review file a draft was read from, so the panel starts over (everything ticked again) when the file is written
- * again, and keeps the ticks across a snapshot that only moved the head, posted it or listed problems.
+ * again, and keeps the ticks across a snapshot that only moved the head, posted it or listed problems. Where a finding lands
+ * is left out: a diff read that succeeds on a later try places the findings of the same write, and must not tick again
+ * what the person unticked.
  */
-export const draftId = (d: ReviewDraft): string => JSON.stringify([d.launchAt, d.commit, d.summary, d.verdict, d.findings, d.dropped])
+export const draftId = (d: ReviewDraft): string =>
+  JSON.stringify([d.launchAt, d.commit, d.summary, d.verdict, d.findings.map((f) => [f.path, f.line, f.side, f.severity, f.body]), d.dropped])
 
 /**
  * What the row shows for a draft. 'posted' has no controls (a marker keeps no details); 'unreadable' is a file that left

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { safeUrl } from './reviewGroups.ts'
-  import { allTicked, APPROVE_BLOCKED, approveBlocked, draftKind, firstLine, placeNote, startingVerdict, tickedAfter, verdictAfter, type Verdict } from './reviewDraft.ts'
+  import { allTicked, APPROVE_BLOCKED, approveBlocked, draftKind, firstLine, isBlocker, placeNote, startingVerdict, tickedAfter, verdictAfter, type Verdict } from './reviewDraft.ts'
   import { postReview } from './reviewsApi.ts'
   import type { ReviewDraft } from './types.ts'
 
@@ -98,7 +98,7 @@
             <label style="{rowStyle}; flex: 1 1 auto; min-width: 0; cursor: {inert ? 'default' : 'pointer'}">
               <input type="checkbox" checked={ticked.includes(index)} disabled={inert} onchange={(e) => (tickedPick = tickedAfter(ticked, index, e.currentTarget.checked))} aria-label="Post {f.severity} comment on {f.path} line {f.line}" style="margin: 2px 0 0; accent-color: var(--ac)" />
               <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto">
-                <span data-content style="font-size: 12px; color: var(--mu); overflow-wrap: anywhere"><span style="color: {f.severity === 'P0' || f.severity === 'P1' ? 'var(--bad)' : 'var(--tx)'}">{f.severity}</span> {f.path}:{f.line}</span>
+                <span data-content style="font-size: 12px; color: var(--mu); overflow-wrap: anywhere"><span style="color: {isBlocker(f) ? 'var(--bad)' : 'var(--tx)'}">{f.severity}</span> {f.path}:{f.line}</span>
                 <span data-content style="font-size: 12px; line-height: 1.5; color: var(--tx); overflow-wrap: anywhere; {open ? 'white-space: pre-wrap' : 'white-space: nowrap; overflow: hidden; text-overflow: ellipsis'}">{open ? f.body : firstLine(f.body)}</span>
                 {#if where}<span style={note}>{where}</span>{/if}
               </span>
