@@ -147,6 +147,9 @@ const ALLOW: Record<string, Record<string, string>> = {
     '{busy ? \'Starting…\' : again ? \'Re-review\' : \'Review\'}': W,
     '{copied ? \'Copied ✓\' : \'Copy\'}': W,
   },
+  'lib/ReviewDraft.svelte': {
+    '{busy ? \'Posting…\' : \'Post review\'}': W,
+  },
   'lib/StopSession.svelte': {
     '{compact ? \'Stop\' : \'Stop session\'}': W,
     '{busy ? \'Stop anyway\' : \'Stop\'}': W,

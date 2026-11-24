@@ -4,6 +4,8 @@
   import { safeUrl } from '../lib/reviewGroups.ts'
   import { loadModel, saveModel, startReview } from '../lib/reviewsApi.ts'
   import AdvisorPick from '../lib/AdvisorPick.svelte'
+  import DraftPanel from '../lib/ReviewDraft.svelte'
+  import { draftId } from '../lib/reviewDraft.ts'
   import type { AdvisorPick as Pick } from '../lib/advisor.ts'
   import type { ReviewRow, ReviewState } from '../lib/types.ts'
 
@@ -56,12 +58,12 @@
     }
   }
 
-  const STATE: Record<ReviewState, { label: string; fg: string; line: string }> = {
+  const STATE: Record<ReviewState, { label: string; fg: string; line: string; fill?: string }> = {
     new: { label: 'New', fg: 'color-mix(in oklab, var(--ac) 60%, var(--bright))', line: 'color-mix(in oklch, var(--ac) 50%, transparent)' },
     reviewing: { label: 'Reviewing', fg: 'color-mix(in oklab, var(--role-lead) 65%, var(--bright))', line: 'color-mix(in oklch, var(--role-lead) 50%, transparent)' },
     waiting: { label: 'Waiting', fg: 'color-mix(in oklab, var(--warn) 60%, var(--bright))', line: 'color-mix(in oklch, var(--warn) 45%, transparent)' },
     rereview: { label: 'Re-review', fg: 'color-mix(in oklab, var(--role-advisor) 50%, var(--bright))', line: 'color-mix(in oklch, var(--role-advisor) 55%, transparent)' },
-    ready: { label: 'Review ready', fg: 'color-mix(in oklab, var(--ok) 50%, var(--bright))', line: 'color-mix(in oklch, var(--ok) 50%, transparent)' },
+    ready: { label: 'Review ready', fg: 'color-mix(in oklab, var(--ok) 50%, var(--bright))', line: 'color-mix(in oklch, var(--ok) 60%, transparent)', fill: 'color-mix(in oklch, var(--ok) 12%, transparent)' },
     done: { label: 'Done', fg: 'color-mix(in oklab, var(--mu) 85%, var(--panel))', line: 'color-mix(in oklch, var(--edge) 18%, transparent)' },
   }
   const CHECKS = { none: { label: 'No checks', fg: 'color-mix(in oklab, var(--mu) 85%, var(--panel))' }, pending: { label: 'Checks pending', fg: 'color-mix(in oklab, var(--warn) 60%, var(--bright))' }, passing: { label: 'Checks passing', fg: 'color-mix(in oklab, var(--ok) 50%, var(--bright))' }, failing: { label: 'Checks failing', fg: 'color-mix(in oklab, var(--bad) 70%, var(--bright))' } }
@@ -74,6 +76,8 @@
   const github = $derived(safeUrl(row.url))
   const slack = $derived(safeUrl(row.slackUrl))
   const dm = $derived(safeUrl(row.dmUrl))
+  // A draft whose PR has ended (or whose review is done) stays on the row, greyed and not postable
+  const draftGreyed = $derived(row.ended ? `This PR is ${row.ended}` : done ? 'This review is done' : null)
   const staleText = $derived(row.stale ? `${row.repo} could not be searched at the last poll, so this row may be out of date` : null)
   const blocked = $derived(offReason ?? (row.ended ? `This PR is ${row.ended}` : row.session ? 'A review session is already running' : (staleText ?? row.noClone)))
 
@@ -92,7 +96,7 @@
       <span class="hud" style="font-weight: 700; font-size: 18px; color: color-mix(in oklab, var(--ac) 60%, var(--bright))">#{row.number}</span>
     {/if}
     <span style="flex: 1 1 240px; min-width: 0; font-size: 14px; line-height: 1.4; color: {done ? 'color-mix(in oklab, var(--mu) 85%, var(--panel))' : 'color-mix(in oklab, var(--tx) 50%, var(--bright))'}; overflow-wrap: anywhere">{row.title}</span>
-    <span style="{tag}; border: 1px var(--border-style) {tone.line}; color: {tone.fg}" class="cap">{tone.label}</span>
+    <span style="{tag}; border: 1px var(--border-style) {tone.line}; background: {tone.fill ?? 'transparent'}; color: {tone.fg}" class="cap">{tone.label}</span>
   </div>
 
   <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 11px; letter-spacing: calc(var(--tracking) * 0.5714); color: var(--mu)">
@@ -139,6 +143,12 @@
       >{busy ? 'Starting…' : again ? 'Re-review' : 'Review'}</button>
     </span>
   </div>
+
+  {#if row.draft}
+    {#key draftId(row.draft)}
+      <DraftPanel rowKey={row.key} draft={row.draft} greyed={draftGreyed} />
+    {/key}
+  {/if}
 
   {#if staleText && !row.ended}
     <div role="note" style="font-size: 12px; line-height: 1.5; color: color-mix(in oklab, var(--warn) 60%, var(--bright)); overflow-wrap: anywhere"><span data-content>{staleText}</span></div>

@@ -9,11 +9,11 @@ const row = (over: Partial<ReviewRow>): ReviewRow =>
 
 const group = (rows: ReviewRow[], id: string, sel = emptySelection()) => reviewGroups(rows, sel).find((g) => g.id === id)!
 
-test('status chips map the five states, in the order the page lists them', () => {
+test('status chips map the six states, in the order the page lists them', () => {
   const g = group([], 'status')
-  assert.deepEqual(g.chips.map((c) => c.id), ['new', 'reviewing', 'waiting', 'rereview', 'done'])
-  assert.deepEqual(g.chips.map((c) => c.label), ['New', 'Reviewing', 'Waiting', 'Re-review', 'Done'])
-  for (const state of ['new', 'reviewing', 'waiting', 'rereview', 'done'] as const) {
+  assert.deepEqual(g.chips.map((c) => c.id), ['new', 'reviewing', 'waiting', 'rereview', 'ready', 'done'])
+  assert.deepEqual(g.chips.map((c) => c.label), ['New', 'Reviewing', 'Waiting', 'Re-review', 'Review ready', 'Done'])
+  for (const state of ['new', 'reviewing', 'waiting', 'rereview', 'ready', 'done'] as const) {
     assert.deepEqual(g.chips.filter((c) => c.test(row({ state }))).map((c) => c.id), [state])
   }
 })
