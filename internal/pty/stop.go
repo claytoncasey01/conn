@@ -157,10 +157,12 @@ func (h *Host) unstoppedSessions() []*session {
 	return unstopped
 }
 
-// stopSession is Stop for one session.
+// stopSession is Stop for one session. A group already known to be empty is not signalled
+// again, but the stop still waits for the session to end: another stop may have emptied it a
+// moment ago and still be waiting, and a caller told "stopped" may forget the session at once.
 func (h *Host) stopSession(ctx context.Context, stopping *session) error {
 	if h.isGroupStopped(stopping) {
-		return nil
+		return waitEnded(ctx, stopping)
 	}
 
 	h.markStopping(stopping)

@@ -1,10 +1,13 @@
 package pty_test
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/claytoncasey01/conn/internal/pty"
+	"github.com/claytoncasey01/conn/internal/testtime"
 )
 
 // Forget lets go of a session only once its program has ended and its group is known to be
@@ -71,6 +74,57 @@ func TestForgetKeepsASessionWhoseGroupIsUnreachable(t *testing.T) {
 	_, found := info(t, host, stuck)
 	if !found {
 		t.Fatal("a session whose group is unreachable was forgotten")
+	}
+}
+
+// A stop made while another stop of the session is under way returns only once the session has
+// ended, as Stop says, so a Forget right after it lets the session go: the second of two stops
+// pressed at once never reports a session ended that is still in the list.
+func TestASecondStopReturnsOnceTheSessionHasEnded(t *testing.T) {
+	t.Parallel()
+
+	host, spawner := newFakeHost(t, pty.DefaultLimits())
+	sessionID := startOnly(t, host, spawner)
+
+	first := make(chan error, 1)
+
+	go func() { first <- host.Stop(context.WithoutCancel(t.Context()), sessionID) }()
+
+	waitSignalled(t, spawner.last(t))
+
+	err := host.Stop(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("the second Stop = %v, want nil", err)
+	}
+
+	entry, _ := info(t, host, sessionID)
+	if entry.ExitCode == nil {
+		t.Fatal("the second Stop returned before the session ended")
+	}
+
+	err = host.Forget(sessionID)
+	if err != nil {
+		t.Fatalf("Forget after the second Stop = %v, want nil", err)
+	}
+
+	err = <-first
+	if err != nil {
+		t.Fatalf("the first Stop = %v, want nil", err)
+	}
+}
+
+// waitSignalled waits until a stop has signalled process.
+func waitSignalled(t *testing.T, process *fakeProcess) {
+	t.Helper()
+
+	deadline := time.Now().Add(testtime.Scaled(waitLimit))
+
+	for len(process.signalsSoFar()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the stop sent no signal")
+		}
+
+		time.Sleep(waitPoll)
 	}
 }
 

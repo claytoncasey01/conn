@@ -77,7 +77,11 @@ func (l *Loop) closeHosted(ctx context.Context, sessionID pty.ID) Reply {
 	}
 
 	// A cmux close takes the workspace away; a hosted one takes the row away.
-	l.forgetStopped(sessionID)
+	err = l.forgetStopped(sessionID)
+	if err != nil {
+		return failure(http.StatusInternalServerError,
+			textNotForgotten+err.Error())
+	}
 
 	return done()
 }

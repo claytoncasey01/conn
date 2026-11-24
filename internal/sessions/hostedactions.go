@@ -3,6 +3,7 @@ package sessions
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"time"
@@ -22,6 +23,9 @@ const (
 	// grace, then its wait after the kill), so it never cuts a stop short; it is there so a stop
 	// whose page has gone still ends.
 	hostedStopTimeout = 15 * time.Second
+	// textNotForgotten starts the reply to a stop or close that ended the session but could not
+	// take its row off the list.
+	textNotForgotten = "it stopped, but could not be taken off the list: "
 )
 
 // c1Chars are the C1 controls, which a reply to a hosted session never types either: a program
@@ -65,7 +69,11 @@ func (l *Loop) stopHosted(ctx context.Context, sessionID pty.ID, force bool) Rep
 		return failure(http.StatusInternalServerError, "could not stop it: "+err.Error())
 	}
 
-	l.forgetStopped(sessionID)
+	err = l.forgetStopped(sessionID)
+	if err != nil {
+		return failure(http.StatusInternalServerError,
+			textNotForgotten+err.Error())
+	}
 
 	stopped := done()
 	stopped.Body.Set("name", name)
@@ -74,12 +82,22 @@ func (l *Loop) stopHosted(ctx context.Context, sessionID pty.ID, force bool) Rep
 }
 
 // forgetStopped lets go of a hosted session a person has just ended on purpose, so it leaves the
-// list instead of staying as an ended row until the host forgets it on its own. The stop has
-// already succeeded, so a refusal changes nothing the person asked for: ErrNoSession is a
-// session already gone, and ErrStillRunning one whose end another stop is still recording, whose
-// row stays ended until it is stopped again.
-func (l *Loop) forgetStopped(sessionID pty.ID) {
-	_ = l.store.deps.Host.Forget(sessionID)
+// list instead of staying as an ended row until the host forgets it on its own. Stop returned
+// only once the session ended with its group empty (a stop racing another waits for that end
+// too), so the host holds it as retired: ErrNoSession is the other stop's forget having let it
+// go already, and is no failure. Any other refusal leaves the row, so it is reported rather than
+// shown as done.
+func (l *Loop) forgetStopped(sessionID pty.ID) error {
+	err := l.store.deps.Host.Forget(sessionID)
+	if errors.Is(err, pty.ErrNoSession) {
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("forgetting session %s: %w", sessionID, err)
+	}
+
+	return nil
 }
 
 // hostedStopStart makes a hosted stop's checks on the loop: the session's name, or why it is
