@@ -253,15 +253,22 @@ const DraftFile = "review.json"
 // Slack, or write to GitHub, since Conn posts the review once the person has checked it. The
 // prompt forbids posting; these rules are a guard beside it against the forms a session is
 // likely to reach for, not a proof against every possible way of writing. They cover `gh pr`
-// review, comment, merge, edit, close, ready and reopen; `gh issue` comment, close and edit; the
+// create, review, comment, merge, edit, close, ready and reopen; `gh issue` create, comment,
+// close and edit; `git push`, with git's own options before it too (`git -C dir push`); the
 // skill's own poster, post_review.py; and `gh api` with an explicit method (-X, --method), a
 // body (-f, -F, glued to their value or not, --field, --raw-field, --input, which make gh send a
 // POST) or `graphql`, whose mutations write. The glued short flags are matched after a space, so
 // a repo name holding "-f" is not refused. A plain `gh api` GET stays usable, to read comments.
-// A rule's `*` matches any text, so a rule can match more than it names; that errs towards
-// refusing.
+// GitHub's MCP tools are not refused by name: the same tools read, and the prompt is what
+// forbids writing through them. A rule's `*` matches any text, so a rule can match more than it
+// names; that errs towards refusing.
 func ReviewDisallowed() []string {
 	return append(claude.SlackWrite(),
+		"Bash(gh pr create:*)",
+		"Bash(gh issue create:*)",
+		"Bash(git push:*)",
+		"Bash(git * push)",
+		"Bash(git * push *)",
 		"Bash(gh pr review:*)",
 		"Bash(gh pr comment:*)",
 		"Bash(gh pr merge:*)",

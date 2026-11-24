@@ -120,7 +120,8 @@ func TestReviewDisallowedBlocksEveryGitHubWrite(t *testing.T) {
 		"Bash(gh api * -f*)", "Bash(gh api * -F*)", "Bash(gh api -f*)", "Bash(gh api -F*)",
 		"Bash(gh issue comment:*)", "Bash(gh issue close:*)", "Bash(gh issue edit:*)",
 		"Bash(gh pr edit:*)", "Bash(gh pr close:*)", "Bash(gh pr ready:*)",
-		"Bash(gh pr reopen:*)",
+		"Bash(gh pr reopen:*)", "Bash(gh pr create:*)", "Bash(gh issue create:*)",
+		"Bash(git push:*)", "Bash(git * push)", "Bash(git * push *)",
 	}, claude.SlackWrite())
 
 	for _, rule := range tests {
@@ -177,11 +178,27 @@ func TestReviewDisallowedRefusesWritesAndKeepsReads(t *testing.T) {
 		{"gh pr ready 7", true},
 		{"gh pr reopen 7", true},
 		{"gh pr review 7 --approve", true},
+		{"gh pr create --title x --body y", true},
+		{"gh issue create --title x", true},
+		{"git push", true},
+		{"git push origin HEAD:main", true},
+		{"git push --force", true},
+		{"git -C /tmp/work push", true},
+		{"git -c push.default=current push origin", true},
+		{"git --no-pager push", true},
 		{"gh api repos/acme/web-frontend/pulls/1/comments", false},
 		{"gh api repos/acme/fast-Forward/pulls/1", false},
 		{"gh pr view 7 --comments", false},
 		{"gh pr diff 7", false},
 		{"gh issue view 7", false},
+		// The reads skills/deep-code-review/SKILL.md tells the session to make.
+		{"gh pr view 7 --json number,title,body,baseRefName,headRefName,url", false},
+		{"gh pr view 7 --json comments", false},
+		{"gh api repos/acme/app/pulls/7/comments", false},
+		{"git diff main...HEAD", false},
+		{"git status", false},
+		{"git merge-base HEAD origin/main", false},
+		{"git log --oneline -20", false},
 	}
 
 	for _, test := range tests {
