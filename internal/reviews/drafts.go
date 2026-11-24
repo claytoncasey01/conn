@@ -374,20 +374,36 @@ func asStoredDraft(value any) *StoredDraft {
 	postedAt, postedOK := numberOrNull(member(raw, "postedAt"))
 	url, urlOK := textOrNull(memberOf(raw, "url"))
 	why, whyOK := setAsideOf(memberOf(raw, "setAside"))
+	sentAs := postedVerdictOf(memberOf(raw, "postedVerdict"))
 
 	if !all(len(problems) == 0, draft.Dropped == 0, droppedOK, dropped >= 0,
 		dropped == float64(int(dropped)), fileOK, postedOK, urlOK, whyOK) {
 		// A posted review stays posted, whatever else no longer reads: its file is never taken
 		// again, so it is never posted twice.
-		return postedMarker(fileAt, postedAt, url)
+		return postedMarker(fileAt, postedAt, url, sentAs)
 	}
 
 	draft.Dropped = int(dropped)
 
 	return &StoredDraft{
 		Draft: draft, Inline: inlineOf(memberOf(raw, "inline"), len(draft.Findings)),
-		FileAt: fileAt, PostedAt: postedAt, URL: url, SetAside: why,
+		FileAt: fileAt, PostedAt: postedAt, URL: url, PostedVerdict: sentAs, SetAside: why,
 	}
+}
+
+// postedVerdictOf is the stored verdict a review was posted as; nil when there is none, or it
+// is not one Conn posts (the row then takes its state from GitHub alone).
+func postedVerdictOf(value any) *string {
+	verdict, isText := text(value)
+	if !isText {
+		return nil
+	}
+
+	if _, known := eventOf(verdict); !known {
+		return nil
+	}
+
+	return &verdict
 }
 
 // inlineOf is a stored Inline: one bool per finding, else nil (every finding in the body).
@@ -477,8 +493,8 @@ func (r *Reviews) draftUntaken(entry *Entry, folder string) bool {
 }
 
 // postedMarker is what is kept of a stored draft that no longer reads back whole: that it was
-// posted, when and to which URL, with no findings; nil when it was not posted.
-func postedMarker(fileAt float64, postedAt *float64, url *string) *StoredDraft {
+// posted, when, to which URL and as which verdict, with no findings; nil when it was not posted.
+func postedMarker(fileAt float64, postedAt *float64, url, verdict *string) *StoredDraft {
 	if postedAt == nil {
 		return nil
 	}
@@ -486,6 +502,7 @@ func postedMarker(fileAt float64, postedAt *float64, url *string) *StoredDraft {
 	empty := Draft{Commit: "", Summary: "", Verdict: "", Findings: []Finding{}, Dropped: 0}
 
 	return &StoredDraft{
-		Draft: empty, Inline: nil, FileAt: fileAt, PostedAt: postedAt, URL: url, SetAside: nil,
+		Draft: empty, Inline: nil, FileAt: fileAt, PostedAt: postedAt, URL: url,
+		PostedVerdict: verdict, SetAside: nil,
 	}
 }

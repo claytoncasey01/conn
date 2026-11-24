@@ -26,6 +26,8 @@ const (
 type unsurePost struct {
 	// sentAt is when the post was sent, by Conn's clock.
 	sentAt float64
+	// verdict is the verdict the post was sent as.
+	verdict string
 	// checking is that a read of my reviews for it is running.
 	checking bool
 }
@@ -62,14 +64,15 @@ func (r *Reviews) checkUnsure(polledAt float64, login string) {
 		unsure.checking = true
 		r.unsure[target] = unsure
 
-		r.spawn(func() { r.checkPost(target, unsure.sentAt, login) })
+		r.spawn(func() { r.checkPost(target, unsure, login) })
 	}
 }
 
 // checkPost reads my newest reviews of the PR target names, without the mutex, and settles its
-// unsure post: the review that is the post is recorded, and with none the post may be pressed
-// again. A read that fails leaves it unsure, to be checked after the next poll.
-func (r *Reviews) checkPost(target launchID, sentAt float64, login string) {
+// unsure post, sent as sent says: the review that is the post is recorded, and with none the
+// post may be pressed again. A read that fails leaves it unsure, to be checked after the next
+// poll.
+func (r *Reviews) checkPost(target launchID, sent unsurePost, login string) {
 	parts, _ := ParseKey(target.key)
 
 	var (
@@ -97,8 +100,8 @@ func (r *Reviews) checkPost(target launchID, sentAt float64, login string) {
 
 	launch := r.launchOf(target)
 	if launch != nil && launch.Draft != nil {
-		if review, took := tookPost(found, launch.Draft.Commit, sentAt); took {
-			r.markPosted(launch, review.SubmittedAt, review.URL)
+		if review, took := tookPost(found, launch.Draft.Commit, sent.sentAt); took {
+			r.markPosted(launch, review.SubmittedAt, review.URL, sent.verdict)
 		}
 	}
 
@@ -126,10 +129,10 @@ func tookPost(mine []PostedReview, commit string, sentAt float64) (PostedReview,
 	return newest, found
 }
 
-// markPosted records that the draft of launch was posted at postedAt, to url ("" when it is
-// not known), and saves: the draft is never posted again. Posted wins over a set-aside made
-// while the post was out.
-func (r *Reviews) markPosted(launch *Launch, postedAt float64, url string) *string {
+// markPosted records that the draft of launch was posted at postedAt as verdict, to url (""
+// when it is not known), and saves: the draft is never posted again. Posted wins over a
+// set-aside made while the post was out.
+func (r *Reviews) markPosted(launch *Launch, postedAt float64, url, verdict string) *string {
 	var shown *string
 
 	if url != "" {
@@ -137,6 +140,7 @@ func (r *Reviews) markPosted(launch *Launch, postedAt float64, url string) *stri
 	}
 
 	launch.Draft.PostedAt, launch.Draft.URL, launch.Draft.SetAside = &postedAt, shown, nil
+	launch.Draft.PostedVerdict = &verdict
 
 	r.save()
 	r.bump()

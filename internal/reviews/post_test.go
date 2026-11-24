@@ -496,6 +496,50 @@ func TestAPostLandsAsOneReview(t *testing.T) {
 	}
 }
 
+// TestAPostKeepsTheVerdictItWasSentAs: the draft records the verdict chosen, which may not be
+// the session's, in reviews.json too, so the row can show the review before a poll reads it.
+func TestAPostKeepsTheVerdictItWasSentAs(t *testing.T) {
+	t.Parallel()
+
+	tab, fakes := pReady(t, pRow{})
+
+	pPost(t, tab, pPostBody(rKey, rLaunchAt, "[0,1]", reviews.VerdictApprove))
+
+	if got := textValue(pStored(t, tab).PostedVerdict); got != reviews.VerdictApprove {
+		t.Errorf("posted as %q", got)
+	}
+
+	saved := pLaunch(t, reviews.LoadFile(fakes.file)).Draft
+	if saved == nil || textValue(saved.PostedVerdict) != reviews.VerdictApprove {
+		t.Error("reviews.json does not keep the verdict the review was posted as")
+	}
+}
+
+// TestAPostAsksForAPollAtOnce: a post that landed makes the next tick poll, before the poll
+// would be due, so the row soon shows the review as GitHub has it.
+func TestAPostAsksForAPollAtOnce(t *testing.T) {
+	t.Parallel()
+
+	tab, fakes := pReady(t, pRow{})
+	searches := len(fakes.snapshotCalls().search)
+
+	tickAndSettle(tab)
+
+	if got := len(fakes.snapshotCalls().search); got != searches {
+		t.Fatalf("a tick polled with no post: %d searches, want %d", got, searches)
+	}
+
+	if reply := pPost(t, tab, pAll()); reply.Code != 200 {
+		t.Fatalf("code %d", reply.Code)
+	}
+
+	tickAndSettle(tab)
+
+	if got := len(fakes.snapshotCalls().search); got == searches {
+		t.Error("the post asked for no poll")
+	}
+}
+
 func pSamePost(got, want reviews.ReviewPost) bool {
 	same := got.Commit == want.Commit && got.Event == want.Event && got.Body == want.Body
 

@@ -25,8 +25,9 @@ const (
 
 // The review states GitHub reports.
 const (
-	reviewApproved = "APPROVED"
-	reviewPending  = "PENDING"
+	reviewApproved  = "APPROVED"
+	reviewPending   = "PENDING"
+	reviewCommented = "COMMENTED"
 )
 
 // How a PR stopped being open.
@@ -108,6 +109,9 @@ type DeriveContext struct {
 	// Session is the live review session for this PR, if any.
 	Session *RowSession
 	Now     float64
+	// PolledAt is when the poll that read the PR started: a review Conn posted then or since
+	// is not in what it read.
+	PolledAt float64
 }
 
 // Row is one PR as the Reviews tab lists it.
@@ -350,6 +354,12 @@ func stateOf(
 		return StateReviewing, nil
 	}
 
+	// The review Conn posted is my latest one before a poll reads it back: the request the
+	// earlier read held is the one it answered.
+	if sent := postedUnread(tracking, ctx); sent != nil {
+		return reviewedState(tracking, listing, sent)
+	}
+
 	if latest == nil {
 		return StateNew, nil
 	}
@@ -362,6 +372,12 @@ func stateOf(
 		return StateRereview, &asked
 	}
 
+	return reviewedState(tracking, listing, latest)
+}
+
+// reviewedState is the state of a PR asked of me no more on GitHub, by my latest review: an
+// approval is done, anything else waits unless a later post or DM asks again.
+func reviewedState(tracking *Entry, listing listed, latest *Review) (string, *string) {
 	if latest.State != reviewApproved {
 		// A later DM asks like a later post in the thread does (each only while its source is
 		// on).
@@ -377,6 +393,40 @@ func stateOf(
 	}
 
 	return StateWaiting, nil
+}
+
+// postedUnread is my review as Conn posted it, while the poll that read the PR started before the
+// post: GitHub has it, what was read does not show it yet. Nil when the row's draft was not
+// posted, was posted before that poll, or its verdict was not kept.
+func postedUnread(tracking *Entry, ctx *DeriveContext) *Review {
+	launch := draftLaunch(tracking)
+	if launch == nil {
+		return nil
+	}
+
+	// A launch with only problems has no draft.
+	if !liveDraft(launch) {
+		return nil
+	}
+
+	// A live draft has one: liveDraft checked it.
+	draft := launch.Draft
+	if anyOf(draft.PostedAt == nil, draft.PostedVerdict == nil) {
+		return nil
+	}
+
+	if *draft.PostedAt < ctx.PolledAt {
+		return nil
+	}
+
+	state := reviewCommented
+	if *draft.PostedVerdict == VerdictApprove {
+		state = reviewApproved
+	}
+
+	return &Review{
+		Author: ctx.Me, State: state, Commit: draft.Commit, SubmittedAt: *draft.PostedAt,
+	}
 }
 
 func askedSince(tracking *Entry, listing listed, since float64) bool {

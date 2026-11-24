@@ -408,18 +408,23 @@ func (r *Reviews) send(ctx context.Context, request postRequest, built ReviewPos
 		r.logf("reviews: the review of %s was not posted %v", request.launch.key, err)
 
 		if !errors.Is(err, errPostRefused) {
-			r.unsure[request.launch] = unsurePost{sentAt: sentAt, checking: false}
+			r.unsure[request.launch] = unsurePost{
+				sentAt: sentAt, verdict: request.verdict, checking: false,
+			}
 		}
 
 		return bad(codeBadGateway, err.Error())
 	}
 
-	return r.recordPosted(request.launch, url)
+	return r.recordPosted(request.launch, url, request.verdict)
 }
 
-// recordPosted records on the launch target names that its draft was posted now, to url, and
-// saves: the draft is never posted again.
-func (r *Reviews) recordPosted(target launchID, url string) Reply {
+// recordPosted records on the launch target names that its draft was posted now as verdict, to
+// url, and saves: the draft is never posted again. The next tick polls, so the row soon shows
+// the review as GitHub has it.
+func (r *Reviews) recordPosted(target launchID, url, verdict string) Reply {
+	r.forcePoll = true
+
 	launch := r.launchOf(target)
 	if launch == nil || launch.Draft == nil {
 		if url == "" {
@@ -429,7 +434,7 @@ func (r *Reviews) recordPosted(target launchID, url string) Reply {
 		return okReply("url", url)
 	}
 
-	return okReply("url", r.markPosted(launch, r.now(), url))
+	return okReply("url", r.markPosted(launch, r.now(), url, verdict))
 }
 
 // entryOf is the tracking of the PR key names, nil when it has none.

@@ -146,13 +146,20 @@ func uSettled(t *testing.T, run *bHarness, row uRow) {
 		}
 	})
 
+	draft := dLaunches(run)[0].Draft
+
 	url := ""
-	if draft := dLaunches(run)[0].Draft; draft.URL != nil {
+	if draft.URL != nil {
 		url = *draft.URL
 	}
 
 	if url != row.wantURL {
 		t.Errorf("url %q", url)
+	}
+
+	// A post recorded, by the check or by a press after it, keeps the verdict it was sent as.
+	if row.wantURL != "" && textValue(draft.PostedVerdict) != reviews.VerdictComment {
+		t.Errorf("posted as %q", textValue(draft.PostedVerdict))
 	}
 }
 

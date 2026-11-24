@@ -60,13 +60,19 @@ func rEntry(launches ...*reviews.Launch) *reviews.Entry {
 }
 
 func rDerive(pull *reviews.PR, tracking *reviews.Entry, live bool) *reviews.Row {
+	return rDeriveAt(pull, tracking, live, worldT0)
+}
+
+// rDeriveAt is rDerive with pull read by the poll that ran at polledAt.
+func rDeriveAt(pull *reviews.PR, tracking *reviews.Entry, live bool, polledAt float64,
+) *reviews.Row {
 	var session *reviews.RowSession
 	if live {
 		session = &reviews.RowSession{Name: "pr-7", Status: "idle"}
 	}
 
 	return reviews.DeriveRow(pull, tracking, &reviews.DeriveContext{
-		Me: worldMe, Session: session, Now: worldT0,
+		Me: worldMe, Session: session, Now: worldT0, PolledAt: polledAt,
 		Sources: reviews.Sources{Requested: true, Channels: nil, DMs: false, AllOpen: false},
 	}, rKey)
 }
@@ -87,6 +93,14 @@ func rEnded(pull *reviews.PR) {
 func rPosted(stored *reviews.StoredDraft) {
 	postedAt := rLaunchAt + 5
 	stored.PostedAt = &postedAt
+}
+
+// rPostedAs is rPosted with the verdict the review was sent as.
+func rPostedAs(verdict string) func(stored *reviews.StoredDraft) {
+	return func(stored *reviews.StoredDraft) {
+		rPosted(stored)
+		stored.PostedVerdict = &verdict
+	}
 }
 
 func rSetAside(stored *reviews.StoredDraft) {
@@ -156,6 +170,10 @@ func TestTheStateOfARowWithADraft(t *testing.T) {
 		},
 		"only problems, session open": {
 			pull: prOf(nil), launch: problemOnly, live: true, want: reviews.StateReviewing,
+			hasView: true,
+		},
+		"only problems, session closed": {
+			pull: prOf(nil), launch: problemOnly, live: false, want: reviews.StateNew,
 			hasView: true,
 		},
 		"a draft and a newer problem stays ready": {
@@ -302,5 +320,107 @@ func TestReadyIsListedAfterRereview(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("order = %v, want %v", got, want)
+	}
+}
+
+// TestARowJustPostedIsMyReview: right after a post, before a poll has read the PR again, the row
+// takes its state from the review Conn sent, as it will from GitHub's copy once a poll reads it:
+// an approval is done and a comment waits, whatever request the earlier read held. Once a poll
+// has read the PR after the post, GitHub's word is the state again.
+func TestARowJustPostedIsMyReview(t *testing.T) {
+	t.Parallel()
+
+	postedAt := rLaunchAt + 5
+	before, after := postedAt-1, postedAt+1
+	asksMe := func(pr *reviews.PR) { pr.Requested = []string{worldMe} }
+	asksAgain := func(pr *reviews.PR) {
+		asksMe(pr)
+		pr.Reviews = []reviews.Review{rApproved("aaa")}
+	}
+	reviewedThenAsked := func(pr *reviews.PR) {
+		asksMe(pr)
+		pr.Reviews = []reviews.Review{myReview(func(review *reviews.Review) {
+			review.State, review.Commit, review.SubmittedAt = "COMMENTED", rCommit, postedAt-1
+		})}
+	}
+
+	for name, row := range map[string]struct {
+		pull     *reviews.PR
+		change   func(stored *reviews.StoredDraft)
+		polledAt float64
+		want     string
+	}{
+		"posted as an approval, session closed, poll not yet run": {
+			pull: prOf(asksMe), change: rPostedAs(reviews.VerdictApprove), polledAt: before,
+			want: reviews.StateDone,
+		},
+		"posted as a comment, session closed, poll not yet run": {
+			pull: prOf(asksMe), change: rPostedAs(reviews.VerdictComment), polledAt: before,
+			want: reviews.StateWaiting,
+		},
+		"posted as an approval beside an older request to look again": {
+			pull: prOf(asksAgain), change: rPostedAs(reviews.VerdictApprove), polledAt: before,
+			want: reviews.StateDone,
+		},
+		"posted with no verdict kept, poll not yet run": {
+			pull: prOf(asksMe), change: rPosted, polledAt: before, want: reviews.StateNew,
+		},
+		"posted, read again since, and asked again": {
+			pull: prOf(reviewedThenAsked), change: rPostedAs(reviews.VerdictComment),
+			polledAt: after, want: reviews.StateRereview,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got := rDeriveAt(row.pull, rEntry(rWithDraft(row.change)), false, row.polledAt)
+			if got == nil {
+				t.Fatal("the row is not listed")
+			}
+
+			if got.State != row.want {
+				t.Errorf("state = %q, want %q", got.State, row.want)
+			}
+		})
+	}
+}
+
+// TestARereviewRequestBesideALiveDraftIsReady: a draft waiting to be posted is the news even
+// when the author has asked again meanwhile, and the row says whether the head moved past it.
+func TestARereviewRequestBesideALiveDraftIsReady(t *testing.T) {
+	t.Parallel()
+
+	for name, row := range map[string]struct {
+		head          string
+		wantHeadMoved bool
+	}{
+		"on the head the draft read": {head: rCommit, wantHeadMoved: false},
+		"after the head moved":       {head: "bbb", wantHeadMoved: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			pull := prOf(func(pr *reviews.PR) {
+				pr.Requested, pr.HeadSha = []string{worldMe}, row.head
+				pr.Reviews = []reviews.Review{rApproved("aaa")}
+			})
+
+			got := rDerive(pull, rEntry(rWithDraft(nil)), false)
+			if got == nil {
+				t.Fatal("the row is not listed")
+			}
+
+			if got.State != reviews.StateReady {
+				t.Errorf("state = %q, want %q", got.State, reviews.StateReady)
+			}
+
+			if got.Draft == nil {
+				t.Fatal("no draft shown")
+			}
+
+			if got.Draft.HeadMoved != row.wantHeadMoved {
+				t.Errorf("headMoved = %v, want %v", got.Draft.HeadMoved, row.wantHeadMoved)
+			}
+		})
 	}
 }

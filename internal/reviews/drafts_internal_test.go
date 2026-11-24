@@ -168,3 +168,36 @@ func TestAStoredDraftIsReadBackOnlyWhole(t *testing.T) {
 		})
 	}
 }
+
+// TestAStoredPostedVerdictIsOneConnPosts: the verdict a review was posted as reads back when it
+// is one Conn sends, and as not kept otherwise, never failing the draft it is on.
+func TestAStoredPostedVerdictIsOneConnPosts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{"approve", VerdictApprove, VerdictApprove},
+		{"comment", VerdictComment, VerdictComment},
+		{"absent", nil, ""},
+		{"request changes", "request_changes", ""},
+		{"not text", 1.0, ""},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := ""
+			if verdict := postedVerdictOf(test.value); verdict != nil {
+				got = *verdict
+			}
+
+			if got != test.want {
+				t.Errorf("verdict %q, want %q", got, test.want)
+			}
+		})
+	}
+}
