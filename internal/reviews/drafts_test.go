@@ -5,6 +5,7 @@ package reviews_test
 // post.
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -141,13 +142,40 @@ func TestAHalfWrittenDraftIsReadAgain(t *testing.T) {
 	}
 }
 
-func TestADraftWhoseDiffCannotBeReadPostsEveryFindingInTheBody(t *testing.T) {
+// dRetry is how long, in minutes, a failed read of the diff waits before it is tried again.
+const dRetry = float64(reviews.DiffRetryMs) / minuteMs
+
+// dDiffFails makes every read of the diff fail with err.
+func dDiffFails(run *bHarness, err error) {
+	run.fakes.with(func(w *world) {
+		w.diff = func(string, string, string) (string, error) { return "", err }
+	})
+}
+
+// dDiffReads makes every read of the diff answer worldDiff.
+func dDiffReads(run *bHarness) {
+	run.fakes.with(func(w *world) {
+		w.diff = func(string, string, string) (string, error) { return worldDiff, nil }
+	})
+}
+
+// dDiffCalls is how many reads of the diff were asked for.
+func dDiffCalls(run *bHarness) int {
+	calls := 0
+
+	run.fakes.with(func(w *world) { calls = len(w.diffCalls) })
+
+	return calls
+}
+
+// TestADraftWhoseDiffCannotBeReadIsPlacedOnALaterTry: a draft whose diff read failed is stored
+// with every finding in the body, and the diff is read again, no sooner than DiffRetryMs later,
+// until its findings are placed.
+func TestADraftWhoseDiffCannotBeReadIsPlacedOnALaterTry(t *testing.T) {
 	t.Parallel()
 
 	run := bLaunched(t, bLaunchOpts{number: 0, sessions: nil})
-	run.fakes.with(func(w *world) {
-		w.diff = func(string, string, string) (string, error) { return "", errDiffRefused }
-	})
+	dDiffFails(run, errDiffRefused)
 	dWrite(run, 1, dDraft("Sound."))
 	run.at(2)
 
@@ -155,11 +183,99 @@ func TestADraftWhoseDiffCannotBeReadPostsEveryFindingInTheBody(t *testing.T) {
 		t.Errorf("inline %v, want none", inline)
 	}
 
-	// The diff is not asked for again on every tick.
-	run.at(3)
+	if tries := dStored(t, run).DiffTries; tries != 1 {
+		t.Errorf("diffTries %d, want 1", tries)
+	}
 
-	if calls := len(run.fakes.diffCalls); calls != 1 {
-		t.Errorf("the diff was asked for %d times", calls)
+	// Not on every tick: only once the retry's wait is over.
+	run.at(2 + dRetry/2)
+
+	if calls := dDiffCalls(run); calls != 1 {
+		t.Errorf("the diff was asked for %d times within the wait", calls)
+	}
+
+	dDiffReads(run)
+	run.at(2 + dRetry)
+
+	if inline := dStored(t, run).Inline; !slices.Equal(inline, []bool{true, false}) {
+		t.Errorf("inline %v, want the findings placed", inline)
+	}
+
+	run.at(2 + 3*dRetry)
+
+	if calls := dDiffCalls(run); calls != 2 {
+		t.Errorf("the diff was asked for %d times, want 2: none once placed", calls)
+	}
+}
+
+// TestADiffThatKeepsFailingIsTriedAtMostMaxDiffTries: the tries are counted on the stored draft,
+// so a restart does not start them over, and a read cut short by Conn stopping is not one.
+func TestADiffThatKeepsFailingIsTriedAtMostMaxDiffTries(t *testing.T) {
+	t.Parallel()
+
+	run := bLaunched(t, bLaunchOpts{number: 0, sessions: nil})
+	dDiffFails(run, errDiffRefused)
+	dWrite(run, 1, dDraft("Sound."))
+	run.at(2)
+
+	dDiffFails(run, context.Canceled)
+	run.at(2 + dRetry)
+
+	if tries := dStored(t, run).DiffTries; tries != 1 {
+		t.Errorf("diffTries %d after a cut-short read, want 1", tries)
+	}
+
+	dDiffFails(run, errDiffRefused)
+
+	minutes := 2 + dRetry
+	for range 2 * reviews.MaxDiffTries {
+		minutes += dRetry
+		run.at(minutes)
+	}
+
+	if tries := dStored(t, run).DiffTries; tries != reviews.MaxDiffTries {
+		t.Errorf("diffTries %d, want %d", tries, reviews.MaxDiffTries)
+	}
+
+	failed := dDiffCalls(run)
+	restarted := newReviews(t, run.fakes, setupOpts{})
+
+	for range reviews.MaxDiffTries {
+		run.fakes.advance(dRetry * minuteMs)
+		tickAndSettle(restarted)
+	}
+
+	if calls := dDiffCalls(run); calls != failed {
+		t.Errorf("the diff was asked for %d more times after a restart", calls-failed)
+	}
+}
+
+// TestAPostedDraftIsNeverPlacedAgain: once posted, a draft's findings stay where the post put
+// them, whatever a later read of the diff would say.
+func TestAPostedDraftIsNeverPlacedAgain(t *testing.T) {
+	t.Parallel()
+
+	run := bLaunched(t, bLaunchOpts{number: 0, sessions: nil})
+	dDiffFails(run, errDiffRefused)
+	dWrite(run, 1, dDraft("Sound."))
+	run.at(2)
+
+	run.tab.WithFile(func(file *reviews.File) {
+		entry, _ := file.PRs.Get(keyOf(run.number))
+		posted := float64(worldT0 + 2*minuteMs)
+		entry.Launches[0].Draft.PostedAt = &posted
+	})
+
+	dDiffReads(run)
+	run.at(2 + dRetry)
+	run.at(2 + 2*dRetry)
+
+	if calls := dDiffCalls(run); calls != 1 {
+		t.Errorf("the diff was asked for %d times, want 1", calls)
+	}
+
+	if inline := dLaunches(run)[0].Draft.Inline; inline != nil {
+		t.Errorf("inline %v, want the posted draft as it was", inline)
 	}
 }
 

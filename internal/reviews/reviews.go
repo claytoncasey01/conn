@@ -268,6 +268,9 @@ type state struct {
 	drafting map[*Launch]bool
 	// draftLooked are the closed launches whose draft file was looked at since they closed.
 	draftLooked map[*Launch]bool
+	// diffTriedAt is when a read of each launch's draft diff that failed was made: the next waits
+	// diffRetryMs. An entry goes once the findings are placed or the tries run out.
+	diffTriedAt map[*Launch]float64
 	// posting are the launches whose review is being posted now.
 	posting map[launchID]bool
 	// unsure are the launches whose post failed in a way that leaves unclear whether GitHub
@@ -297,8 +300,9 @@ func New(ctx context.Context, deps Deps) *Reviews {
 		finishing: map[string]bool{}, idleSince: map[string]float64{},
 		nextLook: map[string]float64{}, seenPid: map[*Launch]float64{},
 		clones: map[string]cloneHit{}, drafting: map[*Launch]bool{},
-		draftLooked: map[*Launch]bool{}, posting: map[launchID]bool{},
-		unsure: map[launchID]unsurePost{},
+		draftLooked: map[*Launch]bool{}, diffTriedAt: map[*Launch]float64{},
+		posting: map[launchID]bool{},
+		unsure:  map[launchID]unsurePost{},
 	}
 }
 

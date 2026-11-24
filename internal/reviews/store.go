@@ -108,6 +108,10 @@ type StoredDraft struct {
 	// Inline is, per finding, whether it lands on a line of the diff; nil when the diff could
 	// not be read, so every finding goes in the review's body.
 	Inline []bool `json:"inline"`
+	// DiffTries is how many reads of the diff failed for this write of the file (a read cut
+	// short by Conn stopping is not counted). It is kept so a restart does not start the tries
+	// over: the diff is read again only while it is under maxDiffTries.
+	DiffTries int `json:"diffTries,omitempty"`
 	// FileAt is the mtime (ms) of the file it was read from.
 	FileAt float64 `json:"fileAt"`
 	// PostedAt and URL are when the review was posted and where it is; nil until it is.

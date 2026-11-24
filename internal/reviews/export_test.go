@@ -76,6 +76,12 @@ func (r *Reviews) SetDeps(change func(deps *Deps)) {
 // MaxReviewBodyUnits is the longest review body GitHub takes.
 const MaxReviewBodyUnits = maxReviewBodyUnits
 
+// MaxDiffTries and DiffRetryMs bound the reads of a draft's diff.
+const (
+	MaxDiffTries = maxDiffTries
+	DiffRetryMs  = diffRetryMs
+)
+
 // Why a PR's diff is not read.
 var (
 	ErrDiffUnsafe   = errDiffUnsafe

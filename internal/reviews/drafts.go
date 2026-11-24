@@ -12,12 +12,23 @@ import (
 // The draft a review session writes is taken on the tick: the newest launch of each PR whose
 // worktree has a review.json newer than what was last read from it has the file read and
 // accepted holding the mutex (a stat, and at most MaxDraftFileBytes read), and the PR's diff is
-// read without it, on a goroutine of its own, before the draft is stored on the launch. A stored
-// draft is set aside, never deleted, once it is no longer the review to post: a review of mine
-// landed on GitHub after it was written, or a newer launch of the PR started.
+// read without it, on a goroutine of its own, before the draft is stored on the launch. A draft
+// whose diff could not be read is stored with every finding in the body, and its diff read again
+// on a later tick, a bounded number of times. A stored draft is set aside, never deleted, once it
+// is no longer the review to post: a review of mine landed on GitHub after it was written, or a
+// newer launch of the PR started.
 
 // connFolder is the folder in a worktree that Conn and the session share.
 const connFolder = ".conn"
+
+const (
+	// maxDiffTries is the most failed reads of a draft's diff, per write of its file; past it
+	// the findings stay in the review's body.
+	maxDiffTries = 5
+	// diffRetryMs is how long after a failed read of a draft's diff it is read again: a minute,
+	// so a short outage is waited out rather than used up on consecutive ticks.
+	diffRetryMs = 60_000
+)
 
 // What makes a draft file unreadable before its contents are looked at.
 const (
@@ -39,30 +50,99 @@ func (r *Reviews) takeDrafts(refs []launchRef) bool {
 	changed := false
 
 	for _, ref := range refs {
-		launch := r.draftLaunch(ref)
-		if launch == nil {
-			continue
+		if r.takeFile(ref) {
+			changed = true
 		}
 
-		fileAt := r.deps.DraftAt(launch.Worktree)
-		if draftDue(launch, fileAt) {
-			if r.draftWaits(ref) {
-				continue
-			}
-
-			if r.takeDraft(ref.key, launch, *fileAt) {
-				changed = true
-			}
-		}
-
-		// A closed launch's session writes nothing more: its file is looked at once, after it
-		// closed, so one written just before (or while Conn was down) is still taken.
-		if launch.ClosedAt != nil {
-			r.draftLooked[launch] = true
-		}
+		// After the file: a draft it just stored is being placed already.
+		r.placeAgain(ref)
 	}
 
 	return changed
+}
+
+// takeFile takes the draft file of ref's newest launch when it is new since it was last read,
+// and answers whether that changed the launch now.
+func (r *Reviews) takeFile(ref launchRef) bool {
+	launch := r.draftLaunch(ref)
+	if launch == nil {
+		return false
+	}
+
+	changed := false
+
+	fileAt := r.deps.DraftAt(launch.Worktree)
+	if draftDue(launch, fileAt) {
+		if r.draftWaits(ref) {
+			return false
+		}
+
+		changed = r.takeDraft(ref.key, launch, *fileAt)
+	}
+
+	// A closed launch's session writes nothing more: its file is looked at once, after it
+	// closed, so one written just before (or while Conn was down) is still taken.
+	if launch.ClosedAt != nil {
+		r.draftLooked[launch] = true
+	}
+
+	return changed
+}
+
+// placeAgain reads the diff again for the draft of ref's newest launch when its findings were
+// never placed: it is live and unposted, nothing is reading its diff or posting it, fewer than
+// maxDiffTries reads of its diff failed, the last failed one was diffRetryMs ago or more, and the
+// diff may be read now. A draft stored while GitHub could not be called is placed this way too.
+// The launch's session may have closed: the draft is still the review to post.
+func (r *Reviews) placeAgain(ref launchRef) {
+	if len(ref.entry.Launches) == 0 {
+		return
+	}
+
+	launch := ref.entry.Launches[len(ref.entry.Launches)-1]
+	if !unplaced(launch) {
+		return
+	}
+
+	if anyOf(r.drafting[launch], r.held(ref.key, launch)) {
+		return
+	}
+
+	triedAt, tried := r.diffTriedAt[launch]
+	if all(tried, r.now()-triedAt < diffRetryMs) {
+		return
+	}
+
+	pull, readable := r.diffReadable(ref.key)
+	if !readable {
+		return
+	}
+
+	r.placeDraft(ref.key, launch, *launch.Draft, pull)
+}
+
+// unplaced is whether launch has a live, unposted draft whose findings were never placed on the
+// diff and whose diff may be read again.
+func unplaced(launch *Launch) bool {
+	if anyOf(!liveDraft(launch), posted(launch)) {
+		return false
+	}
+
+	return all(launch.Draft.Inline == nil, launch.Draft.DiffTries < maxDiffTries)
+}
+
+// diffReadable is the PR key names when its diff may be read now: GitHub is on and its rate
+// limit not used up, the poll has read the PR (so its base is known), and the base is safe in
+// a path.
+func (r *Reviews) diffReadable(key string) (*PR, bool) {
+	current, _ := r.settings()
+	pull, known := r.pullOf(key)
+
+	if !all(r.githubOn(&current), known, r.pausedUntil == nil) {
+		return nil, false
+	}
+
+	return pull, IsSafeRef(pull.BaseRef)
 }
 
 // draftWaits is whether a due draft waits for the poll: GitHub is on and the PR, open as far as
@@ -136,9 +216,6 @@ func draftDue(launch *Launch, fileAt *float64) bool {
 // recorded, a readable one is placed on the diff and stored. It answers whether it changed the
 // launch now.
 func (r *Reviews) takeDraft(key string, launch *Launch, fileAt float64) bool {
-	current, _ := r.settings()
-	pull, known := r.pullOf(key)
-
 	content, read := r.deps.ReadDraft(filepath.Join(launch.Worktree, connFolder, DraftFile))
 
 	draft, problems := draftOf(content, read)
@@ -155,14 +232,10 @@ func (r *Reviews) takeDraft(key string, launch *Launch, fileAt float64) bool {
 
 	// GitHub is not called while it is off or its rate limit is used up, a PR that ended before
 	// the poll read it has no base known, and a base that is not safe in a path is never put in
-	// one: the draft is stored with every finding in the body.
-	if !all(r.githubOn(&current), known) {
-		r.storeDraft(key, launch, stored)
-
-		return true
-	}
-
-	if anyOf(r.pausedUntil != nil, !IsSafeRef(pull.BaseRef)) {
+	// one: the draft is stored with every finding in the body, and placeAgain places it once the
+	// diff may be read.
+	pull, readable := r.diffReadable(key)
+	if !readable {
 		r.storeDraft(key, launch, stored)
 
 		return true
@@ -203,8 +276,8 @@ func draftOf(content string, read bool) (Draft, []string) {
 }
 
 // placeDraft reads the PR's diff without the mutex, on a goroutine of its own, then stores the
-// draft with its findings placed on it; with every finding in the review's body when the diff
-// cannot be read. The diff is read once per write of the file.
+// draft with its findings placed on it; with every finding in the review's body, and the failed
+// read counted, when the diff cannot be read (placeAgain tries again, up to maxDiffTries).
 func (r *Reviews) placeDraft(key string, launch *Launch, draft StoredDraft, pull *PR) {
 	r.drafting[launch] = true
 	repo, baseRef := pull.Repo, pull.BaseRef
@@ -224,14 +297,22 @@ func (r *Reviews) placeDraft(key string, launch *Launch, draft StoredDraft, pull
 			}
 		})
 
-		// A read cut short by Conn stopping says nothing of the diff: nothing is stored, so the
-		// file is read, and the diff asked for, again.
+		// A read cut short by Conn stopping says nothing of the diff: nothing is stored or
+		// counted, so the file is read, or the diff asked for, again.
 		if anyOf(r.ctx.Err() != nil, errors.Is(err, context.Canceled)) {
 			return
 		}
 
+		r.diffTriedAt[launch] = r.now()
+
 		if err != nil {
+			draft.DiffTries++
+
 			r.logf("reviews: the diff of %s was not read %v", key, err)
+		}
+
+		if anyOf(err == nil, draft.DiffTries >= maxDiffTries) {
+			delete(r.diffTriedAt, launch)
 		}
 
 		r.storeDraft(key, launch, draft)
@@ -240,8 +321,10 @@ func (r *Reviews) placeDraft(key string, launch *Launch, draft StoredDraft, pull
 }
 
 // storeDraft stores draft on launch, unless the launch is no longer in the file, its draft was
-// posted, or what it has is from the same write or a newer one. A draft stored on a launch that a
-// newer one followed is set aside at once; one stored on the newest sets aside the older ones'.
+// posted, or what it has is from a newer write. One from the same write is a placement tried
+// again: only where its findings land, and the reads tried, change. A draft stored on a launch
+// that a newer one followed is set aside at once; one stored on the newest sets aside the older
+// ones'.
 func (r *Reviews) storeDraft(key string, launch *Launch, draft StoredDraft) {
 	entry := r.entryOf(key)
 	if entry == nil {
@@ -254,7 +337,13 @@ func (r *Reviews) storeDraft(key string, launch *Launch, draft StoredDraft) {
 	}
 
 	if launch.Draft != nil {
-		if anyOf(posted(launch), launch.Draft.FileAt >= draft.FileAt) {
+		if anyOf(posted(launch), launch.Draft.FileAt > draft.FileAt) {
+			return
+		}
+
+		if launch.Draft.FileAt == draft.FileAt {
+			r.placeStored(launch.Draft, draft)
+
 			return
 		}
 	}
@@ -269,6 +358,19 @@ func (r *Reviews) storeDraft(key string, launch *Launch, draft StoredDraft) {
 	} else {
 		setAside(entry.Launches[:index], SetAsideNewer)
 	}
+
+	r.save()
+}
+
+// placeStored takes onto stored where placed, read from the same write of the file, put its
+// findings and how many reads of the diff it tried, unless stored was placed already. What else
+// changed meanwhile (set aside, say) is kept.
+func (r *Reviews) placeStored(stored *StoredDraft, placed StoredDraft) {
+	if stored.Inline != nil {
+		return
+	}
+
+	stored.Inline, stored.DiffTries = placed.Inline, placed.DiffTries
 
 	r.save()
 }
@@ -383,8 +485,25 @@ func asStoredDraft(value any) *StoredDraft {
 
 	return &StoredDraft{
 		Draft: draft, Inline: inlineOf(memberOf(raw, "inline"), len(draft.Findings)),
-		FileAt: fileAt, PostedAt: postedAt, URL: url, PostedVerdict: sentAs, SetAside: why,
+		DiffTries: diffTriesOf(member(raw, "diffTries")),
+		FileAt:    fileAt, PostedAt: postedAt, URL: url, PostedVerdict: sentAs, SetAside: why,
 	}
+}
+
+// diffTriesOf is a stored count of failed diff reads: 0 when absent (a draft stored before Conn
+// counted them), and maxDiffTries when it is not a whole number from 0 to it, so a count that
+// does not read never starts the tries over.
+func diffTriesOf(value any, present bool) int {
+	if !present {
+		return 0
+	}
+
+	tries, isNumber := number(value)
+	if !all(isNumber, tries >= 0, tries <= maxDiffTries, tries == float64(int(tries))) {
+		return maxDiffTries
+	}
+
+	return int(tries)
 }
 
 // postedVerdictOf is the stored verdict a review was posted as; nil when there is none, or it

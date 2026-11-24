@@ -65,7 +65,7 @@ func TestAStoredDraftReadsBackAsItWasStored(t *testing.T) {
 
 	posted := 9.0
 	stored := StoredDraft{
-		Draft: draft, Inline: []bool{true}, FileAt: 5, PostedAt: &posted, URL: nil,
+		Draft: draft, Inline: []bool{true}, DiffTries: 2, FileAt: 5, PostedAt: &posted, URL: nil,
 		SetAside: nil,
 	}
 
@@ -76,6 +76,37 @@ func TestAStoredDraftReadsBackAsItWasStored(t *testing.T) {
 
 	if back := asStoredDraft(parsed); !reflect.DeepEqual(back, &stored) {
 		t.Errorf("read back %+v, want %+v", back, stored)
+	}
+}
+
+// TestAStoredDiffTriesNeverStartsTheTriesOver: a count that is absent is none tried (a draft
+// from before Conn counted), and one that does not read is every try used.
+func TestAStoredDiffTriesNeverStartsTheTriesOver(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		value   any
+		present bool
+		want    int
+	}{
+		{"absent", nil, false, 0},
+		{"a count", 3.0, true, 3},
+		{"null", nil, true, maxDiffTries},
+		{"negative", -1.0, true, maxDiffTries},
+		{"past the most", float64(maxDiffTries + 1), true, maxDiffTries},
+		{"a fraction", 1.5, true, maxDiffTries},
+		{"text", "2", true, maxDiffTries},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := diffTriesOf(test.value, test.present); got != test.want {
+				t.Errorf("diffTriesOf = %d, want %d", got, test.want)
+			}
+		})
 	}
 }
 
