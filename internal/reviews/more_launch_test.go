@@ -3,6 +3,8 @@ package reviews_test
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -34,6 +36,10 @@ type dGitCall struct {
 	dir  string
 }
 
+type dUnlinkCall struct {
+	folder, name string
+}
+
 type dOpenCall struct {
 	name, cwd, command string
 }
@@ -50,6 +56,7 @@ type dLaunchRig struct {
 	gits     []dGitCall
 	opens    []dOpenCall
 	writes   []dWriteCall
+	unlinks  []dUnlinkCall
 	files    map[string]string
 	existing map[string]bool
 	origin   string
@@ -110,6 +117,16 @@ func (r *dLaunchRig) write(path, content string, shared bool) error {
 	return nil
 }
 
+// unlink removes the file from the rig's files, as UnlinkInOwnFolder does; a missing one is
+// nothing to do.
+func (r *dLaunchRig) unlink(folder, name string) error {
+	r.calls = append(r.calls, "unlink")
+	r.unlinks = append(r.unlinks, dUnlinkCall{folder: folder, name: name})
+	delete(r.files, filepath.Join(folder, name))
+
+	return nil
+}
+
 func (r *dLaunchRig) exists(path string) bool {
 	_, written := r.files[path]
 	if written {
@@ -123,7 +140,8 @@ func (r *dLaunchRig) deps() reviews.LaunchDeps {
 	cfg := dConfig()
 
 	return reviews.LaunchDeps{
-		Git: r.git, Open: asCmux(r.open), Claude: "claude", Write: r.write, Unlink: nil,
+		Git: r.git, Open: asCmux(r.open), Claude: "claude", Write: r.write,
+		Unlink: r.unlink,
 		Exists: r.exists,
 		Read:   func(path string) (string, error) { return r.files[path], nil },
 		Origin: func(string) string { return r.origin },
@@ -201,7 +219,7 @@ func TestDLaunchFetchesAddsWritesThenOpens(t *testing.T) {
 		t.Fatalf("Open = %+v", got)
 	}
 
-	want := []string{"git", "git", "git", "write", "git", "write", "open"}
+	want := []string{"git", "git", "git", "unlink", "write", "git", "write", "open"}
 	if !slices.Equal(rig.calls, want) {
 		t.Fatalf("calls %v, want %v", rig.calls, want)
 	}
@@ -228,10 +246,11 @@ func TestDLaunchFetchesAddsWritesThenOpens(t *testing.T) {
 
 	opened := dOpenCall{
 		name: dName, cwd: dWorktree,
-		command: argv.ShellLine([]string{
-			"claude", "--name", "pr-412-acme--widget-app", "--model", "sonnet", "--",
+		command: argv.ShellLine(append(
+			append([]string{"claude", "--disallowedTools"}, reviews.ReviewDisallowed()...),
+			"--name", "pr-412-acme--widget-app", "--model", "sonnet", "--",
 			"Read .conn/prompt.md and follow it exactly.",
-		}),
+		)),
 	}
 	if !slices.Equal(rig.opens, []dOpenCall{opened}) {
 		t.Errorf("opens %+v", rig.opens)
@@ -327,7 +346,7 @@ func TestDLaunchMovesAnExistingWorktree(t *testing.T) {
 		t.Errorf("name %q", rig.opens[0].name)
 	}
 
-	if !strings.HasPrefix(rig.opens[0].command, "claude --name pr-412.2-acme--widget-app ") {
+	if !strings.Contains(rig.opens[0].command, " --name pr-412.2-acme--widget-app ") {
 		t.Errorf("command %q", rig.opens[0].command)
 	}
 }
@@ -393,5 +412,75 @@ func TestDLaunchWriteFailureIsItsFirstLine(t *testing.T) {
 
 	if slices.Contains(rig.calls, "open") {
 		t.Error("cmux was opened")
+	}
+}
+
+// TestALaunchRemovesAStaleDraft: a draft a reused worktree still holds is not this launch's, so
+// it is gone before the prompt is written and the session starts.
+func TestALaunchRemovesAStaleDraft(t *testing.T) {
+	t.Parallel()
+
+	draft := filepath.Join(dWorktree, ".conn", reviews.DraftFile)
+	rig := dNewRig(dWorktree, dWorktree+"/.git")
+	rig.files[draft] = `{"commit":"stale"}`
+
+	got := rig.launch(t, nil)
+	if got != dLaunched(dWorktree) {
+		t.Fatalf("Open = %+v", got)
+	}
+
+	_, found := rig.files[draft]
+	if found {
+		t.Error("the stale draft is still there")
+	}
+
+	want := []dUnlinkCall{{folder: filepath.Join(dWorktree, ".conn"), name: "review.json"}}
+	if !slices.Equal(rig.unlinks, want) {
+		t.Errorf("unlinks %v, want %v", rig.unlinks, want)
+	}
+
+	unlinked, written := slices.Index(rig.calls, "unlink"), slices.Index(rig.calls, "write")
+	if unlinked < 0 || unlinked > written {
+		t.Errorf("calls %v: the unlink is not before the prompt is written", rig.calls)
+	}
+}
+
+// TestAFailedUnlinkOfTheDraftOnlyStopsALaunchThatCannotTrustTheFolder: a worktree with no .conn
+// folder yet has no stale draft, but a folder that is not the person's own stops the launch
+// before anything is written.
+func TestAFailedUnlinkOfTheDraftOnlyStopsALaunchThatCannotTrustTheFolder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		unlinkErr error
+		wantOK    bool
+	}{
+		{"no folder yet", &fs.PathError{Op: "open", Path: "x", Err: fs.ErrNotExist}, true},
+		{"a link as the folder", reviews.ErrNotOwnFolder, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rig := dNewRig()
+			deps := rig.deps()
+			deps.Unlink = func(string, string) error { return tt.unlinkErr }
+
+			got := reviews.Open(t.Context(), deps, reviews.LaunchOpts{
+				Repo: dRepo, Number: 412, BaseRef: "release/1.2", Model: "sonnet",
+				Advisor: "claude-code", Name: dName, RepoPath: dClone, DataDir: "/data/conn",
+				ReReviewSha: nil,
+			})
+
+			if got.OK != tt.wantOK {
+				t.Errorf("OK = %t, want %t (%+v)", got.OK, tt.wantOK, got)
+			}
+
+			if !tt.wantOK && len(rig.writes) != 0 {
+				t.Errorf("wrote %v after a refused folder", rig.writes)
+			}
+		})
 	}
 }

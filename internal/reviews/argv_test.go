@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/claytoncasey01/conn/internal/claude"
 	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/pty"
 	"github.com/claytoncasey01/conn/internal/reviews"
@@ -79,9 +81,47 @@ func TestTheReviewSessionsArgvIsGolden(t *testing.T) {
 
 	goldenSpec(t, "argv-review.json", specs[0])
 
+	rules := reviews.ReviewDisallowed()
+	if len(specs[0].Argv) < len(rules)+2 {
+		t.Fatalf("argv %q is shorter than the rules", specs[0].Argv)
+	}
+
+	if specs[0].Argv[1] != "--disallowedTools" {
+		t.Errorf("argv starts %q, want --disallowedTools", specs[0].Argv[:2])
+	}
+
+	if !slices.Equal(specs[0].Argv[2:2+len(rules)], rules) {
+		t.Errorf("the rules after --disallowedTools are %q, want %q",
+			specs[0].Argv[2:2+len(rules)], rules)
+	}
+
 	for _, argument := range specs[0].Argv {
 		if strings.Contains(argument, "pull request #412") {
 			t.Errorf("the prompt is in an argument: %q", argument)
 		}
+	}
+}
+
+// TestReviewDisallowedBlocksEveryGitHubWrite: a review session cannot post, merge or write to
+// GitHub through gh, nor send anything to Slack, whatever its settings allow.
+func TestReviewDisallowedBlocksEveryGitHubWrite(t *testing.T) {
+	t.Parallel()
+
+	rules := reviews.ReviewDisallowed()
+
+	tests := slices.Concat([]string{
+		"Bash(gh pr review:*)", "Bash(gh pr comment:*)", "Bash(gh pr merge:*)",
+		"Bash(gh api --method POST:*)", "Bash(gh api -X POST:*)",
+		"Bash(gh api --method PATCH:*)", "Bash(gh api -X PATCH:*)",
+	}, claude.SlackWrite())
+
+	for _, rule := range tests {
+		t.Run(rule, func(t *testing.T) {
+			t.Parallel()
+
+			if !slices.Contains(rules, rule) {
+				t.Errorf("ReviewDisallowed() lacks %q", rule)
+			}
+		})
 	}
 }
