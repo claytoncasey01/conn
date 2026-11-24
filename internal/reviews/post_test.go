@@ -16,8 +16,17 @@ import (
 	"github.com/claytoncasey01/conn/internal/reviews"
 )
 
-// errGitHubRefused is GitHub refusing a posted review, as gh words it.
+// errGitHubRefused is how gh words GitHub refusing a posted review.
 var errGitHubRefused = errors.New("gh: Unprocessable Entity (HTTP 422)")
+
+// errUnclear is a post that failed with no answer from GitHub: it may have taken the review.
+var errUnclear = errors.New("context deadline exceeded")
+
+// errBadGateway is how gh words GitHub failing with a server error.
+var errBadGateway = errors.New("gh: Bad Gateway (HTTP 502)")
+
+// pRefusedText is how gh words GitHub refusing a posted review with a client error.
+const pRefusedText = "gh: Unprocessable Entity (HTTP 422)"
 
 // pComments are the line comments of the findings at indexes of rDraft.
 func pComments(indexes ...int) []reviews.PostComment {
@@ -246,7 +255,7 @@ func pRows() map[string]pRow {
 			wantCode: 404, wantBody: busy(reviews.TextPostNoDraft),
 		},
 		"GitHub refuses": {
-			body: pAll(), postErr: errGitHubRefused, wantCode: 502,
+			body: pAll(), postErr: reviews.RefusedPost(pRefusedText), wantCode: 502,
 			wantBody: busy(errGitHubRefused.Error()), wantPosts: 1,
 		},
 		"approve with a ticked blocker": {
@@ -514,7 +523,9 @@ func TestADraftRewrittenWhileItIsPostedIsKept(t *testing.T) {
 		wantPosted bool
 	}{
 		"the post lands": {wantCode: 200, wantAfter: "Sound.", wantPosted: true},
-		"GitHub refuses": {postErr: errGitHubRefused, wantCode: 502, wantAfter: "Newer."},
+		"GitHub refuses": {
+			postErr: reviews.RefusedPost(pRefusedText), wantCode: 502, wantAfter: "Newer.",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -651,6 +662,24 @@ func (s *pSend) send(_ context.Context, args []string, input string) (string, er
 	return s.answer, s.err
 }
 
+// pPostError checks a post's error: it is want, says wantText when that is set, and is a
+// refusal (GitHub surely took no review) as wantRefused says.
+func pPostError(t *testing.T, err, want error, wantText string, wantRefused bool) {
+	t.Helper()
+
+	if !errors.Is(err, want) {
+		t.Errorf("error %v", err)
+	}
+
+	if refused := errors.Is(err, reviews.ErrPostRefused); refused != wantRefused {
+		t.Errorf("refused %v", refused)
+	}
+
+	if wantText != "" && err.Error() != wantText {
+		t.Errorf("error text %q", err.Error())
+	}
+}
+
 func TestGhPostReview(t *testing.T) {
 	t.Parallel()
 
@@ -664,13 +693,15 @@ func TestGhPostReview(t *testing.T) {
 	}
 
 	for name, row := range map[string]struct {
-		repo      string
-		answer    string
-		err       error
-		wantURL   string
-		wantErr   error
-		wantText  string
-		wantCalls int
+		repo     string
+		answer   string
+		err      error
+		wantURL  string
+		wantErr  error
+		wantText string
+		// wantRefused is that GitHub surely took no review.
+		wantRefused bool
+		wantCalls   int
 	}{
 		"the review's url": {
 			repo: worldRepo, answer: `{"id":1,"html_url":"` + worldReviewURL + `"}`,
@@ -679,8 +710,17 @@ func TestGhPostReview(t *testing.T) {
 		"an answer with no url is still posted": {
 			repo: worldRepo, answer: `not json`, wantURL: "", wantCalls: 1,
 		},
-		"gh fails": {
+		"gh fails with no answer: GitHub may have taken it": {
 			repo: worldRepo, err: errGitHubRefused, wantErr: errGitHubRefused, wantCalls: 1,
+		},
+		"a client error with GitHub's message is a refusal": {
+			repo: worldRepo, err: errGitHubRefused, answer: `{"message":"Validation Failed"}`,
+			wantErr: errGitHubRefused, wantText: errGitHubRefused.Error(), wantRefused: true,
+			wantCalls: 1,
+		},
+		"a server error is not a refusal": {
+			repo: worldRepo, err: errBadGateway, wantErr: errBadGateway,
+			answer: `{"message":"Server Error"}`, wantCalls: 1,
 		},
 		"GitHub's reasons follow gh's message": {
 			repo: worldRepo, err: errGitHubRefused, wantErr: errGitHubRefused, wantCalls: 1,
@@ -688,6 +728,7 @@ func TestGhPostReview(t *testing.T) {
 				`pull request",{"resource":"PullRequestReview","message":"Line is gone"}]}`,
 			wantText: errGitHubRefused.Error() +
 				": Can not approve your own pull request; Line is gone",
+			wantRefused: true,
 		},
 		"a repo that is not safe calls nothing": {
 			repo: "../x", wantErr: reviews.ErrPostUnsafe, wantCalls: 0,
@@ -699,13 +740,7 @@ func TestGhPostReview(t *testing.T) {
 			script := &pSend{answer: row.answer, err: row.err}
 			url, err := reviews.Gh{Send: script.send}.PostReview(t.Context(), row.repo, 7, post)
 
-			if !errors.Is(err, row.wantErr) {
-				t.Errorf("error %v", err)
-			}
-
-			if row.wantText != "" && err.Error() != row.wantText {
-				t.Errorf("error text %q", err.Error())
-			}
+			pPostError(t, err, row.wantErr, row.wantText, row.wantRefused)
 
 			if url != row.wantURL {
 				t.Errorf("url %q", url)

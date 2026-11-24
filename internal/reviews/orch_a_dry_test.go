@@ -41,6 +41,12 @@ func (aBoomGh) Fetch(context.Context, []reviews.KeyParts, func(*ghbudget.RateInf
 
 func (aBoomGh) Diff(context.Context, string, string, string) (string, error) { panic(aBoom) }
 
+func (aBoomGh) MyReviews(context.Context, string, int64, string) (
+	[]reviews.PostedReview, error,
+) {
+	panic(aBoom)
+}
+
 func (aBoomGh) PostReview(context.Context, string, int64, reviews.ReviewPost) (string, error) {
 	panic(aBoom)
 }

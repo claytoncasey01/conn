@@ -418,9 +418,12 @@ func (r *Reviews) applyPoll(run *pollRun) {
 	r.prs = next
 	r.endedPrs = ended
 
+	// A post whose failure was unclear is checked, now that the PR was read again.
+	r.checkUnsure(run.now, run.me)
+
 	// A review of mine that landed after a draft was written is the review: the draft is set
 	// aside.
-	if setAsideReviewed(run.file, run.me, r.pullOf) {
+	if setAsideReviewed(run.file, run.me, r.pullOf, r.held) {
 		r.bump()
 	}
 

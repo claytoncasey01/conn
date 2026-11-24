@@ -100,6 +100,10 @@ type GitHub interface {
 	// PostReview posts post to PR number of repo as one review, and answers where it is ("" when
 	// GitHub did not say).
 	PostReview(ctx context.Context, repo string, number int64, post ReviewPost) (string, error)
+	// MyReviews are the newest reviews login submitted on PR number of repo, at most
+	// maxMyReviews: how a post whose failure was unclear is checked.
+	MyReviews(ctx context.Context, repo string, number int64, login string) (
+		[]PostedReview, error)
 }
 
 // SettingsSource is the settings holder: read again on every tick.
@@ -263,6 +267,9 @@ type state struct {
 	draftLooked map[*Launch]bool
 	// posting are the launches whose review is being posted now.
 	posting map[launchID]bool
+	// unsure are the launches whose post failed in a way that leaves unclear whether GitHub
+	// took the review: none is posted again until a poll's check says.
+	unsure map[launchID]unsurePost
 }
 
 // New is Reviews over deps; nothing runs until Run (or Tick) is called.
@@ -288,6 +295,7 @@ func New(ctx context.Context, deps Deps) *Reviews {
 		nextLook: map[string]float64{}, seenPid: map[*Launch]float64{},
 		clones: map[string]cloneHit{}, drafting: map[*Launch]bool{},
 		draftLooked: map[*Launch]bool{}, posting: map[launchID]bool{},
+		unsure: map[launchID]unsurePost{},
 	}
 }
 

@@ -321,12 +321,14 @@ func (r *Reviews) postRefusal(target launchID, entry *Entry, launch *Launch) str
 	pull, known := r.pullOf(target.key)
 	ended := anyOf(entry.Ended != nil, known && pull.Ended != nil)
 	parts, _ := ParseKey(target.key)
+	_, unsure := r.unsure[target]
 
 	refusals := []struct {
 		refused bool
 		why     string
 	}{
 		{refused: r.posting[target], why: textPostInFlight},
+		{refused: unsure, why: textPostChecking},
 		// A diff read in flight would store a newer draft than the one posted.
 		{refused: r.drafting[launch], why: textPostReading},
 		{refused: posted(launch), why: textPostPosted},
@@ -337,6 +339,7 @@ func (r *Reviews) postRefusal(target launchID, entry *Entry, launch *Launch) str
 		{refused: !r.githubOn(&current), why: textPostGitHubOff},
 		// A post that could not be recorded would be posted again after a restart.
 		{refused: !r.writable, why: r.notSaving()},
+		{refused: len(r.posting)+len(r.unsure) >= maxUnsurePosts, why: textPostTooMany},
 	}
 
 	for _, refusal := range refusals {
@@ -349,10 +352,14 @@ func (r *Reviews) postRefusal(target launchID, entry *Entry, launch *Launch) str
 }
 
 // send posts built for request without the mutex, the launch marked as posting while it does,
-// and records the post GitHub took; a failure answers GitHub's message and records nothing.
+// and records the post GitHub took. A failure answers GitHub's message and records nothing; one
+// that leaves unclear whether GitHub took the review holds the launch as unsure until a poll's
+// check settles it.
 func (r *Reviews) send(ctx context.Context, request postRequest, built ReviewPost) Reply {
 	r.posting[request.launch] = true
 	defer delete(r.posting, request.launch)
+
+	sentAt := r.now()
 
 	var (
 		url string
@@ -369,31 +376,29 @@ func (r *Reviews) send(ctx context.Context, request postRequest, built ReviewPos
 	if err != nil {
 		r.logf("reviews: the review of %s was not posted %v", request.launch.key, err)
 
+		if !errors.Is(err, errPostRefused) {
+			r.unsure[request.launch] = unsurePost{sentAt: sentAt, checking: false}
+		}
+
 		return bad(codeBadGateway, err.Error())
 	}
 
 	return r.recordPosted(request.launch, url)
 }
 
-// recordPosted records on the launch target names that its draft was posted now, to url, and saves:
-// the draft is never posted again.
+// recordPosted records on the launch target names that its draft was posted now, to url, and
+// saves: the draft is never posted again.
 func (r *Reviews) recordPosted(target launchID, url string) Reply {
-	var shown *string
-
-	if url != "" {
-		shown = &url
-	}
-
 	launch := r.launchOf(target)
-	if launch != nil && launch.Draft != nil {
-		now := r.now()
-		launch.Draft.PostedAt, launch.Draft.URL = &now, shown
+	if launch == nil || launch.Draft == nil {
+		if url == "" {
+			return okReply("url", nil)
+		}
 
-		r.save()
-		r.bump()
+		return okReply("url", url)
 	}
 
-	return okReply("url", shown)
+	return okReply("url", r.markPosted(launch, r.now(), url))
 }
 
 // entryOf is the tracking of the PR key names, nil when it has none.

@@ -85,17 +85,15 @@ func (r *Reviews) draftWaits(ref launchRef) bool {
 
 // draftLaunch is the launch of a PR whose draft file is looked at: its newest (the worktree is
 // the PR's, so the file is that session's), while it is Conn's own, has no diff being read for
-// it and no review being posted, has not posted its draft and, once closed, has not been looked
-// at since; nil when there is none.
+// it, is not having its review posted or held unsure, has not posted its draft and, once
+// closed, has not been looked at since; nil when there is none.
 func (r *Reviews) draftLaunch(ref launchRef) *Launch {
 	if len(ref.entry.Launches) == 0 {
 		return nil
 	}
 
 	launch := ref.entry.Launches[len(ref.entry.Launches)-1]
-
-	posting := r.posting[launchID{key: ref.key, at: launch.At}]
-	if anyOf(r.draftLooked[launch], r.drafting[launch], posting, posted(launch)) {
+	if anyOf(r.draftLooked[launch], r.drafting[launch], r.held(ref.key, launch), posted(launch)) {
 		return nil
 	}
 
@@ -309,8 +307,11 @@ func setAside(launches []*Launch, why string) bool {
 
 // setAsideReviewed sets aside each live, unposted draft of file that a review by login (mine)
 // submitted after the draft was written overtook: I reviewed by hand. It answers whether it set
-// any aside.
-func setAsideReviewed(file *File, login string, pullOf func(key string) (*PR, bool)) bool {
+// any aside. A draft held (being posted, or unsure whether it was) is left: the review may be
+// the post itself.
+func setAsideReviewed(file *File, login string, pullOf func(key string) (*PR, bool),
+	held func(key string, launch *Launch) bool,
+) bool {
 	changed := false
 
 	for _, key := range file.PRs.Keys() {
@@ -322,7 +323,7 @@ func setAsideReviewed(file *File, login string, pullOf func(key string) (*PR, bo
 		entry, _ := file.PRs.Get(key)
 
 		for _, launch := range entry.Launches {
-			if anyOf(!liveDraft(launch), posted(launch)) {
+			if anyOf(!liveDraft(launch), posted(launch), held(key, launch)) {
 				continue
 			}
 

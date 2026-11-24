@@ -286,8 +286,12 @@ type world struct {
 	postResult func() (string, error)
 	posts      []worldPost
 	postGate   *gate
-	dir        string
-	file       string
+	// myReviews are my reviews of a PR as the check after an unclear post reads them, and
+	// myReviewsCalls how often it did.
+	myReviews      func() ([]reviews.PostedReview, error)
+	myReviewsCalls int
+	dir            string
+	file           string
 }
 
 // setupOpts are what a test starts from.
@@ -367,6 +371,7 @@ func newWorld(dir, file string, current settings.Settings, open []*reviews.PR,
 		drafts:     map[string]worldDraftFile{},
 		diff:       func(string, string, string) (string, error) { return worldDiff, nil },
 		postResult: func() (string, error) { return worldReviewURL, nil },
+		myReviews:  func() ([]reviews.PostedReview, error) { return nil, nil },
 	}
 }
 
@@ -889,6 +894,17 @@ func (g worldGh) PostReview(_ context.Context, repo string, number int64,
 	g.w.mu.Unlock()
 
 	held.pass()
+
+	return answer()
+}
+
+func (g worldGh) MyReviews(_ context.Context, _ string, _ int64, _ string) (
+	[]reviews.PostedReview, error,
+) {
+	g.w.mu.Lock()
+	g.w.myReviewsCalls++
+	answer := g.w.myReviews
+	g.w.mu.Unlock()
 
 	return answer()
 }

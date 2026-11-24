@@ -88,6 +88,7 @@ var (
 	ErrBadFindings     = errBadFindings
 	ErrBlockerApproved = errBlockerApproved
 	ErrPostUnsafe      = errPostUnsafe
+	ErrPostRefused     = errPostRefused
 )
 
 // Why a press of Post review is refused.
@@ -96,6 +97,7 @@ const (
 	TextPostNoDraft    = textPostNoDraft
 	TextPostInFlight   = textPostInFlight
 	TextPostReading    = textPostReading
+	TextPostChecking   = textPostChecking
 	TextPostUnread     = textPostUnread
 	TextPostPosted     = textPostPosted
 	TextPostSetAside   = textPostSetAside
@@ -103,3 +105,11 @@ const (
 	TextPostNotAllowed = textPostNotAllowed
 	TextPostGitHubOff  = textPostGitHubOff
 )
+
+// RefusedPost is a post GitHub refused with a client error, with message: it took no review.
+func RefusedPost(message string) error {
+	return &postError{message: message, err: errPostRefused}
+}
+
+// ErrLookupUnsafe is a PR's reviews not read because its repo, number or login is not safe.
+var ErrLookupUnsafe = errLookupUnsafe
