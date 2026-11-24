@@ -87,6 +87,8 @@ var (
 	ErrBadVerdict      = errBadVerdict
 	ErrBadFindings     = errBadFindings
 	ErrBlockerApproved = errBlockerApproved
+	ErrReviewTooLong   = errReviewTooLong
+	MaxReviewBodyUnits = maxReviewBodyUnits
 	ErrPostUnsafe      = errPostUnsafe
 	ErrPostRefused     = errPostRefused
 )

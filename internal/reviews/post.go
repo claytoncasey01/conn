@@ -26,6 +26,10 @@ const (
 	codeBadGateway = 502
 	// postTimeout stops one post to GitHub: gh's own limit on a call.
 	postTimeout = 30 * time.Second
+	// maxReviewBodyUnits is the longest review body GitHub takes, 65,536 characters, counted
+	// in UTF-16 units as the draft's own limits are (a character outside the Basic Multilingual
+	// Plane counts as two, which errs towards refusing).
+	maxReviewBodyUnits = 65536
 )
 
 // Why a press of Post review is refused.
@@ -53,6 +57,7 @@ var (
 		"findings: a finding number is past the draft's findings or repeated")
 	errBlockerApproved = errors.New(
 		"a ticked P0 or P1 finding cannot be approved: comment instead, or untick it")
+	errReviewTooLong = errors.New("the review is too long for GitHub: untick some findings")
 )
 
 // ReviewPost is one review as GitHub's create-review call takes it. Gh.PostReview sends it
@@ -84,7 +89,8 @@ type launchID struct {
 // chosen (VerdictApprove or VerdictComment): a ticked finding on a line of the diff is a line
 // comment, any other ticked one goes in the body under the summary, and an unticked one goes
 // nowhere. The errors, all of them at once, are a verdict not in the table, an index out of
-// range or repeated, and an approval beside a ticked P0 or P1.
+// range or repeated, and an approval beside a ticked P0 or P1; once those pass, a body longer
+// than GitHub takes (maxReviewBodyUnits) is refused too.
 func BuildPost(draft StoredDraft, ticked []int, verdict string) (ReviewPost, error) {
 	post, problems := buildPost(draft, ticked, verdict)
 
@@ -98,11 +104,17 @@ func buildPost(draft StoredDraft, ticked []int, verdict string) (ReviewPost, []e
 	}
 
 	comments, outside := placeTicked(draft, chosen)
+	body := ReviewBody(draft.Summary, outside)
 
-	return ReviewPost{
-		Commit: draft.Commit, Event: event, Body: ReviewBody(draft.Summary, outside),
-		Comments: comments,
-	}, nil
+	// Each line comment is within GitHub's limit already: a finding's body is at most
+	// maxFindingUnits.
+	if js.Len(body) > maxReviewBodyUnits {
+		empty := ReviewPost{Commit: "", Event: "", Body: "", Comments: []PostComment{}}
+
+		return empty, []error{errReviewTooLong}
+	}
+
+	return ReviewPost{Commit: draft.Commit, Event: event, Body: body, Comments: comments}, nil
 }
 
 // postProblems are the event of verdict and, per finding, whether it is ticked, or every reason

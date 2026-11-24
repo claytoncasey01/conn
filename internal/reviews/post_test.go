@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/reviews"
@@ -64,6 +65,17 @@ func TestBuildPost(t *testing.T) {
 
 	allInline := func(stored *reviews.StoredDraft) { stored.Inline = []bool{true, true} }
 	notRead := func(stored *reviews.StoredDraft) { stored.Inline = nil }
+	// longBody fills the body with findings outside the diff up to units UTF-16 units: each
+	// "é" is one unit and two bytes, so a count in bytes would refuse the exact fit.
+	longBody := func(units int) func(stored *reviews.StoredDraft) {
+		return func(stored *reviews.StoredDraft) {
+			stored.Inline = nil
+			stored.Findings = stored.Findings[:1]
+			stored.Findings[0].Body = "x"
+			fill := units - len([]rune(reviews.ReviewBody(stored.Summary, stored.Findings))) + 1
+			stored.Findings[0].Body = strings.Repeat("é", fill)
+		}
+	}
 
 	for name, row := range map[string]struct {
 		change       func(stored *reviews.StoredDraft)
@@ -73,6 +85,8 @@ func TestBuildPost(t *testing.T) {
 		wantEvent    string
 		wantComments []reviews.PostComment
 		wantBody     string
+		// wantUnits is the body's length in UTF-16 units, checked instead of wantBody.
+		wantUnits int
 	}{
 		"every finding ticked and inline": {
 			change: allInline, ticked: []int{0, 1}, verdict: reviews.VerdictComment,
@@ -119,6 +133,15 @@ func TestBuildPost(t *testing.T) {
 		"request changes is never sent": {
 			ticked: []int{0}, verdict: "request_changes", wantErr: reviews.ErrBadVerdict,
 		},
+		"a body over GitHub's limit": {
+			change: longBody(reviews.MaxReviewBodyUnits + 1), ticked: []int{0},
+			verdict: reviews.VerdictComment, wantErr: reviews.ErrReviewTooLong,
+		},
+		"a body at GitHub's limit": {
+			change: longBody(reviews.MaxReviewBodyUnits), ticked: []int{0},
+			verdict: reviews.VerdictComment, wantEvent: "COMMENT", wantComments: pComments(),
+			wantUnits: reviews.MaxReviewBodyUnits,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -146,6 +169,14 @@ func TestBuildPost(t *testing.T) {
 
 			if !slices.Equal(post.Comments, row.wantComments) {
 				t.Errorf("comments %+v", post.Comments)
+			}
+
+			if row.wantUnits > 0 {
+				if units := len(utf16.Encode([]rune(post.Body))); units != row.wantUnits {
+					t.Errorf("body of %d units, want %d", units, row.wantUnits)
+				}
+
+				return
 			}
 
 			if post.Body != row.wantBody {
