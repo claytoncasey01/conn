@@ -115,7 +115,7 @@ type StoredDraft struct {
 	URL      *string  `json:"url"`
 	// PostedVerdict is the verdict the review was posted as (VerdictApprove or
 	// VerdictComment); nil until it is posted, and for a post recorded before Conn kept it.
-	PostedVerdict *string `json:"postedVerdict"`
+	PostedVerdict *Verdict `json:"postedVerdict"`
 	// SetAside is SetAsideReviewed or SetAsideNewer; nil while the draft is live.
 	SetAside *string `json:"setAside"`
 }

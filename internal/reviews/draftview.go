@@ -26,7 +26,7 @@ type DraftView struct {
 	// HeadMoved is that the PR's head is no longer Commit.
 	HeadMoved bool          `json:"headMoved"`
 	Summary   string        `json:"summary"`
-	Verdict   string        `json:"verdict"`
+	Verdict   Verdict       `json:"verdict"`
 	Findings  []FindingView `json:"findings"`
 	Dropped   int           `json:"dropped"`
 	PostedAt  *float64      `json:"postedAt"`

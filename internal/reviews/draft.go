@@ -14,11 +14,17 @@ import (
 // file is written by a model and read from a folder Conn does not control, so every field is
 // checked and the file can never grow a finding list without limit.
 
+// Verdict is what a draft proposes the review does: one of the verdicts eventOf knows.
+type Verdict string
+
+// Severity is how much a finding matters: one of the severities severityOf knows.
+type Severity string
+
 const (
 	// VerdictApprove is a draft that would approve the PR.
-	VerdictApprove = "approve"
+	VerdictApprove Verdict = "approve"
 	// VerdictComment is a draft that would only comment on it.
-	VerdictComment = "comment"
+	VerdictComment Verdict = "comment"
 	// SideRight is a finding on the new version of a file.
 	SideRight = "RIGHT"
 	// SideLeft is a finding on the old version of a file.
@@ -42,11 +48,11 @@ var commitShape = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // Finding is one comment of a draft: a line of a file in the PR's diff and what to say of it.
 type Finding struct {
-	Path     string `json:"path"`
-	Line     int64  `json:"line"`
-	Side     string `json:"side"`     // SideRight or SideLeft.
-	Severity string `json:"severity"` // P0 to P3.
-	Body     string `json:"body"`
+	Path     string   `json:"path"`
+	Line     int64    `json:"line"`
+	Side     string   `json:"side"`     // SideRight or SideLeft.
+	Severity Severity `json:"severity"` // P0 to P3.
+	Body     string   `json:"body"`
 }
 
 // Draft is the review a session wrote, once accepted: the head commit it read, the summary, the
@@ -54,7 +60,7 @@ type Finding struct {
 type Draft struct {
 	Commit   string    `json:"commit"`
 	Summary  string    `json:"summary"`
-	Verdict  string    `json:"verdict"` // VerdictApprove or VerdictComment.
+	Verdict  Verdict   `json:"verdict"` // VerdictApprove or VerdictComment.
 	Findings []Finding `json:"findings"`
 	Dropped  int       `json:"dropped"`
 }
@@ -68,7 +74,7 @@ type Draft struct {
 // its table, or its body is empty or over MaxCommentUnits once cleaned. No more than
 // maxDraftFindings are kept; the rest count as dropped.
 func AcceptDraft(raw any) (Draft, []string) {
-	empty := Draft{Commit: "", Summary: "", Verdict: "", Findings: []Finding{}, Dropped: 0}
+	empty := emptyDraft()
 
 	file := object(raw)
 	if file == nil {
@@ -89,6 +95,11 @@ func AcceptDraft(raw any) (Draft, []string) {
 	draft.Findings, draft.Dropped = acceptFindings(memberOf(file, "findings"))
 
 	return draft, nil
+}
+
+// emptyDraft is a draft with nothing in it: what an unreadable file, or a posted marker, holds.
+func emptyDraft() Draft {
+	return Draft{Commit: "", Summary: "", Verdict: "", Findings: []Finding{}, Dropped: 0}
 }
 
 func draftCommit(value any, problems *[]string) string {
@@ -122,15 +133,50 @@ func draftSummary(value any, problems *[]string) string {
 	return cleaned
 }
 
-func draftVerdict(value any, problems *[]string) string {
-	verdict, _ := text(value)
-	if !slices.Contains([]string{VerdictApprove, VerdictComment}, verdict) {
-		*problems = append(*problems, "verdict: not approve or comment")
+func draftVerdict(value any, problems *[]string) Verdict {
+	verdict, known := verdictOf(value)
+	if !known {
+		*problems = append(*problems, errBadVerdict.Error())
 
 		return ""
 	}
 
 	return verdict
+}
+
+// verdictOf is the verdict value names, and false for anything not in eventOf's table.
+func verdictOf(value any) (Verdict, bool) {
+	given, _ := text(value)
+	verdict := Verdict(given)
+	_, known := eventOf(verdict)
+
+	return verdict, known
+}
+
+// eventOf is the review event a verdict is posted as, and false for one not in the table: the
+// one list of the verdicts Conn knows.
+func eventOf(verdict Verdict) (string, bool) {
+	switch verdict {
+	case VerdictApprove:
+		return eventApprove, true
+	case VerdictComment:
+		return eventComment, true
+	}
+
+	return "", false
+}
+
+// severityOf is whether a severity holds a review back from an approval (a blocker), and false
+// for one not in the table: the one list of the severities a finding may have, P0 to P3.
+func severityOf(severity Severity) (bool, bool) {
+	switch severity {
+	case "P0", "P1":
+		return true, true
+	case "P2", "P3":
+		return false, true
+	}
+
+	return false, false
 }
 
 // acceptFindings are the findings of the list that pass, up to maxDraftFindings, and how many of
@@ -158,7 +204,7 @@ func acceptFindings(value any) ([]Finding, int) {
 }
 
 func acceptFinding(entry any) (Finding, bool) {
-	none := Finding{Path: "", Line: 0, Side: "", Severity: "", Body: ""}
+	var none Finding
 
 	fields := object(entry)
 	if fields == nil {
@@ -194,11 +240,13 @@ func wholeLine(value any) (int64, bool) {
 	return int64(line), true
 }
 
-// findingSeverity is the severity given, when it is one of P0 to P3.
-func findingSeverity(value any) (string, bool) {
-	severity, isText := text(value)
+// findingSeverity is the severity given, when it is one in severityOf's table.
+func findingSeverity(value any) (Severity, bool) {
+	given, _ := text(value)
+	severity := Severity(given)
+	_, known := severityOf(severity)
 
-	return severity, isText && slices.Contains([]string{"P0", "P1", "P2", "P3"}, severity)
+	return severity, known
 }
 
 // findingSide is the side given, RIGHT when there is none.

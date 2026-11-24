@@ -144,7 +144,7 @@ func dryLater(now, hour float64) []*Row {
 }
 
 // dryFinding is a finding on the new side of a file, placed on the diff or not.
-func dryFinding(file string, line int64, severity, body string, inline bool) FindingView {
+func dryFinding(file string, line int64, severity Severity, body string, inline bool) FindingView {
 	view := FindingView{Finding: Finding{}, Inline: &inline}
 	view.Path, view.Line, view.Side = file, line, SideRight
 	view.Severity, view.Body = severity, body

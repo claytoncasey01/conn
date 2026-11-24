@@ -61,7 +61,7 @@ func pBody(indexes ...int) string {
 	return reviews.ReviewBody(stored.Summary, outside)
 }
 
-func pSeverity(index int, severity string) func(stored *reviews.StoredDraft) {
+func pSeverity(index int, severity reviews.Severity) func(stored *reviews.StoredDraft) {
 	return func(stored *reviews.StoredDraft) { stored.Findings[index].Severity = severity }
 }
 
@@ -85,7 +85,7 @@ func TestBuildPost(t *testing.T) {
 	for name, row := range map[string]struct {
 		change       func(stored *reviews.StoredDraft)
 		ticked       []int
-		verdict      string
+		verdict      reviews.Verdict
 		wantErr      error
 		wantEvent    string
 		wantComments []reviews.PostComment
@@ -235,15 +235,17 @@ const pFileAt = rLaunchAt + 1
 
 // pPostBody is a post's body naming the PR, the launch, the ticked findings and the verdict,
 // for the draft of rDraft's file.
-func pPostBody(key string, launchAt float64, findings, verdict string) string {
+func pPostBody(key string, launchAt float64, findings string, verdict reviews.Verdict) string {
 	return pPostBodyAt(key, launchAt, pFileAt, findings, verdict)
 }
 
 // pPostBodyAt is pPostBody for the draft of the file written at fileAt.
-func pPostBodyAt(key string, launchAt, fileAt float64, findings, verdict string) string {
+func pPostBodyAt(
+	key string, launchAt, fileAt float64, findings string, verdict reviews.Verdict,
+) string {
 	return `{"key":"` + key + `","launchAt":` + strconv.FormatFloat(launchAt, 'f', -1, 64) +
 		`,"fileAt":` + strconv.FormatFloat(fileAt, 'f', -1, 64) +
-		`,"findings":` + findings + `,"verdict":"` + verdict + `"}`
+		`,"findings":` + findings + `,"verdict":"` + string(verdict) + `"}`
 }
 
 // pAll is the post of both findings of rDraft, as a comment.

@@ -177,10 +177,10 @@ func TestAStoredPostedVerdictIsOneConnPosts(t *testing.T) {
 	tests := []struct {
 		name  string
 		value any
-		want  string
+		want  Verdict
 	}{
-		{"approve", VerdictApprove, VerdictApprove},
-		{"comment", VerdictComment, VerdictComment},
+		{"approve", string(VerdictApprove), VerdictApprove},
+		{"comment", string(VerdictComment), VerdictComment},
 		{"absent", nil, ""},
 		{"request changes", "request_changes", ""},
 		{"not text", 1.0, ""},
@@ -190,7 +190,7 @@ func TestAStoredPostedVerdictIsOneConnPosts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := ""
+			got := Verdict("")
 			if verdict := postedVerdictOf(test.value); verdict != nil {
 				got = *verdict
 			}

@@ -27,7 +27,7 @@ type unsurePost struct {
 	// sentAt is when the post was sent, by Conn's clock.
 	sentAt float64
 	// verdict is the verdict the post was sent as.
-	verdict string
+	verdict Verdict
 	// checking is that a read of my reviews for it is running.
 	checking bool
 }
@@ -132,7 +132,9 @@ func tookPost(mine []PostedReview, commit string, sentAt float64) (PostedReview,
 // markPosted records that the draft of launch was posted at postedAt as verdict, to url (""
 // when it is not known), and saves: the draft is never posted again. Posted wins over a
 // set-aside made while the post was out.
-func (r *Reviews) markPosted(launch *Launch, postedAt float64, url, verdict string) *string {
+func (r *Reviews) markPosted(
+	launch *Launch, postedAt float64, url string, verdict Verdict,
+) *string {
 	var shown *string
 
 	if url != "" {

@@ -3,7 +3,6 @@ package reviews
 import (
 	"context"
 	"errors"
-	"slices"
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/js"
@@ -92,16 +91,16 @@ type launchID struct {
 // nowhere. The errors, all of them at once, are a verdict not in the table, an index out of
 // range or repeated, and an approval beside a ticked P0 or P1; once those pass, a body longer
 // than GitHub takes (maxReviewBodyUnits) is refused too.
-func BuildPost(draft StoredDraft, ticked []int, verdict string) (ReviewPost, error) {
+func BuildPost(draft StoredDraft, ticked []int, verdict Verdict) (ReviewPost, error) {
 	post, problems := buildPost(draft, ticked, verdict)
 
 	return post, errors.Join(problems...)
 }
 
-func buildPost(draft StoredDraft, ticked []int, verdict string) (ReviewPost, []error) {
+func buildPost(draft StoredDraft, ticked []int, verdict Verdict) (ReviewPost, []error) {
 	event, chosen, problems := postProblems(draft.Findings, ticked, verdict)
 	if len(problems) > 0 {
-		return ReviewPost{Commit: "", Event: "", Body: "", Comments: []PostComment{}}, problems
+		return emptyPost(), problems
 	}
 
 	comments, outside := placeTicked(draft, chosen)
@@ -110,17 +109,20 @@ func buildPost(draft StoredDraft, ticked []int, verdict string) (ReviewPost, []e
 	// Each line comment is within GitHub's limit already: a finding's body is at most
 	// MaxCommentUnits.
 	if js.Len(body) > maxReviewBodyUnits {
-		empty := ReviewPost{Commit: "", Event: "", Body: "", Comments: []PostComment{}}
-
-		return empty, []error{errReviewTooLong}
+		return emptyPost(), []error{errReviewTooLong}
 	}
 
 	return ReviewPost{Commit: draft.Commit, Event: event, Body: body, Comments: comments}, nil
 }
 
+// emptyPost is the review of a draft that cannot be posted: nothing.
+func emptyPost() ReviewPost {
+	return ReviewPost{Commit: "", Event: "", Body: "", Comments: []PostComment{}}
+}
+
 // postProblems are the event of verdict and, per finding, whether it is ticked, or every reason
 // they cannot be posted.
-func postProblems(findings []Finding, ticked []int, verdict string) (string, []bool, []error) {
+func postProblems(findings []Finding, ticked []int, verdict Verdict) (string, []bool, []error) {
 	problems := []error{}
 
 	event, known := eventOf(verdict)
@@ -167,18 +169,6 @@ func placeTicked(draft StoredDraft, chosen []bool) ([]PostComment, []Finding) {
 	return comments, outside
 }
 
-// eventOf is the review event of a verdict, and false for one not in the table.
-func eventOf(verdict string) (string, bool) {
-	switch verdict {
-	case VerdictApprove:
-		return eventApprove, true
-	case VerdictComment:
-		return eventComment, true
-	}
-
-	return "", false
-}
-
 // tickedMask is, per finding of count, whether it is ticked; false when an index is out of
 // range or repeated.
 func tickedMask(ticked []int, count int) ([]bool, bool) {
@@ -202,7 +192,8 @@ func tickedMask(ticked []int, count int) ([]bool, bool) {
 // blockerTicked is whether a ticked finding is a P0 or P1, which a review does not approve.
 func blockerTicked(findings []Finding, chosen []bool) bool {
 	for index, finding := range findings {
-		if all(chosen[index], slices.Contains([]string{"P0", "P1"}, finding.Severity)) {
+		blocker, _ := severityOf(finding.Severity)
+		if all(chosen[index], blocker) {
 			return true
 		}
 	}
@@ -218,7 +209,7 @@ type postRequest struct {
 	// was read off it.
 	fileAt  float64
 	ticked  []int
-	verdict string
+	verdict Verdict
 }
 
 // postRequestOf is the press in body, or every reason it is not one.
@@ -246,8 +237,8 @@ func postRequestOf(body *js.Object) (postRequest, []string) {
 		problems = append(problems, textPostBadTicked)
 	}
 
-	verdict, _ := text(memberOf(body, "verdict"))
-	if _, known := eventOf(verdict); !known {
+	verdict, known := verdictOf(memberOf(body, "verdict"))
+	if !known {
 		problems = append(problems, errBadVerdict.Error())
 	}
 
@@ -417,7 +408,7 @@ func (r *Reviews) send(ctx context.Context, request postRequest, built ReviewPos
 // recordPosted records on the launch target names that its draft was posted now as verdict, to
 // url, and saves: the draft is never posted again. The next tick polls, so the row soon shows
 // the review as GitHub has it.
-func (r *Reviews) recordPosted(target launchID, url, verdict string) Reply {
+func (r *Reviews) recordPosted(target launchID, url string, verdict Verdict) Reply {
 	r.forcePoll = true
 
 	launch := r.launchOf(target)

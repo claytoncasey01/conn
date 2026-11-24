@@ -96,7 +96,7 @@ func rPosted(stored *reviews.StoredDraft) {
 }
 
 // rPostedAs is rPosted with the verdict the review was sent as.
-func rPostedAs(verdict string) func(stored *reviews.StoredDraft) {
+func rPostedAs(verdict reviews.Verdict) func(stored *reviews.StoredDraft) {
 	return func(stored *reviews.StoredDraft) {
 		rPosted(stored)
 		stored.PostedVerdict = &verdict

@@ -311,7 +311,7 @@ func equalText(got, want *string) bool {
 	return *got == *want
 }
 
-func textValue(value *string) string {
+func textValue[T ~string](value *T) T {
 	if value == nil {
 		return "<nil>"
 	}
@@ -361,8 +361,8 @@ func TestTheDiffIsTheCompareAsADiffWithinItsCap(t *testing.T) {
 			t.Parallel()
 
 			source := &dGh{steps: []dStep{test.answer}, calls: nil}
-			out, err := reviews.Gh{Exec: nil, DiffRead: source.exec, Send: nil}.Diff(t.Context(), worldRepo,
-				test.baseRef, dCommit)
+			reader := reviews.Gh{Exec: nil, DiffRead: source.exec, Send: nil}
+			out, err := reader.Diff(t.Context(), worldRepo, test.baseRef, dCommit)
 
 			if !errors.Is(err, test.wantErr) {
 				t.Errorf("error %v, want %v", err, test.wantErr)

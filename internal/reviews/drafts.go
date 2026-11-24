@@ -243,12 +243,8 @@ func (r *Reviews) placeDraft(key string, launch *Launch, draft StoredDraft, pull
 // posted, or what it has is from the same write or a newer one. A draft stored on a launch that a
 // newer one followed is set aside at once; one stored on the newest sets aside the older ones'.
 func (r *Reviews) storeDraft(key string, launch *Launch, draft StoredDraft) {
-	if r.file == nil {
-		return
-	}
-
-	entry, found := r.file.PRs.Get(key)
-	if !found {
+	entry := r.entryOf(key)
+	if entry == nil {
 		return
 	}
 
@@ -393,13 +389,9 @@ func asStoredDraft(value any) *StoredDraft {
 
 // postedVerdictOf is the stored verdict a review was posted as; nil when there is none, or it
 // is not one Conn posts (the row then takes its state from GitHub alone).
-func postedVerdictOf(value any) *string {
-	verdict, isText := text(value)
-	if !isText {
-		return nil
-	}
-
-	if _, known := eventOf(verdict); !known {
+func postedVerdictOf(value any) *Verdict {
+	verdict, known := verdictOf(value)
+	if !known {
 		return nil
 	}
 
@@ -494,15 +486,13 @@ func (r *Reviews) draftUntaken(entry *Entry, folder string) bool {
 
 // postedMarker is what is kept of a stored draft that no longer reads back whole: that it was
 // posted, when, to which URL and as which verdict, with no findings; nil when it was not posted.
-func postedMarker(fileAt float64, postedAt *float64, url, verdict *string) *StoredDraft {
+func postedMarker(fileAt float64, postedAt *float64, url *string, verdict *Verdict) *StoredDraft {
 	if postedAt == nil {
 		return nil
 	}
 
-	empty := Draft{Commit: "", Summary: "", Verdict: "", Findings: []Finding{}, Dropped: 0}
-
 	return &StoredDraft{
-		Draft: empty, Inline: nil, FileAt: fileAt, PostedAt: postedAt, URL: url,
+		Draft: emptyDraft(), Inline: nil, FileAt: fileAt, PostedAt: postedAt, URL: url,
 		PostedVerdict: verdict, SetAside: nil,
 	}
 }

@@ -239,10 +239,10 @@ func TestAcceptDraftKeepsWhatItChecked(t *testing.T) {
 	}{
 		{"commit", draft.Commit, goodCommit},
 		{"summary", draft.Summary, "Two issues.\n\nSee below."},
-		{"verdict", draft.Verdict, reviews.VerdictApprove},
+		{"verdict", string(draft.Verdict), string(reviews.VerdictApprove)},
 		{"path", draft.Findings[0].Path, "src/a.go"},
 		{"side", draft.Findings[0].Side, reviews.SideRight},
-		{"severity", draft.Findings[0].Severity, "P2"},
+		{"severity", string(draft.Findings[0].Severity), "P2"},
 		{"line", strconv.FormatInt(draft.Findings[0].Line, 10), "42"},
 		{"body", draft.Findings[0].Body, "Line one.\nLine two."},
 	}
