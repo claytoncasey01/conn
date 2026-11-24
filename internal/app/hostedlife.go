@@ -172,8 +172,9 @@ func besideIn(live []sessions.LiveSession, records []hosted.Record, name, folder
 // the review kinds' worktree rules. History off resumes none of its sessions.
 func ownerChecks(parts ownerParts) hosted.Checks {
 	reviewRule := parts.reviewRule(reviewKind{
-		folder: "reviews", pattern: parts.cfg.ReviewNamePattern, disallowed: nil,
-		dry: parts.cfg.Dry.Reviews,
+		folder: reviewsFolder, pattern: parts.cfg.ReviewNamePattern,
+		disallowed: reviews.ReviewDisallowed(),
+		dry:        parts.cfg.Dry.Reviews,
 		launched: func(worktree, name, sessionID string) (string, bool) {
 			return reviews.LaunchedIn(parts.stores.reviews, worktree, name, sessionID)
 		},
@@ -181,7 +182,7 @@ func ownerChecks(parts ownerParts) hosted.Checks {
 	// My PRs' store keeps no conversation per round: the round binds the worktree, the name and
 	// the model, and the conversation is the record's, as the other checks bound it.
 	selfRule := parts.reviewRule(reviewKind{
-		folder: "myprs", pattern: parts.cfg.SelfNamePattern, disallowed: myprs.SelfDisallowed(),
+		folder: myPrsFolder, pattern: parts.cfg.SelfNamePattern, disallowed: myprs.SelfDisallowed(),
 		dry: parts.cfg.Dry.MyPrs,
 		launched: func(worktree, name, _ string) (string, bool) {
 			return myprs.LaunchedIn(parts.stores.myPrs, worktree, name)
@@ -210,6 +211,31 @@ func ownerChecks(parts ownerParts) hosted.Checks {
 	}
 
 	return checks
+}
+
+// The data folder's folders of each review kind's worktrees.
+const (
+	reviewsFolder = "reviews"
+	myPrsFolder   = "myprs"
+)
+
+// kindRules are the rules a session History resumes in folder is held to: a review's or a
+// self-review's own when folder is in that kind's worktrees under dataDir, else none. Where a
+// session works is what tells its kind here, since Conn makes each kind's worktrees in its own
+// folder; the folders are compared with their links resolved, as claude's working folder is.
+func kindRules(dataDir string) func(folder string) []string {
+	return func(folder string) []string {
+		resolved := reviews.Real(folder)
+
+		switch {
+		case reviews.Within(resolved, reviews.Real(filepath.Join(dataDir, reviewsFolder))):
+			return reviews.ReviewDisallowed()
+		case reviews.Within(resolved, reviews.Real(filepath.Join(dataDir, myPrsFolder))):
+			return myprs.SelfDisallowed()
+		}
+
+		return nil
+	}
 }
 
 // reviewKind is one review kind as a launch resumes it: the data folder's folder of its

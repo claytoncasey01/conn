@@ -65,15 +65,10 @@ func ResumeArgs(sessionID string, name *string) ([]string, error) {
 	return []string{"--resume", sessionID, "--name", WorkspaceName(*name, sessionID)}, nil
 }
 
-// ResumeCommand is ResumeArgs as the command a person reads: claude and its arguments, one
-// shell line.
-func ResumeCommand(sessionID string, name *string) (string, error) {
-	args, err := ResumeArgs(sessionID, name)
-	if err != nil {
-		return "", err
-	}
-
-	return argv.ShellLine(append([]string{"claude"}, args...)), nil
+// ResumeCommand is a resume's arguments (ResumeArgs, after any rules the session is held to)
+// as the command a person reads: claude and its arguments, one shell line.
+func ResumeCommand(args []string) string {
+	return argv.ShellLine(append([]string{"claude"}, args...))
 }
 
 // Opened is how a start went: ok, or why not with the command to paste instead.

@@ -252,7 +252,8 @@ func (h *historyParts) newAPI(cfg config.Config, store *settings.Store,
 	return historyapi.New(historyapi.Deps{
 		DB: h.db, Summarizer: h.summarizer, LiveIDs: liveIDs, Allow: store.Allow,
 		RepoOf: repoOf, Open: open, CheckFolder: safefolder.Check, Claude: cfg.ClaudeBin,
-		Dry: func() bool { return os.Getenv("CONN_WORK_DRY") == "1" },
-		Now: time.Now, ResumeCooldown: 0,
+		Disallowed: kindRules(cfg.DataDir),
+		Dry:        func() bool { return os.Getenv("CONN_WORK_DRY") == "1" },
+		Now:        time.Now, ResumeCooldown: 0,
 	})
 }

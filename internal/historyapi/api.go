@@ -170,6 +170,9 @@ type Deps struct {
 	CheckFolder func(folder string) error
 	// Claude is the claude program as configured (CONN_CLAUDE): the resumed session's program.
 	Claude string
+	// Disallowed are the permission rules a session resumed in folder is held to: a review's
+	// or a self-review's own when folder is in that kind's worktrees, else none. Nil holds none.
+	Disallowed func(folder string) []string
 	// Dry launches nothing (CONN_WORK_DRY).
 	Dry func() bool
 	Now func() time.Time
@@ -449,6 +452,27 @@ func ResumeSpec(claude string, args []string, folder, name string) pty.Spec {
 	return pty.Spec{Argv: append([]string{claude}, args...), Dir: folder, Env: nil, Name: name}
 }
 
+// resumeArgs are the arguments claude resumes sessionID with in folder, under name (nil for
+// none): the rules a session there is held to, then cmux.ResumeArgs. The rules' list ends at
+// --resume, the next option.
+func (a *API) resumeArgs(sessionID string, name *string, folder string) ([]string, error) {
+	args, err := cmux.ResumeArgs(sessionID, name)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
+	}
+
+	if a.deps.Disallowed == nil {
+		return args, nil
+	}
+
+	rules := a.deps.Disallowed(folder)
+	if len(rules) == 0 {
+		return args, nil
+	}
+
+	return slices.Concat([]string{"--disallowedTools"}, rules, args), nil
+}
+
 func (a *API) resume(ctx context.Context, sessionID string) (Reply, error) {
 	info, found, err := a.deps.DB.ResumeInfo(ctx, sessionID)
 	if err != nil {
@@ -464,18 +488,14 @@ func (a *API) resume(ctx context.Context, sessionID string) (Reply, error) {
 		name = &info.Name
 	}
 
-	args, err := cmux.ResumeArgs(sessionID, name)
+	args, err := a.resumeArgs(sessionID, name, info.Cwd)
 	if err != nil {
 		return Reply{}, fmt.Errorf("building the resume command: %w", err)
 	}
 
 	if a.deps.Dry() {
 		dry := true
-
-		command, err := cmux.ResumeCommand(sessionID, name)
-		if err != nil {
-			return Reply{}, fmt.Errorf("building the resume command: %w", err)
-		}
+		command := cmux.ResumeCommand(args)
 
 		return Reply{Code: http.StatusOK, Body: resumed{
 			OK: true, Dry: &dry, Command: &command, Error: nil, ManualCommand: nil,
