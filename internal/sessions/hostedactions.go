@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"regexp"
 	"time"
@@ -56,14 +57,29 @@ func (l *Loop) stopHosted(ctx context.Context, sessionID pty.ID, force bool) Rep
 	defer cancel()
 
 	err := l.store.deps.Host.Stop(stopCtx, sessionID)
+	if errors.Is(err, pty.ErrNoSession) {
+		return failure(http.StatusNotFound, textNoSession)
+	}
+
 	if err != nil {
 		return failure(http.StatusInternalServerError, "could not stop it: "+err.Error())
 	}
+
+	l.forgetStopped(sessionID)
 
 	stopped := done()
 	stopped.Body.Set("name", name)
 
 	return stopped
+}
+
+// forgetStopped lets go of a hosted session a person has just ended on purpose, so it leaves the
+// list instead of staying as an ended row until the host forgets it on its own. The stop has
+// already succeeded, so a refusal changes nothing the person asked for: ErrNoSession is a
+// session already gone, and ErrStillRunning one whose end another stop is still recording, whose
+// row stays ended until it is stopped again.
+func (l *Loop) forgetStopped(sessionID pty.ID) {
+	_ = l.store.deps.Host.Forget(sessionID)
 }
 
 // hostedStopStart makes a hosted stop's checks on the loop: the session's name, or why it is
