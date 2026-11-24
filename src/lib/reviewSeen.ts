@@ -3,8 +3,8 @@ import type { ReviewRow } from './types.ts'
 /** PR key (`owner/repo#n`) -> what the row looked like when it was last on screen, e.g. "new:" or "rereview:github". */
 export type Seen = Record<string, string>
 
-/** A PR waits on me when it is new or asked again: the same rows the tab badge counts. */
-export const waits = (r: ReviewRow): boolean => r.state === 'new' || r.state === 'rereview'
+/** A PR waits on me when it is new, asked again, or has a review ready to post: the same rows the tab badge counts. */
+export const waits = (r: ReviewRow): boolean => r.state === 'new' || r.state === 'rereview' || r.state === 'ready'
 
 /** What makes a waiting row look different to me: its state and how the author asked again. */
 export const fingerprint = (r: ReviewRow): string => `${r.state}:${r.reAsked ?? ''}`

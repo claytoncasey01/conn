@@ -16,6 +16,17 @@ test('a waiting PR counts until it has been on the Reviews page, then the badge 
   assert.deepEqual(seen, { 'acme/widgets#1': 'new:', 'acme/widgets#2': 'rereview:github' })
 })
 
+test('a review that became ready counts until it has been on the page, and again once it is ready a second time', () => {
+  const rows = [row(1, 'ready'), row(2, 'reviewing')]
+  assert.equal(badgeCount(view(rows), {}), 1)
+  const seen = markSeen({}, rows)
+  assert.deepEqual(seen, { 'acme/widgets#1': 'ready:' })
+  assert.equal(badgeCount(view(rows), seen), 0)
+  // Posted and reviewed, it stops waiting: the next ready round raises the badge again.
+  const pruned = pruneSeen(seen, [row(1, 'waiting')])
+  assert.equal(badgeCount(view([row(1, 'ready')]), pruned), 1)
+})
+
 test('the same number in two repos is two PRs: seeing one does not clear the other', () => {
   const rows = [row(7, 'new'), row(7, 'new', null, 'acme/gadgets')]
   const seen = markSeen({}, [rows[0]])

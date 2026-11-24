@@ -9,7 +9,7 @@ The `REVIEWS` tab lists the pull requests that want your review, in every allowe
 - `RE-REVIEW`: you reviewed before and the author asked again, either by re-requesting you on GitHub or by saying so in the Slack thread of the post. The tag says which: `RE-REVIEW REQUESTED (GITHUB)` or `(SLACK)`.
 - `DONE`: your latest review is an approval, or the PR merged or closed.
 
-`UPDATED` shows when the PR's head moved past the commit you reviewed (with no ask yet it stays `WAITING`; after an approval it stays `DONE`). `NOT IN A CHANNEL` shows on a row that only `Every open non-draft PR` lists while the channel scan is on. Rows sort `RE-REVIEW`, `REVIEW READY`, `NEW`, `REVIEWING`, `WAITING`, `DONE`, the most recently updated first within a state, and the filter bar has Status and Author. The tab's badge is the number of `NEW` and `RE-REVIEW` rows (marked seen per `owner/repo#n`).
+`UPDATED` shows when the PR's head moved past the commit you reviewed (with no ask yet it stays `WAITING`; after an approval it stays `DONE`). `NOT IN A CHANNEL` shows on a row that only `Every open non-draft PR` lists while the channel scan is on. Rows sort `RE-REVIEW`, `REVIEW READY`, `NEW`, `REVIEWING`, `WAITING`, `DONE`, the most recently updated first within a state, and the filter bar has Status and Author. The tab's badge is the number of `NEW`, `RE-REVIEW` and `REVIEW READY` rows not seen yet (marked seen per `owner/repo#n`), so a review that became ready while the page was closed is counted too.
 
 ## How it finds things
 
