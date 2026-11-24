@@ -1,12 +1,18 @@
 package sessions_test
 
 import (
+	"net/http"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/claytoncasey01/conn/internal/sessions"
+	"github.com/claytoncasey01/conn/internal/testtime"
 )
+
+// laterTicks is a few of the loop's ticks (600 ms each), for a snapshot read after the row has
+// gone.
+const laterTicks = 2 * time.Second
 
 // A hosted session a person ends on purpose leaves the list: a stop from its row, whether its
 // program still runs or has already ended by itself, and a close from Reviews. One that ends by
@@ -35,11 +41,22 @@ func TestAHostedSessionEndedOnPurposeLeavesTheList(t *testing.T) {
 			rowOf(t, loop, hostedID, anyRow)
 
 			reply := tt.end(t, loop, hostedID, held)
-			if reply.Code != 200 {
+			if reply.Code != http.StatusOK {
 				t.Fatalf("end: %d %s", reply.Code, body(reply))
 			}
 
 			waitRowGone(t, loop, hostedID)
+
+			// Ticks later, the row is still gone, and no row came back under the pid the
+			// program had, whatever its registry entry still says.
+			time.Sleep(testtime.Scaled(laterTicks))
+
+			got, _ := read(t, loop)
+			for _, gone := range []string{hostedID, "70"} {
+				if slices.Contains(ids(got), gone) {
+					t.Errorf("a later snapshot lists %s: %v", gone, ids(got))
+				}
+			}
 		})
 	}
 }

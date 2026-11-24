@@ -3,6 +3,7 @@
   import { href } from './router.svelte.ts'
   import { TEAMMATE_COLORS, TEAMMATE_LABEL } from './team.ts'
   import StopSession from './StopSession.svelte'
+  import { endedHosted } from './endedRow.ts'
   import ReplyBox from './ReplyBox.svelte'
   import type { SessionSummary, SessionTeam } from './types.ts'
 
@@ -41,7 +42,7 @@
     {#key s.id}
       <!-- hidden, not unmounted, while the panel answers: a draft typed here survives -->
       <div style="display: {reply ? 'contents' : 'none'}"><ReplyBox {s} /></div>
-      <StopSession id={s.id} name={s.name} busy={s.status !== 'idle'} />
+      <StopSession id={s.id} name={s.name} busy={s.status !== 'idle'} ended={endedHosted(s)} />
     {/key}
   {/if}
 </footer>

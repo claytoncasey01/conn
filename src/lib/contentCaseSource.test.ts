@@ -148,8 +148,8 @@ const ALLOW: Record<string, Record<string, string>> = {
     '{copied ? \'Copied ✓\' : \'Copy\'}': W,
   },
   'lib/StopSession.svelte': {
-    '{compact ? \'Stop\' : \'Stop session\'}': W,
-    '{busy ? \'Stop anyway\' : \'Stop\'}': W,
+    '{ended ? \'Remove\' : compact ? \'Stop\' : \'Stop session\'}': W,
+    '{ended ? \'Remove\' : busy ? \'Stop anyway\' : \'Stop\'}': W,
   },
   'lib/ThreadPanel.svelte': {
     '{busy[t.id] ? \'SENDING…\' : s.button}': W,
