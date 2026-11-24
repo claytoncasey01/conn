@@ -603,6 +603,8 @@ export interface MyPrRow {
   draftRetryAt?: number | null
   /** Entries of the newest round's replies file that were not taken (a thread that is not an unresolved one of this PR, a repeat, a bad or too long text, past the 50 of a read); 0 when none */
   ignoredReplies?: number
+  /** What the newest round that wrote one said it fixed and why, from its replies file: private, never posted. `launchAt` is the round's start, which names the round. null when no round wrote one */
+  roundSummary: { round: number; launchAt: number; text: string } | null
 }
 
 export interface MyPrDraft {

@@ -169,6 +169,8 @@ const ALLOW: Record<string, Record<string, string>> = {
     '{threadsOpen ? \'Hide\' : \'Show\'}': W,
     '{row.threads.length}': N,
     '{row.threads.length === 1 ? \'thread\' : \'threads\'}': W,
+    '{summaryOpen ? \'▾\' : \'▸\'}': W,
+    '{row.roundSummary.round}': N,
     '{draftCopied ? \'Copied ✓\' : \'Copy\'}': W,
     '{copied ? \'Copied ✓\' : \'Copy\'}': W,
     '{busy ? \'Starting…\' : row.label}': 'Self-review / Re-review, a constant',

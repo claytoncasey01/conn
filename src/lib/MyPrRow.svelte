@@ -36,6 +36,8 @@
   const uid = $props.id()
   // The replies panel: opened from the row, closed again by the same button
   let threadsOpen = $state(false)
+  // The round's summary: folded until opened
+  let summaryOpen = $state(false)
 
   // The same remembered SONNET | OPUS choice as the REVIEW button on the Reviews tab
   let model = $state<'sonnet' | 'opus'>(loadModel())
@@ -156,6 +158,13 @@
     </div>
     <!-- Hidden, not unmounted: HIDE must not drop an unsent edit, a request still out or a SKIP -->
     <div id="{uid}-threads" hidden={!threadsOpen}><ThreadPanel {row} /></div>
+  {/if}
+  {#if row.roundSummary}
+    <!-- Model text, private to this page: shown as plain text with its lines kept, with nothing to post it -->
+    <div>
+      <button type="button" class="rb cap" onclick={() => (summaryOpen = !summaryOpen)} aria-expanded={summaryOpen} aria-controls="{uid}-summary" style="{btn}; font-size: 11px; cursor: pointer">{summaryOpen ? '▾' : '▸'} What round {row.roundSummary.round} fixed</button>
+    </div>
+    <div id="{uid}-summary" hidden={!summaryOpen} data-content style="padding: 10px 12px; border: 1px var(--border-style) color-mix(in oklch, var(--edge) 18%, transparent); border-radius: var(--radius); background: color-mix(in oklch, var(--sunk) 22%, transparent); font-size: 13px; line-height: 1.55; color: var(--tx); white-space: pre-wrap; overflow-wrap: anywhere">{row.roundSummary.text}</div>
   {/if}
   {#if ignored}<div role="status" style="font-size: 12px; line-height: 1.5; color: color-mix(in oklab, var(--warn) 60%, var(--bright)); overflow-wrap: anywhere">{ignored}</div>{/if}
   {#if row.error}

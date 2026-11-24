@@ -78,6 +78,9 @@ type Launch struct {
 	// Manual is that cmux could not open the session, so it runs only once the command shown
 	// was pasted into a terminal.
 	Manual bool `json:"manual,omitempty"`
+	// Summary is what the round's session said it fixed and why, from its replies file (nil
+	// until it writes one). It is private: nothing posts it.
+	Summary *string `json:"summary,omitempty"`
 }
 
 // AskTry is the last ask for Sha: At the last try, FirstAt the first for Sha (a comment from any
@@ -297,7 +300,7 @@ func asLaunch(value any) *Launch {
 	launch := &Launch{
 		At: 0, Model: "", Name: "", Worktree: "", HeadSha: "", Round: 0, Armed: false,
 		AskedSha: nil, AskedAt: nil, ClosedAt: nil, AskTry: asAskTry(field(record, "askTry")),
-		Manual: field(record, "manual") == true,
+		Manual: field(record, "manual") == true, Summary: AcceptSummary(record),
 	}
 
 	if !launchTexts(record, launch) {

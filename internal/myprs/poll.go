@@ -455,7 +455,7 @@ func (m *MyPrs) takeReplies(key string, entry *Entry, kept []*Proposal,
 		m.ignored[key] = replies.Dropped
 	}
 
-	changed := false
+	changed := takeSummary(newest, AcceptSummary(raw))
 
 	for _, accepted := range replies.Accepted {
 		fresh := &Proposal{
@@ -483,6 +483,24 @@ func (m *MyPrs) takeReplies(key string, entry *Entry, kept []*Proposal,
 	}
 
 	return kept, changed
+}
+
+// takeSummary keeps summary on launch, and answers whether that changed it. A file without a
+// summary leaves the one already kept alone.
+func takeSummary(launch *Launch, summary *string) bool {
+	if summary == nil {
+		return false
+	}
+
+	if launch.Summary != nil {
+		if *launch.Summary == *summary {
+			return false
+		}
+	}
+
+	launch.Summary = summary
+
+	return true
 }
 
 func replaceable(proposal *Proposal, launchAt float64) bool {

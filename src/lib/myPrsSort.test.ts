@@ -5,7 +5,7 @@ import type { MyPrRow } from './types.ts'
 
 const row = (number: number, createdAt: number, lastCommentAt: number): MyPrRow => ({
   repo: 'acme/widgets', number, title: `PR ${number}`, url: `https://github.com/acme/widgets/pull/${number}`, draft: false, createdAt, lastCommentAt,
-  openBot: 0, openHuman: 0, outdated: 0, threads: [], partial: false, round: 0, status: 'idle', canStart: true, reason: null, label: 'Self-review', slackDraft: null,
+  openBot: 0, openHuman: 0, outdated: 0, threads: [], partial: false, round: 0, status: 'idle', canStart: true, reason: null, label: 'Self-review', slackDraft: null, roundSummary: null,
 })
 const numbers = (rows: MyPrRow[]) => rows.map((r) => r.number)
 

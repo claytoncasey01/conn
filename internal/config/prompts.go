@@ -50,11 +50,14 @@ const selfReviewPrompt = "Self-review pull request #{pr} in the GitHub repositor
 	"5. Do not comment, reply, resolve, approve, post to Slack or ask Greptile for a review. " +
 	"conn does that.\n" +
 	"6. As your LAST step, after pushing, ALWAYS write `.conn/replies.json` as " +
-	"{\"threads\":[{\"threadId\":\"<id>\",\"text\":\"<reply>\"}]}, with one entry for every open " +
-	"thread you looked at and its `threadId` the GraphQL node id of the review thread (the `id` " +
-	"of the thread in `reviewThreads`, not a comment id). The text is short, plain and factual: " +
-	"what changed and in which commit (short sha), or why you did not act on it. An empty text " +
-	"means resolve only, with no comment. If there was nothing to answer, write " +
-	"{\"threads\":[]}. conn reads this file to know the round is over, so write it even then.\n" +
+	"{\"threads\":[{\"threadId\":\"<id>\",\"text\":\"<reply>\"}],\"summary\":\"<summary>\"}, " +
+	"with one entry for every open thread you looked at and its `threadId` the GraphQL node " +
+	"id of the review thread (the `id` of the thread in `reviewThreads`, not a comment id). " +
+	"The text is short, plain and factual: what changed and in which commit (short sha), or " +
+	"why you did not act on it. An empty text means resolve only, with no comment. If there " +
+	"was nothing to answer, write {\"threads\":[],\"summary\":\"<summary>\"}. The `summary` is " +
+	"for me alone and is never posted: a short markdown list of each fix and why it was " +
+	"needed, then what you did not fix and why, under 6000 characters. conn reads this file " +
+	"to know the round is over, so write it even then.\n" +
 	"\n" +
-	"Finish with a short summary of what you fixed and what you did not, and why."
+	"Finish by saying the same short summary in your last message."

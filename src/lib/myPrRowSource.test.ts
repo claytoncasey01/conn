@@ -38,3 +38,16 @@ test('the Slack draft lines come from draftView: a retry time instead of "post t
   assert.match(src, /conn tries again at \{clock\(dv\.retryAt\)\}/)
   assert.match(src, /\(out of date\)/)
 })
+
+test('the round summary is a collapsed block of plain text with its line breaks kept, and nothing posts it', () => {
+  assert.doesNotMatch(src, /\{@html/)
+  assert.match(src, /let summaryOpen = \$state\(false\)/)
+  assert.match(src, /\{#if row\.roundSummary\}/)
+  const block = src.slice(src.indexOf('{#if row.roundSummary}'), src.indexOf('{#if ignored}'))
+  assert.match(block, /aria-expanded=\{summaryOpen\}/)
+  assert.match(block, /aria-controls="\{uid\}-summary"/)
+  assert.match(block, /What round \{row\.roundSummary\.round\} fixed/)
+  // model text: only ever text, in a data-content element so a theme's case does not rewrite it, with its lines kept
+  assert.match(block, /<div [^>]*data-content [^>]*white-space: pre-wrap[^>]*>\{row\.roundSummary\.text\}<\/div>/)
+  assert.doesNotMatch(block, /postReply|startSelf|POST/)
+})

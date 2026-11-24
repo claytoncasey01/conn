@@ -389,6 +389,9 @@ func TestPromptsHaveTheirSlots(t *testing.T) {
 		{selfReviewPrompt, "{worktree}"},
 		{selfReviewPrompt, "{branch}:{headRef}"},
 		{selfReviewPrompt, "round {round}"},
+		{selfReviewPrompt, `"summary":"<summary>"`},
+		{selfReviewPrompt, "each fix and why it was needed"},
+		{selfReviewPrompt, "what you did not fix and why"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.slot, func(t *testing.T) {
