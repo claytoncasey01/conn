@@ -259,7 +259,8 @@ func (g Gh) Diff(ctx context.Context, repo, baseRef, commit string) (string, err
 		ghAPI, "-H", diffMediaType, "repos/" + repo + "/compare/" + baseRef + "..." + commit,
 	})
 
-	if ghErr, fromGh := errors.AsType[*gh.Error](err); fromGh && ghErr.Overflowed {
+	ghErr, fromGh := errors.AsType[*gh.Error](err)
+	if fromGh && ghErr.Overflowed {
 		return "", errDiffTooLarge
 	}
 
