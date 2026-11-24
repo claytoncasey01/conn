@@ -7,13 +7,21 @@ export type Verdict = 'approve' | 'comment'
 /** Why Approve is disabled: the title on the radio, and the words beside it */
 export const APPROVE_BLOCKED = 'A ticked P0 or P1 is a blocker: post it as a comment'
 
+/** The severities that hold a review back from an approval: the one list the panel and the alerts read */
 const BLOCKERS = ['P0', 'P1']
+
+/** A finding at this severity is a blocker */
+export const isBlocker = (f: ReviewFinding): boolean => BLOCKERS.includes(f.severity)
 
 /** Every finding's index: the state the panel opens in, and what Select all ticks */
 export const allTicked = (d: ReviewDraft): number[] => d.findings.map((_, index) => index)
 
 /** A ticked finding is a P0 or P1. An index that is not a finding of the draft counts for nothing. */
-export const approveBlocked = (d: ReviewDraft, ticked: number[]): boolean => ticked.some((index) => BLOCKERS.includes(d.findings[index]?.severity ?? ''))
+export const approveBlocked = (d: ReviewDraft, ticked: number[]): boolean =>
+  ticked.some((index) => {
+    const f = d.findings[index]
+    return f !== undefined && isBlocker(f)
+  })
 
 /** The verdict that would be posted: the choice, except that a blocker ticked makes Approve a comment */
 export const verdictAfter = (d: ReviewDraft, ticked: number[], chosen: Verdict): Verdict => (chosen === 'approve' && approveBlocked(d, ticked) ? 'comment' : chosen)

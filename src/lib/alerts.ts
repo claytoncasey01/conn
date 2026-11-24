@@ -1,6 +1,7 @@
 import { plainText } from './ask.ts'
 import { agentName } from './format.ts'
 import { needsMe, readyCount } from './myPrsBadge.ts'
+import { isBlocker } from './reviewDraft.ts'
 import { href } from './routes.ts'
 import type { Ask, MyPrsView, ReviewRow, ReviewsView, SessionDetail, Snapshot } from './types.ts'
 
@@ -66,8 +67,6 @@ export const MAX_SEEN_READY = 500
 export const MAX_SEEN_ROUNDS = 500
 /** What a round summary says when its first line is empty */
 const NO_SUMMARY_LINE = 'summary written'
-/** A finding at this severity or worse holds a review back from an approval */
-const BLOCKER_SEVERITIES = ['P0', 'P1']
 const PREFIX: Record<Ask['kind'], string> = { permission: 'Permission needed: ', question: 'Question: ', text: 'Waiting for your message: ', unknown: 'Needs input: ' }
 
 /** What a prompt says, to tell the same prompt coming back (under another id or kind) from a new one. */
@@ -135,7 +134,7 @@ const countOf = (n: number, noun: string): string => (n === 0 ? `no ${noun}s` : 
 /** What a finished review holds, for the popup: `approve, 3 comments` or `comment, 1 blocker, 3 comments`. */
 function readyBody(row: ReviewRow): string {
   const draft = row.draft!
-  const blockers = draft.findings.filter(f => BLOCKER_SEVERITIES.includes(f.severity)).length
+  const blockers = draft.findings.filter(isBlocker).length
   const parts = [draft.verdict, blockers > 0 ? countOf(blockers, 'blocker') : '', countOf(draft.findings.length, 'comment')]
   return parts.filter(Boolean).join(', ')
 }
