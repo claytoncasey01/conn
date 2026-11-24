@@ -36,8 +36,10 @@ type dGitCall struct {
 	dir  string
 }
 
+// dUnlinkCall is one unlink and how many writes had been made when it ran.
 type dUnlinkCall struct {
 	folder, name string
+	writesBefore int
 }
 
 type dOpenCall struct {
@@ -121,7 +123,9 @@ func (r *dLaunchRig) write(path, content string, shared bool) error {
 // nothing to do.
 func (r *dLaunchRig) unlink(folder, name string) error {
 	r.calls = append(r.calls, "unlink")
-	r.unlinks = append(r.unlinks, dUnlinkCall{folder: folder, name: name})
+	r.unlinks = append(r.unlinks, dUnlinkCall{
+		folder: folder, name: name, writesBefore: len(r.writes),
+	})
 	delete(r.files, filepath.Join(folder, name))
 
 	return nil
@@ -434,14 +438,25 @@ func TestALaunchRemovesAStaleDraft(t *testing.T) {
 		t.Error("the stale draft is still there")
 	}
 
-	want := []dUnlinkCall{{folder: filepath.Join(dWorktree, ".conn"), name: "review.json"}}
-	if !slices.Equal(rig.unlinks, want) {
-		t.Errorf("unlinks %v, want %v", rig.unlinks, want)
+	if len(rig.unlinks) != 1 {
+		t.Fatalf("unlinks %v, want one", rig.unlinks)
 	}
 
-	unlinked, written := slices.Index(rig.calls, "unlink"), slices.Index(rig.calls, "write")
-	if unlinked < 0 || unlinked > written {
-		t.Errorf("calls %v: the unlink is not before the prompt is written", rig.calls)
+	unlink := rig.unlinks[0]
+	if unlink.folder != filepath.Join(dWorktree, ".conn") || unlink.name != "review.json" {
+		t.Errorf("unlinked %q in %q, want review.json in .conn", unlink.name, unlink.folder)
+	}
+
+	promptWrite := slices.IndexFunc(rig.writes, func(call dWriteCall) bool {
+		return strings.HasSuffix(call.path, "/prompt.md")
+	})
+	if promptWrite < 0 {
+		t.Fatalf("no prompt was written: %v", rig.writes)
+	}
+
+	if unlink.writesBefore > promptWrite {
+		t.Errorf("the unlink came after %d writes, the prompt was write %d",
+			unlink.writesBefore, promptWrite)
 	}
 }
 

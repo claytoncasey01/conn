@@ -249,18 +249,32 @@ func (p Prompts) BuildPrompt(number int64, reReviewSha *string, repo string) (st
 // for Conn to read and, once the person has checked it, post.
 const DraftFile = "review.json"
 
-// ReviewDisallowed is what a review session can never do, whatever its settings allow: post to
-// Slack, or write to GitHub (review, comment on or merge a PR, or `gh api` with a POST or PATCH
-// method), since Conn posts the review. Rules are prefixes, so they block the plain forms only.
+// ReviewDisallowed is what a review session can never do, whatever its settings allow: send to
+// Slack, or write to GitHub, since Conn posts the review once the person has checked it (the
+// prompt forbids posting too; these rules are the backstop). It covers `gh pr review`, `comment`
+// and `merge`; the skill's own poster, post_review.py; and `gh api` in every form that can
+// write: an explicit method (-X, --method, with or without a space), a body (-f, -F, --field,
+// --raw-field, --input, which make gh send a POST) and `graphql`, whose mutations write. A plain
+// `gh api` GET stays usable, to read comments. A rule's `*` matches any text, so a rule can match
+// more than it names; that errs towards refusing.
 func ReviewDisallowed() []string {
 	return append(claude.SlackWrite(),
 		"Bash(gh pr review:*)",
 		"Bash(gh pr comment:*)",
 		"Bash(gh pr merge:*)",
+		"Bash(*post_review.py*)",
 		"Bash(gh api --method POST:*)",
 		"Bash(gh api -X POST:*)",
 		"Bash(gh api --method PATCH:*)",
 		"Bash(gh api -X PATCH:*)",
+		"Bash(gh api *-X*)",
+		"Bash(gh api *--method*)",
+		"Bash(gh api *-f *)",
+		"Bash(gh api *-F *)",
+		"Bash(gh api *--field*)",
+		"Bash(gh api *--raw-field*)",
+		"Bash(gh api *--input*)",
+		"Bash(gh api graphql*)",
 	)
 }
 

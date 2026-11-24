@@ -113,6 +113,9 @@ func TestReviewDisallowedBlocksEveryGitHubWrite(t *testing.T) {
 		"Bash(gh pr review:*)", "Bash(gh pr comment:*)", "Bash(gh pr merge:*)",
 		"Bash(gh api --method POST:*)", "Bash(gh api -X POST:*)",
 		"Bash(gh api --method PATCH:*)", "Bash(gh api -X PATCH:*)",
+		"Bash(*post_review.py*)", "Bash(gh api *-X*)", "Bash(gh api *--method*)",
+		"Bash(gh api *-f *)", "Bash(gh api *-F *)", "Bash(gh api *--field*)",
+		"Bash(gh api *--raw-field*)", "Bash(gh api *--input*)", "Bash(gh api graphql*)",
 	}, claude.SlackWrite())
 
 	for _, rule := range tests {
