@@ -458,7 +458,7 @@ func ResumeSpec(claude string, args []string, folder, name string) pty.Spec {
 func (a *API) resumeArgs(sessionID string, name *string, folder string) ([]string, error) {
 	args, err := cmux.ResumeArgs(sessionID, name)
 	if err != nil {
-		return nil, fmt.Errorf("%w", err)
+		return nil, fmt.Errorf("resuming session %q: %w", sessionID, err)
 	}
 
 	if a.deps.Disallowed == nil {
