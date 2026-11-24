@@ -51,11 +51,13 @@ const PRFragment = `fragment PrFields on PullRequest {
 }`
 
 const (
-	textNotJSON     = "gh returned output that is not JSON"
-	textNoData      = "gh returned no data"
-	textNoLogin     = "gh did not report a login"
-	textSearchFails = "GitHub could not run the search"
-	textSearchFail  = "GitHub could not run this search"
+	textNotJSON = "gh returned output that is not JSON"
+	textNoData  = "gh returned no data"
+	textNoLogin = "gh did not report a login"
+	// textReviewsUnread is an answer about my reviews of a PR that does not say what they are.
+	textReviewsUnread = "GitHub's answer did not list the PR's reviews"
+	textSearchFails   = "GitHub could not run the search"
+	textSearchFail    = "GitHub could not run this search"
 	// diffMediaType asks GitHub for a compare as a unified diff.
 	diffMediaType   = "Accept: application/vnd.github.diff"
 	typeNotFound    = "NOT_FOUND"
@@ -414,8 +416,18 @@ func (g Gh) MyReviews(ctx context.Context, repo string, number int64, login stri
 		return nil, err
 	}
 
+	// "None found" comes only from an answer that holds the list: an answer with errors or
+	// without the list says nothing of whether the review is there.
+	if len(reply.errors) > 0 {
+		return nil, failure(textReviewsUnread + ": " + reply.errors[0].message)
+	}
+
 	pull := object(memberOf(object(memberOf(reply.data, "repository")), "pullRequest"))
-	nodes, _ := memberOf(object(memberOf(pull, "reviews")), "nodes").([]any)
+
+	nodes, isList := memberOf(object(memberOf(pull, "reviews")), "nodes").([]any)
+	if !isList {
+		return nil, failure(textReviewsUnread)
+	}
 
 	return postedReviews(nodes[:min(len(nodes), maxMyReviews)]), nil
 }

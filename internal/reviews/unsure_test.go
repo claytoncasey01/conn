@@ -198,20 +198,28 @@ func TestAPollDuringAPostDoesNotSetItAside(t *testing.T) {
 func TestGhMyReviews(t *testing.T) {
 	t.Parallel()
 
-	answer := `{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[` +
+	listed := `{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[` +
 		`{"url":"` + uTookURL + `","state":"COMMENTED","submittedAt":"2027-01-15T08:00:00Z",` +
 		`"commit":{"oid":"` + dCommit + `"}},` +
 		`{"url":"","state":"PENDING","submittedAt":null,"commit":{"oid":"` + dCommit + `"}}` +
 		`]}}}}}`
 
-	for name, row := range map[string]struct {
-		repo, login string
-		wantErr     error
-		wantFound   int
-		wantCalls   int
-	}{
+	for name, row := range map[string]uLookupRow{
 		"my submitted reviews": {
-			repo: worldRepo, login: worldMe, wantFound: 1, wantCalls: 1,
+			repo: worldRepo, login: worldMe, answer: listed, wantFound: 1, wantCalls: 1,
+		},
+		"none listed is none found": {
+			repo: worldRepo, login: worldMe, wantCalls: 1,
+			answer: `{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[]}}}}}`,
+		},
+		"an answer with errors does not read": {
+			repo: worldRepo, login: worldMe, wantUnread: true, wantCalls: 1,
+			answer: `{"data":{"repository":null},` +
+				`"errors":[{"type":"FORBIDDEN","message":"Resource not accessible"}]}`,
+		},
+		"an answer without the list does not read": {
+			repo: worldRepo, login: worldMe, wantUnread: true, wantCalls: 1,
+			answer: `{"data":{"repository":{"pullRequest":{"reviews":null}}}}`,
 		},
 		"no login calls nothing": {repo: worldRepo, wantErr: reviews.ErrLookupUnsafe},
 		"a repo not safe calls nothing": {
@@ -228,13 +236,11 @@ func TestGhMyReviews(t *testing.T) {
 				calls++
 				args = given
 
-				return answer, nil
+				return row.answer, nil
 			}
 
 			found, err := reviews.Gh{Exec: exec}.MyReviews(t.Context(), row.repo, 7, row.login)
-			if !errors.Is(err, row.wantErr) {
-				t.Errorf("error %v", err)
-			}
+			uLookupError(t, err, row)
 
 			if len(found) != row.wantFound {
 				t.Errorf("found %d", len(found))
@@ -252,5 +258,34 @@ func TestGhMyReviews(t *testing.T) {
 				t.Errorf("args %v", args)
 			}
 		})
+	}
+}
+
+// uLookupRow is one read of my reviews of a PR: what GitHub answers, and what it comes to.
+type uLookupRow struct {
+	repo, login, answer string
+	wantErr             error
+	// wantUnread is that the answer did not say what my reviews are: an error, never none.
+	wantUnread bool
+	wantFound  int
+	wantCalls  int
+}
+
+// uLookupError checks a read's error: it is row's, or an answer that did not read.
+func uLookupError(t *testing.T, err error, row uLookupRow) {
+	t.Helper()
+
+	var failed *reviews.FailureError
+
+	if unread := errors.As(err, &failed); unread != row.wantUnread {
+		t.Errorf("unread %v (%v)", unread, err)
+	}
+
+	if row.wantUnread {
+		return
+	}
+
+	if !errors.Is(err, row.wantErr) {
+		t.Errorf("error %v", err)
 	}
 }
