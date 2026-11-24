@@ -370,7 +370,7 @@ func StringifyIndent(value any, indent string) string {
 // cycle gets there), so it panics rather than writing something wrong.
 func write(builder *strings.Builder, value any, depth int) {
 	if depth > maxDepth {
-		panic("js: a value nests deeper than depthMax; is it a cycle?")
+		panic("js: a value nests deeper than maxDepth; is it a cycle?")
 	}
 
 	switch typed := value.(type) {
@@ -632,7 +632,7 @@ func String(value any) string {
 
 func stringAt(value any, depth int) string {
 	if depth > maxDepth {
-		panic("js.String: nesting deeper than depthMax, so the value has a cycle")
+		panic("js.String: nesting deeper than maxDepth, so the value has a cycle")
 	}
 
 	switch typed := value.(type) {

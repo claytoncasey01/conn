@@ -25,7 +25,7 @@ func Marshal(value any) []byte {
 
 func marshalValue(builder *strings.Builder, value reflect.Value, depth int) {
 	if depth > maxDepth {
-		panic("js.Marshal: a value nests deeper than depthMax; is it a cycle?")
+		panic("js.Marshal: a value nests deeper than maxDepth; is it a cycle?")
 	}
 
 	if !value.IsValid() {
@@ -202,7 +202,7 @@ func marshalStruct(builder *strings.Builder, value reflect.Value, depth int) {
 // place, and answers how many it has written in all.
 func marshalMembers(builder *strings.Builder, value reflect.Value, depth, written int) int {
 	if depth > maxDepth {
-		panic("js.Marshal: a value nests deeper than depthMax; is it a cycle?")
+		panic("js.Marshal: a value nests deeper than maxDepth; is it a cycle?")
 	}
 
 	kind := value.Type()
