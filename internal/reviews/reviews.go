@@ -256,6 +256,8 @@ type state struct {
 	clones         map[string]cloneHit
 	// drafting are the launches whose draft waits on its diff being read.
 	drafting map[*Launch]bool
+	// draftLooked are the closed launches whose draft file was looked at since they closed.
+	draftLooked map[*Launch]bool
 }
 
 // New is Reviews over deps; nothing runs until Run (or Tick) is called.
@@ -280,6 +282,7 @@ func New(ctx context.Context, deps Deps) *Reviews {
 		finishing: map[string]bool{}, idleSince: map[string]float64{},
 		nextLook: map[string]float64{}, seenPid: map[*Launch]float64{},
 		clones: map[string]cloneHit{}, drafting: map[*Launch]bool{},
+		draftLooked: map[*Launch]bool{},
 	}
 }
 

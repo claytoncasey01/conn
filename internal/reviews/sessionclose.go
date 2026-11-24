@@ -655,20 +655,35 @@ func (r *Reviews) worktreeClone(folder string) string {
 	return WorktreeClone(folder)
 }
 
+// recordBusy is whether the PR's record says its worktree is in use: a launch still open, or a
+// draft file in it not taken yet.
+func (r *Reviews) recordBusy(key, folder string) bool {
+	if r.file == nil {
+		return false
+	}
+
+	entry, found := r.file.PRs.Get(key)
+	if !found {
+		return false
+	}
+
+	for _, launch := range entry.Launches {
+		if launch.ClosedAt == nil {
+			return true
+		}
+	}
+
+	return r.draftUntaken(entry, folder)
+}
+
 // busy is whether anything may be using a PR's worktree.
 func (r *Reviews) busy(key, folder string) bool {
 	if anyOf(r.prs.Has(key), r.starting[key], r.finishing[key]) {
 		return true
 	}
 
-	if r.file != nil {
-		if entry, found := r.file.PRs.Get(key); found {
-			for _, launch := range entry.Launches {
-				if launch.ClosedAt == nil {
-					return true
-				}
-			}
-		}
+	if r.recordBusy(key, folder) {
+		return true
 	}
 
 	place := Real(folder)

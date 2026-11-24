@@ -1,6 +1,8 @@
 package reviews
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 	"strconv"
 
@@ -42,29 +44,56 @@ func (r *Reviews) takeDrafts(refs []launchRef) bool {
 			continue
 		}
 
-		at := r.deps.DraftAt(launch.Worktree)
-		if !draftDue(launch, at) {
-			continue
+		fileAt := r.deps.DraftAt(launch.Worktree)
+		if draftDue(launch, fileAt) {
+			if r.draftWaits(ref) {
+				continue
+			}
+
+			if r.takeDraft(ref.key, launch, *fileAt) {
+				changed = true
+			}
 		}
 
-		if r.takeDraft(ref.key, launch, *at) {
-			changed = true
+		// A closed launch's session writes nothing more: its file is looked at once, after it
+		// closed, so one written just before (or while Conn was down) is still taken.
+		if launch.ClosedAt != nil {
+			r.draftLooked[launch] = true
 		}
 	}
 
 	return changed
 }
 
+// draftWaits is whether a due draft waits for the poll: GitHub is on and the PR, open as far as
+// Conn knows, has not been read yet (a tick before the first poll, or a poll that keeps
+// failing), so its base is not known. The worktree sweep leaves a worktree with such a file.
+func (r *Reviews) draftWaits(ref launchRef) bool {
+	current, _ := r.settings()
+	if !r.githubOn(&current) {
+		return false
+	}
+
+	if ref.entry.Ended != nil {
+		return false
+	}
+
+	_, known := r.pullOf(ref.key)
+
+	return !known
+}
+
 // draftLaunch is the launch of a PR whose draft file is looked at: its newest (the worktree is
-// the PR's, so the file is that session's), while it is open, is Conn's own, has no diff being
-// read for it and has not posted its draft; nil when there is none.
+// the PR's, so the file is that session's), while it is Conn's own, has no diff being read for
+// it, has not posted its draft and, once closed, has not been looked at since; nil when there is
+// none.
 func (r *Reviews) draftLaunch(ref launchRef) *Launch {
 	if len(ref.entry.Launches) == 0 {
 		return nil
 	}
 
 	launch := ref.entry.Launches[len(ref.entry.Launches)-1]
-	if anyOf(launch.ClosedAt != nil, r.drafting[launch], posted(launch)) {
+	if anyOf(r.draftLooked[launch], r.drafting[launch], posted(launch)) {
 		return nil
 	}
 
@@ -105,16 +134,10 @@ func draftDue(launch *Launch, fileAt *float64) bool {
 
 // takeDraft reads and accepts the draft file of launch, written at fileAt: an unreadable one is
 // recorded, a readable one is placed on the diff and stored. It answers whether it changed the
-// launch now. While GitHub is on and the PR has not been read yet (a tick before the first poll),
-// nothing is read: the next tick after the poll reads it.
+// launch now.
 func (r *Reviews) takeDraft(key string, launch *Launch, fileAt float64) bool {
 	current, _ := r.settings()
-	gitHubOn := r.githubOn(&current)
 	pull, known := r.pullOf(key)
-
-	if all(gitHubOn, !known) {
-		return false
-	}
 
 	content, read := r.deps.ReadDraft(filepath.Join(launch.Worktree, connFolder, DraftFile))
 
@@ -130,9 +153,10 @@ func (r *Reviews) takeDraft(key string, launch *Launch, fileAt float64) bool {
 
 	stored := newStoredDraft(draft, fileAt)
 
-	// GitHub is not called while it is off or its rate limit is used up, and a base that is not
-	// safe in a path is never put in one: the draft is stored with every finding in the body.
-	if !gitHubOn {
+	// GitHub is not called while it is off or its rate limit is used up, a PR that ended before
+	// the poll read it has no base known, and a base that is not safe in a path is never put in
+	// one: the draft is stored with every finding in the body.
+	if !all(r.githubOn(&current), known) {
 		r.storeDraft(key, launch, stored)
 
 		return true
@@ -199,6 +223,12 @@ func (r *Reviews) placeDraft(key string, launch *Launch, draft StoredDraft, pull
 				draft.Inline = Inline(draft.Findings, Positions(diff))
 			}
 		})
+
+		// A read cut short by Conn stopping says nothing of the diff: nothing is stored, so the
+		// file is read, and the diff asked for, again.
+		if anyOf(r.ctx.Err() != nil, errors.Is(err, context.Canceled)) {
+			return
+		}
 
 		if err != nil {
 			r.logf("reviews: the diff of %s was not read %v", key, err)
@@ -344,7 +374,9 @@ func asStoredDraft(value any) *StoredDraft {
 
 	if !all(len(problems) == 0, draft.Dropped == 0, droppedOK, dropped >= 0,
 		dropped == float64(int(dropped)), fileOK, postedOK, urlOK, whyOK) {
-		return nil
+		// A posted review stays posted, whatever else no longer reads: its file is never taken
+		// again, so it is never posted twice.
+		return postedMarker(fileAt, postedAt, url)
 	}
 
 	draft.Dropped = int(dropped)
@@ -420,4 +452,37 @@ func asProblems(raw *js.Object) []string {
 	}
 
 	return problems
+}
+
+// draftUntaken is whether the newest launch of entry, in folder, has a draft file not taken yet
+// (or one whose diff is being read): the worktree is not removed from under it.
+func (r *Reviews) draftUntaken(entry *Entry, folder string) bool {
+	if anyOf(len(entry.Launches) == 0, r.deps.DraftAt == nil) {
+		return false
+	}
+
+	newest := entry.Launches[len(entry.Launches)-1]
+	if anyOf(newest.Worktree != folder, posted(newest)) {
+		return false
+	}
+
+	if r.drafting[newest] {
+		return true
+	}
+
+	return draftDue(newest, r.deps.DraftAt(folder))
+}
+
+// postedMarker is what is kept of a stored draft that no longer reads back whole: that it was
+// posted, when and to which URL, with no findings; nil when it was not posted.
+func postedMarker(fileAt float64, postedAt *float64, url *string) *StoredDraft {
+	if postedAt == nil {
+		return nil
+	}
+
+	empty := Draft{Commit: "", Summary: "", Verdict: "", Findings: []Finding{}, Dropped: 0}
+
+	return &StoredDraft{
+		Draft: empty, Inline: nil, FileAt: fileAt, PostedAt: postedAt, URL: url, SetAside: nil,
+	}
 }

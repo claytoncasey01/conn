@@ -90,6 +90,37 @@ func storedDraftJSON(inline, dropped, setAside string) string {
 		`"url":null,"setAside":` + setAside + `}`
 }
 
+// TestAPostedDraftStaysPostedWhenItNoLongerReadsBack: a posted draft whose findings no longer
+// pass is kept as posted (when, and its URL), so its file is never taken, and posted, again.
+func TestAPostedDraftStaysPostedWhenItNoLongerReadsBack(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := js.Parse([]byte(`{"commit":"` + storedCommit + `","summary":"S.",` +
+		`"verdict":"comment","findings":[{"path":"/etc","line":1,"severity":"P3","body":"x"}],` +
+		`"dropped":0,"inline":null,"fileAt":5,"postedAt":9,"url":"https://x/1",` +
+		`"setAside":null}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stored := asStoredDraft(parsed)
+	if stored == nil {
+		t.Fatal("the posted draft was dropped")
+	}
+
+	if stored.PostedAt == nil || *stored.PostedAt != 9 {
+		t.Errorf("postedAt %v, want 9", stored.PostedAt)
+	}
+
+	if stored.URL == nil || *stored.URL != "https://x/1" {
+		t.Errorf("url %v, want the review's", stored.URL)
+	}
+
+	if !posted(&Launch{Draft: stored}) {
+		t.Error("the launch does not count as posted, so its file would be taken again")
+	}
+}
+
 // TestAStoredDraftIsReadBackOnlyWhole: reviews.json is read back strictly, so a stored draft is
 // either the one Conn wrote or none, and its placements never fall out of step with its findings.
 func TestAStoredDraftIsReadBackOnlyWhole(t *testing.T) {
