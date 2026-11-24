@@ -109,9 +109,9 @@ type DeriveContext struct {
 	// Session is the live review session for this PR, if any.
 	Session *RowSession
 	Now     float64
-	// PolledAt is when the poll that read the PR started: a review Conn posted then or since
-	// is not in what it read.
-	PolledAt float64
+	// ReadAt is when the read of GitHub that pull came from started: a review Conn posted then
+	// or since is not in it.
+	ReadAt float64
 }
 
 // Row is one PR as the Reviews tab lists it.
@@ -395,9 +395,9 @@ func reviewedState(tracking *Entry, listing listed, latest *Review) (string, *st
 	return StateWaiting, nil
 }
 
-// postedUnread is my review as Conn posted it, while the poll that read the PR started before the
-// post: GitHub has it, what was read does not show it yet. Nil when the row's draft was not
-// posted, was posted before that poll, or its verdict was not kept.
+// postedUnread is my review as Conn posted it, while the read of the PR started before the post:
+// GitHub has it, what was read does not show it yet. Nil when the row's draft was not posted,
+// was posted before that read, or its verdict was not kept.
 func postedUnread(tracking *Entry, ctx *DeriveContext) *Review {
 	launch := draftLaunch(tracking)
 	if launch == nil {
@@ -415,7 +415,7 @@ func postedUnread(tracking *Entry, ctx *DeriveContext) *Review {
 		return nil
 	}
 
-	if *draft.PostedAt < ctx.PolledAt {
+	if *draft.PostedAt < ctx.ReadAt {
 		return nil
 	}
 

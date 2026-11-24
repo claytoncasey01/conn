@@ -871,3 +871,74 @@ func TestGhPostReview(t *testing.T) {
 		})
 	}
 }
+
+// pRowState is PR 7's state as the page shows it now.
+func pRowState(t *testing.T, tab *reviews.Reviews) string {
+	t.Helper()
+
+	for _, row := range view(t, tab).Rows {
+		if row.Key == rKey {
+			return row.State
+		}
+	}
+
+	t.Fatal("PR 7 is not listed")
+
+	return ""
+}
+
+// TestTheRowAfterAPostFollowsWhatGitHubWasReadFor: the row shows the review just posted until a
+// read of the PR after the post, whatever other polls ran meanwhile; then GitHub's copy, and a
+// request made after it, decide.
+func TestTheRowAfterAPostFollowsWhatGitHubWasReadFor(t *testing.T) {
+	t.Parallel()
+
+	reviewedAndAskedAgain := func(w *world) {
+		w.open = []*reviews.PR{prOf(func(pr *reviews.PR) {
+			pr.Requested = []string{worldMe}
+			pr.Reviews = []reviews.Review{myReview(func(review *reviews.Review) {
+				review.Commit, review.SubmittedAt = rCommit, worldT0
+			})}
+		})}
+	}
+	// The search no longer lists the PR and its read by number goes unanswered: what was read
+	// before the post stands.
+	readFails := func(w *world) {
+		w.open = []*reviews.PR{}
+		w.readFails[rKey] = true
+	}
+
+	for name, row := range map[string]struct {
+		// change is GitHub after the post, before the next poll (nil: no poll runs).
+		change func(w *world)
+		want   string
+	}{
+		"before any poll":                       {change: nil, want: reviews.StateWaiting},
+		"after a poll that did not read the PR": {change: readFails, want: reviews.StateWaiting},
+		"after a poll read my review and a new request": {
+			change: reviewedAndAskedAgain, want: reviews.StateRereview,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			tab, fakes := pReady(t, pRow{})
+
+			if reply := pPost(t, tab, pAll()); reply.Code != 200 {
+				t.Fatalf("code %d", reply.Code)
+			}
+
+			if row.change != nil {
+				fakes.with(func(w *world) {
+					w.now += minuteMs
+					row.change(w)
+				})
+				tickAndSettle(tab)
+			}
+
+			if got := pRowState(t, tab); got != row.want {
+				t.Errorf("state = %q, want %q", got, row.want)
+			}
+		})
+	}
+}

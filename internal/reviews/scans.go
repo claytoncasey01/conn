@@ -427,6 +427,7 @@ func (r *Reviews) track(key string, pull *PR, found *Found, now float64) {
 	}
 
 	r.prs.Set(key, pull)
+	r.readAt[key] = now
 	r.endedPrs.Delete(key)
 
 	if r.polling {

@@ -35,7 +35,7 @@ func deriveOf(t *testing.T, row any) *reviews.Row {
 	}
 
 	return reviews.DeriveRow(&pull, &tracking, &reviews.DeriveContext{
-		Me: recorded.Me, Session: recorded.Session, Now: recorded.Now, PolledAt: recorded.Now,
+		Me: recorded.Me, Session: recorded.Session, Now: recorded.Now, ReadAt: recorded.Now,
 		Sources: reviews.Sources{
 			Requested: recorded.Sources.Requested, Channels: channels,
 			DMs: recorded.Sources.DMs, AllOpen: recorded.Sources.AllOpen,

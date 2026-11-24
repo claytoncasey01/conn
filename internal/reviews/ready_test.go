@@ -63,8 +63,8 @@ func rDerive(pull *reviews.PR, tracking *reviews.Entry, live bool) *reviews.Row 
 	return rDeriveAt(pull, tracking, live, worldT0)
 }
 
-// rDeriveAt is rDerive with pull read by the poll that ran at polledAt.
-func rDeriveAt(pull *reviews.PR, tracking *reviews.Entry, live bool, polledAt float64,
+// rDeriveAt is rDerive with pull read from GitHub by a read that started at readAt.
+func rDeriveAt(pull *reviews.PR, tracking *reviews.Entry, live bool, readAt float64,
 ) *reviews.Row {
 	var session *reviews.RowSession
 	if live {
@@ -72,7 +72,7 @@ func rDeriveAt(pull *reviews.PR, tracking *reviews.Entry, live bool, polledAt fl
 	}
 
 	return reviews.DeriveRow(pull, tracking, &reviews.DeriveContext{
-		Me: worldMe, Session: session, Now: worldT0, PolledAt: polledAt,
+		Me: worldMe, Session: session, Now: worldT0, ReadAt: readAt,
 		Sources: reviews.Sources{Requested: true, Channels: nil, DMs: false, AllOpen: false},
 	}, rKey)
 }

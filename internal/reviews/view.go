@@ -101,14 +101,8 @@ func (r *Reviews) rowFor(
 		}
 	}
 
-	// No poll has run before the first one read the PRs, so a row always has one.
-	polledAt := 0.0
-	if r.lastPollAt != nil {
-		polledAt = *r.lastPollAt
-	}
-
 	return DeriveRow(pull, tracking, &DeriveContext{
-		Me: *r.me, Sources: sources, Session: live[key], Now: now, PolledAt: polledAt,
+		Me: *r.me, Sources: sources, Session: live[key], Now: now, ReadAt: r.readAt[key],
 	}, key)
 }
 

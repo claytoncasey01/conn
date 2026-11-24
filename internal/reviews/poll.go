@@ -47,7 +47,11 @@ type pollRun struct {
 	capped    []string
 	failed    *js.Map[string]
 	failedOn  []string
-	now       float64
+	// searchedAt is when the searches started; now when the reads by number did.
+	searchedAt float64
+	now        float64
+	// readAt is, per key, when the read that answered it in this poll started.
+	readAt    map[string]float64
 	wanted    []KeyParts
 	undecided map[string]bool
 	read      *js.Map[*PR]
@@ -75,8 +79,9 @@ func (r *Reviews) startPoll(current settings.Settings, version uint64) {
 		current: current, version: version, file: nil, allow: allow, me: "", patterns: nil,
 		queries: nil,
 		results: nil, rate: nil, found: js.NewMap[*PR](), requested: map[string]bool{},
-		capped: []string{}, failed: js.NewMap[string](), failedOn: nil, now: 0, wanted: nil,
-		undecided: map[string]bool{}, read: js.NewMap[*PR](), spent: nil,
+		capped: []string{}, failed: js.NewMap[string](), failedOn: nil, searchedAt: 0, now: 0,
+		readAt: map[string]float64{}, wanted: nil, undecided: map[string]bool{},
+		read: js.NewMap[*PR](), spent: nil,
 	}
 
 	r.addedDuringPoll.Clear()
@@ -149,6 +154,7 @@ func (r *Reviews) poll(run *pollRun) error {
 	}
 
 	run.me = *r.me
+	run.searchedAt = r.now()
 
 	err = r.search(run)
 	if err != nil {
@@ -388,34 +394,12 @@ func (r *Reviews) applyPoll(run *pollRun) {
 	next := js.NewMap[*PR]()
 	ended := r.stillEnded(run)
 
-	for _, key := range run.found.Keys() {
-		pull, _ := run.found.Get(key)
-
-		// A repo taken off the list while the search ran is neither listed nor stored.
-		if !repos.Allowed(pull.Repo, live.Repos.Allow) {
-			continue
-		}
-
-		next.Set(key, pull)
-
-		// Drafts and my own PRs are not reviews to track (DeriveRow does not list them either).
-		if anyOf(pull.IsDraft, same(pull.Author, run.me)) {
-			continue
-		}
-
-		entry := TrackOf(run.file, key, run.now)
-		entry.SeenAt = run.now
-		entry.Ended = nil
-
-		if run.requested[key] {
-			entry.Requested = true
-		}
-	}
-
+	takeFound(run, next, live.Repos.Allow)
 	r.applyReads(run, next, ended)
 	r.keepUnread(run, next)
 
 	r.prs = next
+	r.readAt = readTimes(next, run.readAt, r.readAt)
 	r.endedPrs = ended
 
 	// A post whose failure was unclear is checked, now that the PR was read again.
@@ -450,6 +434,35 @@ func (r *Reviews) applyPoll(run *pollRun) {
 	}
 
 	r.save()
+}
+
+// takeFound puts in next each PR the searches found in a repo allow still allows, and tracks
+// those that are reviews to track.
+func takeFound(run *pollRun, next *js.Map[*PR], allow []string) {
+	for _, key := range run.found.Keys() {
+		pull, _ := run.found.Get(key)
+
+		// A repo taken off the list while the search ran is neither listed nor stored.
+		if !repos.Allowed(pull.Repo, allow) {
+			continue
+		}
+
+		next.Set(key, pull)
+		run.readAt[key] = run.searchedAt
+
+		// Drafts and my own PRs are not reviews to track (DeriveRow does not list them either).
+		if anyOf(pull.IsDraft, same(pull.Author, run.me)) {
+			continue
+		}
+
+		entry := TrackOf(run.file, key, run.now)
+		entry.SeenAt = run.now
+		entry.Ended = nil
+
+		if run.requested[key] {
+			entry.Requested = true
+		}
+	}
 }
 
 // stillEnded are the PRs that ended within the day and were not found open again.
@@ -528,7 +541,27 @@ func applyRead(run *pollRun, key string, entry *Entry, pull *PR, next, ended *js
 
 		next.Set(key, pull)
 		ended.Delete(key)
+
+		run.readAt[key] = run.now
 	}
+}
+
+// readTimes are, per key of prs, when its read started: this poll's for a PR it read, the
+// earlier one for a PR it kept as it was.
+func readTimes(prs *js.Map[*PR], read, before map[string]float64) map[string]float64 {
+	times := make(map[string]float64, prs.Len())
+
+	for _, key := range prs.Keys() {
+		if at, fresh := read[key]; fresh {
+			times[key] = at
+
+			continue
+		}
+
+		times[key] = before[key]
+	}
+
+	return times
 }
 
 // keepUnread keeps what a stale pattern covered, and what a scan read in while this poll ran.

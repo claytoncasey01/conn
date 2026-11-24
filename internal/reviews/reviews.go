@@ -216,6 +216,9 @@ type state struct {
 	me       *string
 	// prs are the open PRs of allowed repos a search or a read found, by key.
 	prs *js.Map[*PR]
+	// readAt is, per key of prs, when the read GitHub answered it from started: a review
+	// posted then or since is not in it.
+	readAt map[string]float64
 	// endedPrs are PRs whose own read said they merged or closed in the last 24 h.
 	endedPrs *js.Map[*PR]
 	// addedDuringPoll are keys a scan's reads added while a poll was running.
@@ -281,7 +284,7 @@ func New(ctx context.Context, deps Deps) *Reviews {
 	return &Reviews{
 		deps: deps, names: Names{Pattern: deps.Config.NamePattern},
 		ctx: ctx, mu: sync.Mutex{}, work: sync.WaitGroup{},
-		file: nil, writable: true, me: nil, prs: js.NewMap[*PR](),
+		file: nil, writable: true, me: nil, prs: js.NewMap[*PR](), readAt: map[string]float64{},
 		endedPrs: js.NewMap[*PR](), addedDuringPoll: js.NewMap[bool](),
 		reading: map[string]bool{}, capped: []string{}, failed: []failedPattern{},
 		rate: nil, storeError: nil, pausedUntil: nil, seenKey: nil, bootRead: false,
