@@ -88,9 +88,9 @@ func threadInputs(repo, number, threadID, body any) (threadClick, *reviews.Reply
 	}
 
 	cleaned := CleanMultiline(raw, noCut)
-	if js.Len(cleaned) > MaxReplyUnits {
-		refused := bad(http.StatusBadRequest, "the reply is over "+js.Number(MaxReplyUnits)+
-			" characters")
+	if js.Len(cleaned) > reviews.MaxCommentUnits {
+		refused := bad(http.StatusBadRequest,
+			"the reply is over "+js.Number(reviews.MaxCommentUnits)+" characters")
 
 		return threadClick{}, &refused
 	}

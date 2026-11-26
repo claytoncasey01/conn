@@ -1,8 +1,9 @@
 import { plainText } from './ask.ts'
 import { agentName } from './format.ts'
 import { needsMe, readyCount } from './myPrsBadge.ts'
+import { isBlocker } from './reviewDraft.ts'
 import { href } from './routes.ts'
-import type { Ask, MyPrsView, SessionDetail, Snapshot } from './types.ts'
+import type { Ask, MyPrsView, ReviewRow, ReviewsView, SessionDetail, Snapshot } from './types.ts'
 
 export interface Alert {
   /** A later alert with the same tag replaces an earlier one still on screen. */
@@ -35,9 +36,15 @@ export interface Seen {
   myprsSeeded: boolean
   /** Every My PRs alert tag raised or seeded this page lifetime, so one is raised once and never again */
   myprs: Set<string>
+  /** A Reviews view with a finished poll has been seen: the first one only seeds `ready` */
+  reviewsSeeded: boolean
+  /** `v<key>:<launchAt>` of every review draft seen ready, so one draft alerts once; kept past the row leaving the list, bounded by `MAX_SEEN_READY` */
+  ready: Set<string>
+  /** `m<repo>#<number>:<launchAt>` of every round summary seen, so one summary alerts once; kept past the row leaving the list, bounded by `MAX_SEEN_ROUNDS` */
+  rounds: Set<string>
 }
 
-export const newSeen = (): Seen => ({ seeded: false, sessions: new Map(), asks: new Map(), runs: new Map(), checks: new Map(), myprsSeeded: false, myprs: new Set() })
+export const newSeen = (): Seen => ({ seeded: false, sessions: new Map(), asks: new Map(), runs: new Map(), checks: new Map(), myprsSeeded: false, myprs: new Set(), reviewsSeeded: false, ready: new Set(), rounds: new Set() })
 
 /**
  * Something that came off a terminal screen or a name, as one line of plain text for a notification: control characters
@@ -55,6 +62,11 @@ const TITLE_MAX = 80
 const BODY_MAX = 120
 /** A PR title in the body of a failed-draft alert, leaving the rest of the line for the reason */
 const FAILED_TITLE_MAX = 50
+/** How many review drafts and round summaries are remembered as seen; past it the oldest are forgotten, which can only repeat a very old alert */
+export const MAX_SEEN_READY = 500
+export const MAX_SEEN_ROUNDS = 500
+/** What a round summary says when its first line is empty */
+const NO_SUMMARY_LINE = 'summary written'
 const PREFIX: Record<Ask['kind'], string> = { permission: 'Permission needed: ', question: 'Question: ', text: 'Waiting for your message: ', unknown: 'Needs input: ' }
 
 /** What a prompt says, to tell the same prompt coming back (under another id or kind) from a new one. */
@@ -113,6 +125,74 @@ function myPrsAlerts(seen: Seen, view: MyPrsView | undefined): Alert[] {
     } else out.push({ tag, title: 'Ready to post', body: oneLine(r.title, BODY_MAX), href: href.myprs() })
   }
   seen.myprsSeeded = true
+  return out
+}
+
+/** `3 comments`, `1 comment`, `no comments`: the count the person is about to read through. */
+const countOf = (n: number, noun: string): string => (n === 0 ? `no ${noun}s` : `${n} ${noun}${n === 1 ? '' : 's'}`)
+
+/** What a finished review holds, for the popup: `approve, 3 comments` or `comment, 1 blocker, 3 comments`. */
+function readyBody(row: ReviewRow): string {
+  const draft = row.draft!
+  const blockers = draft.findings.filter(isBlocker).length
+  const parts = [draft.verdict, blockers > 0 ? countOf(blockers, 'blocker') : '', countOf(draft.findings.length, 'comment')]
+  return parts.filter(Boolean).join(', ')
+}
+
+/** Remember a tag, forgetting the oldest ones past `max` (a Set keeps its insertion order). Returns whether the tag was new. */
+function remember(set: Set<string>, tag: string, max: number): boolean {
+  if (set.has(tag)) return false
+  set.add(tag)
+  for (const oldest of set) {
+    if (set.size <= max) break
+    set.delete(oldest)
+  }
+  return true
+}
+
+/**
+ * Reviews rows that entered REVIEW READY. The tag names the row and its draft's launch, so one draft alerts once, a newer launch alerts
+ * again, and a row that drops off the list for a while (a Slack scan failing hides the rows only it found) and returns stays quiet.
+ * The tags are kept, not derived from the rows now listed, and bounded by `MAX_SEEN_READY`.
+ */
+function reviewReadyAlerts(seen: Seen, view: ReviewsView | undefined): Alert[] {
+  // Before the first poll the view has no rows because none were read: it must not seed
+  if (!view || view.lastPollAt === null) return []
+  const first = !seen.reviewsSeeded
+  const out: Alert[] = []
+  for (const r of view.rows) {
+    if (!r.draft || r.state !== 'ready') continue
+    const tag = `v${r.key}:${r.draft.launchAt}`
+    const isNew = remember(seen.ready, tag, MAX_SEEN_READY)
+    if (!isNew || first) continue
+    out.push({ tag, title: oneLine(`${r.repo}#${r.number} review ready`, TITLE_MAX), body: readyBody(r), href: href.reviews(r.key) })
+  }
+  seen.reviewsSeeded = true
+  return out
+}
+
+/** The first line of a round's summary with something on it, as one line for the popup. */
+function summaryLine(text: string): string {
+  const line = text.split('\n').find(l => oneLine(l, BODY_MAX) !== '') ?? ''
+  return oneLine(line, BODY_MAX) || NO_SUMMARY_LINE
+}
+
+/**
+ * My PRs rows whose self-review round has written its summary. `roundSummary` is the newest round that has one, so a round starting
+ * changes nothing and its summary arriving does. Call before `myPrsAlerts`, which marks the view as seeded.
+ */
+function roundAlerts(seen: Seen, view: MyPrsView | undefined): Alert[] {
+  if (!view?.loaded) return []
+  const first = !seen.myprsSeeded
+  const out: Alert[] = []
+  for (const r of view.rows) {
+    if (!r.roundSummary) continue
+    const tag = `m${r.repo}#${r.number}:${r.roundSummary.launchAt}`
+    const isNew = remember(seen.rounds, tag, MAX_SEEN_ROUNDS)
+    if (!isNew || first) continue
+    const title = oneLine(`${r.repo}#${r.number} self-review round ${r.roundSummary.round} done`, TITLE_MAX)
+    out.push({ tag, title, body: summaryLine(r.roundSummary.text), href: href.myprs(`${r.repo}#${r.number}`) })
+  }
   return out
 }
 
@@ -192,6 +272,8 @@ export function diffAlerts(seen: Seen, snap: Snapshot): Alert[] {
   seen.asks = nextAsks
   seen.runs = nextRuns
   seen.checks = nextChecks
+  out.push(...reviewReadyAlerts(seen, snap.reviews))
+  out.push(...roundAlerts(seen, snap.myPrs))
   out.push(...myPrsAlerts(seen, snap.myPrs))
   return out
 }

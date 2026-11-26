@@ -1,6 +1,7 @@
 package cmux_test
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -9,6 +10,16 @@ import (
 )
 
 const sessionID = "0f8fad5b-d9cb-469f-a165-70867728950e"
+
+// resumeCommand is the command that resumes id under name.
+func resumeCommand(id string, name *string) (string, error) {
+	args, err := cmux.ResumeArgs(id, name)
+	if err != nil {
+		return "", fmt.Errorf("the resume arguments: %w", err)
+	}
+
+	return cmux.ResumeCommand(args), nil
+}
 
 func TestResumeCommand(t *testing.T) {
 	t.Parallel()
@@ -30,7 +41,7 @@ func TestResumeCommand(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got, err := cmux.ResumeCommand(sessionID, tt.name)
+		got, err := resumeCommand(sessionID, tt.name)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -44,13 +55,13 @@ func TestResumeCommand(t *testing.T) {
 		"`id`", "x\nrm -rf /", "it's", `say "hi"`, "-rf", "--dangerously-skip-permissions",
 		"a && b", "a|b", "../../etc", ".hidden", "a b",
 	} {
-		got, _ := cmux.ResumeCommand(sessionID, &hostile)
+		got, _ := resumeCommand(sessionID, &hostile)
 		if !safe.MatchString(got) {
 			t.Errorf("%q -> %q", hostile, got)
 		}
 	}
 
-	long, _ := cmux.ResumeCommand(sessionID, new(strings.Repeat("a", 500)))
+	long, _ := resumeCommand(sessionID, new(strings.Repeat("a", 500)))
 	if len(long) >= 150 {
 		t.Errorf("a long name was not capped: %d", len(long))
 	}
@@ -59,7 +70,7 @@ func TestResumeCommand(t *testing.T) {
 		"", "../x", "abc", sessionID + ";ls", sessionID + "\n", " " + sessionID,
 		sessionID + "-extra",
 	} {
-		_, err := cmux.ResumeCommand(bad, new("n"))
+		_, err := resumeCommand(bad, new("n"))
 		if err == nil {
 			t.Errorf("%q was taken as a session id", bad)
 		}

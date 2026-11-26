@@ -102,7 +102,7 @@ func (r *Reviews) rowFor(
 	}
 
 	return DeriveRow(pull, tracking, &DeriveContext{
-		Me: *r.me, Sources: sources, Session: live[key], Now: now,
+		Me: *r.me, Sources: sources, Session: live[key], Now: now, ReadAt: r.readAt[key],
 	}, key)
 }
 

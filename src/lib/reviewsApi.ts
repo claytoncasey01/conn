@@ -3,6 +3,7 @@
 import { withAdvisor, type AdvisorPick } from './advisor.ts'
 import { api } from './api.ts'
 import { parseEntryAction } from './entryAction.ts'
+import type { Verdict } from './reviewDraft.ts'
 
 export interface ReviewStartResult {
   ok: boolean
@@ -82,5 +83,25 @@ export function saveModel(model: 'sonnet' | 'opus', storage: Store | null = brow
     storage?.setItem(MODEL_KEY, model)
   } catch {
     // not remembered: the choice still applies to this visit
+  }
+}
+
+/**
+ * Post review: the draft of launch `launchAt` of the PR `key` (`owner/repo#n`), read from the file written at `fileAt`, with the ticked findings and the verdict, as one GitHub review.
+ * The server refuses when the file was written again since, so the findings ticked are the ones posted. The server's own words come back when it refuses. Never throws.
+ */
+export async function postReview(key: string, launchAt: number, fileAt: number, findings: number[], verdict: Verdict): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  try {
+    const r = await api('/api/reviews/post', {
+      method: 'POST',
+      headers: { 'x-conn': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ key, launchAt, fileAt, findings, verdict }),
+    })
+    const body = (await r.json().catch(() => null)) as { ok?: unknown; url?: unknown; error?: unknown } | null
+    const { ok, error } = parseEntryAction(r.status, body)
+    if (!ok) return { ok: false, error: error ?? 'the review was not posted' }
+    return { ok: true, url: typeof body?.url === 'string' ? body.url : '' }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'request failed' }
   }
 }

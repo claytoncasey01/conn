@@ -95,6 +95,15 @@ type GitHub interface {
 	Search(ctx context.Context, queries []Query) ([]SearchResult, *ghbudget.RateInfo, error)
 	Fetch(ctx context.Context, prs []KeyParts, onRate func(*ghbudget.RateInfo)) (
 		*js.Map[*PR], error)
+	// Diff is the diff of repo from baseRef to commit, as GitHub shows a PR's.
+	Diff(ctx context.Context, repo, baseRef, commit string) (string, error)
+	// PostReview posts post to PR number of repo as one review, and answers where it is ("" when
+	// GitHub did not say).
+	PostReview(ctx context.Context, repo string, number int64, post ReviewPost) (string, error)
+	// MyReviews are the newest reviews login submitted on PR number of repo, at most
+	// maxMyReviews: how a post whose failure was unclear is checked.
+	MyReviews(ctx context.Context, repo string, number int64, login string) (
+		[]PostedReview, error)
 }
 
 // SettingsSource is the settings holder: read again on every tick.
@@ -163,6 +172,11 @@ type Deps struct {
 	Exists func(path string) bool
 	// WorktreeClone is the clone a worktree was made from ("" for none).
 	WorktreeClone func(worktree string) string
+	// DraftAt is the mtime (ms) of <worktree>/.conn/review.json, nil when there is none.
+	DraftAt func(worktree string) *float64
+	// ReadDraft is the text of a regular draft file of at most MaxDraftFileBytes plus one byte;
+	// false when it cannot be read.
+	ReadDraft func(path string) (string, bool)
 	// Record tells the Settings cards how a GitHub read or a Slack scan went.
 	Record func(name string, ok bool, detail string)
 	// Budget is what the GitHub pollers of this process share.
@@ -202,6 +216,9 @@ type state struct {
 	me       *string
 	// prs are the open PRs of allowed repos a search or a read found, by key.
 	prs *js.Map[*PR]
+	// readAt is, per key of prs, when the read GitHub answered it from started: a review
+	// posted then or since is not in it.
+	readAt map[string]float64
 	// endedPrs are PRs whose own read said they merged or closed in the last 24 h.
 	endedPrs *js.Map[*PR]
 	// addedDuringPoll are keys a scan's reads added while a poll was running.
@@ -247,6 +264,18 @@ type state struct {
 	nextLook       map[string]float64
 	seenPid        map[*Launch]float64
 	clones         map[string]cloneHit
+	// drafting are the launches whose draft waits on its diff being read.
+	drafting map[*Launch]bool
+	// draftLooked are the closed launches whose draft file was looked at since they closed.
+	draftLooked map[*Launch]bool
+	// diffTriedAt is when a read of each launch's draft diff that failed was made: the next waits
+	// diffRetryMs. An entry goes once the findings are placed or the tries run out.
+	diffTriedAt map[*Launch]float64
+	// posting are the launches whose review is being posted now.
+	posting map[launchID]bool
+	// unsure are the launches whose post failed in a way that leaves unclear whether GitHub
+	// took the review: none is posted again until a poll's check says.
+	unsure map[launchID]unsurePost
 }
 
 // New is Reviews over deps; nothing runs until Run (or Tick) is called.
@@ -258,7 +287,7 @@ func New(ctx context.Context, deps Deps) *Reviews {
 	return &Reviews{
 		deps: deps, names: Names{Pattern: deps.Config.NamePattern},
 		ctx: ctx, mu: sync.Mutex{}, work: sync.WaitGroup{},
-		file: nil, writable: true, me: nil, prs: js.NewMap[*PR](),
+		file: nil, writable: true, me: nil, prs: js.NewMap[*PR](), readAt: map[string]float64{},
 		endedPrs: js.NewMap[*PR](), addedDuringPoll: js.NewMap[bool](),
 		reading: map[string]bool{}, capped: []string{}, failed: []failedPattern{},
 		rate: nil, storeError: nil, pausedUntil: nil, seenKey: nil, bootRead: false,
@@ -270,7 +299,10 @@ func New(ctx context.Context, deps Deps) *Reviews {
 		closing: false, sweeping: false, sweepFailed: map[string]string{},
 		finishing: map[string]bool{}, idleSince: map[string]float64{},
 		nextLook: map[string]float64{}, seenPid: map[*Launch]float64{},
-		clones: map[string]cloneHit{},
+		clones: map[string]cloneHit{}, drafting: map[*Launch]bool{},
+		draftLooked: map[*Launch]bool{}, diffTriedAt: map[*Launch]float64{},
+		posting: map[launchID]bool{},
+		unsure:  map[launchID]unsurePost{},
 	}
 }
 
@@ -315,6 +347,12 @@ func (r *Reviews) Tick() {
 	current, version := r.settings()
 
 	r.readAtBoot()
+
+	// Before the close: a draft stored now counts as the review landing.
+	if r.takeDrafts(r.entries()) {
+		r.bump()
+	}
+
 	r.startAutoClose()
 
 	if r.seenKey == nil {

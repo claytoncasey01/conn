@@ -421,6 +421,7 @@ func (m *MyPrs) recordLaunch(target startTarget, model string, result LaunchResu
 		At: m.now(), Model: model, Name: target.name, Worktree: result.Worktree,
 		HeadSha: result.HeadSha, Round: target.round, Armed: true, AskedSha: nil,
 		AskedAt: nil, ClosedAt: nil, AskTry: nil, Manual: manual,
+		Summary: nil,
 	})
 	m.save()
 	m.bump()

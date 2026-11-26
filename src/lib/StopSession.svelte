@@ -1,7 +1,9 @@
 <script lang="ts">
   import { stopSession } from './live.svelte.ts'
+  import { removeAsk } from './endedRow.ts'
 
-  let { id, name, busy, compact = false }: { id: string; name: string; busy: boolean; compact?: boolean } = $props()
+  /** ended: a hosted session whose program has exited; the button removes its row instead of stopping it */
+  let { id, name, busy, compact = false, ended = false }: { id: string; name: string; busy: boolean; compact?: boolean; ended?: boolean } = $props()
 
   let step = $state<'idle' | 'confirm' | 'working' | 'error'>('idle')
   let error = $state('')
@@ -22,15 +24,15 @@
 
 <span style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap">
   {#if step === 'idle'}
-    <button type="button" onclick={() => (step = 'confirm')} style="{btn} color: color-mix(in oklab, var(--bad) 70%, var(--bright)); border: 1px var(--border-style) color-mix(in oklch, var(--bad) 40%, transparent)" class="cap">{compact ? 'Stop' : 'Stop session'}</button>
+    <button type="button" onclick={() => (step = 'confirm')} style="{btn} color: color-mix(in oklab, var(--bad) 70%, var(--bright)); border: 1px var(--border-style) color-mix(in oklch, var(--bad) 40%, transparent)" class="cap">{ended ? 'Remove' : compact ? 'Stop' : 'Stop session'}</button>
   {:else if step === 'confirm'}
     <span role="alert" style="font-size: 11px; letter-spacing: calc(var(--tracking) * 0.4286); color: {busy ? 'color-mix(in oklab, var(--bad) 55%, var(--bright))' : 'var(--tx)'}">
-      {busy ? `${name} is WORKING. Stopping it ends the run and loses any unsaved work.` : `Stop ${name}?`}
+      {ended ? removeAsk(name) : busy ? `${name} is WORKING. Stopping it ends the run and loses any unsaved work.` : `Stop ${name}?`}
     </span>
-    <button type="button" onclick={go} style="{btn} color: var(--onac); background: var(--bad); border: 1px var(--border-style) var(--bad); font-weight: 700" class="cap">{busy ? 'Stop anyway' : 'Stop'}</button>
+    <button type="button" onclick={go} style="{btn} color: var(--onac); background: var(--bad); border: 1px var(--border-style) var(--bad); font-weight: 700" class="cap">{ended ? 'Remove' : busy ? 'Stop anyway' : 'Stop'}</button>
     <button type="button" onclick={() => (step = 'idle')} style="{btn} color: var(--tx); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent)" class="cap">Cancel</button>
   {:else if step === 'working'}
-    <span style="font-size: 11px; color: var(--mu)" class="cap">Stopping…</span>
+    <span style="font-size: 11px; color: var(--mu)" class="cap">{ended ? 'Removing…' : 'Stopping…'}</span>
   {:else}
     <span role="alert" style="font-size: 11px; color: color-mix(in oklab, var(--bad) 55%, var(--bright))">{error}</span>
     <button type="button" onclick={() => (step = 'idle')} style="{btn} color: var(--tx); border: 1px var(--border-style) color-mix(in oklch, var(--edge) 30%, transparent)" class="cap">OK</button>

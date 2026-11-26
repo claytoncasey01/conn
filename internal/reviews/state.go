@@ -16,6 +16,7 @@ import (
 // The states a row is in, in the order the list shows them.
 const (
 	StateRereview  = "rereview"
+	StateReady     = "ready"
 	StateNew       = "new"
 	StateReviewing = "reviewing"
 	StateWaiting   = "waiting"
@@ -24,8 +25,9 @@ const (
 
 // The review states GitHub reports.
 const (
-	reviewApproved = "APPROVED"
-	reviewPending  = "PENDING"
+	reviewApproved  = "APPROVED"
+	reviewPending   = "PENDING"
+	reviewCommented = "COMMENTED"
 )
 
 // How a PR stopped being open.
@@ -107,6 +109,9 @@ type DeriveContext struct {
 	// Session is the live review session for this PR, if any.
 	Session *RowSession
 	Now     float64
+	// ReadAt is when the read of GitHub that pull came from started: a review Conn posted then
+	// or since is not in it.
+	ReadAt float64
 }
 
 // Row is one PR as the Reviews tab lists it.
@@ -136,6 +141,8 @@ type Row struct {
 	Ended     *string     `json:"ended"`
 	Session   *RowSession `json:"session"`
 	Launches  int         `json:"launches"`
+	// Draft is the review the session left for the person to post; nil when none is shown.
+	Draft *DraftView `json:"draft"`
 	// Stale is that a pattern covering this repo could not be searched at the last poll.
 	Stale bool `json:"stale,omitempty"`
 }
@@ -300,7 +307,8 @@ func DeriveRow(pull *PR, tracking *Entry, ctx *DeriveContext, key string) *Row {
 		Author: pull.Author, URL: pull.URL, BaseRef: pull.BaseRef, State: state, ReAsked: reAsked,
 		Updated: updated, SlackURL: nil, DMURL: nil, InChannel: false, Checks: pull.Checks,
 		CreatedAt: pull.CreatedAt, UpdatedAt: pull.UpdatedAt, Ended: pull.Ended,
-		Session: ctx.Session, Launches: len(tracking.Launches), Stale: false,
+		Session: ctx.Session, Launches: len(tracking.Launches),
+		Draft: draftViewOf(tracking, pull), Stale: false,
 	}
 
 	if listing.post != nil {
@@ -337,8 +345,19 @@ func stateOf(
 		return StateDone, nil
 	}
 
+	// A draft waiting to be posted is news while its session is still open and idle.
+	if waitsForPost(tracking) {
+		return StateReady, nil
+	}
+
 	if ctx.Session != nil {
 		return StateReviewing, nil
+	}
+
+	// The review Conn posted is my latest one before a poll reads it back: the request the
+	// earlier read held is the one it answered.
+	if sent := postedUnread(tracking, ctx); sent != nil {
+		return reviewedState(tracking, listing, sent)
 	}
 
 	if latest == nil {
@@ -353,6 +372,12 @@ func stateOf(
 		return StateRereview, &asked
 	}
 
+	return reviewedState(tracking, listing, latest)
+}
+
+// reviewedState is the state of a PR asked of me no more on GitHub, by my latest review: an
+// approval is done, anything else waits unless a later post or DM asks again.
+func reviewedState(tracking *Entry, listing listed, latest *Review) (string, *string) {
 	if latest.State != reviewApproved {
 		// A later DM asks like a later post in the thread does (each only while its source is
 		// on).
@@ -368,6 +393,40 @@ func stateOf(
 	}
 
 	return StateWaiting, nil
+}
+
+// postedUnread is my review as Conn posted it, while the read of the PR started before the post:
+// GitHub has it, what was read does not show it yet. Nil when the row's draft was not posted,
+// was posted before that read, or its verdict was not kept.
+func postedUnread(tracking *Entry, ctx *DeriveContext) *Review {
+	launch := draftLaunch(tracking)
+	if launch == nil {
+		return nil
+	}
+
+	// A launch with only problems has no draft.
+	if !liveDraft(launch) {
+		return nil
+	}
+
+	// A live draft has one: liveDraft checked it.
+	draft := launch.Draft
+	if anyOf(draft.PostedAt == nil, draft.PostedVerdict == nil) {
+		return nil
+	}
+
+	if *draft.PostedAt < ctx.ReadAt {
+		return nil
+	}
+
+	state := reviewCommented
+	if *draft.PostedVerdict == VerdictApprove {
+		state = reviewApproved
+	}
+
+	return &Review{
+		Author: ctx.Me, State: state, Commit: draft.Commit, SubmittedAt: *draft.PostedAt,
+	}
 }
 
 func askedSince(tracking *Entry, listing listed, since float64) bool {
@@ -392,12 +451,15 @@ func askedSince(tracking *Entry, listing listed, since float64) bool {
 
 // stateOrder is the order states are listed in.
 func stateOrder(state string) float64 {
-	return float64(slices.Index(
-		[]string{StateRereview, StateNew, StateReviewing, StateWaiting, StateDone}, state))
+	order := []string{
+		StateRereview, StateReady, StateNew, StateReviewing, StateWaiting, StateDone,
+	}
+
+	return float64(slices.Index(order, state))
 }
 
-// SortRows is re-reviews first, then new, reviewing, waiting, done; the most recently updated
-// first within a state. Stable, as JavaScript's sort is.
+// SortRows is re-reviews first, then ready, new, reviewing, waiting, done; the most recently
+// updated first within a state. Stable, as JavaScript's sort is.
 func SortRows(rows []*Row) []*Row {
 	sorted := slices.Clone(rows)
 

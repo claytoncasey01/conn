@@ -2,6 +2,7 @@ package myprs
 
 import (
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/ghbudget"
@@ -56,6 +57,8 @@ type Row struct {
 	DraftRetryAt *float64 `json:"draftRetryAt"`
 	// IgnoredReplies are entries of the newest round's replies file that were not taken.
 	IgnoredReplies int `json:"ignoredReplies"`
+	// RoundSummary is the summary of the newest round that wrote one (nil when none did).
+	RoundSummary *RoundSummary `json:"roundSummary"`
 }
 
 // Refresh is the REFRESH presses: Seq the last one pressed, Done the last one whose poll has
@@ -243,7 +246,31 @@ func (m *MyPrs) rowFor(pull *PR, entry *Entry, live []sessions.LiveSession,
 		Label: label, SlackDraft: state.draft, DraftOff: draftOff,
 		Error:        textPointer(m.askErrorOf(key, pull, launches)),
 		DraftRetryAt: draftRetryAt(status, state), IgnoredReplies: m.ignored[key],
+		RoundSummary: roundSummaryOf(launches),
 	}
+}
+
+// RoundSummary is what a Self-Review round's session said it fixed and why: the round it is of,
+// when that round started (what identifies it) and the text. It is private and never posted.
+type RoundSummary struct {
+	Round    float64 `json:"round"`
+	LaunchAt float64 `json:"launchAt"`
+	Text     string  `json:"text"`
+}
+
+// roundSummaryOf is the summary of the newest launch that has one, nil when none has: a round
+// still working keeps showing the last one that finished.
+func roundSummaryOf(launches []*Launch) *RoundSummary {
+	for _, launch := range slices.Backward(launches) {
+		if launch.Summary == nil {
+			continue
+		}
+
+		// Cleaned when it was taken and again when it was read from the file.
+		return &RoundSummary{Round: launch.Round, LaunchAt: launch.At, Text: *launch.Summary}
+	}
+
+	return nil
 }
 
 // statusOf is the row's status, and the reason a status of its own gives.

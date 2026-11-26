@@ -1,6 +1,8 @@
 package reviews_test
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,5 +70,16 @@ func TestThePromptIsWrittenOnlyIntoAConnFolderOfOurOwn(t *testing.T) {
 	err := reviews.WriteLaunchFile(filepath.Join(worktree, ".conn", "prompt.md"), "p", false)
 	if err != nil {
 		t.Fatalf("a folder of our own: %v", err)
+	}
+}
+
+// TestAMissingConnFolderHasNoStaleDraftToRemove: removing the draft from a worktree with no .conn
+// folder yet fails in a way the launch reads as "nothing to remove", not as a refusal.
+func TestAMissingConnFolderHasNoStaleDraftToRemove(t *testing.T) {
+	t.Parallel()
+
+	err := reviews.UnlinkInOwnFolder(filepath.Join(t.TempDir(), ".conn"), reviews.DraftFile)
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("error %v is not fs.ErrNotExist", err)
 	}
 }

@@ -263,9 +263,43 @@ func (h *Host) retire(held *session) {
 
 	h.ended = append(h.ended, held.sessionID)
 	if len(h.ended) > maxEnded {
-		oldest := h.ended[0]
-		h.ended = slices.Delete(h.ended, 0, 1)
-		delete(h.sessions, oldest)
-		h.order = slices.DeleteFunc(h.order, func(sessionID ID) bool { return sessionID == oldest })
+		h.drop(h.ended[0])
 	}
+}
+
+// Forget lets go of an ended session: its exit code and scrollback, and its place in Live. It is
+// what a person ending a session on purpose asks for, so the session leaves the list rather than
+// stay as an ended row until the host forgets it on its own. It refuses with ErrStillRunning
+// while the program runs or its group is not known to be empty (a group no signal reached is
+// still watched), and with ErrNoSession for an id the host does not hold. Viewers still
+// attached have been told the session ended; they close as they would have.
+func (h *Host) Forget(sessionID ID) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	held, found := h.sessions[sessionID]
+	if !found {
+		return ErrNoSession
+	}
+
+	if !held.retired {
+		return ErrStillRunning
+	}
+
+	h.drop(sessionID)
+
+	return nil
+}
+
+// drop removes a retired session from the host's tables. The caller holds h.mu.
+func (h *Host) drop(sessionID ID) {
+	if !h.sessions[sessionID].retired {
+		panic("pty: dropping a session that has not retired")
+	}
+
+	delete(h.sessions, sessionID)
+
+	matches := func(held ID) bool { return held == sessionID }
+	h.order = slices.DeleteFunc(h.order, matches)
+	h.ended = slices.DeleteFunc(h.ended, matches)
 }

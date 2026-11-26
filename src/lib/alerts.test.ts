@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { attention, diffAlerts, newSeen, oneLine } from './alerts.ts'
-import type { MyPrDraft, MyPrRow, Snapshot } from './types.ts'
+import { attention, diffAlerts, MAX_SEEN_READY, MAX_SEEN_ROUNDS, newSeen, oneLine } from './alerts.ts'
+import type { MyPrDraft, MyPrRow, ReviewDraft, ReviewFinding, ReviewRow, Snapshot } from './types.ts'
 
 const sess = (id: string, status: string) => ({ id, name: 'n' + id, status, waitingFor: status === 'waiting' ? 'permission prompt' : null, activity: 'did a thing' })
 const run = (key: string, state: string, extra = {}) => ({ key, state, questions: [{ answer: null }, { answer: 'x' }], error: 'boom', repos: [{}], ...extra })
@@ -507,4 +507,167 @@ test('a title with control characters is one clean line in the alert', () => {
   diffAlerts(seen, withPrs())
   const [a] = diffAlerts(seen, withPrs(prRow({ title: 'a\nb\u202ec' })))
   assert.ok(!/[\n\u202e]/.test(a.body))
+})
+
+// ---- Reviews: a row entering REVIEW READY ----
+
+const finding = (severity: string): ReviewFinding => ({ path: 'a.go', line: 1, side: 'RIGHT', severity, body: 'x', inline: true })
+const reviewDraft = (over: Partial<ReviewDraft> = {}): ReviewDraft => ({ launchAt: 1000, fileAt: 1001, commit: 'abc', headMoved: false, summary: 's', verdict: 'approve', findings: [finding('P2'), finding('P3'), finding('P3')], dropped: 0, postedAt: null, url: null, problems: [], ...over })
+const reviewRow = (over: Partial<ReviewRow> = {}): ReviewRow => ({ key: 'acme/app#12', repo: 'acme/app', number: 12, title: 'Add a thing', state: 'reviewing', draft: null, ...over }) as ReviewRow
+const readyRow = (over: Partial<ReviewRow> = {}) => reviewRow({ state: 'ready', draft: reviewDraft(), ...over })
+const withReviews = (...rows: ReviewRow[]) => ({ at: 0, sessions: [], runs: [], reviews: { enabled: true, lastPollAt: 1, rows } }) as unknown as Snapshot
+const beforeReviewPoll = () => ({ at: 0, sessions: [], runs: [], reviews: { enabled: true, lastPollAt: null, rows: [] } }) as unknown as Snapshot
+
+test('a Reviews row entering ready raises one alert that opens Reviews, and the same draft again raises none', () => {
+  const seen = newSeen()
+  diffAlerts(seen, withReviews(reviewRow()))
+  const a = diffAlerts(seen, withReviews(readyRow()))
+  assert.deepEqual(a, [{ tag: 'vacme/app#12:1000', title: 'acme/app#12 review ready', body: 'approve, 3 comments', href: '#/reviews/acme%2Fapp%2312' }])
+  assert.equal(diffAlerts(seen, withReviews(readyRow())).length, 0)
+})
+
+test('the review ready body says the verdict, the blockers (P0 or P1) and the comments', () => {
+  const rows: { name: string; draft: Partial<ReviewDraft>; want: string }[] = [
+    { name: 'approve with comments', draft: {}, want: 'approve, 3 comments' },
+    { name: 'comment with one blocker', draft: { verdict: 'comment', findings: [finding('P0'), finding('P2'), finding('P3')] }, want: 'comment, 1 blocker, 3 comments' },
+    { name: 'a P1 is a blocker too', draft: { verdict: 'comment', findings: [finding('P1'), finding('P1')] }, want: 'comment, 2 blockers, 2 comments' },
+    { name: 'comment with no blocker', draft: { verdict: 'comment', findings: [finding('P2'), finding('P3')] }, want: 'comment, 2 comments' },
+    { name: 'one comment is singular', draft: { findings: [finding('P3')] }, want: 'approve, 1 comment' },
+    { name: 'no comments', draft: { findings: [] }, want: 'approve, no comments' },
+  ]
+  for (const row of rows) {
+    const seen = newSeen()
+    diffAlerts(seen, withReviews(reviewRow()))
+    const [a] = diffAlerts(seen, withReviews(readyRow({ draft: reviewDraft(row.draft) })))
+    assert.equal(a.body, row.want, row.name)
+  }
+})
+
+test('rows already ready when the tab opened do not alert, and the view before the first poll does not seed', () => {
+  const seen = newSeen()
+  assert.equal(diffAlerts(seen, withReviews(readyRow())).length, 0)
+  assert.equal(diffAlerts(seen, withReviews(readyRow())).length, 0)
+  const late = newSeen()
+  diffAlerts(late, snap([]))
+  diffAlerts(late, beforeReviewPoll())
+  assert.equal(diffAlerts(late, withReviews(readyRow())).length, 0)
+  assert.equal(diffAlerts(late, withReviews(readyRow(), readyRow({ key: 'acme/app#13', number: 13 }))).length, 1)
+})
+
+test('a new draft for the same row alerts again, and a row leaving ready and returning with the same draft does not', () => {
+  const seen = newSeen()
+  diffAlerts(seen, withReviews(reviewRow()))
+  assert.equal(diffAlerts(seen, withReviews(readyRow())).length, 1)
+  diffAlerts(seen, withReviews(reviewRow({ state: 'reviewing', draft: reviewDraft() })))
+  assert.equal(diffAlerts(seen, withReviews(readyRow())).length, 0)
+  const [a] = diffAlerts(seen, withReviews(readyRow({ draft: reviewDraft({ launchAt: 2000 }) })))
+  assert.equal(a.tag, 'vacme/app#12:2000')
+})
+
+test('a row that is not ready, or a posted marker, does not alert', () => {
+  const seen = newSeen()
+  diffAlerts(seen, withReviews())
+  const posted = reviewRow({ state: 'done', draft: reviewDraft({ commit: '', findings: [], verdict: '', postedAt: 5 }) })
+  assert.equal(diffAlerts(seen, withReviews(reviewRow(), posted, reviewRow({ key: 'acme/app#14', number: 14, state: 'ready', draft: null }))).length, 0)
+})
+
+test('a row that leaves the list and returns with the same draft raises nothing', () => {
+  const seen = newSeen()
+  diffAlerts(seen, withReviews())
+  assert.equal(diffAlerts(seen, withReviews(readyRow())).length, 1)
+  // A Slack scan failing hides the rows only it found, and they come back as they were.
+  assert.equal(diffAlerts(seen, withReviews()).length, 0)
+  assert.equal(diffAlerts(seen, withReviews(readyRow())).length, 0)
+  assert.equal(seen.ready.size, 1)
+})
+
+test('the ready set is capped and forgets the oldest draft first', () => {
+  const seen = newSeen()
+  diffAlerts(seen, withReviews())
+  const rows = (from: number, to: number) => Array.from({ length: to - from }, (_, n) => readyRow({ key: `acme/app#${from + n}`, number: from + n }))
+  assert.equal(diffAlerts(seen, withReviews(...rows(0, MAX_SEEN_READY + 1))).length, MAX_SEEN_READY + 1)
+  assert.equal(seen.ready.size, MAX_SEEN_READY)
+  assert.ok(!seen.ready.has('vacme/app#0:1000'))
+  assert.ok(seen.ready.has(`vacme/app#${MAX_SEEN_READY}:1000`))
+})
+
+test('a title with control characters is one clean line in the review ready alert', () => {
+  const seen = newSeen()
+  diffAlerts(seen, withReviews())
+  const [a] = diffAlerts(seen, withReviews(readyRow({ repo: 'acme/a\nb‮', number: 1 })))
+  assert.ok(!/[\n‮]/.test(a.title))
+})
+
+// ---- My PRs: a self-review round gaining its summary ----
+
+const summary = (over: Partial<NonNullable<MyPrRow['roundSummary']>> = {}) => ({ round: 2, launchAt: 500, text: 'Fixed the nil check.\nAlso renamed a field.', ...over })
+const roundRow = (over: Partial<MyPrRow> = {}) => prRow({ number: 9, repo: 'acme/app', slackDraft: null, roundSummary: summary(), ...over })
+
+test('a new round summary raises one alert with its first line that opens My PRs', () => {
+  const seen = newSeen()
+  diffAlerts(seen, withPrs(roundRow({ roundSummary: null })))
+  const a = diffAlerts(seen, withPrs(roundRow()))
+  assert.deepEqual(a, [{ tag: 'macme/app#9:500', title: 'acme/app#9 self-review round 2 done', body: 'Fixed the nil check.', href: '#/myprs/acme%2Fapp%239' }])
+  assert.equal(diffAlerts(seen, withPrs(roundRow())).length, 0)
+})
+
+test('a later round starting does not alert, and its summary arriving does', () => {
+  const seen = newSeen()
+  diffAlerts(seen, withPrs(roundRow()))
+  // the newest summary stays the old round's while the new round runs
+  assert.equal(diffAlerts(seen, withPrs(roundRow({ status: 'running' }))).length, 0)
+  const [a] = diffAlerts(seen, withPrs(roundRow({ roundSummary: summary({ round: 3, launchAt: 900, text: 'Round three.' }) })))
+  assert.deepEqual([a.tag, a.title, a.body], ['macme/app#9:900', 'acme/app#9 self-review round 3 done', 'Round three.'])
+})
+
+test('round summaries already there when the tab opened do not alert, even when My PRs came late', () => {
+  const seen = newSeen()
+  assert.equal(diffAlerts(seen, withPrs(roundRow())).length, 0)
+  assert.equal(diffAlerts(seen, withPrs(roundRow())).length, 0)
+  const late = newSeen()
+  diffAlerts(late, beforePoll())
+  assert.equal(diffAlerts(late, withPrs(roundRow())).length, 0)
+  assert.equal(diffAlerts(late, withPrs(roundRow(), roundRow({ number: 10 }))).length, 1)
+})
+
+test('the summary line is trimmed, skips blank lines, is cut at a limit and has a fallback', () => {
+  const rows: { name: string; text: string; want: string }[] = [
+    { name: 'leading blank lines and spaces', text: '\n\n   Fixed it.  \nmore', want: 'Fixed it.' },
+    { name: 'control and bidi characters', text: 'a‮b', want: 'a<U+202E>b' },
+    { name: 'a long line', text: 'x'.repeat(300), want: 'x'.repeat(120) + '…' },
+    { name: 'nothing to say', text: ' \n ', want: 'summary written' },
+  ]
+  for (const row of rows) {
+    const seen = newSeen()
+    diffAlerts(seen, withPrs())
+    const [a] = diffAlerts(seen, withPrs(roundRow({ roundSummary: summary({ text: row.text }) })))
+    assert.equal(a.body, row.want, row.name)
+  }
+})
+
+test('a row that leaves My PRs and returns with the same summary raises nothing', () => {
+  const seen = newSeen()
+  diffAlerts(seen, withPrs())
+  assert.equal(diffAlerts(seen, withPrs(roundRow())).length, 1)
+  // A poll that lists fewer rows (capped) drops it for a while.
+  assert.equal(diffAlerts(seen, withPrs()).length, 0)
+  assert.equal(diffAlerts(seen, withPrs(roundRow())).length, 0)
+  assert.equal(seen.rounds.size, 1)
+})
+
+test('the rounds set is capped and forgets the oldest summary first', () => {
+  const seen = newSeen()
+  diffAlerts(seen, withPrs())
+  const rows = Array.from({ length: MAX_SEEN_ROUNDS + 1 }, (_, n) => roundRow({ number: n }))
+  assert.equal(diffAlerts(seen, withPrs(...rows)).length, MAX_SEEN_ROUNDS + 1)
+  assert.equal(seen.rounds.size, MAX_SEEN_ROUNDS)
+  assert.ok(!seen.rounds.has('macme/app#0:500'))
+  assert.ok(seen.rounds.has(`macme/app#${MAX_SEEN_ROUNDS}:500`))
+})
+
+test('a round alert and a Ready to post alert for one row are both raised', () => {
+  const seen = newSeen()
+  diffAlerts(seen, withPrs(prRow({ status: 'running', slackDraft: null, roundSummary: null })))
+  const a = diffAlerts(seen, withPrs(prRow({ roundSummary: summary() })))
+  assert.deepEqual(a.map(x => x.title).sort(), ['Ready to post', 'org/repo#7 self-review round 2 done'])
 })

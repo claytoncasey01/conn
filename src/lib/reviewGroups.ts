@@ -8,6 +8,7 @@ const STATUS: [ReviewState, string][] = [
   ['reviewing', 'Reviewing'],
   ['waiting', 'Waiting'],
   ['rereview', 'Re-review'],
+  ['ready', 'Review ready'],
   ['done', 'Done'],
 ]
 

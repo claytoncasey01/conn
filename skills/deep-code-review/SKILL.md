@@ -229,6 +229,13 @@ otherwise wherever the user's other draft output lives. Then:
   docstring for how it decides what can be inline and what goes in the
   summary). Never request changes; a blocker is a comment, and the author
   decides.
+- **PR-review mode, when the request says to write the review for Conn**: write
+  the review to the file the request names, in the shape the request gives,
+  with no `post_review.py` and nothing posted to GitHub. The verdict rule is the
+  same: `approve` when no P0 or P1 finding survived verification, otherwise
+  `comment`. Findings outside the diff are still listed, as they are in the
+  output template; Conn works out which comments can sit inline and which go
+  in the summary.
 - **PR-review mode, otherwise**: show the user the drafted summary and inline
   comments and ask what to post — all of it, a subset, or nothing — and
   post only what they confirm, with `--event COMMENT` unless they ask you to

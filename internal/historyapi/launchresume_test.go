@@ -340,3 +340,91 @@ func realTemp(t *testing.T) string {
 
 	return folder
 }
+
+// hRules are the rules the rig's folder is held to, as a review kind's worktree is.
+func hRules() []string {
+	return []string{"Bash(gh pr review:*)", "mcp__claude_ai_Slack__slack_send_message"}
+}
+
+// TestAResumedSessionIsHeldToItsKindsRules: a session in a folder Deps.Disallowed names rules
+// for (a review's or a self-review's worktree) is resumed with them ahead of the conversation,
+// by RESUME, at launch, and in the dry run's command; any other folder's session with none.
+func TestAResumedSessionIsHeldToItsKindsRules(t *testing.T) {
+	t.Parallel()
+
+	rulesOf := func(folder string) func(string) []string {
+		return func(asked string) []string {
+			if asked == folder {
+				return hRules()
+			}
+
+			return nil
+		}
+	}
+
+	tests := []struct {
+		name string
+		argv func(t *testing.T, rig *launchRig) []string
+	}{
+		{"RESUME", func(t *testing.T, rig *launchRig) []string {
+			t.Helper()
+
+			_, err := rig.api().Handle(t.Context(),
+				historyapi.Route{Kind: historyapi.RouteResume, ID: resumedID, AgentID: ""},
+				nil, nil)
+			if err != nil || len(rig.opened) != 1 {
+				t.Fatalf("RESUME opened %d sessions: %v", len(rig.opened), err)
+			}
+
+			return rig.opened[0].Argv
+		}},
+		{"at launch", func(t *testing.T, rig *launchRig) []string {
+			t.Helper()
+
+			spec, ok := rig.api().ResumeAtLaunch(t.Context(), resumedID, rig.folder)
+			if !ok {
+				t.Fatal("not resumed")
+			}
+
+			return spec.Argv
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			rig := newLaunchRig(t)
+			rig.deps.Disallowed = rulesOf(rig.folder)
+
+			argv := test.argv(t, rig)
+			want := slices.Concat([]string{"/opt/claude/bin/claude", "--disallowedTools"},
+				hRules(), []string{"--resume", resumedID})
+
+			if len(argv) < len(want) || !slices.Equal(argv[:len(want)], want) {
+				t.Errorf("argv %q, want it to start %q", argv, want)
+			}
+		})
+	}
+}
+
+// TestADryResumeShowsTheRulesInItsCommand: the dry run's command is the one a real RESUME runs,
+// the rules included.
+func TestADryResumeShowsTheRulesInItsCommand(t *testing.T) {
+	t.Parallel()
+
+	rig := newLaunchRig(t)
+	rig.deps.Disallowed = func(string) []string { return hRules() }
+	rig.deps.Dry = func() bool { return true }
+
+	reply, err := rig.api().Handle(t.Context(),
+		historyapi.Route{Kind: historyapi.RouteResume, ID: resumedID, AgentID: ""}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := string(js.Marshal(reply.Body))
+	if !strings.Contains(body, `claude --disallowedTools 'Bash(gh pr review:*)'`) {
+		t.Errorf("the dry command lacks the rules: %s", body)
+	}
+}

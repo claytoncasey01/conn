@@ -16,6 +16,8 @@ const (
 	RouteRefresh = "refresh"
 	RouteLegacy  = "legacy"
 	RouteNone    = "none"
+	// RoutePost is Post review pressed: a stored draft posted to GitHub as one review.
+	RoutePost = "post"
 )
 
 // RouteOf is the route for a path under /api/reviews, and false for any other path. What to
@@ -34,6 +36,8 @@ func RouteOf(path string) (string, bool) {
 		return RouteStart, true
 	case "/api/reviews/legacy":
 		return RouteLegacy, true
+	case "/api/reviews/post":
+		return RoutePost, true
 	}
 
 	return RouteNone, true
@@ -62,6 +66,8 @@ func (r *Reviews) Handle(ctx context.Context, route string, body *js.Object) (Re
 		chosenAdvisor, _ := body.Get("advisor")
 
 		return r.Start(ctx, repo, number, model, chosenAdvisor)
+	case RoutePost:
+		return r.post(ctx, body), nil
 	}
 
 	return bad(codeNotFound, "not found"), nil

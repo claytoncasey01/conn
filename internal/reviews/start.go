@@ -411,6 +411,12 @@ func (r *Reviews) recordLaunch(
 		}
 	}
 
+	// The new review replaces the drafts of the earlier ones. One launched by hand sets them
+	// aside once its own draft is stored.
+	if started {
+		setAside(target.entry.Launches, SetAsideNewer)
+	}
+
 	target.entry.Launches = append(target.entry.Launches, &Launch{
 		At: launchedAt, Model: model, Name: name, HeadSha: target.pr.HeadSha,
 		Worktree:  result.Worktree,

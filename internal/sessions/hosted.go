@@ -13,10 +13,11 @@ import (
 
 // Hosted sessions: the programs Conn runs on terminals of its own (Deps.Host). Each is a row of
 // the session list under the id the host issued, running or ended, for as long as the host
-// keeps it. A hosted claude registers like any other; its registry entry is matched to it by the
-// process id the host started, an exact lookup in the host's own record, and from then on the
-// entry's fields, transcripts and asks are the row's. Nothing a process prints or holds in its
-// environment can make a session hosted, or a hosted one a cmux one.
+// keeps it: one that ends by itself stays, ended, and one a person stops or closes is let go at
+// once, so it leaves the list. A hosted claude registers like any other; its registry entry is
+// matched to it by the process id the host started, an exact lookup in the host's own record,
+// and from then on the entry's fields, transcripts and asks are the row's. Nothing a process
+// prints or holds in its environment can make a session hosted, or a hosted one a cmux one.
 
 // hostedState is what the store knows of the host's sessions, as the last tick read them.
 type hostedState struct {

@@ -437,22 +437,11 @@ func (r *Reviews) pin(launch *Launch, sessionID string) {
 }
 
 func (r *Reviews) closeFacts(key string, launch *Launch, idleForMs float64) CloseFacts {
-	pull, found := r.prs.Get(key)
-	if !found {
-		pull, found = r.endedPrs.Get(key)
-	}
+	// A draft the session wrote counts as its review landing, as a review on GitHub does.
+	reviewed := liveDraft(launch)
 
-	reviewed := false
-
-	if found {
-		if r.me != nil {
-			for _, review := range pull.Reviews {
-				if all(same(review.Author, *r.me), review.State != reviewPending,
-					review.SubmittedAt > launch.At) {
-					reviewed = true
-				}
-			}
-		}
+	if pull, found := r.pullOf(key); all(found, r.me != nil) {
+		reviewed = anyOf(reviewed, reviewedSince(pull, *r.me, launch.At))
 	}
 
 	return CloseFacts{
@@ -666,20 +655,31 @@ func (r *Reviews) worktreeClone(folder string) string {
 	return WorktreeClone(folder)
 }
 
+// recordBusy is whether the PR's record says its worktree is in use: a launch still open, or a
+// draft file in it not taken yet.
+func (r *Reviews) recordBusy(key, folder string) bool {
+	entry := r.entryOf(key)
+	if entry == nil {
+		return false
+	}
+
+	for _, launch := range entry.Launches {
+		if launch.ClosedAt == nil {
+			return true
+		}
+	}
+
+	return r.draftUntaken(entry, folder)
+}
+
 // busy is whether anything may be using a PR's worktree.
 func (r *Reviews) busy(key, folder string) bool {
 	if anyOf(r.prs.Has(key), r.starting[key], r.finishing[key]) {
 		return true
 	}
 
-	if r.file != nil {
-		if entry, found := r.file.PRs.Get(key); found {
-			for _, launch := range entry.Launches {
-				if launch.ClosedAt == nil {
-					return true
-				}
-			}
-		}
+	if r.recordBusy(key, folder) {
+		return true
 	}
 
 	place := Real(folder)

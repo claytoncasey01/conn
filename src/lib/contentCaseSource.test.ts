@@ -147,9 +147,12 @@ const ALLOW: Record<string, Record<string, string>> = {
     '{busy ? \'Starting…\' : again ? \'Re-review\' : \'Review\'}': W,
     '{copied ? \'Copied ✓\' : \'Copy\'}': W,
   },
+  'lib/ReviewDraft.svelte': {
+    '{busy ? \'Posting…\' : \'Post review\'}': W,
+  },
   'lib/StopSession.svelte': {
-    '{compact ? \'Stop\' : \'Stop session\'}': W,
-    '{busy ? \'Stop anyway\' : \'Stop\'}': W,
+    '{ended ? \'Remove\' : compact ? \'Stop\' : \'Stop session\'}': W,
+    '{ended ? \'Remove\' : busy ? \'Stop anyway\' : \'Stop\'}': W,
   },
   'lib/ThreadPanel.svelte': {
     '{busy[t.id] ? \'SENDING…\' : s.button}': W,
@@ -166,6 +169,8 @@ const ALLOW: Record<string, Record<string, string>> = {
     '{threadsOpen ? \'Hide\' : \'Show\'}': W,
     '{row.threads.length}': N,
     '{row.threads.length === 1 ? \'thread\' : \'threads\'}': W,
+    '{summaryOpen ? \'▾\' : \'▸\'}': W,
+    '{row.roundSummary.round}': N,
     '{draftCopied ? \'Copied ✓\' : \'Copy\'}': W,
     '{copied ? \'Copied ✓\' : \'Copy\'}': W,
     '{busy ? \'Starting…\' : row.label}': 'Self-review / Re-review, a constant',

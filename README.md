@@ -10,7 +10,7 @@ Conn runs on your machine and listens on 127.0.0.1 only. It reads the files Clau
 - Runs the sessions it starts inside itself, on a terminal the page shows, so no terminal app is needed. You can type into that terminal, or type a reply, or allow once or deny a permission prompt, from the page. The prompt is read again right before your answer is sent, and nothing is sent if it changed. See [sessions inside Conn](#sessions-inside-conn).
 - Keeps a searchable archive of finished sessions, each with a short summary. See [history](docs/history.md).
 - Lists your open pull requests with their unresolved review threads. One click starts a Claude Code session, in its own git worktree, that fixes what is open. See [my PRs](docs/my-prs.md).
-- Lists the pull requests that ask for your review, from GitHub and optionally Slack. One click starts a review session in a worktree. See [reviews](docs/reviews.md).
+- Lists the pull requests that ask for your review, from GitHub and optionally Slack. One click starts a review session in a worktree; its review waits on the row, and Conn posts it to GitHub only when you press Post review. See [reviews](docs/reviews.md).
 - Lists the Jira tickets in your current sprint. You choose the repository, or several, for each ticket when you start it. Conn researches the ticket, asks you what it cannot settle, starts a build session (one across the repositories, or one in each), and opens a PR in each repository when you confirm. See [open work](docs/open-work.md).
 - Ships four built-in themes and a gallery. A theme is a JSON file. See [using themes](docs/using-themes.md) and [writing a theme](docs/themes.md).
 

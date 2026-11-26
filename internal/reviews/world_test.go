@@ -33,6 +33,8 @@ const (
 	pollMs    = 180_000
 	gateWait  = 5 * time.Second
 	gateDepth = 64
+	// worldReviewURL is where GitHub says a posted review is.
+	worldReviewURL = "https://github.com/acme/widgets/pull/7#pullrequestreview-1"
 )
 
 // errGhHiccup is a read by number that fails once, as gh can.
@@ -272,8 +274,24 @@ type world struct {
 	worktreeOf   func(path string) string
 	// known is every PR GitHub has had open in this test, by key.
 	known map[string]*reviews.PR
-	dir   string
-	file  string
+	// drafts are the review.json files by worktree, and draftReads how often one was read.
+	drafts     map[string]worldDraftFile
+	draftReads int
+	// diff is GitHub's diff of a PR's base and a commit; diffCalls are the diffs asked for, each
+	// as "<repo> <base>...<commit>".
+	diff      func(repo, baseRef, commit string) (string, error)
+	diffCalls []string
+	// postResult is GitHub's answer to a posted review; posts are the reviews posted, and
+	// postGate holds every post.
+	postResult func() (string, error)
+	posts      []worldPost
+	postGate   *gate
+	// myReviews are my reviews of a PR as the check after an unclear post reads them, and
+	// myReviewsCalls how often it did.
+	myReviews      func() ([]reviews.PostedReview, error)
+	myReviewsCalls int
+	dir            string
+	file           string
 }
 
 // setupOpts are what a test starts from.
@@ -350,6 +368,10 @@ func newWorld(dir, file string, current settings.Settings, open []*reviews.PR,
 		originOf:   func(string) string { return "" },
 		worktreeOf: func(string) string { return "/nowhere/clones/widgets" },
 		known:      map[string]*reviews.PR{}, dir: dir, file: file,
+		drafts:     map[string]worldDraftFile{},
+		diff:       func(string, string, string) (string, error) { return worldDiff, nil },
+		postResult: func() (string, error) { return worldReviewURL, nil },
+		myReviews:  func() ([]reviews.PostedReview, error) { return nil, nil },
 	}
 }
 
@@ -389,7 +411,7 @@ func newReviews(t *testing.T, fixture *world, opts setupOpts) *reviews.Reviews {
 		Launch: fixture.launch, Git: fixture.runGit, InputState: fixture.input,
 		CloseWorkspace: fixture.closeWorkspace, Exists: fixture.isThere,
 		WorktreeClone: fixture.worktreeClone, Record: fixture.record, Budget: opts.budget,
-		Logger: nil,
+		DraftAt: fixture.draftAt, ReadDraft: fixture.readDraft, Logger: nil,
 		Config: reviews.Config{
 			PollMs: pollMs, FirstWindowDays: 2, DMScanMs: 600_000, ChannelScanMs: channelScanMs,
 			CloseAfterMs: 10 * minuteMs, CloseCapMs: 60 * minuteMs, Me: opts.me, Dry: false,
@@ -800,4 +822,89 @@ func (w *world) readByNumber(keys []string, open map[string]*reviews.PR) *js.Map
 	}
 
 	return out
+}
+
+// worldDiff is the PR's diff: a.go gains its line 2.
+const worldDiff = "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1,2 +1,3 @@\n" +
+	" one\n+two\n three\n"
+
+// worldDraftFile is a review.json: its mtime (ms) and what it holds.
+type worldDraftFile struct {
+	at      float64
+	content string
+}
+
+// writeDraft is the session in worktree writing review.json at the time at.
+func (w *world) writeDraft(worktree string, at float64, content string) {
+	w.with(func(w *world) { w.drafts[worktree] = worldDraftFile{at: at, content: content} })
+}
+
+func (w *world) draftAt(worktree string) *float64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	file, found := w.drafts[worktree]
+	if !found {
+		return nil
+	}
+
+	return &file.at
+}
+
+func (w *world) readDraft(path string) (string, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if filepath.Base(path) != reviews.DraftFile {
+		return "", false
+	}
+
+	file, found := w.drafts[filepath.Dir(filepath.Dir(path))]
+	if !found {
+		return "", false
+	}
+
+	w.draftReads++
+
+	return file.content, true
+}
+
+func (g worldGh) Diff(_ context.Context, repo, baseRef, commit string) (string, error) {
+	g.w.mu.Lock()
+	g.w.diffCalls = append(g.w.diffCalls, repo+" "+baseRef+"..."+commit)
+	answer := g.w.diff
+	g.w.mu.Unlock()
+
+	return answer(repo, baseRef, commit)
+}
+
+// worldPost is one review posted to GitHub.
+type worldPost struct {
+	repo   string
+	number int64
+	post   reviews.ReviewPost
+}
+
+func (g worldGh) PostReview(_ context.Context, repo string, number int64,
+	post reviews.ReviewPost,
+) (string, error) {
+	g.w.mu.Lock()
+	g.w.posts = append(g.w.posts, worldPost{repo: repo, number: number, post: post})
+	held, answer := g.w.postGate, g.w.postResult
+	g.w.mu.Unlock()
+
+	held.pass()
+
+	return answer()
+}
+
+func (g worldGh) MyReviews(_ context.Context, _ string, _ int64, _ string) (
+	[]reviews.PostedReview, error,
+) {
+	g.w.mu.Lock()
+	g.w.myReviewsCalls++
+	answer := g.w.myReviews
+	g.w.mu.Unlock()
+
+	return answer()
 }

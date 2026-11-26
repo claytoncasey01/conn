@@ -8,6 +8,7 @@
   import StopSession from '../lib/StopSession.svelte'
   import InterruptButton from '../lib/InterruptButton.svelte'
   import { interruptOnRow } from '../lib/interrupt.ts'
+  import { endedHosted, endedLabel } from '../lib/endedRow.ts'
   import { NOT_LINKED, NOT_LINKED_WHY, notLinked } from '../lib/hostedLink.ts'
   import { hideTerminal, loadTerminal, terminalPanel, toggleTerminal } from '../lib/terminalPanel.svelte.ts'
   import Nav from '../lib/Nav.svelte'
@@ -178,7 +179,7 @@
                   <span title="A teammate: its own claude, started by a lead" style="flex-shrink: 0; padding: 1px 6px; border-radius: calc(var(--radius) * 0.75); border: 1px var(--border-style) {TEAMMATE_COLORS.border}; background: {TEAMMATE_COLORS.bg}; font-size: 10px; letter-spacing: calc(var(--tracking) * 0.8571); color: {TEAMMATE_COLORS.fg}">{TEAMMATE_LABEL}</span>
                 {/if}
               </div>
-              <span style="flex-shrink: 0; font-size: 11px; letter-spacing: calc(var(--tracking) * 0.8571); color: {dot}" class="cap">{waiting ? 'Needs input' : busy ? 'Live' : 'Idle'}</span>
+              <span style="flex-shrink: 0; font-size: 11px; letter-spacing: calc(var(--tracking) * 0.8571); color: {dot}" class="cap">{s.exitCode !== undefined && s.hosted ? endedLabel(s.exitCode) : waiting ? 'Needs input' : busy ? 'Live' : 'Idle'}</span>
             </div>
 
             <div style="font-size: 12px; color: var(--mu); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">⎇ {s.branch || '—'}</div>
@@ -245,7 +246,7 @@
                 <InterruptButton id={s.id} compact />
               {/if}
             {/if}
-            <StopSession id={s.id} name={s.name} busy={hot} compact /></div>
+            <StopSession id={s.id} name={s.name} busy={hot} compact ended={endedHosted(s)} /></div>
           </div>
         {/each}
       </section>

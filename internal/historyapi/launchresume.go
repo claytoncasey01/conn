@@ -11,10 +11,10 @@ import (
 // ResumeAtLaunch is the session that resumes, when Conn launches again, the History session
 // sessionID that ran in folder at the last quit, and true; or false when it may not be resumed.
 // The archive's own row is what is resumed: the session is the one RESUME opens (ResumeSpec over
-// cmux.ResumeArgs, in the row's folder, under the row's name), and only when every check RESUME
-// makes passes, the id is a UUID, the row's folder is folder, and that folder's repository is on
-// the allowlist. A dry run resumes none. A session it gives starts RESUME's cooldown, so a
-// RESUME before the session shows up opens no second one.
+// cmux.ResumeArgs and the rules of the row's folder, in that folder, under the row's name), and
+// only when every check RESUME makes passes, the id is a UUID, the row's folder is folder, and
+// that folder's repository is on the allowlist. A dry run resumes none. A session it gives
+// starts RESUME's cooldown, so a RESUME before the session shows up opens no second one.
 func (a *API) ResumeAtLaunch(ctx context.Context, sessionID, folder string) (pty.Spec, bool) {
 	if a.deps.Dry() {
 		return pty.Spec{}, false
@@ -46,7 +46,7 @@ func (a *API) ResumeAtLaunch(ctx context.Context, sessionID, folder string) (pty
 		name = &info.Name
 	}
 
-	args, err := cmux.ResumeArgs(sessionID, name)
+	args, err := a.resumeArgs(sessionID, name, info.Cwd)
 	if err != nil {
 		return pty.Spec{}, false
 	}

@@ -14,8 +14,8 @@ type tabHandler func(ctx context.Context, route string, body *js.Object) (review
 
 // tabs answers /api/reviews and /api/myprs, and is false for any other path. Every route is a
 // POST with Conn's own header: REVIEW and SELF-REVIEW launch a process, refresh spends a gh
-// call, legacy rewrites reviews.json and thread writes to GitHub (a custom header forces a CORS
-// preflight).
+// call, legacy rewrites reviews.json, and post and thread write to GitHub (a custom header forces
+// a CORS preflight).
 func (s *Server) tabs(w http.ResponseWriter, r *http.Request, urlPath string) bool {
 	if route, ours := reviews.RouteOf(urlPath); ours {
 		if s.Reviews != nil {

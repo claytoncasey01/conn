@@ -72,3 +72,52 @@ func (r *Reviews) SetDeps(change func(deps *Deps)) {
 
 	change(&r.deps)
 }
+
+// MaxReviewBodyUnits is the longest review body GitHub takes.
+const MaxReviewBodyUnits = maxReviewBodyUnits
+
+// MaxDiffTries and DiffRetryMs bound the reads of a draft's diff.
+const (
+	MaxDiffTries = maxDiffTries
+	DiffRetryMs  = diffRetryMs
+)
+
+// Why a PR's diff is not read.
+var (
+	ErrDiffUnsafe   = errDiffUnsafe
+	ErrDiffTooLarge = errDiffTooLarge
+)
+
+// Why a review is not built, or not posted.
+var (
+	ErrBadVerdict      = errBadVerdict
+	ErrBadFindings     = errBadFindings
+	ErrBlockerApproved = errBlockerApproved
+	ErrReviewTooLong   = errReviewTooLong
+	ErrPostUnsafe      = errPostUnsafe
+	ErrPostRefused     = errPostRefused
+)
+
+// Why a press of Post review is refused.
+const (
+	TextPostNoPR       = textPostNoPR
+	TextPostNoDraft    = textPostNoDraft
+	TextPostRewritten  = textPostRewritten
+	TextPostInFlight   = textPostInFlight
+	TextPostReading    = textPostReading
+	TextPostChecking   = textPostChecking
+	TextPostUnread     = textPostUnread
+	TextPostPosted     = textPostPosted
+	TextPostSetAside   = textPostSetAside
+	TextPostEnded      = textPostEnded
+	TextPostNotAllowed = textPostNotAllowed
+	TextPostGitHubOff  = textPostGitHubOff
+)
+
+// RefusedPost is a post GitHub refused with a client error, with message: it took no review.
+func RefusedPost(message string) error {
+	return &postError{message: message, err: errPostRefused}
+}
+
+// ErrLookupUnsafe is a PR's reviews not read because its repo, number or login is not safe.
+var ErrLookupUnsafe = errLookupUnsafe

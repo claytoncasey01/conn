@@ -209,6 +209,9 @@ func (p *program) Close() error {
 	return nil
 }
 
+// exit ends the program by itself, with no signal.
+func (p *program) exit() { p.exitOnce.Do(func() { close(p.exited) }) }
+
 func (p *program) signal(name string) error {
 	p.mutex.Lock()
 	p.signals = append(p.signals, name)

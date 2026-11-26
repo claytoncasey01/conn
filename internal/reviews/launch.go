@@ -10,6 +10,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/claytoncasey01/conn/internal/advisor"
+	"github.com/claytoncasey01/conn/internal/claude"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/launch"
 	"github.com/claytoncasey01/conn/internal/pty"
@@ -241,6 +243,60 @@ func (p Prompts) BuildPrompt(number int64, reReviewSha *string, repo string) (st
 	}
 
 	return first + "\n" + strings.Replace(p.ReReview, "{sha}", *reReviewSha, 1), nil
+}
+
+// DraftFile is the file in a worktree's .conn folder that a review session writes its review to,
+// for Conn to read and, once the person has checked it, post.
+const DraftFile = "review.json"
+
+// ReviewDisallowed is what a review session can never do, whatever its settings allow: send to
+// Slack, or write to GitHub, since Conn posts the review once the person has checked it. The
+// prompt forbids posting; these rules are a guard beside it against the forms a session is
+// likely to reach for, not a proof against every possible way of writing. They cover `gh pr`
+// create, review, comment, merge, edit, close, ready and reopen; `gh issue` create, comment,
+// close and edit; `git push`, with git's own options before it too (`git -C dir push`); the
+// skill's own poster, post_review.py; and `gh api` with an explicit method (-X, --method), a
+// body (-f, -F, glued to their value or not, --field, --raw-field, --input, which make gh send a
+// POST) or `graphql`, whose mutations write. The glued short flags are matched after a space, so
+// a repo name holding "-f" is not refused. A plain `gh api` GET stays usable, to read comments.
+// GitHub's MCP tools are not refused by name: the same tools read, and the prompt is what
+// forbids writing through them. A rule's `*` matches any text, so a rule can match more than it
+// names; that errs towards refusing.
+func ReviewDisallowed() []string {
+	return append(claude.SlackWrite(),
+		"Bash(gh pr create:*)",
+		"Bash(gh issue create:*)",
+		"Bash(git push:*)",
+		"Bash(git * push)",
+		"Bash(git * push *)",
+		"Bash(gh pr review:*)",
+		"Bash(gh pr comment:*)",
+		"Bash(gh pr merge:*)",
+		"Bash(gh pr edit:*)",
+		"Bash(gh pr close:*)",
+		"Bash(gh pr ready:*)",
+		"Bash(gh pr reopen:*)",
+		"Bash(gh issue comment:*)",
+		"Bash(gh issue close:*)",
+		"Bash(gh issue edit:*)",
+		"Bash(*post_review.py*)",
+		"Bash(gh api --method POST:*)",
+		"Bash(gh api -X POST:*)",
+		"Bash(gh api --method PATCH:*)",
+		"Bash(gh api -X PATCH:*)",
+		"Bash(gh api *-X*)",
+		"Bash(gh api *--method*)",
+		"Bash(gh api *-f *)",
+		"Bash(gh api *-F *)",
+		"Bash(gh api -f*)",
+		"Bash(gh api -F*)",
+		"Bash(gh api * -f*)",
+		"Bash(gh api * -F*)",
+		"Bash(gh api *--field*)",
+		"Bash(gh api *--raw-field*)",
+		"Bash(gh api *--input*)",
+		"Bash(gh api graphql*)",
+	)
 }
 
 // ClaudeArgs are the arguments claude starts a review session with, after the program: the
@@ -497,7 +553,7 @@ func Open(ctx context.Context, deps LaunchDeps, opts LaunchOpts) LaunchResult {
 		return launchFailed(FirstLine(err))
 	}
 
-	err = deps.Write(filepath.Join(worktree, ".conn", "prompt.md"), prompt, false)
+	err = prepareConnFolder(deps, worktree, prompt)
 	if err != nil {
 		return launchFailed(FirstLine(nodeError(err)))
 	}
@@ -519,6 +575,30 @@ func Open(ctx context.Context, deps LaunchDeps, opts LaunchOpts) LaunchResult {
 	}
 
 	return LaunchResult{OK: true, Worktree: worktree, Error: "", ManualCommand: ""}
+}
+
+// prepareConnFolder clears what an earlier session left in the worktree's .conn folder, then
+// writes this launch's prompt there.
+func prepareConnFolder(deps LaunchDeps, worktree, prompt string) error {
+	err := removeStaleDraft(deps, worktree)
+	if err != nil {
+		return err
+	}
+
+	return deps.Write(filepath.Join(worktree, connFolder, "prompt.md"), prompt, false)
+}
+
+// removeStaleDraft removes the draft a reused worktree may still hold (or the repository may
+// have committed): it is not this launch's review. A worktree with no .conn folder yet has none,
+// which is not an error. The removal goes through the folder's own descriptor, so a link put in
+// its place is never followed.
+func removeStaleDraft(deps LaunchDeps, worktree string) error {
+	err := deps.Unlink(filepath.Join(worktree, connFolder), DraftFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+
+	return err
 }
 
 // ErrNotOwnFolder is a folder Conn's own files are not written into: a link, not a folder, or
@@ -552,7 +632,8 @@ func launchChecks(deps LaunchDeps, opts LaunchOpts) (string, []string, error) {
 		return "", nil, err
 	}
 
-	args, err := ClaudeArgs(opts.Name, opts.Model, opts.Advisor, deps.Names.Pattern, nil)
+	args, err := ClaudeArgs(opts.Name, opts.Model, opts.Advisor, deps.Names.Pattern,
+		ReviewDisallowed())
 	if err != nil {
 		return "", nil, err
 	}

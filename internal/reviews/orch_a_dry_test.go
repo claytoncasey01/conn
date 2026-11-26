@@ -39,6 +39,18 @@ func (aBoomGh) Fetch(context.Context, []reviews.KeyParts, func(*ghbudget.RateInf
 	panic(aBoom)
 }
 
+func (aBoomGh) Diff(context.Context, string, string, string) (string, error) { panic(aBoom) }
+
+func (aBoomGh) MyReviews(context.Context, string, int64, string) (
+	[]reviews.PostedReview, error,
+) {
+	panic(aBoom)
+}
+
+func (aBoomGh) PostReview(context.Context, string, int64, reviews.ReviewPost) (string, error) {
+	panic(aBoom)
+}
+
 // aBoomSettings are settings that must never be read.
 type aBoomSettings struct{}
 

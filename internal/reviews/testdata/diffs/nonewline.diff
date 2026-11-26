@@ -1,0 +1,9 @@
+diff --git a/a.go b/a.go
+--- a/a.go
++++ b/a.go
+@@ -1,2 +1,2 @@
+-old
+\ No newline at end of file
++new
+\ No newline at end of file
+ end

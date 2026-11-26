@@ -136,7 +136,7 @@ func (w *ownerWorld) record(owner, folder string) hosted.Record {
 	}
 }
 
-// The checks resume each kind's own session, on its model, a self-review under its rules.
+// The checks resume each kind's own session, on its model, under the rules its launch gives it.
 func TestOwnerChecksResumeEachKindAsItLaunched(t *testing.T) {
 	t.Parallel()
 
@@ -144,7 +144,7 @@ func TestOwnerChecksResumeEachKindAsItLaunched(t *testing.T) {
 		name, owner, folder string
 		wantRules           []string
 	}{
-		{"a review", hosted.OwnerReviews, "reviews", nil},
+		{"a review", hosted.OwnerReviews, "reviews", reviews.ReviewDisallowed()},
 		{"a self-review", hosted.OwnerMyPrs, "myprs", myprs.SelfDisallowed()},
 	}
 
@@ -270,5 +270,51 @@ func TestALaunchReadsTheModulesStoresFromTheDataFolder(t *testing.T) {
 		if !slices.Contains(spec.Argv, ownerModel) {
 			t.Errorf("%s: argv %q, want the store's model", kind.owner, spec.Argv)
 		}
+	}
+}
+
+// TestHistoryHoldsAReviewKindsSessionToItsRules: History resumes a session in a review's or a
+// self-review's worktree under that kind's rules, and any other session under none.
+func TestHistoryHoldsAReviewKindsSessionToItsRules(t *testing.T) {
+	t.Parallel()
+
+	data := t.TempDir()
+	rulesOf := kindRules(data)
+
+	tests := []struct {
+		name, folder string
+		wantRules    []string
+	}{
+		{
+			"a review's worktree", filepath.Join(data, "reviews", "acme-app-1", "app"),
+			reviews.ReviewDisallowed(),
+		},
+		{
+			"inside a review's worktree", filepath.Join(data, "reviews", "x", "app", "src"),
+			reviews.ReviewDisallowed(),
+		},
+		{
+			"a self-review's worktree", filepath.Join(data, "myprs", "acme-app-1", "app"),
+			myprs.SelfDisallowed(),
+		},
+		{"another folder of the data folder", filepath.Join(data, "work", "app"), nil},
+		{
+			"a folder named like the kinds elsewhere", filepath.Join(t.TempDir(), "reviews", "x"),
+			nil,
+		},
+		{
+			"a folder whose name starts like the kind's", filepath.Join(data, "reviews-old", "x"),
+			nil,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := rulesOf(test.folder); !slices.Equal(got, test.wantRules) {
+				t.Errorf("rules %q, want %q", got, test.wantRules)
+			}
+		})
 	}
 }

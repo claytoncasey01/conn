@@ -3,9 +3,11 @@ package reviews
 import (
 	"context"
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 
+	"github.com/claytoncasey01/conn/internal/gh"
 	"github.com/claytoncasey01/conn/internal/ghbudget"
 	"github.com/claytoncasey01/conn/internal/js"
 	"github.com/claytoncasey01/conn/internal/repos"
@@ -49,14 +51,39 @@ const PRFragment = `fragment PrFields on PullRequest {
 }`
 
 const (
-	textNotJSON     = "gh returned output that is not JSON"
-	textNoData      = "gh returned no data"
-	textNoLogin     = "gh did not report a login"
-	textSearchFails = "GitHub could not run the search"
-	textSearchFail  = "GitHub could not run this search"
+	textNotJSON = "gh returned output that is not JSON"
+	textNoData  = "gh returned no data"
+	textNoLogin = "gh did not report a login"
+	// textReviewsUnread is an answer about my reviews of a PR that does not say what they are.
+	textReviewsUnread = "GitHub's answer did not list the PR's reviews"
+	textSearchFails   = "GitHub could not run the search"
+	textSearchFail    = "GitHub could not run this search"
+	// diffMediaType asks GitHub for a compare as a unified diff.
+	diffMediaType   = "Accept: application/vnd.github.diff"
 	typeNotFound    = "NOT_FOUND"
 	typeRateLimited = "RATE_LIMITED"
+	// ghAPI is gh's command for a call to GitHub's API.
+	ghAPI = "api"
+	// maxReasonsShown is the most of GitHub's reasons for refusing a post that its error says.
+	maxReasonsShown = 5
+	// maxMyReviews is how many of my newest reviews of a PR the check after an unclear post reads.
+	maxMyReviews = 20
 )
+
+// Why a PR's diff is not read.
+var (
+	errDiffUnsafe   = errors.New("the PR's repo, base or commit is not safe to read a diff of")
+	errDiffTooLarge = errors.New("the PR's diff is too large to read")
+)
+
+// errPostRefused is a post GitHub refused with a client error: it surely took no review.
+var errPostRefused = errors.New("GitHub refused the review")
+
+// errLookupUnsafe is a PR's reviews not read because its repo, number or login is not safe.
+var errLookupUnsafe = errors.New("the PR or login is not safe to read reviews of")
+
+// errPostUnsafe is a review not posted because its repo or number is not safe in the path.
+var errPostUnsafe = errors.New("the PR's repo or number is not safe to post a review to")
 
 // FailureError is a GitHub call that failed, in the words Conn shows.
 type FailureError struct {
@@ -93,9 +120,159 @@ func asIs(err error) error {
 // answers the output too (gh prints a GraphQL answer that carries errors and exits non-zero).
 type GhExec func(ctx context.Context, args []string) (string, error)
 
-// Gh is the GraphQL source of the Reviews poll.
+// Gh is the GraphQL source of the Reviews poll, and the REST reads it makes beside it.
 type Gh struct {
 	Exec GhExec
+	// DiffRead runs the read of a PR's diff with gh's output capped at MaxDiffBytes
+	// (gh.Capped(MaxDiffBytes)), so a larger diff is stopped, never held whole.
+	DiffRead GhExec
+	// Send runs the calls that write a body to GitHub (a review), fed to gh on stdin.
+	Send GhSend
+}
+
+// GhSend runs gh with these arguments (no shell) and input on its stdin, and answers what it
+// printed.
+type GhSend func(ctx context.Context, args []string, input string) (string, error)
+
+// PostReview posts post to PR number of repo as one review (`gh api --method POST
+// repos/<repo>/pulls/<n>/reviews --input -`, the review as JSON on stdin) and answers the
+// review's html_url. It fails without a call when repo or number is not safe in the path, and
+// fails with gh's own message when gh does. A review GitHub took but whose answer does not
+// read is still posted: it answers "", never an error that would invite posting it again.
+func (g Gh) PostReview(ctx context.Context, repo string, number int64, post ReviewPost) (
+	string, error,
+) {
+	if !all(repos.IsName(repo), safeNumber(number)) {
+		return "", errPostUnsafe
+	}
+
+	if g.Send == nil {
+		panic("reviews: Gh.PostReview called with no Send to run gh with")
+	}
+
+	path := "repos/" + repo + "/pulls/" + strconv.FormatInt(number, 10) + "/reviews"
+
+	out, err := g.Send(ctx, []string{ghAPI, "--method", "POST", path, "--input", "-"},
+		string(js.Marshal(reviewPayload(post))))
+	if err != nil {
+		return "", refusedBy(out, err)
+	}
+
+	return reviewURL(out), nil
+}
+
+// postError is a post GitHub answered with a refusal (a 4xx and its JSON error), so it surely
+// took no review: gh's message, with GitHub's reasons after it.
+type postError struct {
+	message string
+	err     error
+}
+
+// Error is the message the page shows.
+func (e *postError) Error() string { return e.message }
+
+// Unwrap is gh's own error, and errPostRefused: GitHub took no review.
+func (e *postError) Unwrap() []error { return []error{e.err, errPostRefused} }
+
+// refusedBy is the error of a failed post. When GitHub answered with a client error (gh's error
+// says HTTP 4xx, and gh printed GitHub's JSON error), it is a *postError carrying the reasons the
+// answer gives (its errors, each a text or an object with a message) after gh's message. Any
+// other failure (a timeout, a killed gh, a dropped connection, a 5xx) is kept as it is: GitHub
+// may have taken the review.
+func refusedBy(answer string, err error) error {
+	parsed, parseErr := js.Parse([]byte(answer))
+	if parseErr != nil {
+		return asIs(err)
+	}
+
+	_, answered := text(memberOf(object(parsed), "message"))
+	ghErr, fromGh := errors.AsType[*gh.Error](err)
+
+	if !all(answered, fromGh) {
+		return asIs(err)
+	}
+
+	if !ghErr.ClientError() {
+		return asIs(err)
+	}
+
+	list, _ := memberOf(object(parsed), "errors").([]any)
+	reasons := []string{}
+
+	for _, item := range list[:min(len(list), maxReasonsShown)] {
+		reason, isText := text(item)
+		if !isText {
+			reason, _ = text(memberOf(object(item), "message"))
+		}
+
+		if reason = js.Trim(reason); reason != "" {
+			reasons = append(reasons, js.Slice(reason, messageUnits))
+		}
+	}
+
+	message := err.Error()
+	if len(reasons) > 0 {
+		message += ": " + strings.Join(reasons, "; ")
+	}
+
+	return &postError{message: message, err: err}
+}
+
+// reviewPayload is post as GitHub's create-review call takes it, its keys in GitHub's own
+// spelling.
+func reviewPayload(post ReviewPost) *js.Object {
+	payload := js.NewObject()
+	payload.Set("commit_id", post.Commit)
+	payload.Set("event", post.Event)
+	payload.Set("body", post.Body)
+	payload.Set("comments", post.Comments)
+
+	return payload
+}
+
+// reviewURL is the html_url of a posted review's answer, "" when the answer does not say.
+func reviewURL(answer string) string {
+	parsed, err := js.Parse([]byte(answer))
+	if err != nil {
+		return ""
+	}
+
+	url, _ := text(memberOf(object(parsed), "html_url"))
+
+	return url
+}
+
+// Diff is the diff of repo from baseRef to commit, the three-dot compare GitHub shows a PR's
+// diff as, read through DiffRead. It fails without a call when repo, baseRef or commit is not
+// one that is safe in the path, and fails when gh does or the diff is over MaxDiffBytes (gh
+// stopped at the cap, or a reader that does not cap handed back more).
+func (g Gh) Diff(ctx context.Context, repo, baseRef, commit string) (string, error) {
+	if !all(repos.IsName(repo), IsSafeRef(baseRef), commitShape.MatchString(commit)) {
+		return "", errDiffUnsafe
+	}
+
+	if g.DiffRead == nil {
+		panic("reviews: Gh.Diff called with no DiffRead to run gh with")
+	}
+
+	out, err := g.DiffRead(ctx, []string{
+		ghAPI, "-H", diffMediaType, "repos/" + repo + "/compare/" + baseRef + "..." + commit,
+	})
+
+	ghErr, fromGh := errors.AsType[*gh.Error](err)
+	if fromGh && ghErr.Overflowed {
+		return "", errDiffTooLarge
+	}
+
+	if err != nil {
+		return "", asIs(err)
+	}
+
+	if len(out) > MaxDiffBytes {
+		return "", errDiffTooLarge
+	}
+
+	return out, nil
 }
 
 // Query is one search and the most PRs it reads.
@@ -115,7 +292,7 @@ type SearchResult struct {
 
 // Login is the signed-in GitHub login.
 func (g Gh) Login(ctx context.Context) (string, error) {
-	out, err := g.Exec(ctx, []string{"api", "user", "--jq", ".login"})
+	out, err := g.Exec(ctx, []string{ghAPI, "user", "--jq", ".login"})
 	if err != nil {
 		return "", err
 	}
@@ -210,6 +387,83 @@ func (g Gh) Fetch(
 	return got, nil
 }
 
+// PostedReview is one review I submitted on a PR, as the check after an unclear post reads it.
+type PostedReview struct {
+	// Commit is the commit the review was made on.
+	Commit      string
+	SubmittedAt float64
+	// URL is where the review is; "" when GitHub did not say.
+	URL string
+}
+
+// myReviewsQuery reads the newest $l reviews $a submitted on one PR.
+const myReviewsQuery = `query($o: String!, $n: String!, $k: Int!, $a: String!, $l: Int!) {
+  repository(owner: $o, name: $n) { pullRequest(number: $k) {
+    reviews(last: $l, author: $a) { nodes { url state submittedAt commit { oid } } }
+  } }
+}`
+
+// MyReviews are the newest reviews, at most maxMyReviews, that login submitted on PR number of
+// repo (a pending one is not submitted). It fails without a call when repo, number or login is
+// not one to put in a query.
+func (g Gh) MyReviews(ctx context.Context, repo string, number int64, login string) (
+	[]PostedReview, error,
+) {
+	if !all(repos.IsName(repo), safeNumber(number), login != "") {
+		return nil, errLookupUnsafe
+	}
+
+	owner, name, _ := strings.Cut(repo, "/")
+	strs := []variable{
+		{name: "o", value: owner}, {name: "n", value: name}, {name: "a", value: login},
+	}
+	ints := []variable{
+		{name: "k", value: strconv.FormatInt(number, 10)},
+		{name: "l", value: strconv.Itoa(maxMyReviews)},
+	}
+
+	reply, err := g.graphql(ctx, myReviewsQuery, strs, ints)
+	if err != nil {
+		return nil, err
+	}
+
+	// "None found" comes only from an answer that holds the list: an answer with errors or
+	// without the list says nothing of whether the review is there.
+	if len(reply.errors) > 0 {
+		return nil, failure(textReviewsUnread + ": " + reply.errors[0].message)
+	}
+
+	pull := object(memberOf(object(memberOf(reply.data, "repository")), "pullRequest"))
+
+	nodes, isList := memberOf(object(memberOf(pull, "reviews")), "nodes").([]any)
+	if !isList {
+		return nil, failure(textReviewsUnread)
+	}
+
+	return postedReviews(nodes[:min(len(nodes), maxMyReviews)]), nil
+}
+
+// postedReviews are the submitted reviews among nodes; a node that does not read is left out.
+func postedReviews(nodes []any) []PostedReview {
+	out := make([]PostedReview, 0, len(nodes))
+
+	for _, item := range nodes {
+		raw := object(item)
+		state, _ := text(memberOf(raw, "state"))
+		submittedAt := isoTime(memberOf(raw, "submittedAt"))
+
+		if anyOf(raw == nil, state == reviewPending, math.IsNaN(submittedAt)) {
+			continue
+		}
+
+		commit, _ := text(memberOf(object(memberOf(raw, "commit")), "oid"))
+		url, _ := text(memberOf(raw, "url"))
+		out = append(out, PostedReview{Commit: commit, SubmittedAt: submittedAt, URL: url})
+	}
+
+	return out
+}
+
 // variable is one GraphQL variable as gh takes it.
 type variable struct {
 	name  string
@@ -231,7 +485,7 @@ type graphqlError struct {
 // rate limit is used up is a *ghbudget.RateLimitError.
 func (g Gh) graphql(ctx context.Context, query string, strs, ints []variable) (answer, error) {
 	args := make([]string, 0, graphqlArgsFixed+2*len(strs)+2*len(ints))
-	args = append(args, "api", "graphql", "-f", "query="+query)
+	args = append(args, ghAPI, "graphql", "-f", "query="+query)
 
 	for _, item := range strs {
 		args = append(args, "-f", item.name+"="+item.value)

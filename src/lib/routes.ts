@@ -49,6 +49,20 @@ export const isAgentId = (s: string): boolean => /^[\w-]{1,128}$/.test(s)
 
 const enc = encodeURIComponent
 
+/** The DOM id of a row on the Reviews or My PRs page, so a link can find it. */
+export const rowId = (page: 'reviews' | 'myprs', key: string): string => `row-${page}-${key}`
+
+/** The row key a hash names for this page (`#/reviews/<key>`), or null when it names none or is not for this page. */
+export function rowKey(hash: string, page: 'reviews' | 'myprs'): string | null {
+  const parts = hash.replace(/^#/, '').split('/').filter(Boolean)
+  if (parts[0] !== page || !parts[1]) return null
+  try {
+    return decodeURIComponent(parts[1])
+  } catch {
+    return null
+  }
+}
+
 export const href = {
   sessions: () => '#/',
   overview: (sid: string) => `#/s/${sid}`,
@@ -56,8 +70,10 @@ export const href = {
   agent: (sid: string, aid?: string | null) => (aid ? `#/s/${sid}/a/${aid}` : `#/s/${sid}/a`),
   work: () => '#/work',
   run: (key: string) => `#/work/${key}`,
-  reviews: () => '#/reviews',
-  myprs: () => '#/myprs',
+  /** The Reviews page, scrolled to the row with this key when one is given */
+  reviews: (key?: string) => (key ? `#/reviews/${enc(key)}` : '#/reviews'),
+  /** The My PRs page, scrolled to the row with this `repo#number` key when one is given */
+  myprs: (key?: string) => (key ? `#/myprs/${enc(key)}` : '#/myprs'),
   history: () => '#/history',
   themes: () => '#/themes',
   settings: () => '#/settings',
